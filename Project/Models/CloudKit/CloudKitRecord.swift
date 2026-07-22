@@ -14,7 +14,7 @@ extension Family: CloudKitRecord {}
 extension Profile: CloudKitRecord {}
 extension QuestTemplate: CloudKitRecord {}
 extension Quest: CloudKitRecord {}
-extension QuestLog: CloudKitRecord {}
+extension QuestCompletion: CloudKitRecord {}
 extension AllowancePeriod: CloudKitRecord {}
 extension LedgerEntry: CloudKitRecord {}
 extension Achievement: CloudKitRecord {}

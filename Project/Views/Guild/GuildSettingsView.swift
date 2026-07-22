@@ -243,7 +243,7 @@ struct GuildSettingsView: View {
     }
 
     private func shareInviteText(for family: Family) -> String {
-        "Join \(family.name) on QuestLog! Your invite code: \(family.inviteCode)"
+        "Join \(family.name) on Loot List! Your invite code: \(family.inviteCode)"
     }
 
     private func membersSection(vm: FamilyDashboardViewModel) -> some View {

@@ -1,8 +1,8 @@
-# ARCHITECTURE.md — QuestLog (Allowance Tracker)
+# ARCHITECTURE.md — Loot List (Allowance Tracker)
 
 ## Project Soul
 
-QuestLog is a family chore and allowance tracker for iOS, themed as a fantasy RPG. Parents ("Guild Masters" / "Rangers") assign quests to their kids ("Heroes"), who complete them to earn gold (allowance). The app uses iCloud sync so the entire family sees the same data in real time.
+Loot List is a family chore and allowance tracker for iOS, themed as a fantasy RPG. Parents ("Guild Masters" / "Rangers") assign quests to their kids ("Heroes"), who complete them to earn gold (allowance). The app uses iCloud sync so the entire family sees the same data in real time.
 
 **Why this architecture:**
 - **CloudKit shared database** is the only viable native sync mechanism for a family app on Apple's ecosystem. It provides real-time push updates, offline support, and zero server cost.
@@ -114,7 +114,7 @@ Every notification type is individually toggleable per user:
 AllowanceTrax/
 ├── Project/
 │   ├── App/
-│   │   ├── QuestLogApp.swift              # App entry, CloudKit setup
+│   │   ├── LootListApp.swift              # App entry, CloudKit setup
 │   │   └── AppState.swift                 # Global app state (auth, current user)
 │   │
 │   ├── Models/
@@ -123,7 +123,7 @@ AllowanceTrax/
 │   │   │   ├── Profile.swift              # Character (parent/hero)
 │   │   │   ├── QuestTemplate.swift        # Reusable quest blueprint
 │   │   │   ├── Quest.swift                # Active quest assignment
-│   │   │   ├── QuestLog.swift             # Completion record
+│   │   │   ├── QuestCompletion.swift       # Completion record
 │   │   │   ├── AllowancePeriod.swift      # Weekly payout cycle
 │   │   │   ├── LedgerEntry.swift          # Spending chronicle
 │   │   │   ├── Achievement.swift          # Trophy definition
@@ -282,7 +282,7 @@ CKRecordType: "Quest"
 └── family: CKReference → Family
 ```
 
-### QuestLog (Completion Record)
+### QuestCompletion (Completion Record)
 ```
 CKRecordType: "QuestLog"
 ├── quest: CKReference → Quest
@@ -357,10 +357,10 @@ CKRecordType: "NotificationPreference"
 
 | Name | Description | Requirement |
 |---|---|---|
-| First Steps | Complete your first quest | 1 quest log |
-| Questing Squire | Complete 10 quests | 10 quest logs |
-| Quest Knight | Complete 50 quests | 50 quest logs |
-| Quest Legend | Complete 100 quests | 100 quest logs |
+| First Steps | Complete your first quest | 1 quest completion |
+| Questing Squire | Complete 10 quests | 10 quest completions |
+| Quest Knight | Complete 50 quests | 50 quest completions |
+| Quest Legend | Complete 100 quests | 100 quest completions |
 | Week Warrior | Complete all quests in a week | 100% weekly completion |
 | Iron Will | 7-day streak | 7 consecutive days |
 | Unstoppable | 30-day streak | 30 consecutive days |
@@ -375,8 +375,8 @@ CKRecordType: "NotificationPreference"
 ## Sync & Conflict Resolution
 
 - CloudKit handles conflict resolution automatically (last-write-wins for most fields)
-- QuestLogs are append-only (no conflicts possible)
-- Profile XP/Level is computed from QuestLogs (derived, not directly edited)
+- QuestCompletions are append-only (no conflicts possible)
+- Profile XP/Level is computed from QuestCompletions (derived, not directly edited)
 - Family settings changes are Guild Master only (role-gated in app logic)
 
 ---

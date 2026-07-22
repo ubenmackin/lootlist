@@ -5,7 +5,7 @@ struct HeroStatusCard: View {
 
     let summary: HeroSummary
 
-    var recentQuestLogs: [QuestLog]? = nil
+    var recentQuestLogs: [QuestCompletion]? = nil
 
     var onTap: (() -> Void)? = nil
 
@@ -175,7 +175,7 @@ struct HeroStatusCard: View {
         }
     }
 
-    private func recentLogRow(_ log: QuestLog) -> some View {
+    private func recentLogRow(_ log: QuestCompletion) -> some View {
         HStack(spacing: 8) {
             Image(systemName: statusIcon(log.verificationStatus))
                 .foregroundStyle(statusColor(log.verificationStatus))
