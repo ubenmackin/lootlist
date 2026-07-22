@@ -37,7 +37,7 @@ final class CloudKitService: @unchecked Sendable {
     private let continuationLock = NSLock()
 
     init(container: CKContainer = .default(),
-         zoneID: CKRecordZone.ID = CKRecordZone.ID(zoneName: "QuestLogZone",
+         zoneID: CKRecordZone.ID = CKRecordZone.ID(zoneName: "LootListZone",
                                                     ownerName: "__defaultOwner__")) {
         self.container = container
         self.database = container.sharedCloudDatabase

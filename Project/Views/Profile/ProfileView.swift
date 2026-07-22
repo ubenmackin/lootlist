@@ -290,7 +290,7 @@ struct ProfileView: View {
             Divider().padding(.leading, 56)
             aboutRow(label: "Build",        value: buildNumber)
             Divider().padding(.leading, 56)
-            aboutRow(label: "QuestLog",     value: "Family chore tracker · RPG mode")
+            aboutRow(label: "Loot List",     value: "Family chore tracker · RPG mode")
         }
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)

@@ -123,7 +123,7 @@ final class TreasuryService {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "completedBy == %@",
                                        profileRef as CVarArg)
-        let logs = try await cloudKit.query(QuestLog.self,
+        let logs = try await cloudKit.query(QuestCompletion.self,
                                               predicate: predicate)
         return try await sumGold(for: logs)
     }
@@ -149,7 +149,7 @@ final class TreasuryService {
 
     private func fetchQuestLogs(profile: Profile,
                                   weekStarting: Date,
-                                  weekEnding: Date) async throws -> [QuestLog] {
+                                  weekEnding: Date) async throws -> [QuestCompletion] {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(
             format: "completedBy == %@ AND weekOf >= %@ AND weekOf <= %@",
@@ -157,7 +157,7 @@ final class TreasuryService {
             weekStarting as CVarArg,
             weekEnding as CVarArg
         )
-        return try await cloudKit.query(QuestLog.self, predicate: predicate)
+        return try await cloudKit.query(QuestCompletion.self, predicate: predicate)
     }
 
     private func fetchAllowancePeriod(profile: Profile,
@@ -173,8 +173,8 @@ final class TreasuryService {
         return periods.first
     }
 
-    private func sumGold(for logs: [QuestLog]) async throws -> Double {
-        var slainLogs: [QuestLog] = []
+    private func sumGold(for logs: [QuestCompletion]) async throws -> Double {
+        var slainLogs: [QuestCompletion] = []
         slainLogs.reserveCapacity(logs.count)
         for log in logs where TreasuryService.isSlain(log) {
             slainLogs.append(log)
@@ -199,7 +199,7 @@ final class TreasuryService {
         return totalGold
     }
 
-    private static func isSlain(_ log: QuestLog) -> Bool {
+    private static func isSlain(_ log: QuestCompletion) -> Bool {
         log.verificationStatus == .verified
             || log.verificationStatus == .autoApproved
     }

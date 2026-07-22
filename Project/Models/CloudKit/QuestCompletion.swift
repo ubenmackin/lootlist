@@ -1,7 +1,7 @@
 import Foundation
 import CloudKit
 
-struct QuestLog: Identifiable, Equatable, Sendable {
+struct QuestCompletion: Identifiable, Equatable, Sendable {
 
     static let recordType: String = "QuestLog"
 

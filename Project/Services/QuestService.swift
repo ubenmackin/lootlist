@@ -139,14 +139,14 @@ final class QuestService {
     }
 
     @discardableResult
-    func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestLog {
+    func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
 
         let existingLogs = try await fetchQuestLogs(forQuest: quest)
         if existingLogs.contains(where: { $0.verificationStatus != .rejected }) {
             throw QuestServiceError.alreadyCompleted
         }
 
-        let log = QuestLog(
+        let log = QuestCompletion(
             quest: CKRecord.Reference(recordID: quest.id, action: .none),
             completedBy: CKRecord.Reference(recordID: profile.id, action: .none),
             approvalMode: quest.approvalMode,
@@ -177,7 +177,7 @@ final class QuestService {
     }
 
     @discardableResult
-    func verify(questLog: QuestLog, by parent: Profile) async throws -> QuestLog {
+    func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
         guard questLog.verificationStatus == .pending else {
             throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
         }
@@ -200,7 +200,7 @@ final class QuestService {
     }
 
     @discardableResult
-    func reject(questLog: QuestLog, by parent: Profile) async throws -> QuestLog {
+    func reject(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
         guard questLog.verificationStatus == .pending else {
             throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
         }
@@ -325,22 +325,22 @@ final class QuestService {
         return total
     }
 
-    func fetchQuestLogs(forQuest quest: Quest) async throws -> [QuestLog] {
+    func fetchQuestLogs(forQuest quest: Quest) async throws -> [QuestCompletion] {
         let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
         let predicate = NSPredicate(format: "quest == %@", questRef)
         let all = try await cloudKit.query(
-            QuestLog.self,
+            QuestCompletion.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
         return all
     }
 
-    func fetchQuestLogs(for profile: Profile) async throws -> [QuestLog] {
+    func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "completedBy == %@", profileRef)
         let all = try await cloudKit.query(
-            QuestLog.self,
+            QuestCompletion.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
@@ -386,7 +386,7 @@ final class QuestService {
         return found
     }
 
-    func parentReviewNeeded(questLog: QuestLog) async {
+    func parentReviewNeeded(questLog: QuestCompletion) async {
 
     }
 

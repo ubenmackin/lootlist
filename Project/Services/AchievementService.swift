@@ -233,7 +233,7 @@ final class AchievementService {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
         let questLogs = try await cloudKit.query(
-            QuestLog.self,
+            QuestCompletion.self,
             predicate: NSPredicate(format: "completedBy == %@", profileRef)
         )
         let completedLogs = questLogs.filter {

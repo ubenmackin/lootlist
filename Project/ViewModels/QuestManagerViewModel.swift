@@ -127,12 +127,12 @@ final class QuestManagerViewModel {
         self.activeAssignments.removeAll { $0.id == quest.id }
     }
 
-    func fetchPendingQuestLogs() async throws -> [QuestLog] {
+    func fetchPendingQuestLogs() async throws -> [QuestCompletion] {
         guard let family = appState.family else {
             throw QuestServiceError.missingSession
         }
         let all = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: Date())
-        var pending: [QuestLog] = []
+        var pending: [QuestCompletion] = []
         for quest in all where quest.approvalMode == .parentVerify {
             let logs = try await questService.fetchQuestLogs(forQuest: quest)
             if let mostRecent = logs.first, mostRecent.verificationStatus == .pending {

@@ -184,7 +184,7 @@ final class NotificationService {
         try await send(.goldEarned, to: profile, title: title, body: body)
     }
 
-    func sendQuestNeedsReview(questLog: QuestLog,
+    func sendQuestNeedsReview(questLog: QuestCompletion,
                                 to parent: Profile) async throws {
 
         await registerVerificationCategoryIfNeeded()
@@ -285,7 +285,7 @@ final class NotificationService {
                                    body: String) {
 
         #if DEBUG
-        print("[QuestLog] in-app notification "
+        print("[LootList] in-app notification "
               + "(\(eventType.displayName) → \(profile.displayName)): "
               + "\(title) — \(body)")
         #endif

@@ -8,7 +8,7 @@ struct QuestDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
 
-    @State private var latestLog: QuestLog?
+    @State private var latestLog: QuestCompletion?
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
     @State private var error: String?
@@ -106,7 +106,7 @@ struct QuestDetailView: View {
         )
     }
 
-    private func statusCard(log: QuestLog) -> some View {
+    private func statusCard(log: QuestCompletion) -> some View {
         HStack(spacing: 8) {
             Image(systemName: statusIcon(log.verificationStatus))
                 .foregroundStyle(statusColor(log.verificationStatus))

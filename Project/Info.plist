@@ -4,12 +4,12 @@
 <dict>
 	<key>NSUbiquitousContainers</key>
 	<dict>
-		<key>iCloud.com.volcrypt.questlog</key>
+		<key>iCloud.com.volcrypt.lootlist</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<false/>
 			<key>NSUbiquitousContainerName</key>
-			<string>QuestLog</string>
+			<string>Loot List</string>
 			<key>NSUbiquitousContainerSupportedFolderLevels</key>
 			<string>Any</string>
 		</dict>
