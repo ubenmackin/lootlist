@@ -1,0 +1,64 @@
+name: QuestLog
+
+options:
+  bundleIdPrefix: com.volcrypt.questlog
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    DEVELOPMENT_TEAM: "LYYD96F2J8"
+    CODE_SIGN_STYLE: Automatic
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    STRING_CATALOG_GENERATE_SYMBOLS: YES
+
+targets:
+  QuestLog:
+    type: application
+    platform: iOS
+    sources:
+      - path: Project
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        INFOPLIST_FILE: Project/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.volcrypt.questlog
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: QuestLog.entitlements
+        CODE_SIGN_IDENTITY: "iPhone Developer"
+        SUPPORTS_MACCATALYST: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        VERSIONING_SYSTEM: "apple-generic"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: AllowanceTrax
+        INFOPLIST_KEY_UIRequiredDeviceCapabilities: armv7
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.finance"
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES 
+        PRODUCT_NAME: QuestLog
+        
+    entitlements:
+      path: QuestLog.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.questlog.app
+        com.apple.developer.icloud-services:
+          - CloudKit
+        
+               

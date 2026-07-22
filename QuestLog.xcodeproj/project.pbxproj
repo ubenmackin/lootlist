@@ -1,0 +1,727 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00F558A4F141960E281C2EF4 /* GoldBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43F88C95D2A5A3A3CBB6831 /* GoldBadge.swift */; };
+		02E8DE64FBD0D34B39545B5A /* GuildSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CACAE506C614FCFC07A7A02 /* GuildSettingsView.swift */; };
+		05827CA9EB11FD05FB2579D1 /* QuestDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B16754C8C0A6231193D04236 /* QuestDetailView.swift */; };
+		0663323C1BA9AB0E4CBA288B /* TrophyCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 428B51BBF176935CF91A6205 /* TrophyCardView.swift */; };
+		075171A56A5CDB582E6FC3FA /* ApprovalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AF57B3522C1C5C0112834E /* ApprovalMode.swift */; };
+		0A1B2C3D4E5F6A7B8C9D0E1F /* VerificationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7A8B9C0D1E2F /* VerificationStatus.swift */; };
+		08CFE1776DB909A99559F3EA /* Achievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE86560D296501FAEA48EEBE /* Achievement.swift */; };
+		0AEF11E21A4097EBD914FCC0 /* TrophyRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6895C7FA456B6EF47E10017C /* TrophyRoomView.swift */; };
+		0C01DEDA200F0CEDBE1BE0E6 /* PayoutHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B62088D2DB3C16B0E30ABA50 /* PayoutHistoryView.swift */; };
+		0DF794BF2C25622E64AC6697 /* CloudKitRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F36FF9D298143F974B937FC /* CloudKitRecord.swift */; };
+		12C9C23FCCD02B93C7AF79C3 /* QuestLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D8BC5663E91C8CCD6F23231 /* QuestLog.swift */; };
+		16A1DB5A1060B9E667EB5FFF /* LogSpendingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A987469AB78CF81754FAA446 /* LogSpendingView.swift */; };
+		1862C7F8D3634AB01CD32DE2 /* QuestSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = 663819042A20597D61B97812 /* QuestSchedule.swift */; };
+		2280987EC76865FA6C7781AF /* AllowancePeriod.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20237EE41B5A61CA87EC181 /* AllowancePeriod.swift */; };
+		2C3E3FE12E49BFCD9E438C4B /* StreakBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5048046B8ABD797CD8715868 /* StreakBadge.swift */; };
+		2C6C520E8D1AE389471A1E06 /* QuestManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AF7C7277E0333774B8367A7 /* QuestManagerViewModel.swift */; };
+		2C896D91BD0CEF68EEF53517 /* AvatarClass.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1E13182C4B92B11CA62B12A /* AvatarClass.swift */; };
+		2DE2142D5950B9D9371E03D2 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D558F5DB3556D898928F93E /* ProfileView.swift */; };
+		327283E17B9EF68466E69314 /* QuestManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4CD1ACD0F46AE2907145433 /* QuestManagerView.swift */; };
+		347C3865B7B612A623406E22 /* QuestAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65930E639F49DD70D4308611 /* QuestAssignmentView.swift */; };
+		3D8D5CEF50F39454D269267E /* QuestTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73725F5B4E99CF23AD3311B0 /* QuestTemplate.swift */; };
+		3EBE4011E9D63451BCBB0EE9 /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0317FB208B3D2C6953104B86 /* ProgressBar.swift */; };
+		4244E78FF5B69D827EB3D136 /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6924A73F260ABBC1F9399CD0 /* NotificationSettingsView.swift */; };
+		42E7307281DAEFA667BA7626 /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBF518A264ED4FA736717417 /* AvatarView.swift */; };
+		450215526E1D65AD1C63C120 /* ProfileAchievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC777C365500B15532F1873 /* ProfileAchievement.swift */; };
+		4D2A67B01FDD3F06BC47B122 /* AvatarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C751446E81F20A9DCC85BBE /* AvatarService.swift */; };
+		4F3C0EC5365DCD565371AFEE /* QuestCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C11C7D679B4548813107633 /* QuestCardView.swift */; };
+		5890C774302388A1A55C92B5 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = B225F930CF4DBBEE810B2653 /* Profile.swift */; };
+		5947BD114EEB539C1F7D7336 /* HeroDashboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E629368F034337391528D5C /* HeroDashboardViewModel.swift */; };
+		5C155CEC84C42EB078F8D210 /* NotificationPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6395C6B516B2A60C591EBB09 /* NotificationPreference.swift */; };
+		5F8C09575DEDC12F5CF21BEC /* LedgerEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AAEBA2A18BF9C754227C75 /* LedgerEntry.swift */; };
+		63644FCA0FC8DD1F879B1449 /* TemplateManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F690B03C743E8C3B27C865 /* TemplateManagerView.swift */; };
+		66A3A971E042B4D57CB14E25 /* AvatarSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EBCC009FA65B2AD9F8D5D10 /* AvatarSelectionView.swift */; };
+		694548426468BDED84EB2E15 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2F16672078F394F91CCDEE0 /* WelcomeView.swift */; };
+		7015ABE0F80E196B30F589AE /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91CA733D47C8CBC0314D949D /* TabBarView.swift */; };
+		76FE9D7AC08E5FDB452F388A /* FamilyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 679EDF55024EDA39D60E6822 /* FamilyService.swift */; };
+		814B9B220EA9D02A00F0519D /* RoleSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0F61DD8932EAF78C7DB1C9B /* RoleSelectionView.swift */; };
+		825DF5F64823C1A808AAB5E5 /* PayoutStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A645307873D8A85863E31640 /* PayoutStatus.swift */; };
+		85BB5295A4D47F6ECBF3A15F /* TreasuryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D745509B06EF3186DF925E /* TreasuryService.swift */; };
+		85CE381326F389D98F069C79 /* UserRole.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A96520DACC35631F0EDDDB /* UserRole.swift */; };
+		8F29106380D966403FDECC8F /* TreasuryViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744D1593236148EDCB73CFFC /* TreasuryViewModel.swift */; };
+		8F93D4FAF4E24A8A759CD535 /* BalanceCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55B5E5EEC36DFFA7B883A8B0 /* BalanceCardView.swift */; };
+		95409BB2CBBF5E88063E55E6 /* Quest.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3282D1CCA55984C30F89348 /* Quest.swift */; };
+		97102C465903F623E2C20EF4 /* HeroDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA477AA80C67CEFB2CA2923 /* HeroDashboardView.swift */; };
+		A2DD8D2272516D6E590874F8 /* TreasuryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74AD8BE3A31E89FF43CB1A30 /* TreasuryView.swift */; };
+		A542F770B8E65413FDF0CC88 /* QuestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45408D61116298A9BD670BC3 /* QuestService.swift */; };
+		A6329D6701AC9187BFDD3F8E /* CloudKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC2C5D2FC45C96E698F2FFFF /* CloudKitService.swift */; };
+		B15A39FD96D8759FFD68682B /* AchievementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6444715FE007DF9F7DBFD1E /* AchievementService.swift */; };
+		B667DA50DC57EE18AF00BE96 /* SpendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65C4640C4387DF7FDB415B1E /* SpendingService.swift */; };
+		B8A792B7D485AC83B3A15CB5 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55D300BD1FAA96D39F433EDE /* NotificationService.swift */; };
+		B970F8316189C845C4E59375 /* CharacterSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 156CA85E4331A5EDFE0A915C /* CharacterSheetView.swift */; };
+		BAE59BC70F7B7721F47BB67B /* TrophyRoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081C97DCBABA390134493C41 /* TrophyRoomViewModel.swift */; };
+		BF591A404D67969A4ABEBCB6 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00907CAF62A1D74A3A85745F /* AppState.swift */; };
+		C014FCE54ECEBD00A42442D1 /* FamilyJoinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A7354C5846FDE7E6FAD09DB /* FamilyJoinView.swift */; };
+		C05C2CC6C1A1D04B0E1D462D /* Family.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4605141FBFD8F2D888A1BE2 /* Family.swift */; };
+		C0DD87B83C8D85442AA5A552 /* ColorExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C9086828D9B803BF30CF7C4 /* ColorExtensions.swift */; };
+		D0AD6E5619CF716B39916CB9 /* XPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4994BB82E1CE0B6A1E7015EA /* XPService.swift */; };
+		D12381B518EF2909C4346C66 /* QuestLogApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7D6897EE0C176AA29C71DF /* QuestLogApp.swift */; };
+		D40D804F94CE1347B95BFECC /* NotificationEventType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAFE5FE7EC6235C4CBC0CF1 /* NotificationEventType.swift */; };
+		D54E7BBA8932088DE317C59D /* FamilyDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E53F87D056156130AD94F66E /* FamilyDashboardView.swift */; };
+		E4B662046EF4C387C939AF8E /* HeroStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEDA6F49B0E8FDDF6388CF86 /* HeroStatusCard.swift */; };
+		EE0024023547DD0666FEC3BE /* OnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B45FA594D252104A0DC72B13 /* OnboardingViewModel.swift */; };
+		EE9655C2AE136377AD3F04A9 /* SpendingLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12C4CB3FEE55DC810F7DDB82 /* SpendingLogView.swift */; };
+		F22372B733A7D97C3561E65F /* AvatarCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED97A7BA5A68702C5A124C30 /* AvatarCardView.swift */; };
+		F227CCDA1257EC9F5DEE5154 /* FamilyDashboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2211A9C3A6E814A69F72EE9D /* FamilyDashboardViewModel.swift */; };
+		F48C4EE709021EAF5AC04246 /* FamilyCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8867274066F89499BF7C954 /* FamilyCreationView.swift */; };
+		F69683907331C324EB94AF50 /* NotificationToggleRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C36E962CFBC205A1E59149 /* NotificationToggleRow.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		00907CAF62A1D74A3A85745F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		0317FB208B3D2C6953104B86 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
+		081C97DCBABA390134493C41 /* TrophyRoomViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyRoomViewModel.swift; sourceTree = "<group>"; };
+		0CACAE506C614FCFC07A7A02 /* GuildSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuildSettingsView.swift; sourceTree = "<group>"; };
+		0E629368F034337391528D5C /* HeroDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardViewModel.swift; sourceTree = "<group>"; };
+		0EAFE5FE7EC6235C4CBC0CF1 /* NotificationEventType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationEventType.swift; sourceTree = "<group>"; };
+		11AAEBA2A18BF9C754227C75 /* LedgerEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerEntry.swift; sourceTree = "<group>"; };
+		12C4CB3FEE55DC810F7DDB82 /* SpendingLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingLogView.swift; sourceTree = "<group>"; };
+		156CA85E4331A5EDFE0A915C /* CharacterSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetView.swift; sourceTree = "<group>"; };
+		2211A9C3A6E814A69F72EE9D /* FamilyDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardViewModel.swift; sourceTree = "<group>"; };
+		3A0EBF5D47DD63BB1624CCF2 /* QuestLog.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = QuestLog.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		428B51BBF176935CF91A6205 /* TrophyCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyCardView.swift; sourceTree = "<group>"; };
+		45408D61116298A9BD670BC3 /* QuestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestService.swift; sourceTree = "<group>"; };
+		4994BB82E1CE0B6A1E7015EA /* XPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPService.swift; sourceTree = "<group>"; };
+		4C751446E81F20A9DCC85BBE /* AvatarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarService.swift; sourceTree = "<group>"; };
+		4CC777C365500B15532F1873 /* ProfileAchievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAchievement.swift; sourceTree = "<group>"; };
+		4D558F5DB3556D898928F93E /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
+		4EBCC009FA65B2AD9F8D5D10 /* AvatarSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarSelectionView.swift; sourceTree = "<group>"; };
+		5048046B8ABD797CD8715868 /* StreakBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakBadge.swift; sourceTree = "<group>"; };
+		55B5E5EEC36DFFA7B883A8B0 /* BalanceCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceCardView.swift; sourceTree = "<group>"; };
+		55D300BD1FAA96D39F433EDE /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		5A7354C5846FDE7E6FAD09DB /* FamilyJoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyJoinView.swift; sourceTree = "<group>"; };
+		5AF7C7277E0333774B8367A7 /* QuestManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerViewModel.swift; sourceTree = "<group>"; };
+		5C7D6897EE0C176AA29C71DF /* QuestLogApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestLogApp.swift; sourceTree = "<group>"; };
+		60610639E19188148D4D9E7C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6395C6B516B2A60C591EBB09 /* NotificationPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreference.swift; sourceTree = "<group>"; };
+		65930E639F49DD70D4308611 /* QuestAssignmentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestAssignmentView.swift; sourceTree = "<group>"; };
+		65C4640C4387DF7FDB415B1E /* SpendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingService.swift; sourceTree = "<group>"; };
+		663819042A20597D61B97812 /* QuestSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestSchedule.swift; sourceTree = "<group>"; };
+		679EDF55024EDA39D60E6822 /* FamilyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyService.swift; sourceTree = "<group>"; };
+		6895C7FA456B6EF47E10017C /* TrophyRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyRoomView.swift; sourceTree = "<group>"; };
+		6924A73F260ABBC1F9399CD0 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
+		73725F5B4E99CF23AD3311B0 /* QuestTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestTemplate.swift; sourceTree = "<group>"; };
+		744D1593236148EDCB73CFFC /* TreasuryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryViewModel.swift; sourceTree = "<group>"; };
+		74AD8BE3A31E89FF43CB1A30 /* TreasuryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryView.swift; sourceTree = "<group>"; };
+		7C11C7D679B4548813107633 /* QuestCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestCardView.swift; sourceTree = "<group>"; };
+		7C9086828D9B803BF30CF7C4 /* ColorExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtensions.swift; sourceTree = "<group>"; };
+		7D8BC5663E91C8CCD6F23231 /* QuestLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestLog.swift; sourceTree = "<group>"; };
+		7F36FF9D298143F974B937FC /* CloudKitRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitRecord.swift; sourceTree = "<group>"; };
+		89AF57B3522C1C5C0112834E /* ApprovalMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalMode.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7A8B9C0D1E2F /* VerificationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationStatus.swift; sourceTree = "<group>"; };
+		91CA733D47C8CBC0314D949D /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
+		A645307873D8A85863E31640 /* PayoutStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutStatus.swift; sourceTree = "<group>"; };
+		A987469AB78CF81754FAA446 /* LogSpendingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogSpendingView.swift; sourceTree = "<group>"; };
+		AEDA6F49B0E8FDDF6388CF86 /* HeroStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroStatusCard.swift; sourceTree = "<group>"; };
+		B0F61DD8932EAF78C7DB1C9B /* RoleSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleSelectionView.swift; sourceTree = "<group>"; };
+		B16754C8C0A6231193D04236 /* QuestDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestDetailView.swift; sourceTree = "<group>"; };
+		B1E13182C4B92B11CA62B12A /* AvatarClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarClass.swift; sourceTree = "<group>"; };
+		B225F930CF4DBBEE810B2653 /* Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profile.swift; sourceTree = "<group>"; };
+		B45FA594D252104A0DC72B13 /* OnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViewModel.swift; sourceTree = "<group>"; };
+		B5A96520DACC35631F0EDDDB /* UserRole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserRole.swift; sourceTree = "<group>"; };
+		B62088D2DB3C16B0E30ABA50 /* PayoutHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutHistoryView.swift; sourceTree = "<group>"; };
+		C1F690B03C743E8C3B27C865 /* TemplateManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateManagerView.swift; sourceTree = "<group>"; };
+		D4CD1ACD0F46AE2907145433 /* QuestManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerView.swift; sourceTree = "<group>"; };
+		D7C36E962CFBC205A1E59149 /* NotificationToggleRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationToggleRow.swift; sourceTree = "<group>"; };
+		DAA477AA80C67CEFB2CA2923 /* HeroDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardView.swift; sourceTree = "<group>"; };
+		DBF518A264ED4FA736717417 /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
+		DC2C5D2FC45C96E698F2FFFF /* CloudKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitService.swift; sourceTree = "<group>"; };
+		E3D745509B06EF3186DF925E /* TreasuryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryService.swift; sourceTree = "<group>"; };
+		E43F88C95D2A5A3A3CBB6831 /* GoldBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoldBadge.swift; sourceTree = "<group>"; };
+		E4605141FBFD8F2D888A1BE2 /* Family.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Family.swift; sourceTree = "<group>"; };
+		E53F87D056156130AD94F66E /* FamilyDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardView.swift; sourceTree = "<group>"; };
+		ED97A7BA5A68702C5A124C30 /* AvatarCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarCardView.swift; sourceTree = "<group>"; };
+		EE86560D296501FAEA48EEBE /* Achievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Achievement.swift; sourceTree = "<group>"; };
+		F20237EE41B5A61CA87EC181 /* AllowancePeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllowancePeriod.swift; sourceTree = "<group>"; };
+		F2F16672078F394F91CCDEE0 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		F3282D1CCA55984C30F89348 /* Quest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Quest.swift; sourceTree = "<group>"; };
+		F6444715FE007DF9F7DBFD1E /* AchievementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementService.swift; sourceTree = "<group>"; };
+		F8867274066F89499BF7C954 /* FamilyCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyCreationView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		00777B284BCD06E589C66C3C /* CloudKit */ = {
+			isa = PBXGroup;
+			children = (
+				EE86560D296501FAEA48EEBE /* Achievement.swift */,
+				F20237EE41B5A61CA87EC181 /* AllowancePeriod.swift */,
+				7F36FF9D298143F974B937FC /* CloudKitRecord.swift */,
+				E4605141FBFD8F2D888A1BE2 /* Family.swift */,
+				11AAEBA2A18BF9C754227C75 /* LedgerEntry.swift */,
+				6395C6B516B2A60C591EBB09 /* NotificationPreference.swift */,
+				B225F930CF4DBBEE810B2653 /* Profile.swift */,
+				4CC777C365500B15532F1873 /* ProfileAchievement.swift */,
+				F3282D1CCA55984C30F89348 /* Quest.swift */,
+				7D8BC5663E91C8CCD6F23231 /* QuestLog.swift */,
+				73725F5B4E99CF23AD3311B0 /* QuestTemplate.swift */,
+			);
+			path = CloudKit;
+			sourceTree = "<group>";
+		};
+		1C155F6FB034F70C793E1103 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				4EBCC009FA65B2AD9F8D5D10 /* AvatarSelectionView.swift */,
+				F8867274066F89499BF7C954 /* FamilyCreationView.swift */,
+				5A7354C5846FDE7E6FAD09DB /* FamilyJoinView.swift */,
+				B0F61DD8932EAF78C7DB1C9B /* RoleSelectionView.swift */,
+				F2F16672078F394F91CCDEE0 /* WelcomeView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		2D1D2645A706B65ECCCF7505 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				00907CAF62A1D74A3A85745F /* AppState.swift */,
+				5C7D6897EE0C176AA29C71DF /* QuestLogApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		2FD7BC05AB17E98F96DB41D0 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				2211A9C3A6E814A69F72EE9D /* FamilyDashboardViewModel.swift */,
+				0E629368F034337391528D5C /* HeroDashboardViewModel.swift */,
+				5AF7C7277E0333774B8367A7 /* QuestManagerViewModel.swift */,
+				744D1593236148EDCB73CFFC /* TreasuryViewModel.swift */,
+				081C97DCBABA390134493C41 /* TrophyRoomViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		421B6BE18B78F1F9428FCAA9 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				00777B284BCD06E589C66C3C /* CloudKit */,
+				E4A33019A0079C5A8476CB79 /* Enums */,
+				670B3B229658E36EF48300DE /* ViewModels */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		558F8DB44E8613923AD68FE2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3A0EBF5D47DD63BB1624CCF2 /* QuestLog.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5FD36373C145BF411C661A6F /* Treasury */ = {
+			isa = PBXGroup;
+			children = (
+				55B5E5EEC36DFFA7B883A8B0 /* BalanceCardView.swift */,
+				A987469AB78CF81754FAA446 /* LogSpendingView.swift */,
+				12C4CB3FEE55DC810F7DDB82 /* SpendingLogView.swift */,
+				74AD8BE3A31E89FF43CB1A30 /* TreasuryView.swift */,
+			);
+			path = Treasury;
+			sourceTree = "<group>";
+		};
+		670B3B229658E36EF48300DE /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				B45FA594D252104A0DC72B13 /* OnboardingViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		77226CBF6DBCB895B944D103 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				9C71C77552DAF4A5A1DDE567 /* Guild */,
+				A6840C97E377EA08C84A4F02 /* Hero */,
+				1C155F6FB034F70C793E1103 /* Onboarding */,
+				783F3CCC6AC270B2943D5AFD /* Profile */,
+				C1FCEF394128B07BA6716127 /* Shared */,
+				5FD36373C145BF411C661A6F /* Treasury */,
+				D103440B97AD37AFA5CC036C /* Trophies */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		783F3CCC6AC270B2943D5AFD /* Profile */ = {
+			isa = PBXGroup;
+			children = (
+				156CA85E4331A5EDFE0A915C /* CharacterSheetView.swift */,
+				6924A73F260ABBC1F9399CD0 /* NotificationSettingsView.swift */,
+				4D558F5DB3556D898928F93E /* ProfileView.swift */,
+			);
+			path = Profile;
+			sourceTree = "<group>";
+		};
+		7A846526FBB7BAC061D4FC00 = {
+			isa = PBXGroup;
+			children = (
+				C2BEF5D6A12914394EA8A3A2 /* Project */,
+				558F8DB44E8613923AD68FE2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		9C71C77552DAF4A5A1DDE567 /* Guild */ = {
+			isa = PBXGroup;
+			children = (
+				E53F87D056156130AD94F66E /* FamilyDashboardView.swift */,
+				0CACAE506C614FCFC07A7A02 /* GuildSettingsView.swift */,
+				AEDA6F49B0E8FDDF6388CF86 /* HeroStatusCard.swift */,
+				B62088D2DB3C16B0E30ABA50 /* PayoutHistoryView.swift */,
+				65930E639F49DD70D4308611 /* QuestAssignmentView.swift */,
+				D4CD1ACD0F46AE2907145433 /* QuestManagerView.swift */,
+				C1F690B03C743E8C3B27C865 /* TemplateManagerView.swift */,
+			);
+			path = Guild;
+			sourceTree = "<group>";
+		};
+		A6840C97E377EA08C84A4F02 /* Hero */ = {
+			isa = PBXGroup;
+			children = (
+				DAA477AA80C67CEFB2CA2923 /* HeroDashboardView.swift */,
+				7C11C7D679B4548813107633 /* QuestCardView.swift */,
+				B16754C8C0A6231193D04236 /* QuestDetailView.swift */,
+			);
+			path = Hero;
+			sourceTree = "<group>";
+		};
+		B4052DD620C9FBAFFA429BC2 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				F6444715FE007DF9F7DBFD1E /* AchievementService.swift */,
+				4C751446E81F20A9DCC85BBE /* AvatarService.swift */,
+				DC2C5D2FC45C96E698F2FFFF /* CloudKitService.swift */,
+				679EDF55024EDA39D60E6822 /* FamilyService.swift */,
+				55D300BD1FAA96D39F433EDE /* NotificationService.swift */,
+				45408D61116298A9BD670BC3 /* QuestService.swift */,
+				65C4640C4387DF7FDB415B1E /* SpendingService.swift */,
+				E3D745509B06EF3186DF925E /* TreasuryService.swift */,
+				4994BB82E1CE0B6A1E7015EA /* XPService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		C1FCEF394128B07BA6716127 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				DBF518A264ED4FA736717417 /* AvatarView.swift */,
+				7C9086828D9B803BF30CF7C4 /* ColorExtensions.swift */,
+				E43F88C95D2A5A3A3CBB6831 /* GoldBadge.swift */,
+				D7C36E962CFBC205A1E59149 /* NotificationToggleRow.swift */,
+				0317FB208B3D2C6953104B86 /* ProgressBar.swift */,
+				5048046B8ABD797CD8715868 /* StreakBadge.swift */,
+				91CA733D47C8CBC0314D949D /* TabBarView.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		C2BEF5D6A12914394EA8A3A2 /* Project */ = {
+			isa = PBXGroup;
+			children = (
+				2D1D2645A706B65ECCCF7505 /* App */,
+				421B6BE18B78F1F9428FCAA9 /* Models */,
+				B4052DD620C9FBAFFA429BC2 /* Services */,
+				2FD7BC05AB17E98F96DB41D0 /* ViewModels */,
+				77226CBF6DBCB895B944D103 /* Views */,
+				60610639E19188148D4D9E7C /* Info.plist */,
+			);
+			path = Project;
+			sourceTree = "<group>";
+		};
+		D103440B97AD37AFA5CC036C /* Trophies */ = {
+			isa = PBXGroup;
+			children = (
+				ED97A7BA5A68702C5A124C30 /* AvatarCardView.swift */,
+				428B51BBF176935CF91A6205 /* TrophyCardView.swift */,
+				6895C7FA456B6EF47E10017C /* TrophyRoomView.swift */,
+			);
+			path = Trophies;
+			sourceTree = "<group>";
+		};
+		E4A33019A0079C5A8476CB79 /* Enums */ = {
+			isa = PBXGroup;
+			children = (
+				89AF57B3522C1C5C0112834E /* ApprovalMode.swift */,
+				B1E13182C4B92B11CA62B12A /* AvatarClass.swift */,
+				0EAFE5FE7EC6235C4CBC0CF1 /* NotificationEventType.swift */,
+				A645307873D8A85863E31640 /* PayoutStatus.swift */,
+				663819042A20597D61B97812 /* QuestSchedule.swift */,
+				1A2B3C4D5E6F7A8B9C0D1E2F /* VerificationStatus.swift */,
+				B5A96520DACC35631F0EDDDB /* UserRole.swift */,
+			);
+			path = Enums;
+			sourceTree = "<group>";
+		};
+		"TEMP_F87A5E07-FA20-4713-A6B0-4BDDFD762961" /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F4E11901B54C540B40836BE9 /* QuestLog */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F5A7DD13B0648D20E363A07A /* Build configuration list for PBXNativeTarget "QuestLog" */;
+			buildPhases = (
+				BF73CFFD3D0B668351DED3CF /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = QuestLog;
+			packageProductDependencies = (
+			);
+			productName = QuestLog;
+			productReference = 3A0EBF5D47DD63BB1624CCF2 /* QuestLog.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E52109A533C72DC08F4E57EB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F4E11901B54C540B40836BE9 = {
+						DevelopmentTeam = LYYD96F2J8;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = E83A2DAB41349C89B9B0E00D /* Build configuration list for PBXProject "QuestLog" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 7A846526FBB7BAC061D4FC00;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 558F8DB44E8613923AD68FE2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F4E11901B54C540B40836BE9 /* QuestLog */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BF73CFFD3D0B668351DED3CF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				08CFE1776DB909A99559F3EA /* Achievement.swift in Sources */,
+				B15A39FD96D8759FFD68682B /* AchievementService.swift in Sources */,
+				2280987EC76865FA6C7781AF /* AllowancePeriod.swift in Sources */,
+				BF591A404D67969A4ABEBCB6 /* AppState.swift in Sources */,
+				075171A56A5CDB582E6FC3FA /* ApprovalMode.swift in Sources */,
+				0A1B2C3D4E5F6A7B8C9D0E1F /* VerificationStatus.swift in Sources */,
+				F22372B733A7D97C3561E65F /* AvatarCardView.swift in Sources */,
+				2C896D91BD0CEF68EEF53517 /* AvatarClass.swift in Sources */,
+				66A3A971E042B4D57CB14E25 /* AvatarSelectionView.swift in Sources */,
+				4D2A67B01FDD3F06BC47B122 /* AvatarService.swift in Sources */,
+				42E7307281DAEFA667BA7626 /* AvatarView.swift in Sources */,
+				8F93D4FAF4E24A8A759CD535 /* BalanceCardView.swift in Sources */,
+				B970F8316189C845C4E59375 /* CharacterSheetView.swift in Sources */,
+				0DF794BF2C25622E64AC6697 /* CloudKitRecord.swift in Sources */,
+				A6329D6701AC9187BFDD3F8E /* CloudKitService.swift in Sources */,
+				C0DD87B83C8D85442AA5A552 /* ColorExtensions.swift in Sources */,
+				C05C2CC6C1A1D04B0E1D462D /* Family.swift in Sources */,
+				F48C4EE709021EAF5AC04246 /* FamilyCreationView.swift in Sources */,
+				D54E7BBA8932088DE317C59D /* FamilyDashboardView.swift in Sources */,
+				F227CCDA1257EC9F5DEE5154 /* FamilyDashboardViewModel.swift in Sources */,
+				C014FCE54ECEBD00A42442D1 /* FamilyJoinView.swift in Sources */,
+				76FE9D7AC08E5FDB452F388A /* FamilyService.swift in Sources */,
+				00F558A4F141960E281C2EF4 /* GoldBadge.swift in Sources */,
+				02E8DE64FBD0D34B39545B5A /* GuildSettingsView.swift in Sources */,
+				97102C465903F623E2C20EF4 /* HeroDashboardView.swift in Sources */,
+				5947BD114EEB539C1F7D7336 /* HeroDashboardViewModel.swift in Sources */,
+				E4B662046EF4C387C939AF8E /* HeroStatusCard.swift in Sources */,
+				5F8C09575DEDC12F5CF21BEC /* LedgerEntry.swift in Sources */,
+				16A1DB5A1060B9E667EB5FFF /* LogSpendingView.swift in Sources */,
+				D40D804F94CE1347B95BFECC /* NotificationEventType.swift in Sources */,
+				5C155CEC84C42EB078F8D210 /* NotificationPreference.swift in Sources */,
+				B8A792B7D485AC83B3A15CB5 /* NotificationService.swift in Sources */,
+				4244E78FF5B69D827EB3D136 /* NotificationSettingsView.swift in Sources */,
+				F69683907331C324EB94AF50 /* NotificationToggleRow.swift in Sources */,
+				EE0024023547DD0666FEC3BE /* OnboardingViewModel.swift in Sources */,
+				0C01DEDA200F0CEDBE1BE0E6 /* PayoutHistoryView.swift in Sources */,
+				825DF5F64823C1A808AAB5E5 /* PayoutStatus.swift in Sources */,
+				5890C774302388A1A55C92B5 /* Profile.swift in Sources */,
+				450215526E1D65AD1C63C120 /* ProfileAchievement.swift in Sources */,
+				2DE2142D5950B9D9371E03D2 /* ProfileView.swift in Sources */,
+				3EBE4011E9D63451BCBB0EE9 /* ProgressBar.swift in Sources */,
+				95409BB2CBBF5E88063E55E6 /* Quest.swift in Sources */,
+				347C3865B7B612A623406E22 /* QuestAssignmentView.swift in Sources */,
+				4F3C0EC5365DCD565371AFEE /* QuestCardView.swift in Sources */,
+				05827CA9EB11FD05FB2579D1 /* QuestDetailView.swift in Sources */,
+				12C9C23FCCD02B93C7AF79C3 /* QuestLog.swift in Sources */,
+				D12381B518EF2909C4346C66 /* QuestLogApp.swift in Sources */,
+				327283E17B9EF68466E69314 /* QuestManagerView.swift in Sources */,
+				2C6C520E8D1AE389471A1E06 /* QuestManagerViewModel.swift in Sources */,
+				1862C7F8D3634AB01CD32DE2 /* QuestSchedule.swift in Sources */,
+				A542F770B8E65413FDF0CC88 /* QuestService.swift in Sources */,
+				3D8D5CEF50F39454D269267E /* QuestTemplate.swift in Sources */,
+				814B9B220EA9D02A00F0519D /* RoleSelectionView.swift in Sources */,
+				EE9655C2AE136377AD3F04A9 /* SpendingLogView.swift in Sources */,
+				B667DA50DC57EE18AF00BE96 /* SpendingService.swift in Sources */,
+				2C3E3FE12E49BFCD9E438C4B /* StreakBadge.swift in Sources */,
+				7015ABE0F80E196B30F589AE /* TabBarView.swift in Sources */,
+				63644FCA0FC8DD1F879B1449 /* TemplateManagerView.swift in Sources */,
+				85BB5295A4D47F6ECBF3A15F /* TreasuryService.swift in Sources */,
+				A2DD8D2272516D6E590874F8 /* TreasuryView.swift in Sources */,
+				8F29106380D966403FDECC8F /* TreasuryViewModel.swift in Sources */,
+				0663323C1BA9AB0E4CBA288B /* TrophyCardView.swift in Sources */,
+				0AEF11E21A4097EBD914FCC0 /* TrophyRoomView.swift in Sources */,
+				BAE59BC70F7B7721F47BB67B /* TrophyRoomViewModel.swift in Sources */,
+				85CE381326F389D98F069C79 /* UserRole.swift in Sources */,
+				694548426468BDED84EB2E15 /* WelcomeView.swift in Sources */,
+				D0AD6E5619CF716B39916CB9 /* XPService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		1C824D2DCEB0A264F1A430C6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = QuestLog.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Project/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AllowanceTrax;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.volcrypt.questlog;
+				PRODUCT_NAME = QuestLog;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		D3B3691D372FDB75F27253AB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = LYYD96F2J8;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		DD1E71FCF70838D1D321463F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = QuestLog.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Project/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = AllowanceTrax;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.volcrypt.questlog;
+				PRODUCT_NAME = QuestLog;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		F1FEBD1A283B57C336F7AB0A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = LYYD96F2J8;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		E83A2DAB41349C89B9B0E00D /* Build configuration list for PBXProject "QuestLog" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1FEBD1A283B57C336F7AB0A /* Debug */,
+				D3B3691D372FDB75F27253AB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F5A7DD13B0648D20E363A07A /* Build configuration list for PBXNativeTarget "QuestLog" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1C824D2DCEB0A264F1A430C6 /* Debug */,
+				DD1E71FCF70838D1D321463F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = E52109A533C72DC08F4E57EB /* Project object */;
+}
