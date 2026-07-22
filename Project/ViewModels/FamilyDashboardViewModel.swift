@@ -109,7 +109,7 @@ final class FamilyDashboardViewModel {
         async let questsTask: [Quest]? = try? questService.fetchActiveQuests(
             profile: hero, weekOf: weekOf
         )
-        async let logsTask: [QuestLog]? = try? questService.fetchQuestLogs(
+        async let logsTask: [QuestCompletion]? = try? questService.fetchQuestLogs(
             for: hero
         )
         async let streakTask: Int? = try? questService.fetchStreak(for: hero)

@@ -2,7 +2,7 @@ import SwiftUI
 import CloudKit
 
 @main
-struct QuestLogApp: App {
+struct LootListApp: App {
 
     @State private var appState = AppState()
 
@@ -51,7 +51,7 @@ private struct RootView: View {
                 Image(systemName: "shield.lefthalf.filled")
                     .font(.system(size: 64))
                     .foregroundStyle(.tint)
-                Text("QuestLog")
+                Text("Loot List")
                     .font(.largeTitle.bold())
                 Text("Your adventure begins soon.")
                     .font(.subheadline)
