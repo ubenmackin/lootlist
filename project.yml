@@ -60,5 +60,58 @@ targets:
           - iCloud.com.volcrypt.lootlist
         com.apple.developer.icloud-services:
           - CloudKit
-        
-               
+
+  LootListTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ProjectTests
+        excludes:
+          - "**/.DS_Store"
+    dependencies:
+      - target: LootList
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.volcrypt.lootlist.tests
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+  LootListUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ProjectUITests
+        excludes:
+          - "**/.DS_Store"
+    dependencies:
+      - target: LootList
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.volcrypt.lootlist.uitests
+        TEST_TARGET_NAME: LootList
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  LootList:
+    build:
+      targets:
+        LootList: all
+        LootListTests: [test]
+        LootListUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - LootListTests
+        - LootListUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
