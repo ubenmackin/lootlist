@@ -233,6 +233,25 @@ final class FamilyService {
         }
     }
 
+    @discardableResult
+    func updateProfilePayoutPolicy(profile: Profile, policy: PayoutPolicy) async throws -> Profile {
+        var updated = profile
+        updated.payoutPolicy = policy
+
+        let (zoneID, db) = familyContext(for: profile.family.recordID)
+        do {
+            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            if appState.currentProfile?.id == saved.id {
+                appState.currentProfile = saved
+            }
+            return saved
+        } catch {
+            throw FamilyServiceError.persistenceFailed(
+                "Could not update profile payout policy: \(error)"
+            )
+        }
+    }
+
 
 
     // MARK: - Role & Membership Management
@@ -292,9 +311,14 @@ final class FamilyService {
     }
 
     func deleteFamilyAndReset(family: Family) async throws {
-        // 1. Delete the CloudKit zone if this user owns it.
+        // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
         if appState.isZoneOwner, let zoneID = appState.familyZoneID {
-            try? await cloudKit.deleteZone(zoneID)
+            do {
+                try await cloudKit.deleteZone(zoneID)
+            } catch {
+                logger.error("Could not delete zone immediately; queueing abandoned zone: \(error, privacy: .private)")
+                appState.addAbandonedZoneID(zoneID.zoneName)
+            }
         }
 
         // 2. Clear CloudKit active state.

@@ -37,6 +37,9 @@ struct FamilyDashboardView: View {
                 }
                 await viewModel?.refresh()
             }
+            .onAppear {
+                Task { await viewModel?.refresh() }
+            }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareInviteItems)
             }

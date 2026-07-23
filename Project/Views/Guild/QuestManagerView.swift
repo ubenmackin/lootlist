@@ -48,6 +48,12 @@ struct QuestManagerView: View {
                 await viewModel?.load()
                 await viewModel?.loadHeroes()
             }
+            .onAppear {
+                Task {
+                    await viewModel?.load()
+                    await viewModel?.loadHeroes()
+                }
+            }
             .refreshable {
                 await viewModel?.load()
             }
@@ -121,10 +127,10 @@ struct QuestManagerView: View {
             Image(systemName: quest.approvalMode.iconSystemName)
                 .foregroundStyle(quest.approvalMode == .parentVerify ? .indigo : .green)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Template \(quest.template.recordID.recordName.suffix(6))")
+                Text(quest.displayName)
                     .font(.subheadline.bold())
-                Text(String(format: "%.2f gold · %d XP · %@",
-                            quest.goldReward, quest.xpReward, quest.approvalMode.displayName))
+                Text(String(format: "%.2f gold · %@ (%d XP) · %@",
+                            quest.goldReward, quest.rarity.rawValue, quest.xpReward, quest.approvalMode.displayName))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -191,8 +197,8 @@ struct QuestManagerView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(template.name)
                     .font(.subheadline.bold())
-                Text(String(format: "%.2f gold · %d XP · %@",
-                            template.defaultGold, template.xpReward,
+                Text(String(format: "%.2f gold · %@ (%d XP) · %@",
+                            template.defaultGold, template.rarity.rawValue, template.xpReward,
                             template.scheduleType.displayName))
                     .font(.caption)
                     .foregroundStyle(.secondary)

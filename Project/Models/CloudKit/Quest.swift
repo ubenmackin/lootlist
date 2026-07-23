@@ -12,6 +12,9 @@ struct Quest: Identifiable, Equatable, Sendable {
 
     var goldReward: Double
     var xpReward: Int
+    var rarity: QuestRarity {
+        QuestRarity.from(xp: xpReward)
+    }
     var scheduleType: QuestSchedule
 
     var isAllOrNothing: Bool
@@ -25,6 +28,24 @@ struct Quest: Identifiable, Equatable, Sendable {
     var createdBy: CKRecord.Reference
 
     var family: CKRecord.Reference
+
+    var name: String?
+    var descriptionText: String?
+
+    var displayName: String {
+        if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty {
+            return name
+        }
+        let templateID = template.recordID.recordName
+        if templateID.count > 6 {
+            return "Quest \(templateID.suffix(6))"
+        }
+        return "Quest \(templateID)"
+    }
+
+    var displayDescription: String {
+        descriptionText ?? ""
+    }
 
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
@@ -81,6 +102,9 @@ struct Quest: Identifiable, Equatable, Sendable {
             throw CKDecodingError.missingField("family")
         }
         self.family = family
+
+        name = record["name"] as? String
+        descriptionText = record["descriptionText"] as? String
     }
 
     func toRecord() -> CKRecord {
@@ -96,6 +120,12 @@ struct Quest: Identifiable, Equatable, Sendable {
         record["weekOf"] = weekOf as CKRecordValue
         record["createdBy"] = createdBy as CKRecordValue
         record["family"] = family as CKRecordValue
+        if let name {
+            record["name"] = name as CKRecordValue
+        }
+        if let descriptionText {
+            record["descriptionText"] = descriptionText as CKRecordValue
+        }
         return record
     }
 
@@ -109,6 +139,8 @@ struct Quest: Identifiable, Equatable, Sendable {
          weekOf: Date,
          createdBy: CKRecord.Reference,
          family: CKRecord.Reference,
+         name: String? = nil,
+         descriptionText: String? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -123,5 +155,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         self.weekOf = weekOf
         self.createdBy = createdBy
         self.family = family
+        self.name = name
+        self.descriptionText = descriptionText
     }
 }

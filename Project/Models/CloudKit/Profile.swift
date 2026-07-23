@@ -18,6 +18,7 @@ struct Profile: Identifiable, Equatable, Sendable {
     var family: CKRecord.Reference
 
     var isActive: Bool
+    var payoutPolicy: PayoutPolicy
 
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
@@ -71,6 +72,14 @@ struct Profile: Identifiable, Equatable, Sendable {
         family = familyRef
 
         isActive = (record["isActive"] as? Bool) ?? false
+
+        if let rawPolicy = record["payoutPolicy"] as? String,
+           let policy = PayoutPolicy(rawValue: rawPolicy)
+        {
+            payoutPolicy = policy
+        } else {
+            payoutPolicy = .perQuest
+        }
     }
 
     func toRecord() -> CKRecord {
@@ -84,6 +93,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         record["iCloudUserID"] = iCloudUserID.recordName as CKRecordValue
         record["family"] = family as CKRecordValue
         record["isActive"] = isActive as CKRecordValue
+        record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
         return record
     }
 
@@ -93,6 +103,7 @@ struct Profile: Identifiable, Equatable, Sendable {
          role: UserRole,
          iCloudUserID: CKRecord.ID,
          family: CKRecord.Reference,
+         payoutPolicy: PayoutPolicy = .perQuest,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -105,6 +116,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         self.iCloudUserID = iCloudUserID
         self.family = family
         isActive = true
+        self.payoutPolicy = payoutPolicy
     }
 }
 
