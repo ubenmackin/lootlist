@@ -4,11 +4,7 @@ enum GoldFormat {
     static let coinSystemName = "circle.hexagongrid.fill"
 
     static func magnitude(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: abs(amount))) ?? "\(abs(amount))"
+        NumberFormatter.goldFormatter.string(from: NSNumber(value: abs(amount))) ?? "\(abs(amount))"
     }
 
     static func signed(_ amount: Double) -> String {

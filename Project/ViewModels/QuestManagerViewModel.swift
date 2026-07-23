@@ -14,10 +14,12 @@ final class QuestManagerViewModel {
     var loadError: String?
 
     private let questService: QuestService
+    private let familyService: FamilyService
     private let appState: AppState
 
-    init(questService: QuestService, appState: AppState) {
+    init(questService: QuestService, familyService: FamilyService, appState: AppState) {
         self.questService = questService
+        self.familyService = familyService
         self.appState = appState
     }
 
@@ -157,16 +159,7 @@ final class QuestManagerViewModel {
             return
         }
 
-        let cloudKit = questService.cloudKitReference
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = await (try? cloudKit.query(Profile.self, predicate: predicate)) ?? []
-        heroes = all
-            .filter { $0.role == .hero && $0.isActive }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        heroes = await (try? familyService.fetchHeroes(for: family)) ?? []
     }
 
-    var cloudKitReference: CloudKitService {
-        questService.cloudKitReference
-    }
 }

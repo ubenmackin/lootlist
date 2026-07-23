@@ -135,8 +135,6 @@ struct TrophyCardView: View {
             "\(achievement.requirementValue) weeks of spending"
         case AchievementRequirement.earlyBird9am:
             "Slay a quest before 9 AM"
-        default:
-            "Keep questing"
         }
     }
 }

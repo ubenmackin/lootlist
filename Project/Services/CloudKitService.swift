@@ -287,18 +287,20 @@ final class CloudKitService {
 
     // MARK: - CKShare Support
 
-    /// Creates a `CKShare` for the given root record in the private database.
+    /// Creates a `CKShare` for the given root record ID in the private database.
     /// The root record must already be saved in a custom zone in `privateCloudDatabase`.
-    func createShare(rootRecord: CKRecord,
-                     in _: CKRecordZone.ID) async throws -> CKShare
-    {
-        let share = CKShare(rootRecord: rootRecord)
-        share[CKShare.SystemFieldKey.title] = rootRecord["name"] as? String ?? "Family"
-        share.publicPermission = .readWrite
-
+    func createShare(for rootRecordID: CKRecord.ID) async throws -> CKShare {
         let pvtDB = privateDatabase
+        let serverRoot = try await retrying {
+            try await pvtDB.record(for: rootRecordID)
+        }
+
+        let share = CKShare(rootRecord: serverRoot)
+        share[CKShare.SystemFieldKey.title] = (serverRoot["name"] as? String) ?? "Family Guild"
+        share.publicPermission = .readOnly
+
         let operation = CKModifyRecordsOperation(
-            recordsToSave: [rootRecord, share],
+            recordsToSave: [serverRoot, share],
             recordIDsToDelete: nil
         )
         operation.isAtomic = true
@@ -316,6 +318,18 @@ final class CloudKitService {
             }
             pvtDB.add(operation)
         }
+    }
+
+    /// Fetches an existing CKShare URL for the zone, or creates a new CKShare if one does not exist.
+    func fetchOrCreateShareURL(in zoneID: CKRecordZone.ID, rootRecordID: CKRecord.ID) async throws -> URL {
+        if let existingURL = try? await fetchShareURL(in: zoneID) {
+            return existingURL
+        }
+        let share = try await createShare(for: rootRecordID)
+        guard let url = share.url else {
+            throw CloudKitServiceError.shareFailed("Share created but URL was nil")
+        }
+        return url
     }
 
     /// Accepts a CKShare invitation. After acceptance the shared zone appears
@@ -560,6 +574,13 @@ final class CloudKitService {
             } catch let error as CloudKitServiceError {
                 throw error
             } catch {
+                // Non-retryable errors should propagate immediately.
+                if error is CancellationError
+                    || error is DecodingError
+                    || error is EncodingError
+                {
+                    throw error
+                }
                 lastWrappedError = .underlying("\(error)")
                 if attempt < Self.maxRetries,
                    let delayNanos = Self.backoffSchedule[safe: attempt - 1]

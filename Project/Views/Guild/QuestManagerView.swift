@@ -3,6 +3,7 @@ import SwiftUI
 
 struct QuestManagerView: View {
     @Environment(AppState.self) private var appState
+    @Environment(FamilyService.self) private var familyService
     @Environment(QuestService.self) private var questService
 
     @State private var viewModel: QuestManagerViewModel?
@@ -40,6 +41,7 @@ struct QuestManagerView: View {
                 if viewModel == nil {
                     viewModel = QuestManagerViewModel(
                         questService: questService,
+                        familyService: familyService,
                         appState: appState
                     )
                 }

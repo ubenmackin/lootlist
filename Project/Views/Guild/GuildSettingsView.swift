@@ -13,7 +13,6 @@ struct GuildSettingsView: View {
     @State private var draftFamilyName: String = ""
     @State private var isEditingFamilyName: Bool = false
 
-    @State private var showCopiedToast: Bool = false
     @State private var showShareSheet: Bool = false
 
     @State private var showRoleTransferConfirm: Profile?
@@ -52,9 +51,7 @@ struct GuildSettingsView: View {
                 await viewModel?.refresh()
             }
             .sheet(isPresented: $showShareSheet) {
-                if let family = appState.family {
-                    ShareSheet(items: [shareInviteText(for: family)])
-                }
+                ShareSheet(items: shareInviteItems)
             }
             .alert("Transfer Guild Master Role?",
                    isPresented: Binding(
@@ -79,7 +76,7 @@ struct GuildSettingsView: View {
     @ViewBuilder
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         familyNameSection(vm: vm)
-        inviteCodeSection
+        inviteLinkSection
         payoutPolicySection
         membersSection(vm: vm)
         if let currentRole = appState.currentProfile?.role, currentRole != .guildMaster {
@@ -144,11 +141,8 @@ private extension GuildSettingsView {
             isEditingFamilyName = false
             return
         }
-        var updated = family
-        updated.name = trimmed
         do {
-            let saved = try await questService.cloudKitReference.save(updated)
-            appState.family = saved
+            try await familyService.updateFamilyName(family: family, newName: trimmed)
             isEditingFamilyName = false
             actionError = nil
         } catch {
@@ -156,73 +150,31 @@ private extension GuildSettingsView {
         }
     }
 
-    private var inviteCodeSection: some View {
+    private var inviteLinkSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Invite Code")
+                    Text("Guild Invitation Link")
                         .font(.subheadline.weight(.semibold))
-                    Text(appState.family?.inviteCode ?? "—")
-                        .font(.title3.weight(.bold).monospaced())
+                    Text("Invite heroes and members to join your family guild")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button {
-                    let code = appState.family?.inviteCode ?? ""
-                    UIPasteboard.general.setItems(
-                        [[UIPasteboard.typeAutomatic: code]],
-                        options: [.expirationDate: Date().addingTimeInterval(30), .localOnly: true]
-                    )
-                    showCopiedToast = true
-                } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("settings.inviteCopy")
-
-                Button {
                     showShareSheet = true
                 } label: {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                    Label("Share Link", systemImage: "square.and.arrow.up")
                         .font(.caption.weight(.semibold))
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("settings.inviteShare")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            if showCopiedToast {
-                Text("Copied to clipboard")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 10)
-                    .transition(.opacity)
-            }
-
-            if appState.currentProfile?.role == .guildMaster {
-                Divider().padding(.leading, 14)
-                Button {
-                    Task { await regenerateInviteCode() }
-                } label: {
-                    Label("Regenerate Invite Code",
-                          systemImage: "arrow.clockwise.circle")
-                        .font(.subheadline)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .accessibilityIdentifier("settings.inviteRegenerate")
-            }
         }
         .background(cardBackground)
         .padding(.horizontal)
-        .animation(.easeInOut(duration: 0.25), value: showCopiedToast)
-        .task(id: showCopiedToast) {
-            if showCopiedToast {
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                showCopiedToast = false
-            }
-        }
     }
 
     private var payoutPolicySection: some View {
@@ -289,17 +241,15 @@ private extension GuildSettingsView {
 
     @MainActor
     private func updatePayoutPolicy(_ newPolicy: PayoutPolicy) async {
-        guard var family = appState.family else { return }
+        guard let family = appState.family else { return }
         let previousPolicy = family.payoutPolicy
         guard previousPolicy != newPolicy else { return }
 
         // Optimistically update local state immediately (0ms UI lag)
-        family.payoutPolicy = newPolicy
-        appState.family = family
+        appState.family?.payoutPolicy = newPolicy
 
         do {
-            let saved = try await questService.cloudKitReference.save(family)
-            appState.family = saved
+            try await familyService.updatePayoutPolicy(family: family, policy: newPolicy)
             actionError = nil
         } catch {
             appState.family?.payoutPolicy = previousPolicy
@@ -307,26 +257,18 @@ private extension GuildSettingsView {
         }
     }
 
-    @MainActor
-    private func regenerateInviteCode() async {
-        guard let family = appState.family else { return }
-
-        let freshSeed = UUID().uuidString
-        let newCode = FamilyService.generateInviteCode(seed: freshSeed)
-        var updated = family
-        updated.inviteCode = newCode
-        do {
-            let saved = try await questService.cloudKitReference.save(updated)
-            appState.family = saved
-            actionError = nil
-        } catch {
-            actionError = "Could not regenerate invite code: \(error)"
+    private var shareInviteItems: [Any] {
+        let name = appState.family?.name ?? "our guild"
+        if let shareURL = appState.activeShareURL {
+            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(shareURL.absoluteString)"
+            return [message, shareURL]
+        } else {
+            let message = "Join \(name) on LootList!"
+            return [message]
         }
     }
 
-    private func shareInviteText(for family: Family) -> String {
-        "Join \(family.name) on Loot List! Your invite code: \(family.inviteCode)"
-    }
+
 
     private func membersSection(vm: FamilyDashboardViewModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -584,7 +526,6 @@ private extension GuildSettingsView {
         }
 
         try? await familyService.deleteFamilyAndReset(family: family)
-        appState.clearSession()
     }
 
     private var loadingPlaceholder: some View {
