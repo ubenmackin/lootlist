@@ -12,8 +12,6 @@ struct Family: Identifiable, Equatable, Sendable {
 
     var createdAt: Date
 
-    var inviteCode: String
-
     var payoutPolicy: PayoutPolicy
 
     init(record: CKRecord) throws {
@@ -38,11 +36,6 @@ struct Family: Identifiable, Equatable, Sendable {
         }
         self.createdAt = createdAt
 
-        guard let inviteCode = record["inviteCode"] as? String else {
-            throw CKDecodingError.missingField("inviteCode")
-        }
-        self.inviteCode = inviteCode
-
         if let rawPolicy = record["payoutPolicy"] as? String,
            let policy = PayoutPolicy(rawValue: rawPolicy)
         {
@@ -57,14 +50,12 @@ struct Family: Identifiable, Equatable, Sendable {
         record["name"] = name as CKRecordValue
         record["createdBy"] = createdBy.recordName as CKRecordValue
         record["createdAt"] = createdAt as CKRecordValue
-        record["inviteCode"] = inviteCode as CKRecordValue
         record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
         return record
     }
 
     init(name: String,
          createdBy: CKRecord.ID,
-         inviteCode: String,
          payoutPolicy: PayoutPolicy = .perQuest,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
@@ -72,7 +63,6 @@ struct Family: Identifiable, Equatable, Sendable {
         self.name = name
         self.createdBy = createdBy
         createdAt = Date()
-        self.inviteCode = inviteCode
         self.payoutPolicy = payoutPolicy
     }
 }

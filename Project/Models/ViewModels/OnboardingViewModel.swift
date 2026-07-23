@@ -26,7 +26,7 @@ final class OnboardingViewModel {
 
     var avatarPresetID: String?
 
-    var familyCode: String = ""
+    var shareURLString: String = ""
 
     var familyName: String = ""
 
@@ -151,61 +151,8 @@ final class OnboardingViewModel {
         isLoading = false
     }
 
-    func joinFamilyWithCode() async {
-        let code = familyCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !code.isEmpty else {
-            error = "Enter your invite code to join the quest."
-            return
-        }
-        guard let avatarClass else {
-            error = "Choose a character class first."
-            return
-        }
-        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            error = "Pick a hero name before joining your party."
-            return
-        }
-
-        isLoading = true
-        error = nil
-
-        let presetID = avatarPresetID ?? "\(avatarClass.presetPrefix)_01"
-        let heroProfile = await Profile(
-            displayName: trimmedName,
-            avatarClass: avatarClass,
-            avatarPresetID: presetID,
-            role: .hero,
-            iCloudUserID: iCloudUserID(),
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
-                                       action: .none)
-        )
-
-        do {
-            let result = try await familyService.joinFamily(
-                code: code,
-                heroProfile: heroProfile
-            )
-            builtFamily = result.family
-            builtProfile = result.profile
-            push(.done)
-        } catch FamilyServiceError.invalidInviteCode {
-            error = "We couldn't find that invite code. Ask your Guild Master to send you a share link, or verify the code."
-        } catch let FamilyServiceError.joinFailed(message) {
-            error = message
-        } catch {
-            self.error = "Could not join the guild: \(error)"
-        }
-
-        isLoading = false
-    }
-
-    /// Joins a family via a CKShare link (opened from iMessage, AirDrop, etc.).
+    /// Joins a family via a CKShare link (opened from iMessage/AirDrop or pasted into the app).
     func joinFamilyViaShareLink() async {
-        guard let metadata = pendingShareMetadata else {
-            error = "No share invitation found."
-            return
-        }
         guard let avatarClass else {
             error = "Choose a character class first."
             return
@@ -218,6 +165,28 @@ final class OnboardingViewModel {
 
         isLoading = true
         error = nil
+
+        // 1. If user pasted a share URL string into the join field, resolve its metadata first
+        if pendingShareMetadata == nil {
+            let rawURL = shareURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let url = URL(string: rawURL) {
+                do {
+                    let container = CKContainer.default()
+                    let metadata = try await container.shareMetadata(for: url)
+                    self.pendingShareMetadata = metadata
+                } catch {
+                    isLoading = false
+                    self.error = "Could not open share invitation: \(error.localizedDescription)"
+                    return
+                }
+            }
+        }
+
+        guard let metadata = pendingShareMetadata else {
+            isLoading = false
+            error = "No share invitation found. Ask your Guild Master to send an invitation link."
+            return
+        }
 
         let presetID = avatarPresetID ?? "\(avatarClass.presetPrefix)_01"
         let heroProfile = await Profile(
@@ -272,7 +241,7 @@ final class OnboardingViewModel {
         displayName = ""
         avatarClass = nil
         avatarPresetID = nil
-        familyCode = ""
+        shareURLString = ""
         familyName = ""
         error = nil
         isLoading = false

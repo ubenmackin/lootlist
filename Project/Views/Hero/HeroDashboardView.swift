@@ -6,6 +6,7 @@ struct HeroDashboardView: View {
     @Environment(QuestService.self) private var questService
 
     @State private var viewModel: HeroDashboardViewModel?
+    @State private var showError = false
 
     var body: some View {
         NavigationStack {
@@ -42,13 +43,19 @@ struct HeroDashboardView: View {
                         .padding()
                 }
             }
-            .alert("Couldn't load quests", isPresented: .constant(viewModel?.loadError != nil)) {
+            .alert("Couldn't load quests", isPresented: $showError) {
                 Button("Retry") {
+                    showError = false
                     Task { await viewModel?.load() }
                 }
             } message: {
                 if let error = viewModel?.loadError {
                     Text(error)
+                }
+            }
+            .onChange(of: viewModel?.loadError) { _, newValue in
+                if newValue != nil {
+                    showError = true
                 }
             }
         }

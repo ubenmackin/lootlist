@@ -10,9 +10,9 @@ struct Achievement: Identifiable, Equatable, Sendable {
     var description: String
     var iconSystemName: String
 
-    var category: String
+    var category: AchievementCategory
 
-    var requirementType: String
+    var requirementType: AchievementRequirement
 
     var requirementValue: Int
 
@@ -40,12 +40,16 @@ struct Achievement: Identifiable, Equatable, Sendable {
         }
         self.iconSystemName = iconSystemName
 
-        guard let category = record["category"] as? String else {
+        guard let categoryRaw = record["category"] as? String,
+              let category = AchievementCategory(rawValue: categoryRaw)
+        else {
             throw CKDecodingError.missingField("category")
         }
         self.category = category
 
-        guard let requirementType = record["requirementType"] as? String else {
+        guard let requirementTypeRaw = record["requirementType"] as? String,
+              let requirementType = AchievementRequirement(rawValue: requirementTypeRaw)
+        else {
             throw CKDecodingError.missingField("requirementType")
         }
         self.requirementType = requirementType
@@ -66,8 +70,8 @@ struct Achievement: Identifiable, Equatable, Sendable {
         record["name"] = name as CKRecordValue
         record["description"] = description as CKRecordValue
         record["iconSystemName"] = iconSystemName as CKRecordValue
-        record["category"] = category as CKRecordValue
-        record["requirementType"] = requirementType as CKRecordValue
+        record["category"] = category.rawValue as CKRecordValue
+        record["requirementType"] = requirementType.rawValue as CKRecordValue
         record["requirementValue"] = requirementValue as CKRecordValue
         record["family"] = family as CKRecordValue
         return record
@@ -76,8 +80,8 @@ struct Achievement: Identifiable, Equatable, Sendable {
     init(name: String,
          description: String,
          iconSystemName: String,
-         category: String,
-         requirementType: String,
+         category: AchievementCategory,
+         requirementType: AchievementRequirement,
          requirementValue: Int,
          family: CKRecord.Reference,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
