@@ -166,23 +166,42 @@ final class CloudKitService {
             recordToSave = CKRecord(recordType: T.recordType, recordID: targetID)
         }
 
+        if T.recordType != Family.recordType {
+            if let familyRef = source["family"] as? CKRecord.Reference {
+                let parentID = CKRecord.ID(recordName: familyRef.recordID.recordName, zoneID: zone)
+                recordToSave.setParent(parentID)
+            } else if let parent = source.parent {
+                let parentID = CKRecord.ID(recordName: parent.recordID.recordName, zoneID: zone)
+                recordToSave.setParent(parentID)
+            }
+        }
+
         for key in source.allKeys() {
             recordToSave[key] = source[key]
         }
 
-        let saved: CKRecord = try await retrying {
-            try await withCheckedThrowingContinuation { continuation in
-                targetDB.save(recordToSave) { record, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else if let record {
-                        continuation.resume(returning: record)
-                    } else {
-                        continuation.resume(throwing: CKError(.internalError))
+        print("[CloudKitService] Saving \(T.recordType) (\(recordToSave.recordID.recordName)) in zone '\(zone.zoneName)' (owner: \(zone.ownerName)) using \(targetDB == sharedDatabase ? "sharedDatabase" : "privateDatabase"). Parent: '\(recordToSave.parent?.recordID.recordName ?? "none")'")
+
+        let saved: CKRecord
+        do {
+            saved = try await retrying {
+                try await withCheckedThrowingContinuation { continuation in
+                    targetDB.save(recordToSave) { record, error in
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else if let record {
+                            continuation.resume(returning: record)
+                        } else {
+                            continuation.resume(throwing: CKError(.internalError))
+                        }
                     }
                 }
             }
+        } catch {
+            print("[CloudKitService ERROR] Save failed for \(T.recordType) (\(recordToSave.recordID.recordName)): \(error)")
+            throw error
         }
+        print("[CloudKitService SUCCESS] Saved \(T.recordType) (\(saved.recordID.recordName))")
         return try T(record: saved)
     }
 
@@ -297,7 +316,7 @@ final class CloudKitService {
 
         let share = CKShare(rootRecord: serverRoot)
         share[CKShare.SystemFieldKey.title] = (serverRoot["name"] as? String) ?? "Family Guild"
-        share.publicPermission = .readOnly
+        share.publicPermission = .readWrite
 
         let operation = CKModifyRecordsOperation(
             recordsToSave: [serverRoot, share],
@@ -352,6 +371,11 @@ final class CloudKitService {
         }
     }
 
+    /// Discovers all custom private record zones in `privateCloudDatabase`.
+    func fetchPrivateZones() async throws -> [CKRecordZone] {
+        return try await privateDatabase.allRecordZones()
+    }
+
     /// Discovers all shared record zones available to the current user in
     /// `sharedCloudDatabase`. Used by Heroes to find the family zone after
     /// accepting a CKShare.
@@ -359,6 +383,24 @@ final class CloudKitService {
         let sharedDB = sharedDatabase
         return try await sharedDB.allRecordZones()
     }
+
+    /// Background task executing on app startup to retry deleting queued abandoned zone IDs.
+    func processAbandonedZonesQueue(appState: AppState) async {
+        let queuedNames = appState.abandonedZoneIDs
+        guard !queuedNames.isEmpty else { return }
+
+        for zoneName in queuedNames {
+            let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+            do {
+                try await deleteZone(zoneID)
+                appState.removeAbandonedZoneID(zoneName)
+                print("[CloudKitService] Successfully processed abandoned zone deletion: \(zoneName)")
+            } catch {
+                print("[CloudKitService] Retrying abandoned zone deletion failed for \(zoneName): \(error)")
+            }
+        }
+    }
+
 
     /// Fetches the CKShare URL for a given record zone. Used by Guild Masters
     /// to retrieve the invitation link after creating a family.

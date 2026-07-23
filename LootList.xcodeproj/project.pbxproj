@@ -47,6 +47,7 @@
 		5D0377D38CABC77D7BA8F6F7 /* TemplateManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136948D3323E0410CAA49E77 /* TemplateManagerView.swift */; };
 		60447CF3B1E15722E78854EF /* LootListScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CDF1B3CCF6974CB463FB5D /* LootListScreenshotTests.swift */; };
 		60574BA049549FCEA283D291 /* UserRole.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */; };
+		641704316F5157C996DF3927 /* DetectedFamilyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEB5C30DB13E096ABEE814CB /* DetectedFamilyView.swift */; };
 		64790F88A96707750A7A15F7 /* PayoutHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29AFF3513D151637BD6AD3B /* PayoutHistoryView.swift */; };
 		6AE514A1E02D85D94775714F /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7532FFBC8B1222F10FB45792 /* ProfileView.swift */; };
 		6E6297E5BEA45D699F0EE442 /* HeroDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E814D2A43FF37F0A6AC51C5 /* HeroDashboardView.swift */; };
@@ -57,6 +58,7 @@
 		7D38D0587BF4B55AC123DA6A /* AvatarCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C889F94A727717C18C246E9 /* AvatarCardView.swift */; };
 		8086658AFA85024A20A41CD8 /* TrophyRoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DD14675841D99B77530615 /* TrophyRoomViewModel.swift */; };
 		87B64478DD7444CDC7BF1CA4 /* Calendar+ISO8601UTC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */; };
+		8BA26EB6C2E6425B81C827FC /* QuestRarity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */; };
 		8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8761871EDB01C4A39B494AA3 /* Profile.swift */; };
 		8EF7931F2B14AB2B90388AEE /* HeroDashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD29C5382B850C0B63C0A7B /* HeroDashboardUITests.swift */; };
 		8FD5277E5128A3A4B53EEE71 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50FD66FD0B8DE29E37DCA5DF /* WelcomeView.swift */; };
@@ -113,6 +115,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestRarity.swift; sourceTree = "<group>"; };
 		02DD14675841D99B77530615 /* TrophyRoomViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyRoomViewModel.swift; sourceTree = "<group>"; };
 		0592C7CCBECA2855AC8E55B2 /* FamilyDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardViewModel.swift; sourceTree = "<group>"; };
 		06C3E6FC5C9D55197733AA29 /* TrophyRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyRoomView.swift; sourceTree = "<group>"; };
@@ -203,6 +206,7 @@
 		F1FB498C2B1F81977F3C8815 /* NumberFormatter+Gold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NumberFormatter+Gold.swift"; sourceTree = "<group>"; };
 		F9CDF1B3CCF6974CB463FB5D /* LootListScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListScreenshotTests.swift; sourceTree = "<group>"; };
 		FC4F63E61875E6DDD28AEE9E /* TreasuryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryView.swift; sourceTree = "<group>"; };
+		FEB5C30DB13E096ABEE814CB /* DetectedFamilyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetectedFamilyView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -232,6 +236,7 @@
 				11F43417D2F508F010B5411F /* NotificationEventType.swift */,
 				CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */,
 				E12CEF7F5C434D5B4F157574 /* PayoutStatus.swift */,
+				009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */,
 				CBA7C096148F8E1833CF1123 /* QuestSchedule.swift */,
 				B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */,
 				6333B737C7E26ABA1AFF02EE /* VerificationStatus.swift */,
@@ -290,6 +295,7 @@
 			isa = PBXGroup;
 			children = (
 				8927C4361B88112B84836480 /* AvatarSelectionView.swift */,
+				FEB5C30DB13E096ABEE814CB /* DetectedFamilyView.swift */,
 				B0EC02D94FB514895BF66713 /* FamilyCreationView.swift */,
 				6030F1A54F52EBA1F3AB0AF2 /* FamilyJoinView.swift */,
 				2070A5A9F8D00A4EC005F1E5 /* RoleSelectionView.swift */,
@@ -629,6 +635,7 @@
 				F393DAB542CFB599BEC298C4 /* CloudKitRecord.swift in Sources */,
 				F0C89F0E52740773FEE220D3 /* CloudKitService.swift in Sources */,
 				B69F5345E5386A7FB6295403 /* ColorExtensions.swift in Sources */,
+				641704316F5157C996DF3927 /* DetectedFamilyView.swift in Sources */,
 				10706C96ABEA5F8503744895 /* Family.swift in Sources */,
 				3528655C56EF09ADBE7C4CF0 /* FamilyCreationView.swift in Sources */,
 				3D15240BE2A19C5E6BE4BC6C /* FamilyDashboardView.swift in Sources */,
@@ -664,6 +671,7 @@
 				32BB82C61525B08CCC155A1E /* QuestDetailView.swift in Sources */,
 				2B30CA9F75994E6D1379D071 /* QuestManagerView.swift in Sources */,
 				DA5FCFBBA3499702B942474F /* QuestManagerViewModel.swift in Sources */,
+				8BA26EB6C2E6425B81C827FC /* QuestRarity.swift in Sources */,
 				C9E264505C385A58F4EDA4C2 /* QuestSchedule.swift in Sources */,
 				4DE4E9257E98EBD2264C991C /* QuestService.swift in Sources */,
 				0BBF4169B3F99A3EECF56BF2 /* QuestTemplate.swift in Sources */,

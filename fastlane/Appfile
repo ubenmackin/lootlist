@@ -2,6 +2,7 @@
 # https://docs.fastlane.tools/advanced/#appfile
 
 app_identifier("com.volcrypt.lootlist")
-apple_id(ENV["FASTLANE_USER"] || "bmackin@mac.com")
+# Set FASTLANE_USER env var with the Apple ID used for App Store Connect.
+apple_id(ENV["FASTLANE_USER"])
 itc_team_id(ENV["FASTLANE_ITC_TEAM_ID"] || "")
 team_id(ENV["FASTLANE_TEAM_ID"] || "")

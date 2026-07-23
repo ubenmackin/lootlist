@@ -45,12 +45,17 @@ struct QuestDetailView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(template?.name ?? "Quest")
+        let titleText = quest.displayName == "Quest" ? (template?.name ?? "Quest") : quest.displayName
+        let descText = quest.displayDescription.isEmpty ? (template?.description ?? "") : quest.displayDescription
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(titleText)
                 .font(.title2.bold())
-            Text(template?.description ?? "")
-                .font(.body)
-                .foregroundStyle(.secondary)
+            if !descText.isEmpty {
+                Text(descText)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
@@ -63,11 +68,11 @@ struct QuestDetailView: View {
     private var rewardsCard: some View {
         HStack(spacing: 18) {
             rewardPill(icon: "dollarsign.circle.fill",
-                       label: String(format: "%.2f", quest.goldReward),
+                       label: String(format: "%.2f Gold", quest.goldReward),
                        tint: .yellow)
-            rewardPill(icon: "star.fill",
-                       label: "\(quest.xpReward) XP",
-                       tint: .purple)
+            rewardPill(icon: quest.rarity.iconSystemName,
+                       label: "\(quest.rarity.rawValue) (\(quest.xpReward) XP)",
+                       tint: quest.rarity.color)
             Spacer()
         }
         .padding(16)

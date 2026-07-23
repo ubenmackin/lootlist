@@ -11,7 +11,7 @@ struct TemplateManagerView: View {
     @State private var name: String = ""
     @State private var descriptionText: String = ""
     @State private var defaultGoldText: String = ""
-    @State private var xpRewardText: String = ""
+    @State private var selectedRarity: QuestRarity = .common
     @State private var schedule: QuestSchedule = .weeklyFlexible
     @State private var specificDays: Set<String> = []
     @State private var isAllOrNothing: Bool = false
@@ -48,13 +48,46 @@ struct TemplateManagerView: View {
                             .frame(width: 80)
                     }
 
-                    HStack {
-                        Text("XP Reward")
-                        Spacer()
-                        TextField("50", text: $xpRewardText)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Quest Rarity & XP")
+                                .font(.subheadline)
+                            Spacer()
+                            Text("\(selectedRarity.xpReward) XP")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(selectedRarity.color)
+                        }
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(QuestRarity.allCases) { rarity in
+                                    let isSelected = selectedRarity == rarity
+                                    Button {
+                                        selectedRarity = rarity
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: rarity.iconSystemName)
+                                                .font(.caption)
+                                            Text("\(rarity.rawValue) (\(rarity.xpReward) XP)")
+                                                .font(.caption.weight(.semibold))
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(
+                                            Capsule()
+                                                .fill(isSelected ? rarity.color : rarity.color.opacity(0.12))
+                                        )
+                                        .foregroundStyle(isSelected ? Color.white : rarity.color)
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(rarity.color.opacity(0.4), lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
                     }
                 }
 
@@ -79,13 +112,6 @@ struct TemplateManagerView: View {
                                 }
                             ))
                         }
-                    }
-
-                    Toggle("Require 100% Completion for Reward", isOn: $isAllOrNothing)
-                    if isAllOrNothing {
-                        Text("Hero must complete every scheduled instance to earn the gold reward.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -132,7 +158,7 @@ struct TemplateManagerView: View {
         name = editing.name
         descriptionText = editing.description
         defaultGoldText = String(format: "%.2f", editing.defaultGold)
-        xpRewardText = String(editing.xpReward)
+        selectedRarity = editing.rarity
         schedule = editing.scheduleType
         specificDays = Set(editing.specificDays)
         isAllOrNothing = editing.isAllOrNothing
@@ -151,12 +177,7 @@ struct TemplateManagerView: View {
             validationError = "Gold must be a non-negative number."
             return
         }
-        guard let xp = Int(xpRewardText.trimmingCharacters(in: .whitespaces)),
-              xp >= 0
-        else {
-            validationError = "XP must be a non-negative integer."
-            return
-        }
+        let xp = selectedRarity.xpReward
         if schedule == .specificDays, specificDays.isEmpty {
             validationError = "Pick at least one day for Specific-Days schedule."
             return

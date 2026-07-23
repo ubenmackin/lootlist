@@ -43,4 +43,15 @@ struct HeroDashboardViewModelTests {
         #expect(viewModel.earnedThisWeek == 0)
         #expect(viewModel.availableTemplatesCount == 0)
     }
+
+    @Test("Sunday-Saturday week days calculation")
+    func testCurrentWeekDays() {
+        let weekDays = HeroDashboardViewModel.currentWeekDays()
+        #expect(weekDays.count == 7)
+        #expect(weekDays.first?.weekdayCode == "sunday")
+        #expect(weekDays.first?.shortName == "Sun")
+        #expect(weekDays.last?.weekdayCode == "saturday")
+        #expect(weekDays.last?.shortName == "Sat")
+        #expect(weekDays.contains(where: { $0.isToday }))
+    }
 }

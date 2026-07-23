@@ -17,7 +17,7 @@ struct QuestCardView: View {
                 )
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Quest \(templateNameGuess)")
+                Text(quest.displayName)
                     .font(.headline)
                 HStack(spacing: 10) {
                     Label(String(format: "%.2f", quest.goldReward), systemImage: "dollarsign.circle.fill")
@@ -25,10 +25,10 @@ struct QuestCardView: View {
                         .font(.subheadline)
                         .foregroundStyle(.yellow)
 
-                    Label("\(quest.xpReward) XP", systemImage: "star.fill")
+                    Label("\(quest.rarity.rawValue) · \(quest.xpReward) XP", systemImage: quest.rarity.iconSystemName)
                         .labelStyle(.titleAndIcon)
                         .font(.subheadline)
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(quest.rarity.color)
 
                     if quest.approvalMode == .parentVerify {
                         Text("Parent Verifies")

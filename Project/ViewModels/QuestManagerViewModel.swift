@@ -60,7 +60,7 @@ final class QuestManagerViewModel {
         else {
             throw QuestServiceError.missingSession
         }
-        _ = try await questService.createTemplate(
+        let created = try await questService.createTemplate(
             name: name,
             description: description,
             defaultGold: defaultGold,
@@ -73,31 +73,50 @@ final class QuestManagerViewModel {
             family: family
         )
 
-        if let family = appState.family {
-            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
+        // Optimistically add to templates immediately
+        templates.append(created)
+        templates.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        if let fetched = try? await questService.fetchTemplates(family: family) {
+            templates = fetched
         }
     }
 
     func updateTemplate(_ template: QuestTemplate) async throws {
-        _ = try await questService.updateTemplate(template)
-        if let family = appState.family {
-            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
+        let saved = try await questService.updateTemplate(template)
+        if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
+            templates[idx] = saved
+        }
+        if let family = appState.family,
+           let fetched = try? await questService.fetchTemplates(family: family)
+        {
+            templates = fetched
         }
     }
 
     func deactivateTemplate(_ template: QuestTemplate) async throws {
-        _ = try await questService.deactivateTemplate(template)
-        if let family = appState.family {
-            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
+        let saved = try await questService.deactivateTemplate(template)
+        if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
+            templates[idx] = saved
+        }
+        if let family = appState.family,
+           let fetched = try? await questService.fetchTemplates(family: family)
+        {
+            templates = fetched
         }
     }
 
     func reactivateTemplate(_ template: QuestTemplate) async throws {
         var active = template
         active.isActive = true
-        _ = try await questService.updateTemplate(active)
-        if let family = appState.family {
-            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
+        let saved = try await questService.updateTemplate(active)
+        if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
+            templates[idx] = saved
+        }
+        if let family = appState.family,
+           let fetched = try? await questService.fetchTemplates(family: family)
+        {
+            templates = fetched
         }
     }
 
@@ -113,7 +132,7 @@ final class QuestManagerViewModel {
         else {
             throw QuestServiceError.missingSession
         }
-        _ = try await questService.assignQuest(
+        let created = try await questService.assignQuest(
             template: template,
             assignee: assignee,
             goldOverride: goldOverride,
@@ -123,10 +142,51 @@ final class QuestManagerViewModel {
             createdBy: parent,
             family: family
         )
-        if let family = appState.family {
-            activeAssignments = await (try? questService.fetchQuestsForFamilyWeek(
-                family: family, weekOf: weekOf
-            )) ?? activeAssignments
+
+        // Optimistically add assignment
+        activeAssignments.removeAll { $0.id == created.id }
+        activeAssignments.append(created)
+
+        if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: weekOf) {
+            activeAssignments = fetched
+        }
+    }
+
+    func assignQuickQuest(name: String,
+                          description: String,
+                          assignee: Profile,
+                          goldReward: Double,
+                          xpReward: Int,
+                          scheduleType: QuestSchedule,
+                          specificDays: [String],
+                          approvalMode: ApprovalMode,
+                          weekOf: Date) async throws
+    {
+        guard let parent = appState.currentProfile,
+              let family = appState.family
+        else {
+            throw QuestServiceError.missingSession
+        }
+        let created = try await questService.assignQuickQuest(
+            name: name,
+            description: description,
+            assignee: assignee,
+            goldReward: goldReward,
+            xpReward: xpReward,
+            scheduleType: scheduleType,
+            specificDays: specificDays,
+            approvalMode: approvalMode,
+            weekOf: weekOf,
+            createdBy: parent,
+            family: family
+        )
+
+        // Optimistically add assignment
+        activeAssignments.removeAll { $0.id == created.id }
+        activeAssignments.append(created)
+
+        if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: weekOf) {
+            activeAssignments = fetched
         }
     }
 

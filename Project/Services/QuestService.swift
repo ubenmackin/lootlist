@@ -106,7 +106,9 @@ final class QuestService {
             approvalMode: approvalOverride ?? template.approvalMode,
             weekOf: normalizedWeek,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
-            family: CKRecord.Reference(recordID: family.id, action: .none)
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            name: template.name,
+            descriptionText: template.description
         )
         let saved = try await cloudKit.save(quest)
         if let notificationService {
@@ -116,6 +118,62 @@ final class QuestService {
                     to: assignee,
                     title: "⚔️ New Quest Assigned!",
                     body: "You have been assigned '\(template.name)'."
+                )
+            }
+        }
+        return saved
+    }
+
+    @discardableResult
+    func assignQuickQuest(name: String,
+                          description: String = "",
+                          assignee: Profile,
+                          goldReward: Double,
+                          xpReward: Int,
+                          scheduleType: QuestSchedule = .weeklyFlexible,
+                          specificDays: [String] = [],
+                          approvalMode: ApprovalMode = .autoApprove,
+                          weekOf: Date,
+                          createdBy: Profile,
+                          family: Family) async throws -> Quest
+    {
+        // Generate ad-hoc inactive template so it doesn't clutter routine template list
+        let adhocTemplate = try await createTemplate(
+            name: name,
+            description: description,
+            defaultGold: goldReward,
+            xpReward: xpReward,
+            schedule: scheduleType,
+            specificDays: specificDays,
+            approvalMode: approvalMode,
+            createdBy: createdBy,
+            family: family
+        )
+        _ = try await deactivateTemplate(adhocTemplate)
+
+        let normalizedWeek = startOfWeek(for: weekOf)
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: adhocTemplate.id, action: .none),
+            assignee: CKRecord.Reference(recordID: assignee.id, action: .none),
+            goldReward: goldReward,
+            xpReward: xpReward,
+            scheduleType: scheduleType,
+            isAllOrNothing: false,
+            approvalMode: approvalMode,
+            weekOf: normalizedWeek,
+            createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            name: name,
+            descriptionText: description
+        )
+        let saved = try await cloudKit.save(quest)
+        if let notificationService {
+            Task { @Sendable in
+                try? await notificationService.send(
+                    .questAssigned,
+                    to: assignee,
+                    title: "⚔️ New Quest Assigned!",
+                    body: "You have been assigned '\(name)'."
                 )
             }
         }
