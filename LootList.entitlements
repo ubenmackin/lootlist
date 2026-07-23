@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
-		<string>iCloud.com.lootlist.app</string>
+		<string>iCloud.com.volcrypt.lootlist</string>
 	</array>
 	<key>com.apple.developer.icloud-services</key>
 	<array>

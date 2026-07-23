@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct FamilyJoinView: View {
-
     @Bindable var viewModel: OnboardingViewModel
 
     var body: some View {
@@ -16,7 +15,6 @@ struct FamilyJoinView: View {
                     .foregroundStyle(.primary)
 
                 TextField("ABCDE123", text: $viewModel.familyCode)
-
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
@@ -26,7 +24,8 @@ struct FamilyJoinView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
-                            .strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                            .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                    )
                     .accessibilityIdentifier("joinFamily.codeField")
 
                 Text("Ask your Guild Master for the 6-character code.")
@@ -56,7 +55,9 @@ struct FamilyJoinView: View {
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.blue.opacity(0.15)],
-                startPoint: .top, endPoint: .bottom))
+                startPoint: .top, endPoint: .bottom
+            )
+        )
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -76,7 +77,9 @@ struct FamilyJoinView: View {
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.blue, .purple],
-                        startPoint: .top, endPoint: .bottom))
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
             Text("Join Your Party")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
             Text("Heroes partake in quests to earn gold and glory.")

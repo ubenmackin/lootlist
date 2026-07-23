@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct TabBarView: View {
-
     @Environment(AppState.self) private var appState
     @Environment(AvatarService.self) private var avatarService
     @Environment(XPService.self) private var xpService
@@ -22,7 +21,6 @@ struct TabBarView: View {
             case .parent:
                 parentTabs
             case .hero:
-
                 heroTabs
             case .unknown:
                 emptyState
@@ -52,7 +50,6 @@ struct TabBarView: View {
                 selectedTab = .quests
             }
         case .unknown:
-
             if selectedTab != .placeholder {
                 selectedTab = .placeholder
             }
@@ -73,7 +70,13 @@ struct TabBarView: View {
             }
             .tag(RootTab.manage)
 
-        GuildSettingsView()
+        PayoutHistoryView()
+            .tabItem {
+                Label("Payouts", systemImage: "calendar.badge.checkmark")
+            }
+            .tag(RootTab.payouts)
+
+        SettingsView()
             .tabItem {
                 Label("Settings", systemImage: "gear")
             }
@@ -101,8 +104,8 @@ struct TabBarView: View {
             .tag(RootTab.trophies)
 
         ProfileView(avatarService: avatarService,
-                     xpService: xpService,
-                     notificationService: notificationService)
+                    xpService: xpService,
+                    notificationService: notificationService)
             .tabItem {
                 Label("Profile", systemImage: "person.crop.circle.fill")
             }
@@ -127,9 +130,9 @@ struct TabBarView: View {
 }
 
 private enum RootTab: Hashable {
-
     case family
     case manage
+    case payouts
     case settings
 
     case quests
@@ -139,7 +142,7 @@ private enum RootTab: Hashable {
 
     case placeholder
 
-    static let parentTabs: Set<RootTab> = [.family, .manage, .settings]
+    static let parentTabs: Set<RootTab> = [.family, .manage, .payouts, .settings]
 
     static let heroTabs: Set<RootTab> = [.quests, .gold, .trophies, .profile]
 }

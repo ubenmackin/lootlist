@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct RoleSelectionView: View {
-
     @Bindable var viewModel: OnboardingViewModel
 
     var body: some View {
@@ -9,7 +8,7 @@ struct RoleSelectionView: View {
             VStack(spacing: 8) {
                 Text("Choose Your Path")
                     .font(.system(size: 32, weight: .heavy,
-                                    design: .rounded))
+                                  design: .rounded))
                 Text("Are you the master of a guild, or a brave hero?")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -24,14 +23,16 @@ struct RoleSelectionView: View {
                     title: "I'm a Parent",
                     subtitle: "Found the family & become the Guild Master.",
                     icon: "crown.fill",
-                    gradient: [.orange, .yellow])
+                    gradient: [.orange, .yellow]
+                )
 
                 roleCard(
                     role: .hero,
                     title: "I'm a Hero",
                     subtitle: "Join an existing guild to slay quests for gold.",
                     icon: "figure.and.child.holdinghands",
-                    gradient: [.blue, .purple])
+                    gradient: [.blue, .purple]
+                )
             }
             .padding(.horizontal, 24)
 
@@ -41,7 +42,9 @@ struct RoleSelectionView: View {
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.purple.opacity(0.1)],
-                startPoint: .top, endPoint: .bottom))
+                startPoint: .top, endPoint: .bottom
+            )
+        )
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -54,12 +57,12 @@ struct RoleSelectionView: View {
         }
     }
 
-    @ViewBuilder
     private func roleCard(role: UserRole,
-                            title: String,
-                            subtitle: String,
-                            icon: String,
-                            gradient: [Color]) -> some View {
+                          title: String,
+                          subtitle: String,
+                          icon: String,
+                          gradient: [Color]) -> some View
+    {
         Button {
             viewModel.selectedRole = role
             viewModel.advanceFromRoleSelection()
@@ -73,7 +76,9 @@ struct RoleSelectionView: View {
                         LinearGradient(
                             colors: gradient,
                             startPoint: .topLeading,
-                            endPoint: .bottomTrailing))
+                            endPoint: .bottomTrailing
+                        )
+                    )
                     .clipShape(RoundedRectangle(cornerRadius: 18))
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -94,7 +99,8 @@ struct RoleSelectionView: View {
             .clipShape(RoundedRectangle(cornerRadius: 22))
             .overlay(
                 RoundedRectangle(cornerRadius: 22)
-                    .strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                    .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("role.\(role.rawValue)")

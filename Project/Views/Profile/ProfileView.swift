@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct ProfileView: View {
-
     private let avatarService: AvatarService
 
     private let xpService: XPService
@@ -18,8 +17,9 @@ struct ProfileView: View {
     @State private var showingSignOutConfirm: Bool = false
 
     init(avatarService: AvatarService,
-          xpService: XPService,
-          notificationService: NotificationService) {
+         xpService: XPService,
+         notificationService: NotificationService)
+    {
         self.avatarService = avatarService
         self.xpService = xpService
         self.notificationService = notificationService
@@ -114,7 +114,6 @@ struct ProfileView: View {
         .padding(.top, 4)
     }
 
-    @ViewBuilder
     private func nameBlock(profile: Profile, spec: AvatarRenderSpec) -> some View {
         VStack(spacing: 4) {
             Text(profile.displayName)
@@ -132,8 +131,7 @@ struct ProfileView: View {
         }
     }
 
-    @ViewBuilder
-    private func levelBadge(profile: Profile, spec: AvatarRenderSpec) -> some View {
+    private func levelBadge(profile: Profile, spec _: AvatarRenderSpec) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "number")
                 .font(.caption.weight(.bold))
@@ -155,7 +153,7 @@ struct ProfileView: View {
         )
     }
 
-    private func xpBlock(profile: Profile, progress: LevelProgress) -> some View {
+    private func xpBlock(profile _: Profile, progress: LevelProgress) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Experience")
@@ -182,7 +180,6 @@ struct ProfileView: View {
         )
     }
 
-    @ViewBuilder
     private func actionsSection(profile: Profile) -> some View {
         VStack(spacing: 0) {
             NavigationLink {
@@ -253,9 +250,10 @@ struct ProfileView: View {
     }
 
     private func actionRow(icon: String,
-                            title: String,
-                            subtitle: String,
-                            tint: Color = .accentColor) -> some View {
+                           title: String,
+                           subtitle: String,
+                           tint: Color = .accentColor) -> some View
+    {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
@@ -286,11 +284,11 @@ struct ProfileView: View {
 
     private var aboutSection: some View {
         VStack(spacing: 0) {
-            aboutRow(label: "Version",      value: appVersion)
+            aboutRow(label: "Version", value: appVersion)
             Divider().padding(.leading, 56)
-            aboutRow(label: "Build",        value: buildNumber)
+            aboutRow(label: "Build", value: buildNumber)
             Divider().padding(.leading, 56)
-            aboutRow(label: "Loot List",     value: "Family chore tracker · RPG mode")
+            aboutRow(label: "Loot List", value: "Family chore tracker · RPG mode")
         }
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -314,13 +312,13 @@ struct ProfileView: View {
     }
 
     private var appVersion: String {
-        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        return v.map { "v\($0)" } ?? "v1.0"
+        let versionString = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        return versionString.map { "v\($0)" } ?? "v1.0"
     }
 
     private var buildNumber: String {
-        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-        return b ?? "1"
+        let buildString = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        return buildString ?? "1"
     }
 
     private var emptyState: some View {
@@ -339,8 +337,7 @@ struct ProfileView: View {
         .padding(.top, 60)
     }
 
-    @ViewBuilder
-    private func editNameSheet(profile: Profile) -> some View {
+    private func editNameSheet(profile _: Profile) -> some View {
         NavigationStack {
             Form {
                 Section("Character Name") {

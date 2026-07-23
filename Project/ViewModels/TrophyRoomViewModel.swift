@@ -1,13 +1,13 @@
-import Foundation
 import CloudKit
+import Foundation
 
 @MainActor
 @Observable
 final class TrophyRoomViewModel {
-
     init(achievementService: AchievementService,
          xpService: XPService,
-         appState: AppState) {
+         appState: AppState)
+    {
         self.achievementService = achievementService
         self.xpService = xpService
         self.appState = appState
@@ -21,15 +21,18 @@ final class TrophyRoomViewModel {
 
     private(set) var allAchievements: [Achievement] = []
 
-    private(set) var avatarCard: AvatarCardModel? = nil
+    private(set) var avatarCard: AvatarCardModel?
 
-    private(set) var lastError: String? = nil
+    private(set) var lastError: String?
 
-    var earnedIDs: Set<CKRecord.ID> { Set(earned.map { $0.achievement.recordID }) }
+    var earnedIDs: Set<CKRecord.ID> {
+        Set(earned.map(\.achievement.recordID))
+    }
 
     func refresh() async {
         guard let profile = appState.currentProfile,
-              let family = appState.family else {
+              let family = appState.family
+        else {
             earned = []
             allAchievements = []
             avatarCard = nil
@@ -37,15 +40,14 @@ final class TrophyRoomViewModel {
         }
 
         do {
-
             let earnedRows = try await achievementService.fetchEarned(profile: profile)
             let defs = try await achievementService.fetchAllDefinitions(family: family)
-            self.earned = earnedRows
-            self.allAchievements = defs
-            self.avatarCard = makeAvatarCard(profile: profile)
-            self.lastError = nil
+            earned = earnedRows
+            allAchievements = defs
+            avatarCard = makeAvatarCard(profile: profile)
+            lastError = nil
         } catch {
-            self.lastError = "\(error)"
+            lastError = "\(error)"
         }
     }
 
@@ -65,7 +67,6 @@ final class TrophyRoomViewModel {
 }
 
 struct AvatarCardModel: Equatable, Sendable {
-
     let displayName: String
     let avatarClass: AvatarClass
     let title: String

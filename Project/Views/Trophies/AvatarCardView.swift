@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct AvatarCardView: View {
-
     let model: AvatarCardModel
 
     var body: some View {
@@ -39,7 +38,6 @@ struct AvatarCardView: View {
         )
     }
 
-    @ViewBuilder
     private var content: some View {
         VStack(spacing: 16) {
             avatarSymbol
@@ -103,7 +101,7 @@ struct AvatarCardView: View {
         .padding(.vertical, 6)
         .background(
             Capsule().fill(Color.white.opacity(0.18))
-                    .overlay(Capsule().strokeBorder(Color.gold.opacity(0.7), lineWidth: 1))
+                .overlay(Capsule().strokeBorder(Color.gold.opacity(0.7), lineWidth: 1))
         )
     }
 
@@ -149,8 +147,7 @@ struct AvatarCardView: View {
             ? ", \(accessoryCount) accessories"
             : ""
         return "\(model.displayName), \(model.title), level \(model.level)" +
-               ", \(Int(model.progress * 100))% to next level" +
-               accessoryText
+            ", \(Int(model.progress * 100))% to next level" +
+            accessoryText
     }
 }
-

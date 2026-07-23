@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct GuildSettingsView: View {
-
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(TreasuryService.self) private var treasury
@@ -18,6 +17,7 @@ struct GuildSettingsView: View {
     @State private var showShareSheet: Bool = false
 
     @State private var showRoleTransferConfirm: Profile?
+    @State private var memberToKick: Profile?
     @State private var showDisbandConfirm: Bool = false
     @State private var showDisbandFinalConfirm: Bool = false
     @State private var showLeaveConfirm: Bool = false
@@ -50,31 +50,27 @@ struct GuildSettingsView: View {
                     )
                 }
                 await viewModel?.refresh()
-                if let family = appState.family, draftFamilyName.isEmpty {
-                    draftFamilyName = family.name
-                }
             }
             .sheet(isPresented: $showShareSheet) {
                 if let family = appState.family {
                     ShareSheet(items: [shareInviteText(for: family)])
                 }
             }
-            .alert("Transfer Guild Master?",
+            .alert("Transfer Guild Master Role?",
                    isPresented: Binding(
                        get: { showRoleTransferConfirm != nil },
                        set: { if !$0 { showRoleTransferConfirm = nil } }
-                   )) {
-                Button("Transfer", role: .destructive) {
-                    if let candidate = showRoleTransferConfirm {
-                        Task { await confirmTransferGuildMaster(to: candidate) }
+                   ))
+            {
+                if let target = showRoleTransferConfirm {
+                    Button("Transfer Ownership", role: .destructive) {
+                        Task { await confirmTransferGuildMaster(to: target) }
                     }
-                }
-                Button("Cancel", role: .cancel) {
-                    showRoleTransferConfirm = nil
+                    Button("Cancel", role: .cancel) {}
                 }
             } message: {
-                if let candidate = showRoleTransferConfirm {
-                    Text("Hand the Guild Master title to \(candidate.displayName)? You will become a Ranger.")
+                if let target = showRoleTransferConfirm {
+                    Text("\(target.displayName) will become the Guild Master. You will become a Ranger.")
                 }
             }
         }
@@ -84,10 +80,13 @@ struct GuildSettingsView: View {
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         familyNameSection(vm: vm)
         inviteCodeSection
+        payoutPolicySection
         membersSection(vm: vm)
-        leaveFamilySection
+        if let currentRole = appState.currentProfile?.role, currentRole != .guildMaster {
+            leaveFamilySection
+        }
         if let currentRole = appState.currentProfile?.role, currentRole == .guildMaster {
-            disbandFamilySection
+            deleteFamilySection
         }
         if let error = actionError {
             Text(error)
@@ -96,15 +95,17 @@ struct GuildSettingsView: View {
                 .padding(.horizontal)
         }
     }
+}
 
-    private func familyNameSection(vm: FamilyDashboardViewModel) -> some View {
+private extension GuildSettingsView {
+    private func familyNameSection(vm _: FamilyDashboardViewModel) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: "house.fill")
                     .foregroundStyle(.tint)
                 if isEditingFamilyName {
                     TextField("Family name",
-                                text: $draftFamilyName)
+                              text: $draftFamilyName)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("settings.familyNameField")
                 } else {
@@ -138,16 +139,14 @@ struct GuildSettingsView: View {
     @MainActor
     private func saveFamilyName() async {
         guard let family = appState.family else { return }
-        let trimmed = draftFamilyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = draftFamilyName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
-            actionError = "Family name cannot be empty."
             isEditingFamilyName = false
             return
         }
         var updated = family
         updated.name = trimmed
         do {
-
             let saved = try await questService.cloudKitReference.save(updated)
             appState.family = saved
             isEditingFamilyName = false
@@ -168,17 +167,12 @@ struct GuildSettingsView: View {
                 }
                 Spacer()
                 Button {
-                    UIPasteboard.general.string = appState.family?.inviteCode ?? ""
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
-                        if UIPasteboard.general.string == appState.family?.inviteCode {
-                            UIPasteboard.general.string = nil
-                        }
-                    }
+                    let code = appState.family?.inviteCode ?? ""
+                    UIPasteboard.general.setItems(
+                        [[UIPasteboard.typeAutomatic: code]],
+                        options: [.expirationDate: Date().addingTimeInterval(30), .localOnly: true]
+                    )
                     showCopiedToast = true
-                    Task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        await MainActor.run { showCopiedToast = false }
-                    }
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
                         .font(.caption.weight(.semibold))
@@ -212,7 +206,7 @@ struct GuildSettingsView: View {
                     Task { await regenerateInviteCode() }
                 } label: {
                     Label("Regenerate Invite Code",
-                            systemImage: "arrow.clockwise.circle")
+                          systemImage: "arrow.clockwise.circle")
                         .font(.subheadline)
                 }
                 .padding(.horizontal, 14)
@@ -223,6 +217,94 @@ struct GuildSettingsView: View {
         .background(cardBackground)
         .padding(.horizontal)
         .animation(.easeInOut(duration: 0.25), value: showCopiedToast)
+        .task(id: showCopiedToast) {
+            if showCopiedToast {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                showCopiedToast = false
+            }
+        }
+    }
+
+    private var payoutPolicySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Weekly Allowance Payout Rule")
+                .font(.headline)
+
+            VStack(spacing: 10) {
+                payoutPolicyOptionRow(
+                    policy: .perQuest,
+                    title: "Pay Per Quest (Standard)",
+                    description: "Heroes earn gold for every individual quest they complete each week."
+                )
+
+                payoutPolicyOptionRow(
+                    policy: .allOrNothing,
+                    title: "All-or-Nothing (Strict 100%)",
+                    description: "Heroes must complete 100% of their assigned quests for the week to receive their Sunday allowance payout. Tracked independently per hero."
+                )
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private func payoutPolicyOptionRow(policy: PayoutPolicy,
+                                       title: String,
+                                       description: String) -> some View
+    {
+        let isSelected = (appState.family?.payoutPolicy ?? .perQuest) == policy
+        return Button {
+            if !isSelected {
+                Task { await updatePayoutPolicy(policy) }
+            }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.primary)
+
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .background(cardBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.8) : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @MainActor
+    private func updatePayoutPolicy(_ newPolicy: PayoutPolicy) async {
+        guard var family = appState.family else { return }
+        let previousPolicy = family.payoutPolicy
+        guard previousPolicy != newPolicy else { return }
+
+        // Optimistically update local state immediately (0ms UI lag)
+        family.payoutPolicy = newPolicy
+        appState.family = family
+
+        do {
+            let saved = try await questService.cloudKitReference.save(family)
+            appState.family = saved
+            actionError = nil
+        } catch {
+            appState.family?.payoutPolicy = previousPolicy
+            actionError = "Could not update payout policy: \(error)"
+        }
     }
 
     @MainActor
@@ -270,6 +352,19 @@ struct GuildSettingsView: View {
             }
             .background(cardBackground)
             .padding(.horizontal)
+            .alert("Remove \(memberToKick?.displayName ?? "Member")?", isPresented: Binding(
+                get: { memberToKick != nil },
+                set: { if !$0 { memberToKick = nil } }
+            )) {
+                Button("Remove", role: .destructive) {
+                    if let member = memberToKick {
+                        Task { await kickMember(member) }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This member will lose access to all guild quests, loot history, and weekly allowances.")
+            }
         }
     }
 
@@ -299,7 +394,7 @@ struct GuildSettingsView: View {
     }
 
     @ViewBuilder
-    private func roleManagementMenu(_ member: Profile, vm: FamilyDashboardViewModel) -> some View {
+    private func roleManagementMenu(_ member: Profile, vm _: FamilyDashboardViewModel) -> some View {
         let isCurrent = appState.currentProfile?.id == member.id
         if appState.currentProfile?.role == .guildMaster, !isCurrent {
             Menu {
@@ -319,8 +414,16 @@ struct GuildSettingsView: View {
                         showRoleTransferConfirm = member
                     } label: {
                         Label("Transfer Guild Master…",
-                                systemImage: "crown.fill")
+                               systemImage: "crown.fill")
                     }
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    memberToKick = member
+                } label: {
+                    Label("Remove from Guild", systemImage: "person.crop.circle.badge.xmark")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -332,6 +435,17 @@ struct GuildSettingsView: View {
             Text("You")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @MainActor
+    private func kickMember(_ member: Profile) async {
+        do {
+            try await familyService.kickMember(profile: member)
+            await viewModel?.refresh()
+            actionError = nil
+        } catch {
+            actionError = "Could not remove member: \(error)"
         }
     }
 
@@ -367,9 +481,9 @@ struct GuildSettingsView: View {
 
     private func roleColor(_ role: UserRole) -> Color {
         switch role {
-        case .guildMaster: return .purple
-        case .ranger:      return .teal
-        case .hero:        return .blue
+        case .guildMaster: .purple
+        case .ranger: .teal
+        case .hero: .blue
         }
     }
 
@@ -409,7 +523,7 @@ struct GuildSettingsView: View {
         }
     }
 
-    private var disbandFamilySection: some View {
+    private var deleteFamilySection: some View {
         VStack(spacing: 10) {
             HStack {
                 Text("Danger Zone")
@@ -423,7 +537,7 @@ struct GuildSettingsView: View {
                 Button(role: .destructive) {
                     showDisbandConfirm = true
                 } label: {
-                    Label("Disband Family", systemImage: "trash.fill")
+                    Label("Delete Family & Reset App", systemImage: "trash.fill")
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
@@ -441,35 +555,36 @@ struct GuildSettingsView: View {
             )
             .padding(.horizontal)
         }
-
-        .alert("Disband Family?", isPresented: $showDisbandConfirm) {
+        .alert("Delete Family & Reset App?", isPresented: $showDisbandConfirm) {
             Button("Continue", role: .destructive) {
                 showDisbandFinalConfirm = true
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will mark every family member inactive and cannot be undone. Are you sure?")
+            Text("This will permanently delete your family zone, quest history, loot, and member profiles from iCloud, returning you to the onboarding screen. This cannot be undone.")
         }
         .alert("Final Confirmation", isPresented: $showDisbandFinalConfirm) {
-            Button("Disband Forever", role: .destructive) {
-                Task { await disbandFamily() }
+            Button("Delete Forever & Start Fresh", role: .destructive) {
+                Task { await deleteFamilyAndReset() }
             }
             Button("Keep Family", role: .cancel) {}
         } message: {
-            Text("All quest history, gold, and trophies will remain in iCloud but this family will stop functioning. Type 'Disband Forever' to confirm.")
+            Text("Are you sure you want to permanently erase \(appState.family?.name ?? "this family") and start over from onboarding?")
         }
     }
 
     @MainActor
-    private func disbandFamily() async {
-        guard let family = appState.family, let vm = viewModel else { return }
+    private func deleteFamilyAndReset() async {
+        guard let family = appState.family else { return }
 
-        let allMembers = vm.heroes + vm.parents
+        let vm = viewModel
+        let allMembers = (vm?.heroes ?? []) + (vm?.parents ?? [])
         for member in allMembers {
             try? await familyService.leaveFamily(profile: member)
         }
-        _ = family
-        appState.signOut()
+
+        try? await familyService.deleteFamilyAndReset(family: family)
+        appState.clearSession()
     }
 
     private var loadingPlaceholder: some View {
@@ -488,19 +603,5 @@ struct GuildSettingsView: View {
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
             .fill(Color(.secondarySystemGroupedBackground))
-    }
-}
-
-struct ShareSheet: UIViewControllerRepresentable {
-
-    let items: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController,
-                                    context: Context) {
-
     }
 }

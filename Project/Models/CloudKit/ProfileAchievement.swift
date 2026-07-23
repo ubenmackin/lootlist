@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 struct ProfileAchievement: Identifiable, Equatable, Sendable {
-
     static let recordType: String = "ProfileAchievement"
 
     let id: CKRecord.ID
@@ -18,9 +17,9 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
-                                                        actual: record.recordType)
+                                                       actual: record.recordType)
         }
-        self.id = record.recordID
+        id = record.recordID
 
         guard let achievement = record["achievement"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("achievement")
@@ -46,9 +45,9 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
     func toRecord() -> CKRecord {
         let record = CKRecord(recordType: Self.recordType, recordID: id)
         record["achievement"] = achievement as CKRecordValue
-        record["profile"]    = profile as CKRecordValue
+        record["profile"] = profile as CKRecordValue
         record["earnedDate"] = earnedDate as CKRecordValue
-        record["family"]     = family as CKRecordValue
+        record["family"] = family as CKRecordValue
         return record
     }
 
@@ -56,7 +55,8 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
          profile: CKRecord.Reference,
          earnedDate: Date = Date(),
          family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString)) {
+         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+    {
         self.id = id
         self.achievement = achievement
         self.profile = profile

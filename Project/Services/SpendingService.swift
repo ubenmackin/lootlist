@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 enum SpendingServiceError: Error, Equatable, Sendable {
-
     case unsupported
 
     case invalidAmount
@@ -11,9 +10,8 @@ enum SpendingServiceError: Error, Equatable, Sendable {
 }
 
 protocol SpendingService: Sendable {
-
     func fetchTransactions(for profile: Profile,
-                            in dateRange: DateInterval) async throws -> [LedgerEntry]
+                           in dateRange: DateInterval) async throws -> [LedgerEntry]
 
     func isAvailable() -> Bool
 
@@ -27,33 +25,34 @@ protocol SpendingService: Sendable {
 }
 
 extension SpendingService {
-
-    func logManual(profile: Profile,
-                   family: Family,
-                   description: String,
-                   amount: Double,
-                   date: Date) async throws -> LedgerEntry {
+    func logManual(profile _: Profile,
+                   family _: Family,
+                   description _: String,
+                   amount _: Double,
+                   date _: Date) async throws -> LedgerEntry
+    {
         throw SpendingServiceError.unsupported
     }
 
-    func delete(_ entry: LedgerEntry) async throws {
+    func delete(_: LedgerEntry) async throws {
         throw SpendingServiceError.unsupported
     }
 }
 
-final class ManualSpendingService: SpendingService, @unchecked Sendable {
-
+final class ManualSpendingService: SpendingService, Sendable {
     private let cloudKit: CloudKitService
 
     init(cloudKit: CloudKitService) {
         self.cloudKit = cloudKit
     }
 
-    func isAvailable() -> Bool { true }
+    func isAvailable() -> Bool {
+        true
+    }
 
     func fetchTransactions(for profile: Profile,
-                            in dateRange: DateInterval) async throws -> [LedgerEntry] {
-
+                           in dateRange: DateInterval) async throws -> [LedgerEntry]
+    {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(
             format: "profile == %@ AND date >= %@ AND date <= %@",
@@ -72,8 +71,8 @@ final class ManualSpendingService: SpendingService, @unchecked Sendable {
                    family: Family,
                    description: String,
                    amount: Double,
-                   date: Date = Date()) async throws -> LedgerEntry {
-
+                   date: Date = Date()) async throws -> LedgerEntry
+    {
         guard amount.isFinite else {
             throw SpendingServiceError.invalidAmount
         }

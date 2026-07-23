@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct AvatarSelectionView: View {
-
     @Bindable var viewModel: OnboardingViewModel
 
     var body: some View {
@@ -32,12 +31,13 @@ struct AvatarSelectionView: View {
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.purple.opacity(0.1)],
-                startPoint: .top, endPoint: .bottom))
+                startPoint: .top, endPoint: .bottom
+            )
+        )
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-
                     viewModel.pushBackFromAvatar()
                 } label: {
                     Label("Back", systemImage: "chevron.left")
@@ -53,7 +53,9 @@ struct AvatarSelectionView: View {
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.yellow, .purple],
-                        startPoint: .top, endPoint: .bottom))
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
             Text("Forge Your Hero")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
             Text("Choose a class, name your character, and pick a look.")
@@ -110,7 +112,9 @@ struct AvatarSelectionView: View {
                 RoundedRectangle(cornerRadius: 16)
                     .strokeBorder(
                         isSelected ? Color.yellow : Color.white.opacity(0.15),
-                        lineWidth: isSelected ? 3 : 1))
+                        lineWidth: isSelected ? 3 : 1
+                    )
+            )
             .overlay(alignment: .topTrailing) {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
@@ -135,7 +139,8 @@ struct AvatarSelectionView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                )
                 .accessibilityIdentifier("avatar.displayNameField")
         }
         .padding(.horizontal, 24)
@@ -146,9 +151,28 @@ struct AvatarSelectionView: View {
             Label("Choose a look", systemImage: "wand.and.rays")
                 .font(.headline.weight(.bold))
 
-            HStack(spacing: 12) {
-                ForEach(1...3, id: \.self) { variation in
-                    presetButton(variation)
+            if let klass = viewModel.avatarClass {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10),
+                    GridItem(.flexible(), spacing: 10)
+                ], spacing: 10) {
+                    ForEach(AvatarPreset.presets(for: klass), id: \.self) { preset in
+                        presetButton(preset)
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    ForEach(0 ..< 4, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.1))
+                            .overlay(
+                                Image(systemName: "questionmark")
+                                    .foregroundStyle(.secondary)
+                            )
+                            .frame(height: 72)
+                    }
                 }
             }
         }
@@ -156,42 +180,52 @@ struct AvatarSelectionView: View {
     }
 
     @ViewBuilder
-    private func presetButton(_ variation: Int) -> some View {
-        if let klass = viewModel.avatarClass {
-            let presetID = String(format: "%@_%02d",
-                                   klass.presetPrefix, variation)
-            let isSelected = viewModel.avatarPresetID == presetID
+    private func presetButton(_ preset: AvatarPreset) -> some View {
+        let isSelected = viewModel.avatarPresetID == preset.id
 
-            Button {
-                viewModel.avatarPresetID = presetID
-            } label: {
-                VStack(spacing: 6) {
-                    Image(systemName: klass.iconSystemName)
-                        .font(.system(size: 28, weight: .semibold))
-                    Text("\(klass.displayName) \(variation)")
-                        .font(.caption.weight(.medium))
+        Button {
+            viewModel.avatarPresetID = preset.id
+        } label: {
+            ZStack {
+                if UIImage(named: preset.assetName) != nil {
+                    Image(preset.assetName)
+                        .resizable()
+                        .interpolation(.none)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 54, height: 54)
+                        .offset(y: 4)
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle().stroke(Color.gold.opacity(0.6), lineWidth: 1.5)
+                        )
+                } else {
+                    Image(systemName: preset.iconSystemName)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(Color.gold)
+                        .frame(height: 54)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(
-                            isSelected ? Color.yellow : Color.white.opacity(0.15),
-                            lineWidth: isSelected ? 3 : 1))
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("avatar.preset.\(presetID)")
-        } else {
-
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.1))
-                .overlay(
-                    Image(systemName: "questionmark")
-                        .foregroundStyle(.secondary))
-                .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(
+                        isSelected ? Color.yellow : Color.white.opacity(0.15),
+                        lineWidth: isSelected ? 3 : 1
+                    )
+            )
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.yellow)
+                        .padding(4)
+                }
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("avatar.preset.\(preset.id)")
     }
 
     private var finalizeButton: some View {
@@ -220,8 +254,9 @@ struct AvatarSelectionView: View {
         .buttonStyle(.borderedProminent)
         .tint(viewModel.isParentFlow ? .orange : .blue)
         .disabled(viewModel.isLoading
-                    || viewModel.avatarClass == nil
-                    || viewModel.displayName.trimmingCharacters(in: .whitespaces).isEmpty)
+            || viewModel.avatarClass == nil
+            || viewModel.displayName.trimmingCharacters(in: .whitespaces).isEmpty
+            || viewModel.avatarPresetID == nil)
         .padding(.horizontal, 24)
         .accessibilityIdentifier("avatar.finalizeButton")
     }

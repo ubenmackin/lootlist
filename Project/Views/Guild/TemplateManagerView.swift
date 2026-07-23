@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct TemplateManagerView: View {
-
     @Bindable var viewModel: QuestManagerViewModel
 
     let editing: QuestTemplate?
@@ -15,6 +14,7 @@ struct TemplateManagerView: View {
     @State private var xpRewardText: String = ""
     @State private var schedule: QuestSchedule = .weeklyFlexible
     @State private var specificDays: Set<String> = []
+    @State private var isAllOrNothing: Bool = false
     @State private var approvalMode: ApprovalMode = .autoApprove
     @State private var validationError: String?
     @State private var isSaving: Bool = false
@@ -32,33 +32,36 @@ struct TemplateManagerView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Basics") {
+                Section("Basic Info") {
                     TextField("Quest Name", text: $name)
                     TextField("Description", text: $descriptionText, axis: .vertical)
-                        .lineLimit(2...5)
+                        .lineLimit(2...4)
                 }
 
                 Section("Rewards") {
                     HStack {
-                        Text("Gold").foregroundStyle(.secondary)
+                        Text("Gold Reward")
                         Spacer()
                         TextField("0.00", text: $defaultGoldText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
                     }
+
                     HStack {
-                        Text("XP").foregroundStyle(.secondary)
+                        Text("XP Reward")
                         Spacer()
-                        TextField("0", text: $xpRewardText)
+                        TextField("50", text: $xpRewardText)
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
                     }
                 }
 
                 Section("Schedule") {
                     Picker("Type", selection: $schedule) {
-                        ForEach(QuestSchedule.allCases, id: \.self) { s in
-                            Text(s.displayName).tag(s)
+                        ForEach(QuestSchedule.allCases, id: \.self) { questSchedule in
+                            Text(questSchedule.displayName).tag(questSchedule)
                         }
                     }
                     if schedule == .specificDays {
@@ -68,13 +71,19 @@ struct TemplateManagerView: View {
                             Toggle(label, isOn: Binding(
                                 get: { specificDays.contains(code) },
                                 set: { isOn in
-                                    if isOn { specificDays.insert(code) }
-                                    else { specificDays.remove(code) }
+                                    if isOn {
+                                        specificDays.insert(code)
+                                    } else {
+                                        specificDays.remove(code)
+                                    }
                                 }
                             ))
                         }
-                    } else if schedule == .allOrNothing {
-                        Text("Hero must slay every quest in this template's group for any of them to count.")
+                    }
+
+                    Toggle("Require 100% Completion for Reward", isOn: $isAllOrNothing)
+                    if isAllOrNothing {
+                        Text("Hero must complete every scheduled instance to earn the gold reward.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -105,7 +114,11 @@ struct TemplateManagerView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: save) {
-                        if isSaving { ProgressView() } else { Text("Save") }
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("Save")
+                        }
                     }
                     .disabled(isSaving)
                 }
@@ -122,27 +135,29 @@ struct TemplateManagerView: View {
         xpRewardText = String(editing.xpReward)
         schedule = editing.scheduleType
         specificDays = Set(editing.specificDays)
+        isAllOrNothing = editing.isAllOrNothing
         approvalMode = editing.approvalMode
     }
 
     private func save() {
-
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else {
             validationError = "Name is required."
             return
         }
         guard let gold = Double(defaultGoldText.trimmingCharacters(in: .whitespaces)),
-              gold >= 0 else {
+              gold >= 0
+        else {
             validationError = "Gold must be a non-negative number."
             return
         }
         guard let xp = Int(xpRewardText.trimmingCharacters(in: .whitespaces)),
-              xp >= 0 else {
+              xp >= 0
+        else {
             validationError = "XP must be a non-negative integer."
             return
         }
-        if schedule == .specificDays && specificDays.isEmpty {
+        if schedule == .specificDays, specificDays.isEmpty {
             validationError = "Pick at least one day for Specific-Days schedule."
             return
         }
@@ -151,7 +166,6 @@ struct TemplateManagerView: View {
         Task {
             do {
                 if let editing {
-
                     var updated = editing
                     updated.name = trimmedName
                     updated.description = descriptionText
@@ -161,6 +175,7 @@ struct TemplateManagerView: View {
                     updated.specificDays = schedule.requiresSpecificDays
                         ? Array(specificDays)
                         : []
+                    updated.isAllOrNothing = isAllOrNothing
                     updated.approvalMode = approvalMode
                     try await viewModel.updateTemplate(updated)
                 } else {
@@ -173,6 +188,7 @@ struct TemplateManagerView: View {
                         specificDays: schedule.requiresSpecificDays
                             ? Array(specificDays)
                             : [],
+                        isAllOrNothing: isAllOrNothing,
                         approvalMode: approvalMode
                     )
                 }

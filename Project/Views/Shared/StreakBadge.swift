@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct StreakBadge: View {
-
     let streak: Int
 
     var size: BadgeSize = .medium
@@ -22,14 +21,16 @@ struct StreakBadge: View {
         .overlay(
             Capsule()
                 .strokeBorder(active ? Color.orange.opacity(0.55) : Color.secondary.opacity(0.20),
-                                lineWidth: 1)
+                              lineWidth: 1)
         )
         .opacity(active ? 1.0 : 0.60)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var active: Bool { streak >= 1 }
+    private var active: Bool {
+        streak >= 1
+    }
 
     private var flameGlyph: some View {
         Image(systemName: "flame.fill")

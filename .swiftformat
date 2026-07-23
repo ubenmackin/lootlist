@@ -1,0 +1,17 @@
+# Tells SwiftFormat which compiler features are available
+--swiftversion 6.4
+
+# Tells SwiftFormat to format using strict Swift 6 language rules
+--languagemode 6
+
+# Line length to match SwiftLint
+--maxwidth 180
+
+# Trailing commas: set to never to align with SwiftLint rules
+--commas never
+
+# Disable Allman brace formatting
+--allman false
+
+# Ignore derived data
+--exclude DerivedData,Build

@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 enum QuestServiceError: Error, Equatable, Sendable {
-
     case missingSession
 
     case alreadyCompleted
@@ -15,12 +14,14 @@ enum QuestServiceError: Error, Equatable, Sendable {
 @MainActor
 @Observable
 final class QuestService {
-
     let cloudKit: CloudKitService
 
     private let xpService: XPService
+    var notificationService: NotificationService?
 
-    var cloudKitReference: CloudKitService { cloudKit }
+    var cloudKitReference: CloudKitService {
+        cloudKit
+    }
 
     private let calendar: Calendar = {
         var cal = Calendar(identifier: .iso8601)
@@ -28,9 +29,13 @@ final class QuestService {
         return cal
     }()
 
-    init(cloudKit: CloudKitService, xpService: XPService) {
+    init(cloudKit: CloudKitService,
+         xpService: XPService,
+         notificationService: NotificationService? = nil)
+    {
         self.cloudKit = cloudKit
         self.xpService = xpService
+        self.notificationService = notificationService
     }
 
     convenience init(cloudKit: CloudKitService) {
@@ -44,9 +49,11 @@ final class QuestService {
                         xpReward: Int,
                         schedule: QuestSchedule,
                         specificDays: [String] = [],
+                        isAllOrNothing: Bool = false,
                         approvalMode: ApprovalMode = .autoApprove,
                         createdBy: Profile,
-                        family: Family) async throws -> QuestTemplate {
+                        family: Family) async throws -> QuestTemplate
+    {
         let template = QuestTemplate(
             name: name,
             description: description,
@@ -54,6 +61,7 @@ final class QuestService {
             xpReward: xpReward,
             scheduleType: schedule,
             specificDays: schedule.requiresSpecificDays ? specificDays : [],
+            isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none)
@@ -89,7 +97,8 @@ final class QuestService {
                      approvalOverride: ApprovalMode? = nil,
                      weekOf: Date,
                      createdBy: Profile,
-                     family: Family) async throws -> Quest {
+                     family: Family) async throws -> Quest
+    {
         let normalizedWeek = startOfWeek(for: weekOf)
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
@@ -97,15 +106,24 @@ final class QuestService {
             goldReward: goldOverride ?? template.defaultGold,
             xpReward: xpOverride ?? template.xpReward,
             scheduleType: template.scheduleType,
-            allOrNothingGroup: (template.scheduleType == .allOrNothing)
-                ? template.id.recordName
-                : nil,
+            isAllOrNothing: template.isAllOrNothing,
             approvalMode: approvalOverride ?? template.approvalMode,
             weekOf: normalizedWeek,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
-        return try await cloudKit.save(quest)
+        let saved = try await cloudKit.save(quest)
+        if let notificationService {
+            Task {
+                try? await notificationService.send(
+                    .questAssigned,
+                    to: assignee,
+                    title: "⚔️ New Quest Assigned!",
+                    body: "You have been assigned '\(template.name)'."
+                )
+            }
+        }
+        return saved
     }
 
     func unassignQuest(_ quest: Quest) async throws {
@@ -121,7 +139,7 @@ final class QuestService {
         )
         let all = try await cloudKit.query(Quest.self, predicate: predicate)
         return all
-            .filter { $0.active }
+            .filter(\.active)
             .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
     }
 
@@ -134,13 +152,12 @@ final class QuestService {
         )
         let all = try await cloudKit.query(Quest.self, predicate: predicate)
         return all
-            .filter { $0.active }
+            .filter(\.active)
             .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
     }
 
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-
         let existingLogs = try await fetchQuestLogs(forQuest: quest)
         if existingLogs.contains(where: { $0.verificationStatus != .rejected }) {
             throw QuestServiceError.alreadyCompleted
@@ -160,17 +177,16 @@ final class QuestService {
 
         switch quest.approvalMode {
         case .autoApprove:
-
             try await applyReward(for: quest, to: profile)
         case .parentVerify:
-
             await parentReviewNeeded(questLog: saved)
-        }
-
-        if quest.scheduleType == .allOrNothing, let groupID = quest.allOrNothingGroup {
-
-            let family = try await fetchFamily(for: quest.family)
-            try? await resolveAllOrNothingGroup(groupID, in: family, weekOf: quest.weekOf)
+            if let notificationService,
+               let parent = try? await cloudKit.fetch(Profile.self, id: quest.createdBy.recordID)
+            {
+                Task {
+                    try? await notificationService.sendQuestNeedsReview(questLog: saved, to: parent)
+                }
+            }
         }
 
         return saved
@@ -192,8 +208,15 @@ final class QuestService {
         let hero = try await cloudKit.fetch(Profile.self, id: questLog.completedBy.recordID)
         try await applyReward(for: quest, to: hero)
 
-        if quest.scheduleType == .allOrNothing, let groupID = quest.allOrNothingGroup {
-            try? await resolveAllOrNothingGroup(groupID, in: try await fetchFamily(for: quest.family), weekOf: quest.weekOf)
+        if let notificationService {
+            Task {
+                try? await notificationService.send(
+                    .questCompleted,
+                    to: hero,
+                    title: "🏆 Quest Verified!",
+                    body: "Your quest was verified! You earned \(quest.goldReward) gold."
+                )
+            }
         }
 
         return saved
@@ -213,31 +236,30 @@ final class QuestService {
     }
 
     func generateWeeklyQuests(family: Family,
-                                weekOf: Date,
-                                createdBy: Profile) async throws {
+                              weekOf: Date,
+                              createdBy: Profile) async throws
+    {
         let normalizedWeek = startOfWeek(for: weekOf)
 
-        let templates = try await fetchTemplates(family: family).filter { $0.isActive }
+        let templates = try await fetchTemplates(family: family).filter(\.isActive)
         let heroes = try await fetchHeroes(in: family)
         guard !templates.isEmpty, !heroes.isEmpty else { return }
 
         let existing = try await fetchQuestsForFamilyWeek(family: family, weekOf: normalizedWeek)
         var existingKeys: Set<String> = []
-        for q in existing {
-            existingKeys.insert("\(q.template.recordID.recordName)|\(q.assignee.recordID.recordName)")
+        for quest in existing {
+            existingKeys.insert("\(quest.template.recordID.recordName)|\(quest.assignee.recordID.recordName)")
         }
 
         let weekWeekdayCodes = weekdayCodes(inWeekOf: normalizedWeek)
 
         for template in templates {
-            let scheduleMatches: Bool
-            switch template.scheduleType {
+            let scheduleMatches: Bool = switch template.scheduleType {
             case .specificDays:
-
-                scheduleMatches = !template.specificDays.isEmpty
+                !template.specificDays.isEmpty
                     && !Set(template.specificDays).isDisjoint(with: weekWeekdayCodes)
-            case .weeklyFlexible, .allOrNothing:
-                scheduleMatches = true
+            case .weeklyFlexible:
+                true
             }
 
             guard scheduleMatches else { continue }
@@ -258,35 +280,14 @@ final class QuestService {
         }
     }
 
-    func resolveAllOrNothingGroup(_ groupId: String,
-                                  in family: Family,
-                                  weekOf: Date) async throws {
-        let normalizedWeek = startOfWeek(for: weekOf)
-        let all = try await fetchQuestsForFamilyWeek(family: family, weekOf: normalizedWeek)
-        let groupQuests = all.filter { $0.allOrNothingGroup == groupId }
-        guard !groupQuests.isEmpty else { return }
-
-        for quest in groupQuests {
-            let logs = try await fetchQuestLogs(forQuest: quest)
-            guard let mostRecent = logs.first,
-                  mostRecent.verificationStatus == .autoApproved
-                  || mostRecent.verificationStatus == .verified
-            else {
-
-                return
-            }
-        }
-
-        await allOrNothingGroupResolved(groupId: groupId, family: family, weekOf: normalizedWeek)
-    }
-
     func fetchStreak(for profile: Profile) async throws -> Int {
         let logs = try await fetchQuestLogs(for: profile)
         guard !logs.isEmpty else { return 0 }
 
         var daySet: Set<Date> = []
         for log in logs where log.verificationStatus == .autoApproved
-                          || log.verificationStatus == .verified {
+            || log.verificationStatus == .verified
+        {
             if let day = calendar.dateInterval(of: .day, for: log.completedDate)?.start {
                 daySet.insert(day)
             }
@@ -295,7 +296,7 @@ final class QuestService {
         let today = calendar.startOfDay(for: Date())
         let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
         let anchor = daySet.contains(today) ? today
-                   : (daySet.contains(yesterday) ? yesterday : nil)
+            : (daySet.contains(yesterday) ? yesterday : nil)
         guard let anchor else { return 0 }
 
         var streak = 0
@@ -312,8 +313,9 @@ final class QuestService {
         let normalizedWeek = startOfWeek(for: weekOf)
         let logs = try await fetchQuestLogs(for: profile)
             .filter { $0.weekOf == normalizedWeek
-                      && ($0.verificationStatus == .autoApproved
-                          || $0.verificationStatus == .verified) }
+                && ($0.verificationStatus == .autoApproved
+                    || $0.verificationStatus == .verified)
+            }
 
         var total: Double = 0
 
@@ -328,23 +330,21 @@ final class QuestService {
     func fetchQuestLogs(forQuest quest: Quest) async throws -> [QuestCompletion] {
         let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
         let predicate = NSPredicate(format: "quest == %@", questRef)
-        let all = try await cloudKit.query(
+        return try await cloudKit.query(
             QuestCompletion.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        return all
     }
 
     func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "completedBy == %@", profileRef)
-        let all = try await cloudKit.query(
+        return try await cloudKit.query(
             QuestCompletion.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        return all
     }
 
     private func fetchHeroes(in family: Family) async throws -> [Profile] {
@@ -370,11 +370,10 @@ final class QuestService {
     }
 
     private func weekdayCodes(inWeekOf weekOf: Date) -> Set<String> {
-
         let codes = ["sunday", "monday", "tuesday", "wednesday",
                      "thursday", "friday", "saturday"]
         var found: Set<String> = []
-        for offset in 0..<7 {
+        for offset in 0 ..< 7 {
             let day = calendar.date(
                 byAdding: .day, value: offset, to: weekOf
             ) ?? weekOf
@@ -386,11 +385,7 @@ final class QuestService {
         return found
     }
 
-    func parentReviewNeeded(questLog: QuestCompletion) async {
+    func parentReviewNeeded(questLog _: QuestCompletion) async {}
 
-    }
-
-    func allOrNothingGroupResolved(groupId: String, family: Family, weekOf: Date) async {
-
-    }
+    func allOrNothingGroupResolved(groupId _: String, family _: Family, weekOf _: Date) async {}
 }

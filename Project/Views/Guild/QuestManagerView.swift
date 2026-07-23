@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct QuestManagerView: View {
-
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
 
@@ -15,8 +14,10 @@ struct QuestManagerView: View {
 
     enum ManagerTab: String, CaseIterable, Identifiable {
         case assignments = "Assignments"
-        case templates   = "Templates"
-        var id: String { rawValue }
+        case templates = "Templates"
+        var id: String {
+            rawValue
+        }
     }
 
     var body: some View {
@@ -84,7 +85,6 @@ struct QuestManagerView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             } else {
-
                 let grouped = Dictionary(grouping: vm.activeAssignments) { $0.assignee.recordID.recordName }
                 let heroRecords = vm.heroes
                 ForEach(Array(grouped.keys.sorted()), id: \.self) { heroID in

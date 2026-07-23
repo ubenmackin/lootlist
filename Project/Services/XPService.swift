@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 struct LevelProgress: Equatable, Sendable {
-
     let currentLevel: Int
 
     let xpIntoCurrentLevel: Int
@@ -15,21 +14,22 @@ struct LevelProgress: Equatable, Sendable {
 @MainActor
 @Observable
 final class XPService {
-
     static let stepBase: Int = 100
 
     static let accessoryCadence: Int = 5
 
-    init(cloudKit: CloudKitService) {
+    private let cloudKit: CloudKitService
+    var notificationService: NotificationService?
+
+    init(cloudKit: CloudKitService, notificationService: NotificationService? = nil) {
         self.cloudKit = cloudKit
+        self.notificationService = notificationService
     }
 
-    private let cloudKit: CloudKitService
+    static func cumulativeXPForLevel(_ targetLevel: Int) -> Int {
+        guard targetLevel > 1 else { return 0 }
 
-    static func cumulativeXPForLevel(_ n: Int) -> Int {
-        guard n > 1 else { return 0 }
-
-        let tri = (n - 1) * n / 2
+        let tri = (targetLevel - 1) * targetLevel / 2
         return tri * stepBase
     }
 
@@ -53,10 +53,24 @@ final class XPService {
 
     func addXP(_ amount: Int, to profile: Profile) async throws -> Profile {
         let gained = max(amount, 0)
+        let oldLevel = profile.level
         var updated = profile
         updated.xp += gained
         updated.level = level(forXP: updated.xp)
-        return try await cloudKit.save(updated)
+        let saved = try await cloudKit.save(updated)
+
+        if saved.level > oldLevel, let notificationService {
+            let newLevel = saved.level
+            Task {
+                try? await notificationService.send(
+                    .levelUp,
+                    to: saved,
+                    title: "🎉 Level Up!",
+                    body: "\(saved.displayName) reached Level \(newLevel)!"
+                )
+            }
+        }
+        return saved
     }
 
     func levelProgress(profile: Profile) -> LevelProgress {
@@ -82,14 +96,14 @@ final class XPService {
 
     static func title(forLevel level: Int) -> String {
         let titles: [String] = [
-            "Novice",      
-            "Apprentice",  
-            "Adept",       
-            "Veteran",     
-            "Champion",    
-            "Heroic",      
-            "Legendary",   
-            "Mythic"       
+            "Novice",
+            "Apprentice",
+            "Adept",
+            "Veteran",
+            "Champion",
+            "Heroic",
+            "Legendary",
+            "Mythic"
         ]
         guard level >= 1 else { return titles[0] }
         if level <= titles.count {
@@ -107,19 +121,19 @@ final class XPService {
         }
     }
 
-    private static func romanNumeral(_ n: Int) -> String {
+    private static func romanNumeral(_ valueNumber: Int) -> String {
         let table: [(Int, String)] = [
             (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-            (100,  "C"), (90,  "XC"), (50,  "L"), (40,  "XL"),
-            (10,   "X"), (9,   "IX"), (5,   "V"), (4,   "IV"),
-            (1,    "I")
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"),
+            (1, "I")
         ]
-        var n = n
+        var currentNumber = valueNumber
         var out = ""
-        for (value, symbol) in table where n > 0 {
-            while n >= value {
+        for (value, symbol) in table where currentNumber > 0 {
+            while currentNumber >= value {
                 out += symbol
-                n -= value
+                currentNumber -= value
             }
         }
         return out
@@ -129,6 +143,6 @@ final class XPService {
         let maxUnlocked = profile.level / Self.accessoryCadence
         guard maxUnlocked >= 1 else { return [] }
 
-        return (1...maxUnlocked).map { "accessory.level.\($0 * Self.accessoryCadence)" }
+        return (1 ... maxUnlocked).map { "accessory.level.\($0 * Self.accessoryCadence)" }
     }
 }

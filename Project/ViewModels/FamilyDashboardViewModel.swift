@@ -1,11 +1,10 @@
-import Foundation
 import CloudKit
+import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class FamilyDashboardViewModel {
-
     private(set) var heroes: [Profile] = []
 
     private(set) var parents: [Profile] = []
@@ -28,10 +27,11 @@ final class FamilyDashboardViewModel {
     init(questService: QuestService,
          treasury: TreasuryService,
          achievementService: AchievementService,
-         appState: AppState) {
+         appState: AppState)
+    {
         self.questService = questService
         self.treasury = treasury
-        self.achievements = achievementService
+        achievements = achievementService
         self.appState = appState
     }
 
@@ -49,15 +49,15 @@ final class FamilyDashboardViewModel {
         let cloudKit = questService.cloudKitReference
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let membershipPredicate = NSPredicate(format: "family == %@", familyRef)
-        let members = (try? await cloudKit.query(
+        let members = await (try? cloudKit.query(
             Profile.self, predicate: membershipPredicate
         )) ?? []
-        let active = members.filter { $0.isActive }
-        self.heroes = active
+        let active = members.filter(\.isActive)
+        heroes = active
             .filter { $0.role == .hero }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-        self.parents = active
-            .filter { $0.role.isParent }
+        parents = active
+            .filter(\.role.isParent)
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
 
         let weekOf = Date()
@@ -71,14 +71,16 @@ final class FamilyDashboardViewModel {
 
         let totalEarned = heroSummaries.reduce(into: 0.0) { $0 += $1.weeklyGoldEarned }
         let totalQuests = heroSummaries.reduce(into: 0) { $0 += $1.weeklyQuestsCompleted }
-        self.weekSummary = WeekendSummary(
+        weekSummary = WeekendSummary(
             weekOf: TreasuryService.mondayOfWeek(for: weekOf),
             totalEarned: totalEarned,
             totalQuestsCompleted: totalQuests,
             heroSummaries: heroSummaries
         )
 
-        if loadError != nil { loadError = nil }
+        if loadError != nil {
+            loadError = nil
+        }
     }
 
     func loadPastPayouts(includeActive: Bool = true) async {
@@ -93,19 +95,19 @@ final class FamilyDashboardViewModel {
         let cloudKit = questService.cloudKitReference
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = (try? await cloudKit.query(
+        let all = await (try? cloudKit.query(
             AllowancePeriod.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
         )) ?? [AllowancePeriod]()
-        self.pastPayouts = includeActive
+        pastPayouts = includeActive
             ? all
             : all.filter { $0.status == .paid }
     }
 
     private func buildHeroSummary(for hero: Profile,
-                                    weekOf: Date) async -> HeroSummary {
-
+                                  weekOf: Date) async -> HeroSummary
+    {
         async let questsTask: [Quest]? = try? questService.fetchActiveQuests(
             profile: hero, weekOf: weekOf
         )
@@ -160,7 +162,6 @@ final class FamilyDashboardViewModel {
 }
 
 struct WeekendSummary: Equatable, Sendable {
-
     let weekOf: Date
 
     let totalEarned: Double
@@ -171,15 +172,15 @@ struct WeekendSummary: Equatable, Sendable {
 }
 
 extension WeekendSummary {
-
     var totalQuestsAssigned: Int {
         heroSummaries.reduce(into: 0) { $0 += $1.weeklyQuestsTotal }
     }
 }
 
 struct HeroSummary: Equatable, Identifiable, Sendable {
-
-    var id: CKRecord.ID { profile.id }
+    var id: CKRecord.ID {
+        profile.id
+    }
 
     let profile: Profile
 
