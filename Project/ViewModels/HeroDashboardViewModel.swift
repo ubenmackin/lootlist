@@ -1,11 +1,10 @@
-import Foundation
 import CloudKit
+import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class HeroDashboardViewModel {
-
     private(set) var todaysQuests: [Quest] = []
 
     private(set) var streak: Int = 0
@@ -28,7 +27,6 @@ final class HeroDashboardViewModel {
 
     func load() async {
         guard let profile = appState.currentProfile, let family = appState.family else {
-
             todaysQuests = []
             streak = 0
             earnedThisWeek = 0
@@ -58,12 +56,11 @@ final class HeroDashboardViewModel {
             uniqueKeysWithValues: templates.map { ($0.id.recordName, $0) }
         )
 
-        self.todaysQuests = quests.filter { quest in
+        todaysQuests = quests.filter { quest in
             switch quest.scheduleType {
-            case .weeklyFlexible, .allOrNothing:
+            case .weeklyFlexible:
                 return true
             case .specificDays:
-
                 guard let template = templatesByID[quest.template.recordID.recordName] else {
                     return true
                 }
@@ -71,10 +68,12 @@ final class HeroDashboardViewModel {
             }
         }
         self.streak = streak
-        self.earnedThisWeek = earned
-        self.availableTemplatesCount = templates.filter { $0.isActive }.count
+        earnedThisWeek = earned
+        availableTemplatesCount = templates.filter(\.isActive).count
 
-        if loadError != nil { loadError = nil }
+        if loadError != nil {
+            loadError = nil
+        }
     }
 
     static func todayWeekdayCode() -> String {

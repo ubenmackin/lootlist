@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct ProgressBar: View {
-
     let value: Double
 
     let maximum: Double
@@ -27,8 +26,8 @@ struct ProgressBar: View {
         .accessibilityLabel(label ?? "Progress")
         .accessibilityValue("\(Int(fraction * 100)) percent")
         .onAppear { animateFill() }
-        .onChange(of: value)    { _, _ in animateFill() }
-        .onChange(of: maximum)  { _, _ in animateFill() }
+        .onChange(of: value) { _, _ in animateFill() }
+        .onChange(of: maximum) { _, _ in animateFill() }
     }
 
     private var track: some View {

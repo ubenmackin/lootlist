@@ -1,11 +1,10 @@
-import Foundation
 import CloudKit
+import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class QuestManagerViewModel {
-
     private(set) var templates: [QuestTemplate] = []
 
     private(set) var activeAssignments: [Quest] = []
@@ -37,10 +36,12 @@ final class QuestManagerViewModel {
             family: family, weekOf: Date()
         )
 
-        self.templates = await templatesTask ?? []
-        self.activeAssignments = await assignmentsTask ?? []
+        templates = await templatesTask ?? []
+        activeAssignments = await assignmentsTask ?? []
 
-        if loadError != nil { loadError = nil }
+        if loadError != nil {
+            loadError = nil
+        }
     }
 
     func createTemplate(name: String,
@@ -49,9 +50,12 @@ final class QuestManagerViewModel {
                         xpReward: Int,
                         schedule: QuestSchedule,
                         specificDays: [String],
-                        approvalMode: ApprovalMode) async throws {
+                        isAllOrNothing: Bool = false,
+                        approvalMode: ApprovalMode) async throws
+    {
         guard let parent = appState.currentProfile,
-              let family = appState.family else {
+              let family = appState.family
+        else {
             throw QuestServiceError.missingSession
         }
         _ = try await questService.createTemplate(
@@ -61,27 +65,28 @@ final class QuestManagerViewModel {
             xpReward: xpReward,
             schedule: schedule,
             specificDays: specificDays,
+            isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             createdBy: parent,
             family: family
         )
 
         if let family = appState.family {
-            self.templates = (try? await questService.fetchTemplates(family: family)) ?? templates
+            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
         }
     }
 
     func updateTemplate(_ template: QuestTemplate) async throws {
         _ = try await questService.updateTemplate(template)
         if let family = appState.family {
-            self.templates = (try? await questService.fetchTemplates(family: family)) ?? templates
+            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
         }
     }
 
     func deactivateTemplate(_ template: QuestTemplate) async throws {
         _ = try await questService.deactivateTemplate(template)
         if let family = appState.family {
-            self.templates = (try? await questService.fetchTemplates(family: family)) ?? templates
+            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
         }
     }
 
@@ -90,7 +95,7 @@ final class QuestManagerViewModel {
         active.isActive = true
         _ = try await questService.updateTemplate(active)
         if let family = appState.family {
-            self.templates = (try? await questService.fetchTemplates(family: family)) ?? templates
+            templates = await (try? questService.fetchTemplates(family: family)) ?? templates
         }
     }
 
@@ -99,9 +104,11 @@ final class QuestManagerViewModel {
                      goldOverride: Double?,
                      xpOverride: Int?,
                      approvalOverride: ApprovalMode?,
-                     weekOf: Date) async throws {
+                     weekOf: Date) async throws
+    {
         guard let parent = appState.currentProfile,
-              let family = appState.family else {
+              let family = appState.family
+        else {
             throw QuestServiceError.missingSession
         }
         _ = try await questService.assignQuest(
@@ -115,7 +122,7 @@ final class QuestManagerViewModel {
             family: family
         )
         if let family = appState.family {
-            self.activeAssignments = (try? await questService.fetchQuestsForFamilyWeek(
+            activeAssignments = await (try? questService.fetchQuestsForFamilyWeek(
                 family: family, weekOf: weekOf
             )) ?? activeAssignments
         }
@@ -124,7 +131,7 @@ final class QuestManagerViewModel {
     func unassignQuest(_ quest: Quest) async throws {
         try await questService.unassignQuest(quest)
 
-        self.activeAssignments.removeAll { $0.id == quest.id }
+        activeAssignments.removeAll { $0.id == quest.id }
     }
 
     func fetchPendingQuestLogs() async throws -> [QuestCompletion] {
@@ -153,14 +160,13 @@ final class QuestManagerViewModel {
         let cloudKit = questService.cloudKitReference
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = (try? await cloudKit.query(Profile.self, predicate: predicate)) ?? []
-        self.heroes = all
+        let all = await (try? cloudKit.query(Profile.self, predicate: predicate)) ?? []
+        heroes = all
             .filter { $0.role == .hero && $0.isActive }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     var cloudKitReference: CloudKitService {
-
         questService.cloudKitReference
     }
 }

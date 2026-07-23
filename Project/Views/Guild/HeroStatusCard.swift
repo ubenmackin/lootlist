@@ -1,13 +1,12 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct HeroStatusCard: View {
-
     let summary: HeroSummary
 
-    var recentQuestLogs: [QuestCompletion]? = nil
+    var recentQuestLogs: [QuestCompletion]?
 
-    var onTap: (() -> Void)? = nil
+    var onTap: (() -> Void)?
 
     @State private var isExpanded: Bool = false
 
@@ -168,7 +167,7 @@ struct HeroStatusCard: View {
                 .padding(.top, 6)
             } label: {
                 Label(logs.isEmpty ? "No Recent Slayings" : "Recent Slayings",
-                       systemImage: "list.bullet.clipboard")
+                      systemImage: "list.bullet.clipboard")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
             }
@@ -194,26 +193,26 @@ struct HeroStatusCard: View {
 
     private func statusIcon(_ status: VerificationStatus) -> String {
         switch status {
-        case .verified, .autoApproved: return "checkmark.seal.fill"
-        case .pending:                 return "hourglass"
-        case .rejected:                return "xmark.octagon.fill"
+        case .verified, .autoApproved: "checkmark.seal.fill"
+        case .pending: "hourglass"
+        case .rejected: "xmark.octagon.fill"
         }
     }
 
     private func statusColor(_ status: VerificationStatus) -> Color {
         switch status {
-        case .verified, .autoApproved: return .green
-        case .pending:                 return .orange
-        case .rejected:                return .red
+        case .verified, .autoApproved: .green
+        case .pending: .orange
+        case .rejected: .red
         }
     }
 
     private func statusLabel(_ status: VerificationStatus) -> String {
         switch status {
-        case .verified:     return "Verified"
-        case .autoApproved: return "Auto-Slain"
-        case .pending:      return "Awaiting Review"
-        case .rejected:     return "Rejected"
+        case .verified: "Verified"
+        case .autoApproved: "Auto-Slain"
+        case .pending: "Awaiting Review"
+        case .rejected: "Rejected"
         }
     }
 

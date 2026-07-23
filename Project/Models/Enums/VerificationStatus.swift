@@ -1,7 +1,6 @@
 import Foundation
 
 enum VerificationStatus: String, Sendable, CaseIterable, Codable {
-
     case autoApproved
 
     case pending
@@ -13,18 +12,18 @@ enum VerificationStatus: String, Sendable, CaseIterable, Codable {
     var displayName: String {
         switch self {
         case .autoApproved: "Auto-Approved"
-        case .pending:      "Pending"
-        case .verified:     "Verified"
-        case .rejected:     "Rejected"
+        case .pending: "Pending"
+        case .verified: "Verified"
+        case .rejected: "Rejected"
         }
     }
 
     var iconSystemName: String {
         switch self {
         case .autoApproved: "checkmark.seal.fill"
-        case .pending:      "hourglass"
-        case .verified:     "checkmark.seal.fill"
-        case .rejected:     "xmark.octagon.fill"
+        case .pending: "hourglass"
+        case .verified: "checkmark.seal.fill"
+        case .rejected: "xmark.octagon.fill"
         }
     }
 }

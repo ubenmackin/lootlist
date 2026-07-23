@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct FamilyDashboardView: View {
-
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(TreasuryService.self) private var treasury
@@ -10,6 +9,7 @@ struct FamilyDashboardView: View {
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showInviteCopiedToast: Bool = false
+    @State private var showShareSheet: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -24,18 +24,8 @@ struct FamilyDashboardView: View {
                 .padding(.vertical, 14)
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle(appState.family?.name ?? "Family")
+            .navigationTitle(appState.family?.name ?? "Guild")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        GuildSettingsView()
-                    } label: {
-                        Image(systemName: "gear")
-                            .accessibilityLabel("Guild Settings")
-                    }
-                }
-            }
             .refreshable { await viewModel?.refresh() }
             .task {
                 if viewModel == nil {
@@ -48,15 +38,17 @@ struct FamilyDashboardView: View {
                 }
                 await viewModel?.refresh()
             }
+            .sheet(isPresented: $showShareSheet) {
+                ShareSheet(items: shareInviteItems)
+            }
         }
     }
 
     @ViewBuilder
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
-        familyHeader
+        parentHeaderCard
         weeklySummaryCard(summary: vm.weekSummary)
         heroesSection(vm: vm)
-        navigationSection
         if let error = vm.loadError {
             Text(error)
                 .font(.footnote)
@@ -65,65 +57,71 @@ struct FamilyDashboardView: View {
         }
     }
 
-    private var familyHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Image(systemName: "house.fill")
-                    .font(.title2)
-                    .foregroundStyle(Color.purple)
-                Text(appState.family?.name ?? "Your Guild")
-                    .font(.title2.bold())
-                Spacer()
+    private var parentHeaderCard: some View {
+        HStack(spacing: 12) {
+            if let profile = appState.currentProfile {
+                let preset = AvatarPreset.preset(forProfile: profile)
+                let spec = AvatarRenderSpec(
+                    preset: preset,
+                    displayName: profile.displayName,
+                    levelTitle: profile.role.displayName,
+                    equippedAccessory: nil
+                )
+                AvatarView(spec: spec, size: .small, showsNameAndTitle: false)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(profile.displayName)
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text(profile.role.displayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Guild Master")
+                    .font(.body.weight(.bold))
             }
-            inviteCodeChip
+
+            Spacer()
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
         .padding(.horizontal)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .topTrailing) {
-            if showInviteCopiedToast {
-                Text("Copied!")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.green.opacity(0.85)))
-                    .transition(.opacity)
-                    .padding(.trailing, 4)
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: showInviteCopiedToast)
     }
 
     private var inviteCodeChip: some View {
         let code = appState.family?.inviteCode ?? "—"
-        return Button {
-            UIPasteboard.general.string = code
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
-                if UIPasteboard.general.string == code {
-                    UIPasteboard.general.string = nil
-                }
+        return Menu {
+            Button {
+                showShareSheet = true
+            } label: {
+                Label("Share Invitation Link…", systemImage: "square.and.arrow.up")
             }
-            withAnimation { showInviteCopiedToast = true }
-            Task {
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                await MainActor.run {
-                    withAnimation { showInviteCopiedToast = false }
-                }
+
+            Button {
+                UIPasteboard.general.setItems(
+                    [[UIPasteboard.typeAutomatic: code]],
+                    options: [.expirationDate: Date().addingTimeInterval(30), .localOnly: true]
+                )
+                withAnimation { showInviteCopiedToast = true }
+            } label: {
+                Label("Copy Code (\(code))", systemImage: "doc.on.doc")
             }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "person.crop.circle.badge.plus")
                     .font(.caption.weight(.bold))
-                Text("Invite Code")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(code)
-                    .font(.callout.weight(.bold).monospaced())
-                Image(systemName: "doc.on.doc")
+                Text("Invite Heroes")
+                    .font(.caption.weight(.semibold))
+                Image(systemName: "chevron.down")
                     .font(.caption2)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(
                 Capsule()
                     .fill(Color(.secondarySystemGroupedBackground))
@@ -132,8 +130,19 @@ struct FamilyDashboardView: View {
                     )
             )
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Invite code: \(code). Double tap to copy.")
+        .accessibilityLabel("Invite Heroes. Tap to open share options.")
+    }
+
+    private var shareInviteItems: [Any] {
+        let name = appState.family?.name ?? "our guild"
+        let code = appState.family?.inviteCode ?? ""
+        if let shareURL = appState.activeShareURL {
+            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(shareURL.absoluteString)\n\nOr enter invite code: \(code)"
+            return [message, shareURL]
+        } else {
+            let message = "Join \(name) on LootList! Enter invite code: \(code)"
+            return [message]
+        }
     }
 
     private func weeklySummaryCard(summary: WeekendSummary?) -> some View {
@@ -180,104 +189,108 @@ struct FamilyDashboardView: View {
         HStack(spacing: 16) {
             statBlock(
                 icon: "circle.hexagongrid.fill",
-                tint: Color.gold,
                 value: String(format: "%.2f", summary.totalEarned),
-                label: "Gold Earned"
+                label: "Gold Earned",
+                tint: .gold
             )
+            Divider()
             statBlock(
                 icon: "checkmark.seal.fill",
-                tint: .green,
                 value: "\(summary.totalQuestsCompleted)",
-                label: "Quests Slain"
+                label: "Quests Slain",
+                tint: .green
             )
+            Divider()
             statBlock(
-                icon: "list.bullet.clipboard",
-                tint: .blue,
-                value: "\(summary.totalQuestsAssigned)",
-                label: "Quests Out"
+                icon: "person.2.fill",
+                value: "\(summary.heroSummaries.count)",
+                label: "Active Heroes",
+                tint: .purple
             )
         }
+        .frame(maxWidth: .infinity)
     }
 
-    private func statBlock(icon: String, tint: Color, value: String, label: String) -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: icon)
-                .font(.title3)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(tint)
-            Text(value)
-                .font(.title3.bold().monospacedDigit())
+    private func statBlock(icon: String,
+                           value: String,
+                           label: String,
+                           tint: Color) -> some View
+    {
+        VStack(spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption)
+                    .foregroundStyle(tint)
+                Text(value)
+                    .font(.title3.weight(.bold).monospacedDigit())
+            }
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
     }
 
     private func whoCompletedWhatList(summary: WeekendSummary) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Who Completed What")
-                .font(.subheadline.weight(.semibold))
-            let ranked = summary.heroSummaries.sorted {
-                if $0.weeklyQuestsCompleted != $1.weeklyQuestsCompleted {
-                    return $0.weeklyQuestsCompleted > $1.weeklyQuestsCompleted
-                }
-                return $0.weeklyGoldEarned > $1.weeklyGoldEarned
-            }
-            ForEach(ranked) { hero in
-                miniHeroRow(hero)
-            }
-        }
-    }
-
-    private func miniHeroRow(_ hero: HeroSummary) -> some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(Color.gray.opacity(0.20))
-                .frame(width: 22, height: 22)
-                .overlay(
-                    Image(systemName: "figure.and.child.holdinghands")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                )
-            Text(hero.profile.displayName)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-            Spacer()
-            Text("\(hero.weeklyQuestsCompleted)/\(hero.weeklyQuestsTotal)")
-                .font(.caption.monospacedDigit())
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Breakdown")
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            GoldBadge(amount: hero.weeklyGoldEarned, size: .small)
+
+            if summary.heroSummaries.isEmpty {
+                Text("No quest activity recorded yet.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(summary.heroSummaries) { hero in
+                    HStack {
+                        Text(hero.profile.displayName)
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text("\(hero.weeklyQuestsCompleted) quests")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(String(format: "%.2f gold", hero.weeklyGoldEarned))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.gold)
+                    }
+                }
+            }
         }
     }
 
     private func heroesSection(vm: FamilyDashboardViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Heroes")
                     .font(.headline)
                 Spacer()
-                Text("\(vm.heroes.count)")
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
+                inviteCodeChip
             }
             .padding(.horizontal)
+            .overlay(alignment: .topTrailing) {
+                if showInviteCopiedToast {
+                    Text("Copied!")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(Color.green.opacity(0.85)))
+                        .transition(.opacity)
+                        .padding(.trailing, 16)
+                        .padding(.top, -10)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: showInviteCopiedToast)
+            .task(id: showInviteCopiedToast) {
+                if showInviteCopiedToast {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    withAnimation { showInviteCopiedToast = false }
+                }
+            }
 
             if vm.heroes.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "person.fill.viewfinder")
-                        .font(.system(size: 44))
-                        .foregroundStyle(.tertiary)
-                    Text("No active heroes in your family yet")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("Invite a hero with your invite code to begin.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 36)
+                emptyHeroesCard
             } else {
                 VStack(spacing: 12) {
                     ForEach(vm.weekSummary?.heroSummaries ?? []) { summary in
@@ -289,69 +302,39 @@ struct FamilyDashboardView: View {
         }
     }
 
-    private var navigationSection: some View {
-        VStack(spacing: 0) {
-            NavigationLink {
-                PayoutHistoryView()
-            } label: {
-                actionRow(
-                    icon: "calendar.badge.checkmark",
-                    title: "Payout History",
-                    subtitle: "Past Sunday Loot Day payouts"
-                )
-            }
-            .buttonStyle(.plain)
-
-            Divider().padding(.leading, 56)
-
-            NavigationLink {
-                GuildSettingsView()
-            } label: {
-                actionRow(
-                    icon: "gearshape.fill",
-                    title: "Guild Settings",
-                    subtitle: "Family name, roles, invite codes"
-                )
-            }
-            .buttonStyle(.plain)
-        }
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-        .padding(.horizontal)
-    }
-
-    private func actionRow(icon: String,
-                            title: String,
-                            subtitle: String,
-                            tint: Color = .accentColor) -> some View {
-        HStack(spacing: 14) {
+    private var emptyHeroesCard: some View {
+        VStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(tint.opacity(0.15))
-                    .frame(width: 36, height: 36)
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(tint)
+                    .fill(Color.orange.opacity(0.15))
+                    .frame(width: 64, height: 64)
+                Image(systemName: "person.badge.plus")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Color.orange)
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.caption)
+
+            VStack(spacing: 6) {
+                Text("Recruit Your Party!")
+                    .font(.title3.weight(.heavy))
+                Text("Your guild needs heroes to embark on quests. Tap **Invite Heroes** above to share an invitation link or copy your guild code.")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 12)
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1.5)
+        )
+        .padding(.horizontal)
     }
 
     private var loadingPlaceholder: some View {

@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 struct Achievement: Identifiable, Equatable, Sendable {
-
     static let recordType: String = "Achievement"
 
     let id: CKRecord.ID
@@ -22,9 +21,9 @@ struct Achievement: Identifiable, Equatable, Sendable {
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
-                                                        actual: record.recordType)
+                                                       actual: record.recordType)
         }
-        self.id = record.recordID
+        id = record.recordID
 
         guard let name = record["name"] as? String else {
             throw CKDecodingError.missingField("name")
@@ -64,13 +63,13 @@ struct Achievement: Identifiable, Equatable, Sendable {
 
     func toRecord() -> CKRecord {
         let record = CKRecord(recordType: Self.recordType, recordID: id)
-        record["name"]             = name as CKRecordValue
-        record["description"]      = description as CKRecordValue
-        record["iconSystemName"]   = iconSystemName as CKRecordValue
-        record["category"]         = category as CKRecordValue
-        record["requirementType"]  = requirementType as CKRecordValue
+        record["name"] = name as CKRecordValue
+        record["description"] = description as CKRecordValue
+        record["iconSystemName"] = iconSystemName as CKRecordValue
+        record["category"] = category as CKRecordValue
+        record["requirementType"] = requirementType as CKRecordValue
         record["requirementValue"] = requirementValue as CKRecordValue
-        record["family"]           = family as CKRecordValue
+        record["family"] = family as CKRecordValue
         return record
     }
 
@@ -81,7 +80,8 @@ struct Achievement: Identifiable, Equatable, Sendable {
          requirementType: String,
          requirementValue: Int,
          family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString)) {
+         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+    {
         self.id = id
         self.name = name
         self.description = description

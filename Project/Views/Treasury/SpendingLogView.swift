@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct SpendingLogView: View {
-
     @Bindable var viewModel: TreasuryViewModel
 
     @State private var showAllTime: Bool = false
@@ -31,7 +30,6 @@ struct SpendingLogView: View {
             Task { await viewModel.loadSpendingLog(showAllTime: newValue) }
         }
         .task {
-
             if viewModel.spendingLog.isEmpty {
                 await viewModel.loadSpendingLog(showAllTime: showAllTime)
             }
@@ -41,7 +39,7 @@ struct SpendingLogView: View {
     private var filterToggle: some View {
         HStack {
             Label(showAllTime ? "All Time" : "This Week",
-                   systemImage: showAllTime ? "calendar" : "clock")
+                  systemImage: showAllTime ? "calendar" : "clock")
                 .font(.subheadline.weight(.semibold))
             Spacer()
             Toggle("", isOn: $showAllTime)
@@ -59,8 +57,8 @@ struct SpendingLogView: View {
             Text("Empty Scroll of Spending")
                 .font(.headline)
             Text(showAllTime
-                 ? "No entries yet — log your first spend to begin your chronicle."
-                 : "No spending logged this week.")
+                ? "No entries yet — log your first spend to begin your chronicle."
+                : "No spending logged this week.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -75,15 +73,14 @@ struct SpendingLogView: View {
 }
 
 struct LedgerEntryRow: View {
-
     let entry: LedgerEntry
 
     var body: some View {
         VStack(spacing: 4) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: entry.amount >= 0
-                       ? GoldFormat.coinSystemName
-                       : "arrow.down.circle.fill")
+                    ? GoldFormat.coinSystemName
+                    : "arrow.down.circle.fill")
                     .font(.title2)
                     .foregroundStyle(entry.amount >= 0 ? .gold : .red)
                     .frame(width: 32)

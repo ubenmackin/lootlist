@@ -1,14 +1,15 @@
-import Foundation
 import CloudKit
+import Foundation
 
 @MainActor
 @Observable
 final class TreasuryService {
-
     private let cloudKit: CloudKitService
+    var notificationService: NotificationService?
 
-    init(cloudKit: CloudKitService) {
+    init(cloudKit: CloudKitService, notificationService: NotificationService? = nil) {
         self.cloudKit = cloudKit
+        self.notificationService = notificationService
     }
 
     func currentBalance(for profile: Profile) async throws -> Double {
@@ -24,7 +25,6 @@ final class TreasuryService {
     }
 
     struct WeeklyBreakdown: Equatable, Sendable {
-
         var questsCount: Int = 0
 
         var goldFromQuests: Double = 0
@@ -39,15 +39,26 @@ final class TreasuryService {
     }
 
     func weeklyBreakdown(profile: Profile,
-                          weekOf: Date) async throws -> WeeklyBreakdown {
+                         weekOf: Date) async throws -> WeeklyBreakdown
+    {
         let monday = TreasuryService.mondayOfWeek(for: weekOf)
         let weekRange = TreasuryService.weekRange(starting: monday)
 
         let logs = try await fetchQuestLogs(profile: profile,
-                                              weekStarting: monday,
-                                              weekEnding: weekRange.end)
-        let goldFromQuests = try await sumGold(for: logs)
+                                            weekStarting: monday,
+                                            weekEnding: weekRange.end)
+        var goldFromQuests = try await sumGold(for: logs)
         let slainCount = logs.filter { TreasuryService.isSlain($0) }.count
+
+        // Check if family has strict All-or-Nothing payout policy enabled.
+        if let family = try? await cloudKit.fetch(Family.self, id: profile.family.recordID),
+           family.payoutPolicy == .allOrNothing
+        {
+            let assigned = try await fetchAssignedQuests(profile: profile, weekOf: monday)
+            if !assigned.isEmpty && slainCount < assigned.count {
+                goldFromQuests = 0.0
+            }
+        }
 
         let ledgerEntries = try await fetchLedgerEntries(
             profile: profile, in: weekRange
@@ -71,17 +82,20 @@ final class TreasuryService {
     }
 
     func getOrCreateAllowancePeriod(profile: Profile,
-                                     weekOf: Date,
-                                     family: Family) async throws -> AllowancePeriod {
+                                    weekOf: Date,
+                                    family: Family) async throws -> AllowancePeriod
+    {
         let monday = TreasuryService.mondayOfWeek(for: weekOf)
         let existing = try await fetchAllowancePeriod(profile: profile,
-                                                        weekOf: monday)
-        if let existing { return existing }
+                                                      weekOf: monday)
+        if let existing {
+            return existing
+        }
 
         let logs = try await fetchQuestLogs(profile: profile,
-                                              weekStarting: monday,
-                                              weekEnding: TreasuryService
-                                                  .weekRange(starting: monday).end)
+                                            weekStarting: monday,
+                                            weekEnding: TreasuryService
+                                                .weekRange(starting: monday).end)
         let slainCount = logs.filter { TreasuryService.isSlain($0) }.count
 
         let period = AllowancePeriod(
@@ -94,9 +108,10 @@ final class TreasuryService {
     }
 
     func updateAllowance(period: AllowancePeriod,
-                          totalEarned: Double? = nil,
-                          questsCompleted: Int? = nil,
-                          questsTotal: Int? = nil) async throws -> AllowancePeriod {
+                         totalEarned: Double? = nil,
+                         questsCompleted: Int? = nil,
+                         questsTotal: Int? = nil) async throws -> AllowancePeriod
+    {
         var updated = period
 
         let profile = try await cloudKit.fetch(
@@ -104,10 +119,12 @@ final class TreasuryService {
         )
 
         let breakdown = try await weeklyBreakdown(profile: profile,
-                                                    weekOf: period.weekOf)
+                                                  weekOf: period.weekOf)
         updated.totalEarned = totalEarned ?? breakdown.totalEarned
         updated.questsCompleted = questsCompleted ?? breakdown.questsCount
-        if let questsTotal { updated.questsTotal = questsTotal }
+        if let questsTotal {
+            updated.questsTotal = questsTotal
+        }
         return try await cloudKit.save(updated)
     }
 
@@ -117,26 +134,37 @@ final class TreasuryService {
         updated.paidDate = Date()
         updated.paidAmount = updated.totalEarned
         _ = try await cloudKit.save(updated)
+
+        if let notificationService {
+            Task {
+                if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
+                   let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
+                {
+                    try? await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
+                }
+            }
+        }
     }
 
     private func goldFromQuests(profile: Profile) async throws -> Double {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "completedBy == %@",
-                                       profileRef as CVarArg)
+                                    profileRef as CVarArg)
         let logs = try await cloudKit.query(QuestCompletion.self,
-                                              predicate: predicate)
+                                            predicate: predicate)
         return try await sumGold(for: logs)
     }
 
     private func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@",
-                                       profileRef as CVarArg)
+                                    profileRef as CVarArg)
         return try await cloudKit.query(LedgerEntry.self, predicate: predicate)
     }
 
     private func fetchLedgerEntries(profile: Profile,
-                                     in dateRange: DateInterval) async throws -> [LedgerEntry] {
+                                    in dateRange: DateInterval) async throws -> [LedgerEntry]
+    {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(
             format: "profile == %@ AND date >= %@ AND date <= %@",
@@ -148,8 +176,9 @@ final class TreasuryService {
     }
 
     private func fetchQuestLogs(profile: Profile,
-                                  weekStarting: Date,
-                                  weekEnding: Date) async throws -> [QuestCompletion] {
+                                weekStarting: Date,
+                                weekEnding: Date) async throws -> [QuestCompletion]
+    {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(
             format: "completedBy == %@ AND weekOf >= %@ AND weekOf <= %@",
@@ -160,8 +189,19 @@ final class TreasuryService {
         return try await cloudKit.query(QuestCompletion.self, predicate: predicate)
     }
 
+    private func fetchAssignedQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
+        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+        let predicate = NSPredicate(
+            format: "assignee == %@ AND weekOf == %@",
+            profileRef as CVarArg,
+            weekOf as CVarArg
+        )
+        return try await cloudKit.query(Quest.self, predicate: predicate)
+    }
+
     private func fetchAllowancePeriod(profile: Profile,
-                                        weekOf: Date) async throws -> AllowancePeriod? {
+                                      weekOf: Date) async throws -> AllowancePeriod?
+    {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(
             format: "profile == %@ AND weekOf == %@",
@@ -169,7 +209,7 @@ final class TreasuryService {
             weekOf as CVarArg
         )
         let periods = try await cloudKit.query(AllowancePeriod.self,
-                                                  predicate: predicate)
+                                               predicate: predicate)
         return periods.first
     }
 
@@ -190,7 +230,7 @@ final class TreasuryService {
                 quest = cached
             } else {
                 let fetched = try await cloudKit.fetch(Quest.self,
-                                                          id: log.quest.recordID)
+                                                       id: log.quest.recordID)
                 questCache[log.quest.recordID] = fetched
                 quest = fetched
             }
@@ -209,7 +249,7 @@ final class TreasuryService {
         let start = cal.startOfDay(for: monday)
 
         let end = cal.date(byAdding: .second, value: (7 * 24 * 60 * 60) - 1,
-                            to: start) ?? start
+                           to: start) ?? start
         return DateInterval(start: start, end: end)
     }
 

@@ -7,52 +7,51 @@ enum BadgeSize: Sendable {
 
     var glyphSize: CGFloat {
         switch self {
-        case .small:  return 11
-        case .medium: return 14
-        case .large:  return 18
+        case .small: 11
+        case .medium: 14
+        case .large: 18
         }
     }
 
     var valueFont: Font {
         switch self {
-        case .small:  return .caption2.weight(.bold)
-        case .medium: return .caption.weight(.bold)
-        case .large:  return .callout.weight(.bold)
+        case .small: .caption2.weight(.bold)
+        case .medium: .caption.weight(.bold)
+        case .large: .callout.weight(.bold)
         }
     }
 
     var hPadding: CGFloat {
         switch self {
-        case .small:  return 6
-        case .medium: return 8
-        case .large:  return 10
+        case .small: 6
+        case .medium: 8
+        case .large: 10
         }
     }
 
     var vPadding: CGFloat {
         switch self {
-        case .small:  return 3
-        case .medium: return 4
-        case .large:  return 6
+        case .small: 3
+        case .medium: 4
+        case .large: 6
         }
     }
 
     var spacing: CGFloat {
         switch self {
-        case .small:  return 3
-        case .medium: return 5
-        case .large:  return 7
+        case .small: 3
+        case .medium: 5
+        case .large: 7
         }
     }
 }
 
 struct GoldBadge: View {
-
     let amount: Double?
 
     var size: BadgeSize = .medium
 
-    var format: ((Double) -> String)? = nil
+    var format: ((Double) -> String)?
 
     var body: some View {
         HStack(spacing: size.spacing) {

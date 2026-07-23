@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 struct LedgerEntry: Identifiable, Equatable, Sendable {
-
     static let recordType: String = "LedgerEntry"
 
     let id: CKRecord.ID
@@ -21,9 +20,9 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
-                                                        actual: record.recordType)
+                                                       actual: record.recordType)
         }
-        self.id = record.recordID
+        id = record.recordID
 
         guard let profile = record["profile"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("profile")
@@ -58,12 +57,12 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
 
     func toRecord() -> CKRecord {
         let record = CKRecord(recordType: Self.recordType, recordID: id)
-        record["profile"]     = profile as CKRecordValue
-        record["amount"]      = amount as CKRecordValue
+        record["profile"] = profile as CKRecordValue
+        record["amount"] = amount as CKRecordValue
         record["description"] = description as CKRecordValue
-        record["date"]        = date as CKRecordValue
-        record["source"]      = source as CKRecordValue
-        record["family"]      = family as CKRecordValue
+        record["date"] = date as CKRecordValue
+        record["source"] = source as CKRecordValue
+        record["family"] = family as CKRecordValue
         return record
     }
 
@@ -73,7 +72,8 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
          date: Date = Date(),
          source: String = "manual",
          family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString)) {
+         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+    {
         self.id = id
         self.profile = profile
         self.amount = amount

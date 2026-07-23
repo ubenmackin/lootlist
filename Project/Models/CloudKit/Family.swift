@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 struct Family: Identifiable, Equatable, Sendable {
-
     static let recordType: String = "Family"
 
     let id: CKRecord.ID
@@ -15,12 +14,14 @@ struct Family: Identifiable, Equatable, Sendable {
 
     var inviteCode: String
 
+    var payoutPolicy: PayoutPolicy
+
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
-                                                        actual: record.recordType)
+                                                       actual: record.recordType)
         }
-        self.id = record.recordID
+        id = record.recordID
 
         guard let name = record["name"] as? String else {
             throw CKDecodingError.missingField("name")
@@ -30,7 +31,7 @@ struct Family: Identifiable, Equatable, Sendable {
         guard let createdByID = record["createdBy"] as? String else {
             throw CKDecodingError.missingField("createdBy")
         }
-        self.createdBy = CKRecord.ID(recordName: createdByID)
+        createdBy = CKRecord.ID(recordName: createdByID)
 
         guard let createdAt = record["createdAt"] as? Date else {
             throw CKDecodingError.missingField("createdAt")
@@ -41,29 +42,42 @@ struct Family: Identifiable, Equatable, Sendable {
             throw CKDecodingError.missingField("inviteCode")
         }
         self.inviteCode = inviteCode
+
+        if let rawPolicy = record["payoutPolicy"] as? String,
+           let policy = PayoutPolicy(rawValue: rawPolicy)
+        {
+            payoutPolicy = policy
+        } else {
+            payoutPolicy = .perQuest
+        }
     }
 
     func toRecord() -> CKRecord {
         let record = CKRecord(recordType: Self.recordType, recordID: id)
-        record["name"]       = name as CKRecordValue
-        record["createdBy"]  = createdBy.recordName as CKRecordValue
-        record["createdAt"]  = createdAt as CKRecordValue
+        record["name"] = name as CKRecordValue
+        record["createdBy"] = createdBy.recordName as CKRecordValue
+        record["createdAt"] = createdAt as CKRecordValue
         record["inviteCode"] = inviteCode as CKRecordValue
+        record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
         return record
     }
 
-    init(name: String, createdBy: CKRecord.ID, inviteCode: String,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString)) {
+    init(name: String,
+         createdBy: CKRecord.ID,
+         inviteCode: String,
+         payoutPolicy: PayoutPolicy = .perQuest,
+         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+    {
         self.id = id
         self.name = name
         self.createdBy = createdBy
-        self.createdAt = Date()
+        createdAt = Date()
         self.inviteCode = inviteCode
+        self.payoutPolicy = payoutPolicy
     }
 }
 
 enum CKDecodingError: Error, Equatable, Sendable {
-
     case unexpectedRecordType(expected: String, actual: String)
 
     case missingField(String)

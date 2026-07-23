@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 protocol CloudKitRecord {
-
     static var recordType: String { get }
 
     init(record: CKRecord) throws

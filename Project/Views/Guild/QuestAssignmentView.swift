@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct QuestAssignmentView: View {
-
     @Bindable var viewModel: QuestManagerViewModel
 
     @Environment(\.dismiss) private var dismiss
@@ -20,20 +19,22 @@ struct QuestAssignmentView: View {
         case useTemplate = "Use Template Default"
         case autoApproveOverride = "Auto-Approve (override)"
         case parentVerifyOverride = "Parent Verifies (override)"
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Template") {
-                    if viewModel.templates.filter({ $0.isActive }).isEmpty {
+                    if viewModel.templates.filter(\.isActive).isEmpty {
                         Text("No active templates. Create one in the Templates tab first.")
                             .foregroundStyle(.secondary)
                     } else {
                         Picker("Template", selection: $selectedTemplate) {
                             Text("Choose…").tag(nil as QuestTemplate?)
-                            ForEach(viewModel.templates.filter { $0.isActive }) { template in
+                            ForEach(viewModel.templates.filter(\.isActive)) { template in
                                 Text(template.name).tag(template as QuestTemplate?)
                             }
                         }
@@ -108,13 +109,16 @@ struct QuestAssignmentView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: submit) {
-                        if isSubmitting { ProgressView() } else { Text("Assign") }
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text("Assign")
+                        }
                     }
                     .disabled(isSubmitting || selectedTemplate == nil || selectedHero == nil)
                 }
             }
             .onAppear {
-
                 if selectedTemplate == nil {
                     selectedTemplate = viewModel.templates.first { $0.isActive }
                 }
@@ -132,26 +136,24 @@ struct QuestAssignmentView: View {
         }
 
         let gold: Double? = {
-            guard let v = Double(goldOverrideText.trimmingCharacters(in: .whitespaces)) else {
+            guard let parsedGold = Double(goldOverrideText.trimmingCharacters(in: .whitespaces)) else {
                 return nil
             }
-            return v
+            return parsedGold
         }()
 
         let xp: Int? = {
-            guard let v = Int(xpOverrideText.trimmingCharacters(in: .whitespaces)) else {
+            guard let parsedXP = Int(xpOverrideText.trimmingCharacters(in: .whitespaces)) else {
                 return nil
             }
-            return v
+            return parsedXP
         }()
 
-        let approval: ApprovalMode? = {
-            switch approvalOverride {
-            case .useTemplate:            return nil
-            case .autoApproveOverride:    return .autoApprove
-            case .parentVerifyOverride:   return .parentVerify
-            }
-        }()
+        let approval: ApprovalMode? = switch approvalOverride {
+        case .useTemplate: nil
+        case .autoApproveOverride: .autoApprove
+        case .parentVerifyOverride: .parentVerify
+        }
 
         isSubmitting = true
         Task {
@@ -182,11 +184,13 @@ struct QuestAssignmentView: View {
 }
 
 private extension Double {
-
-    func mapToText() -> String { String(format: "%.2f", self) }
+    func mapToText() -> String {
+        String(format: "%.2f", self)
+    }
 }
 
 private extension Int {
-
-    func mapToText() -> String { String(self) }
+    func mapToText() -> String {
+        String(self)
+    }
 }

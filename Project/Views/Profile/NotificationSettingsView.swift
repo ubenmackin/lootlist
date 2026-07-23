@@ -1,137 +1,195 @@
 import SwiftUI
-import CloudKit
+import UserNotifications
 
 @MainActor
 struct NotificationSettingsView: View {
-
     private let notificationService: NotificationService
-
     private let profile: Profile
-
     private let family: Family
 
-    @State private var preferences: [NotificationEventType: NotificationPreference] = [:]
+    @AppStorage("masterNotificationsEnabled") private var masterNotificationsEnabled = true
+    @AppStorage("questAssignedNotificationsEnabled") private var questAssignedNotificationsEnabled = true
+    @AppStorage("questNeedsReviewNotificationsEnabled") private var questNeedsReviewNotificationsEnabled = true
+    @AppStorage("questVerifiedNotificationsEnabled") private var questVerifiedNotificationsEnabled = true
+    @AppStorage("levelUpNotificationsEnabled") private var levelUpNotificationsEnabled = true
+    @AppStorage("weeklySummaryNotificationsEnabled") private var weeklySummaryNotificationsEnabled = true
 
-    @State private var isLoading = false
-
-    @State private var loadError: String?
+    @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
+    @State private var showClearedToast = false
 
     init(notificationService: NotificationService,
          profile: Profile,
-         family: Family) {
+         family: Family)
+    {
         self.notificationService = notificationService
         self.profile = profile
         self.family = family
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("Choose which alerts reach you. Each event has an in-app **Enabled** toggle and a separate **Push** toggle so you can decide exactly what reaches your lock screen.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+        Form {
+            // MARK: - 1. Authorization Status Section
+            Section {
+                HStack(spacing: 14) {
+                    Image(systemName: statusIcon)
+                        .font(.title2)
+                        .foregroundStyle(statusColor)
 
-                Section("Event Types") {
-                    if isLoading && preferences.isEmpty {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Notification Status")
+                            .font(.headline)
+
+                        Text(statusText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if authorizationStatus == .notDetermined {
+                        Button("Enable") {
+                            Task {
+                                let granted = (try? await notificationService.requestAuthorization()) ?? false
+                                await updateAuthStatus()
+                                if granted {
+                                    notificationService.registerForRemoteNotifications()
+                                }
+                            }
                         }
-                        .frame(minHeight: 80)
-                    } else {
-                        ForEach(NotificationEventType.allCases, id: \.self) { eventType in
-                            row(for: eventType)
-                        }
+                        .buttonStyle(.borderedProminent)
                     }
                 }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Authorization")
+            } footer: {
+                if authorizationStatus == .denied {
+                    Text("Notifications are blocked in System Settings. Go to iOS Settings > LootList > Notifications to enable alerts.")
+                }
+            }
 
-                if let loadError {
-                    Section {
-                        Text(loadError)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
+            // MARK: - 2. Master Toggle Section
+            Section {
+                Toggle("Allow Push Notifications", isOn: $masterNotificationsEnabled)
+                    .tint(.accentColor)
+                    .onChange(of: masterNotificationsEnabled) { _, newValue in
+                        if newValue {
+                            if authorizationStatus == .notDetermined {
+                                Task {
+                                    _ = try? await notificationService.requestAuthorization()
+                                    await updateAuthStatus()
+                                }
+                            }
+                        } else {
+                            UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+                        }
                     }
+
+                Text(masterNotificationsEnabled
+                    ? "Individual event types can be controlled below."
+                    : "All notifications are disabled when this master toggle is off.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Master Toggle")
+            }
+
+            // MARK: - 3. Individual Event Sub-Toggles
+            Section {
+                Toggle(isOn: $questAssignedNotificationsEnabled) {
+                    Label("Quest Assignments", systemImage: "scroll.fill")
+                }
+                .disabled(!masterNotificationsEnabled)
+
+                Toggle(isOn: $questNeedsReviewNotificationsEnabled) {
+                    Label("Quest Approvals", systemImage: "checkmark.shield.fill")
+                }
+                .disabled(!masterNotificationsEnabled)
+
+                Toggle(isOn: $questVerifiedNotificationsEnabled) {
+                    Label("Quest Verification Alerts", systemImage: "seal.fill")
+                }
+                .disabled(!masterNotificationsEnabled)
+
+                Toggle(isOn: $levelUpNotificationsEnabled) {
+                    Label("Level Up Alerts", systemImage: "star.fill")
+                }
+                .disabled(!masterNotificationsEnabled)
+
+                Toggle(isOn: $weeklySummaryNotificationsEnabled) {
+                    Label("Sunday Loot Day Payouts", systemImage: "circle.hexagongrid.fill")
+                }
+                .disabled(!masterNotificationsEnabled)
+            } header: {
+                Text("Event Alerts")
+            } footer: {
+                Text("Choose which specific events send push notifications when master alerts are allowed.")
+            }
+
+            // MARK: - 4. Actions Section
+            Section {
+                Button(role: .destructive) {
+                    UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+                    UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+                    withAnimation { showClearedToast = true }
+                } label: {
+                    Label("Clear All Pending Notifications", systemImage: "trash")
+                }
+            } footer: {
+                if showClearedToast {
+                    Text("Cleared all pending and delivered notifications.")
+                        .font(.caption)
+                        .foregroundStyle(.green)
                 }
             }
-            .navigationTitle("Notifications")
-            .navigationBarTitleDisplayMode(.inline)
-            .refreshable { await refresh() }
-            .task { await refresh() }
         }
-    }
-
-    @ViewBuilder
-    private func row(for eventType: NotificationEventType) -> some View {
-        let preference = preferences[eventType]
-        NotificationToggleRow(
-            eventType: eventType,
-            enabled: preference?.enabled ?? false,
-            pushEnabled: preference?.pushEnabled ?? false,
-            onEnabledChange: { newValue in
-                handleChange(enabled: newValue,
-                              pushEnabled: nil,
-                              for: eventType)
-            },
-            onPushEnabledChange: { newValue in
-                handleChange(enabled: nil,
-                              pushEnabled: newValue,
-                              for: eventType)
-            }
-        )
-    }
-
-    private func handleChange(enabled: Bool?,
-                                pushEnabled: Bool?,
-                                for eventType: NotificationEventType) {
-
-        let previous = preferences[eventType]
-
-        if var preference = preferences[eventType] {
-            if let enabled { preference.enabled = enabled }
-            if let pushEnabled { preference.pushEnabled = pushEnabled }
-            preferences[eventType] = preference
+        .navigationTitle("Notifications")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await updateAuthStatus()
         }
-
-        let newEnabled = enabled ?? previous?.enabled ?? false
-        let newPush = pushEnabled ?? previous?.pushEnabled ?? false
-
-        Task { @MainActor in
-            do {
-                try await notificationService.setEnabled(
-                    newEnabled,
-                    pushEnabled: newPush,
-                    for: eventType,
-                    profile: profile)
-                loadError = nil
-            } catch {
-
-                if let previous {
-                    preferences[eventType] = previous
-                } else {
-                    preferences.removeValue(forKey: eventType)
-                }
-                loadError = "Could not save preference: \(error.localizedDescription)"
+        .task(id: showClearedToast) {
+            if showClearedToast {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                showClearedToast = false
             }
         }
     }
 
-    @MainActor private func refresh() async {
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            try await notificationService.ensureDefaultPreferences(
-                profile: profile,
-                role: profile.role,
-                family: family)
-            let fetched = try await notificationService.fetchPreferences(profile: profile)
-            preferences = fetched
-            loadError = nil
-        } catch {
-            loadError = "Could not load preferences: \(error.localizedDescription)"
+    private var statusIcon: String {
+        switch authorizationStatus {
+        case .authorized, .provisional: "bell.badge.fill"
+        case .denied: "bell.slash.fill"
+        case .notDetermined: "bell.fill"
+        case .ephemeral: "bell.fill"
+        @unknown default: "bell.fill"
         }
+    }
+
+    private var statusColor: Color {
+        switch authorizationStatus {
+        case .authorized, .provisional: .green
+        case .denied: .red
+        case .notDetermined: .orange
+        case .ephemeral: .green
+        @unknown default: .gray
+        }
+    }
+
+    private var statusText: String {
+        switch authorizationStatus {
+        case .authorized, .provisional: "Authorized in iOS"
+        case .denied: "Denied in System Settings"
+        case .notDetermined: "Authorization Not Requested"
+        case .ephemeral: "Provisional Authorized"
+        @unknown default: "Status Unknown"
+        }
+    }
+
+    @MainActor
+    private func updateAuthStatus() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        authorizationStatus = settings.authorizationStatus
     }
 }

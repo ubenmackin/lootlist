@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct LogSpendingView: View {
-
     @Bindable var viewModel: TreasuryViewModel
 
     @Environment(\.dismiss) private var dismiss
@@ -10,7 +9,7 @@ struct LogSpendingView: View {
 
     @State private var amountText: String = ""
 
-    @State private var date: Date = Date()
+    @State private var date: Date = .init()
 
     @State private var isSaving: Bool = false
 
@@ -19,9 +18,9 @@ struct LogSpendingView: View {
             Form {
                 Section {
                     TextField("What did you buy?",
-                                text: $description,
-                                axis: .vertical)
-                        .lineLimit(2...6)
+                              text: $description,
+                              axis: .vertical)
+                        .lineLimit(2 ... 6)
                 } header: {
                     Text("Chronicle Entry")
                 } footer: {
@@ -44,8 +43,8 @@ struct LogSpendingView: View {
 
                 Section("When") {
                     DatePicker("Date",
-                                selection: $date,
-                                displayedComponents: [.date, .hourAndMinute])
+                               selection: $date,
+                               displayedComponents: [.date, .hourAndMinute])
                 }
 
                 if let error = viewModel.errorMessage, !error.isEmpty {
@@ -89,7 +88,6 @@ struct LogSpendingView: View {
     }
 
     private func save() {
-
         guard let amount = Double(amountText), amount.isFinite, amount > 0 else {
             return
         }

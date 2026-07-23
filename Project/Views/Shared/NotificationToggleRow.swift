@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct NotificationToggleRow: View {
-
     private let eventType: NotificationEventType
 
     private let enabled: Bool
@@ -16,7 +15,8 @@ struct NotificationToggleRow: View {
          enabled: Bool,
          pushEnabled: Bool,
          onEnabledChange: @escaping (Bool) -> Void,
-         onPushEnabledChange: ((Bool) -> Void)? = nil) {
+         onPushEnabledChange: ((Bool) -> Void)? = nil)
+    {
         self.eventType = eventType
         self.enabled = enabled
         self.pushEnabled = pushEnabled
@@ -60,11 +60,10 @@ struct NotificationToggleRow: View {
                     set: { onPushEnabledChange($0) }
                 ))
                 .tint(.accentColor)
-
                 .disabled(!enabled)
                 .opacity(enabled ? 1 : 0.5)
             }
         }
-        .padding(.leading, 44)   
+        .padding(.leading, 44)
     }
 }

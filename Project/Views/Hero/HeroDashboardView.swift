@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct HeroDashboardView: View {
-
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
 
@@ -85,23 +84,22 @@ struct HeroDashboardView: View {
         )
     }
 
+    @ViewBuilder
     private var streakBanner: some View {
-        Group {
-            if let streak = viewModel?.streak, streak > 0 {
-                HStack(spacing: 8) {
-                    Image(systemName: "flame.fill")
-                        .foregroundStyle(.orange)
-                    Text("\(streak) Combo Streak")
-                        .font(.headline.bold())
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.orange.opacity(0.15))
-                )
+        if let streak = viewModel?.streak, streak > 0 {
+            HStack(spacing: 8) {
+                Image(systemName: "flame.fill")
+                    .foregroundStyle(.orange)
+                Text("\(streak) Combo Streak")
+                    .font(.headline.bold())
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.orange.opacity(0.15))
+            )
         }
     }
 

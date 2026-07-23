@@ -11,10 +11,13 @@
 		070483C4FCB36260086BAF4F /* FamilyDashboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0592C7CCBECA2855AC8E55B2 /* FamilyDashboardViewModel.swift */; };
 		08CDCCB89655DC48BBC25803 /* AvatarService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3733A863E64E1CB664EF4452 /* AvatarService.swift */; };
 		0BBF4169B3F99A3EECF56BF2 /* QuestTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8FDD3E9D17F1355BDC2C8B /* QuestTemplate.swift */; };
+		0F8FF43F03C29BE52E1CBC0D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABEF2FC4366881264C70BF9E /* Assets.xcassets */; };
 		10706C96ABEA5F8503744895 /* Family.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0AD0E8223D235A61B7686E /* Family.swift */; };
 		16624C674DB74641C5EB4A7E /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64BE7B9FE409A629B17A1B0 /* NotificationSettingsView.swift */; };
+		193DD1F3105070BD564FE956 /* PayoutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */; };
 		1E5CBB46A49BF5ECFEE528BB /* Quest.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA89DCFD795BA06D52FFDD99 /* Quest.swift */; };
 		1FA25F4E06D8E49631CF8F9B /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA257916025679E0AA31706 /* ProgressBar.swift */; };
+		20B709BE101F5846C617809D /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F98296EAA473AB324F18004 /* ShareSheet.swift */; };
 		2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */; };
 		292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F750555385910A36899A9BE /* ApprovalMode.swift */; };
 		2A00B0CD73498D56AE7C0EE5 /* TrophyRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C3E6FC5C9D55197733AA29 /* TrophyRoomView.swift */; };
@@ -41,6 +44,7 @@
 		6AE514A1E02D85D94775714F /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7532FFBC8B1222F10FB45792 /* ProfileView.swift */; };
 		6E6297E5BEA45D699F0EE442 /* HeroDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E814D2A43FF37F0A6AC51C5 /* HeroDashboardView.swift */; };
 		72CF23B55240E40988F7149E /* FamilyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C47FAAAF5A2001034107C67 /* FamilyService.swift */; };
+		799DA050CD218472172DB5BC /* AppLaunchSplashScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64CDD4E3D55127858D95F0E /* AppLaunchSplashScreen.swift */; };
 		79C8EF523D7F760ACA53F0E8 /* HeroStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 286FC47A1B54C6C06F6524FB /* HeroStatusCard.swift */; };
 		7D38D0587BF4B55AC123DA6A /* AvatarCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C889F94A727717C18C246E9 /* AvatarCardView.swift */; };
 		8086658AFA85024A20A41CD8 /* TrophyRoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DD14675841D99B77530615 /* TrophyRoomViewModel.swift */; };
@@ -61,6 +65,7 @@
 		C1918099647CCE0351E916E4 /* NotificationEventType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11F43417D2F508F010B5411F /* NotificationEventType.swift */; };
 		C631317D746E8FA61D9FFD57 /* SpendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */; };
 		C858F8205B3AADAE18F68327 /* Achievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB74BA7516355BF020EC5048 /* Achievement.swift */; };
+		C9755D15F13609830FD24E6E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0BDA960AB6ACFCFD2CC92F /* SettingsView.swift */; };
 		C9E264505C385A58F4EDA4C2 /* QuestSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA7C096148F8E1833CF1123 /* QuestSchedule.swift */; };
 		CD95D50EB2893EE79312C6DA /* XPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ACB50C5AFC8745DF880FC82 /* XPService.swift */; };
 		D0E34176AF5E13005EFE218E /* BalanceCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC969A154514821895033EF1 /* BalanceCardView.swift */; };
@@ -90,11 +95,13 @@
 		121FF6F520EF7DA800B28557 /* CharacterSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetView.swift; sourceTree = "<group>"; };
 		136948D3323E0410CAA49E77 /* TemplateManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateManagerView.swift; sourceTree = "<group>"; };
 		1ACB50C5AFC8745DF880FC82 /* XPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPService.swift; sourceTree = "<group>"; };
+		1D0BDA960AB6ACFCFD2CC92F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		1E42E78941E304FA8251B2C6 /* LedgerEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerEntry.swift; sourceTree = "<group>"; };
 		2070A5A9F8D00A4EC005F1E5 /* RoleSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleSelectionView.swift; sourceTree = "<group>"; };
 		2130409982CCED93E0B0CF0E /* LootList.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = LootList.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		286FC47A1B54C6C06F6524FB /* HeroStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroStatusCard.swift; sourceTree = "<group>"; };
 		2C47FAAAF5A2001034107C67 /* FamilyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyService.swift; sourceTree = "<group>"; };
+		2F98296EAA473AB324F18004 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		3733A863E64E1CB664EF4452 /* AvatarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarService.swift; sourceTree = "<group>"; };
 		3B02119865F6610D00BD4F2A /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
 		3C0AD0E8223D235A61B7686E /* Family.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Family.swift; sourceTree = "<group>"; };
@@ -128,6 +135,7 @@
 		9FB150B0804B13E1B541126C /* ColorExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtensions.swift; sourceTree = "<group>"; };
 		A29AFF3513D151637BD6AD3B /* PayoutHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutHistoryView.swift; sourceTree = "<group>"; };
 		AA3DB9B4D9031427F0B6BD3F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		ABEF2FC4366881264C70BF9E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B0EC02D94FB514895BF66713 /* FamilyCreationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyCreationView.swift; sourceTree = "<group>"; };
 		B45C76B3FBBEEE6469DC669A /* AvatarClass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarClass.swift; sourceTree = "<group>"; };
 		B89013EC78089F906DCD314F /* LootListApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListApp.swift; sourceTree = "<group>"; };
@@ -137,8 +145,10 @@
 		CB74BA7516355BF020EC5048 /* Achievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Achievement.swift; sourceTree = "<group>"; };
 		CBA7C096148F8E1833CF1123 /* QuestSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestSchedule.swift; sourceTree = "<group>"; };
 		CD7309A7921898E5B1910AA9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutPolicy.swift; sourceTree = "<group>"; };
 		CEED66C9830A57FFB23082CE /* LogSpendingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogSpendingView.swift; sourceTree = "<group>"; };
 		D64BE7B9FE409A629B17A1B0 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
+		D64CDD4E3D55127858D95F0E /* AppLaunchSplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchSplashScreen.swift; sourceTree = "<group>"; };
 		D870526224A67A707B7E4A4D /* QuestAssignmentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestAssignmentView.swift; sourceTree = "<group>"; };
 		DC969A154514821895033EF1 /* BalanceCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceCardView.swift; sourceTree = "<group>"; };
 		E12CEF7F5C434D5B4F157574 /* PayoutStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutStatus.swift; sourceTree = "<group>"; };
@@ -173,6 +183,7 @@
 				0F750555385910A36899A9BE /* ApprovalMode.swift */,
 				B45C76B3FBBEEE6469DC669A /* AvatarClass.swift */,
 				11F43417D2F508F010B5411F /* NotificationEventType.swift */,
+				CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */,
 				E12CEF7F5C434D5B4F157574 /* PayoutStatus.swift */,
 				CBA7C096148F8E1833CF1123 /* QuestSchedule.swift */,
 				B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */,
@@ -282,6 +293,7 @@
 			children = (
 				4759BB84826190A2B07026FE /* App */,
 				E25D352E17EBAC0471945E4C /* Models */,
+				DC32B5AAC6936937408038A1 /* Resources */,
 				1F72D966F21E0D61EBC9B562 /* Services */,
 				B1CE673BE81D9D5C285CF7AF /* ViewModels */,
 				E94A1B29508809BA19DEE534 /* Views */,
@@ -303,11 +315,14 @@
 		8BDE88B998901B769FC9C7CB /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				D64CDD4E3D55127858D95F0E /* AppLaunchSplashScreen.swift */,
 				EC02F032B488C7539AE674DD /* AvatarView.swift */,
 				9FB150B0804B13E1B541126C /* ColorExtensions.swift */,
 				728481C95C3C2C620C57038C /* GoldBadge.swift */,
 				08094113B37485BF0C2D698A /* NotificationToggleRow.swift */,
 				7EA257916025679E0AA31706 /* ProgressBar.swift */,
+				1D0BDA960AB6ACFCFD2CC92F /* SettingsView.swift */,
+				2F98296EAA473AB324F18004 /* ShareSheet.swift */,
 				6C212892FE74417041671730 /* StreakBadge.swift */,
 				3B02119865F6610D00BD4F2A /* TabBarView.swift */,
 			);
@@ -336,6 +351,14 @@
 			path = ViewModels;
 			sourceTree = "<group>";
 		};
+		DC32B5AAC6936937408038A1 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				ABEF2FC4366881264C70BF9E /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		E25D352E17EBAC0471945E4C /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -360,13 +383,6 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
-		"TEMP_C0F4121F-A0ED-4CC3-8D30-E50D5BE1ECD6" /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -375,6 +391,7 @@
 			buildConfigurationList = 2DD545E15BDF5AC32FAA6664 /* Build configuration list for PBXNativeTarget "LootList" */;
 			buildPhases = (
 				5A31019C4B1353375CB9D41C /* Sources */,
+				6762EE843DC6B6A9BC536EF1 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -421,6 +438,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		6762EE843DC6B6A9BC536EF1 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0F8FF43F03C29BE52E1CBC0D /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		5A31019C4B1353375CB9D41C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -429,6 +457,7 @@
 				C858F8205B3AADAE18F68327 /* Achievement.swift in Sources */,
 				A4C417A639EA1ED09CC600D9 /* AchievementService.swift in Sources */,
 				B00BB4EEEA8F28B42CE519BB /* AllowancePeriod.swift in Sources */,
+				799DA050CD218472172DB5BC /* AppLaunchSplashScreen.swift in Sources */,
 				3692548EBCEFDB0795C8892C /* AppState.swift in Sources */,
 				292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */,
 				7D38D0587BF4B55AC123DA6A /* AvatarCardView.swift in Sources */,
@@ -462,6 +491,7 @@
 				3A7C8D607FC397C0727E7B91 /* NotificationToggleRow.swift in Sources */,
 				F7955C631F76D6D37746267D /* OnboardingViewModel.swift in Sources */,
 				64790F88A96707750A7A15F7 /* PayoutHistoryView.swift in Sources */,
+				193DD1F3105070BD564FE956 /* PayoutPolicy.swift in Sources */,
 				A26F81266B230B02484B4AFA /* PayoutStatus.swift in Sources */,
 				8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */,
 				2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */,
@@ -478,6 +508,8 @@
 				4DE4E9257E98EBD2264C991C /* QuestService.swift in Sources */,
 				0BBF4169B3F99A3EECF56BF2 /* QuestTemplate.swift in Sources */,
 				B3125FAF2C74B619FF353428 /* RoleSelectionView.swift in Sources */,
+				C9755D15F13609830FD24E6E /* SettingsView.swift in Sources */,
+				20B709BE101F5846C617809D /* ShareSheet.swift in Sources */,
 				9BBD7D10551290D9847A1D4F /* SpendingLogView.swift in Sources */,
 				C631317D746E8FA61D9FFD57 /* SpendingService.swift in Sources */,
 				478DAB9FF630E62B539FD2D3 /* StreakBadge.swift in Sources */,

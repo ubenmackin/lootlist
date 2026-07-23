@@ -1,7 +1,6 @@
 import Foundation
 
 enum PayoutStatus: String, Codable, CaseIterable, Sendable {
-
     case active
 
     case payoutPending
@@ -10,19 +9,21 @@ enum PayoutStatus: String, Codable, CaseIterable, Sendable {
 
     var displayName: String {
         switch self {
-        case .active:        "Active"
+        case .active: "Active"
         case .payoutPending: "Loot Day Pending"
-        case .paid:          "Paid"
+        case .paid: "Paid"
         }
     }
 
     var iconSystemName: String {
         switch self {
-        case .active:        "bolt.fill"
+        case .active: "bolt.fill"
         case .payoutPending: "hourglass"
-        case .paid:          "checkmark.seal.fill"
+        case .paid: "checkmark.seal.fill"
         }
     }
 
-    var isResolved: Bool { self == .paid }
+    var isResolved: Bool {
+        self == .paid
+    }
 }

@@ -1,11 +1,10 @@
-import Foundation
 import CloudKit
+import Foundation
 import Observation
 
 @MainActor
 @Observable
 final class TreasuryViewModel {
-
     private let treasury: TreasuryService
 
     private let spending: any SpendingService
@@ -26,7 +25,8 @@ final class TreasuryViewModel {
 
     init(treasury: TreasuryService,
          spending: any SpendingService,
-         appState: AppState) {
+         appState: AppState)
+    {
         self.treasury = treasury
         self.spending = spending
         self.appState = appState
@@ -34,7 +34,8 @@ final class TreasuryViewModel {
 
     func refresh() async {
         guard let profile = appState.currentProfile,
-              let family = appState.family else {
+              let family = appState.family
+        else {
             errorMessage = "No hero profile loaded."
             return
         }
@@ -65,7 +66,7 @@ final class TreasuryViewModel {
             ? DateInterval(start: .distantPast, end: .distantFuture)
             : TreasuryService.weekRange(
                 starting: TreasuryService.mondayOfWeek(for: Date())
-              )
+            )
         do {
             spendingLog = try await spending.fetchTransactions(
                 for: profile, in: range
@@ -78,7 +79,8 @@ final class TreasuryViewModel {
     @discardableResult
     func logSpending(description: String,
                      amount: Double,
-                     date: Date = Date()) async -> Bool {
+                     date: Date = Date()) async -> Bool
+    {
         let trimmed = description.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
@@ -91,7 +93,8 @@ final class TreasuryViewModel {
             return false
         }
         guard let profile = appState.currentProfile,
-              let family = appState.family else {
+              let family = appState.family
+        else {
             errorMessage = "No hero profile loaded."
             return false
         }
@@ -113,7 +116,9 @@ final class TreasuryViewModel {
         }
     }
 
-    var canLogManually: Bool { spending.isAvailable() }
+    var canLogManually: Bool {
+        spending.isAvailable()
+    }
 
     func reset() {
         balance = nil

@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct CharacterSheetView: View {
-
     let profile: Profile
 
     private let avatarService: AvatarService
@@ -22,12 +21,13 @@ struct CharacterSheetView: View {
     @State private var draftName: String = ""
 
     init(profile: Profile,
-          avatarService: AvatarService,
-          xpService: XPService,
-          streak: Int?,
-          goldBalance: Double?,
-          earnedAchievements: [Achievement],
-          onSaveDisplayName: ((String) -> Void)?) {
+         avatarService: AvatarService,
+         xpService: XPService,
+         streak: Int?,
+         goldBalance: Double?,
+         earnedAchievements: [Achievement],
+         onSaveDisplayName: ((String) -> Void)?)
+    {
         self.profile = profile
         self.avatarService = avatarService
         self.xpService = xpService
@@ -95,39 +95,40 @@ struct CharacterSheetView: View {
         let progress = xpService.levelProgress(profile: profile)
         return VStack(spacing: 16) {
             statTile(symbol: "number",
-                        title: "Level",
-                        value: "\(profile.level)",
-                        accent: .blue)
+                     title: "Level",
+                     value: "\(profile.level)",
+                     accent: .blue)
             statTile(symbol: "crown.fill",
-                        title: "Title",
-                        value: XPService.title(forLevel: profile.level),
-                        accent: .orange)
+                     title: "Title",
+                     value: XPService.title(forLevel: profile.level),
+                     accent: .orange)
             statTile(symbol: "star.fill",
-                        title: "XP Total",
-                        value: "\(profile.xp)",
-                        accent: .yellow)
+                     title: "XP Total",
+                     value: "\(profile.xp)",
+                     accent: .yellow)
             statTile(symbol: "arrow.up.right.circle.fill",
-                        title: "XP to Next Level",
-                        value: "\(progress.xpForNextLevel)",
-                        accent: .green)
+                     title: "XP to Next Level",
+                     value: "\(progress.xpForNextLevel)",
+                     accent: .green)
 
             HStack(spacing: 12) {
                 statTile(symbol: "flame.fill",
-                            title: "Combo Streak",
-                            value: streak.map { "\($0) days" } ?? "—",
-                            accent: .red)
+                         title: "Combo Streak",
+                         value: streak.map { "\($0) days" } ?? "—",
+                         accent: .red)
                 statTile(symbol: "circle.hexagongrid.fill",
-                            title: "Gold",
-                            value: goldBalance.map { Self.formatGold($0) } ?? "—",
-                            accent: Color.gold)
+                         title: "Gold",
+                         value: goldBalance.map { Self.formatGold($0) } ?? "—",
+                         accent: Color.gold)
             }
         }
     }
 
     private func statTile(symbol: String,
-                            title: String,
-                            value: String,
-                            accent: Color) -> some View {
+                          title: String,
+                          value: String,
+                          accent: Color) -> some View
+    {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
@@ -164,7 +165,8 @@ struct CharacterSheetView: View {
     private func accessorySection() -> some View {
         let unlocked = xpService.unlockedAccessories(profile: profile)
         return sectionContainer(title: "Equipped Accessories",
-                                  systemImage: "wand.and.stars.fill") {
+                                systemImage: "wand.and.stars.fill")
+        {
             if unlocked.isEmpty {
                 Text("No accessories unlocked yet — reach level 5 to earn your first.")
                     .font(.subheadline)
@@ -202,7 +204,8 @@ struct CharacterSheetView: View {
 
     private var achievementSection: some View {
         sectionContainer(title: "Trophy Snapshot",
-                          systemImage: "trophy.fill") {
+                         systemImage: "trophy.fill")
+        {
             VStack(spacing: 12) {
                 HStack {
                     Text("Earned")
@@ -279,10 +282,10 @@ struct CharacterSheetView: View {
         .accessibilityLabel("Trophy \(trophy.name)")
     }
 
-    @ViewBuilder
     private var renameSection: some View {
         sectionContainer(title: "Display Name",
-                          systemImage: "person.line.dotted.person.fill") {
+                         systemImage: "person.line.dotted.person.fill")
+        {
             if isEditingName {
                 renameEditor
             } else {
@@ -304,7 +307,6 @@ struct CharacterSheetView: View {
         }
     }
 
-    @ViewBuilder
     private var renameEditor: some View {
         VStack(alignment: .leading, spacing: 10) {
             TextField("Sir Cleanup", text: $draftName)
@@ -342,10 +344,10 @@ struct CharacterSheetView: View {
         }
     }
 
-    @ViewBuilder
-    private func sectionContainer<Content: View>(title: String,
-                                                    systemImage: String,
-                                                    @ViewBuilder content: () -> Content) -> some View {
+    private func sectionContainer(title: String,
+                                  systemImage: String,
+                                  @ViewBuilder content: () -> some View) -> some View
+    {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: systemImage)
                 .font(.headline)
@@ -371,12 +373,11 @@ struct CharacterSheetView: View {
 
     private static func accessoryTitle(for id: String) -> String {
         switch id {
-        case "accessory.level.5":   return "Sparkle Aura"
-        case "accessory.level.10":  return "Bolt Aura"
-        case "accessory.level.15":  return "Stellar Aura"
-        case "accessory.level.20":  return "Phoenix Aura"
-        default:                     return "Accessory \(id)"
+        case "accessory.level.5": "Sparkle Aura"
+        case "accessory.level.10": "Bolt Aura"
+        case "accessory.level.15": "Stellar Aura"
+        case "accessory.level.20": "Phoenix Aura"
+        default: "Accessory \(id)"
         }
     }
 }
-

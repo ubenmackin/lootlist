@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct TreasuryView: View {
-
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
 
@@ -64,8 +63,8 @@ struct TreasuryView: View {
     @ViewBuilder
     private func loadedContent(_ viewModel: TreasuryViewModel) -> some View {
         BalanceCardView(balance: viewModel.balance,
-                          weekOf: viewModel.allowancePeriod?.weekOf ?? Date(),
-                          status: viewModel.allowancePeriod?.status)
+                        weekOf: viewModel.allowancePeriod?.weekOf ?? Date(),
+                        status: viewModel.allowancePeriod?.status)
             .padding(.horizontal, 0)
 
         WeeklyBreakdownCard(breakdown: viewModel.weeklyBreakdown)
@@ -119,7 +118,6 @@ struct TreasuryView: View {
 }
 
 struct WeeklyBreakdownCard: View {
-
     let breakdown: TreasuryService.WeeklyBreakdown?
 
     var body: some View {
@@ -132,27 +130,27 @@ struct WeeklyBreakdownCard: View {
 
             if let breakdown {
                 BreakdownRow(label: "Quests Slain",
-                              value: "\(breakdown.questsCount)",
-                              icon: "checkmark.seal.fill",
-                              tint: .green)
+                             value: "\(breakdown.questsCount)",
+                             icon: "checkmark.seal.fill",
+                             tint: .green)
                 BreakdownRow(label: "Gold from Quests",
-                              value: GoldFormat.signed(breakdown.goldFromQuests),
-                              icon: GoldFormat.coinSystemName,
-                              tint: .gold)
+                             value: GoldFormat.signed(breakdown.goldFromQuests),
+                             icon: GoldFormat.coinSystemName,
+                             tint: .gold)
                 BreakdownRow(label: "Bonus Loot Drop",
-                              value: GoldFormat.signed(breakdown.bonusGold),
-                              icon: "gift.fill",
-                              tint: .purple)
+                             value: GoldFormat.signed(breakdown.bonusGold),
+                             icon: "gift.fill",
+                             tint: .purple)
                 BreakdownRow(label: "Spent",
-                              value: GoldFormat.signed(breakdown.spent),
-                              icon: "arrow.down.circle.fill",
-                              tint: .red)
+                             value: GoldFormat.signed(breakdown.spent),
+                             icon: "arrow.down.circle.fill",
+                             tint: .red)
                 Divider()
                 BreakdownRow(label: "Net for the Week",
-                              value: GoldFormat.signed(breakdown.net),
-                              icon: "scalemass.fill",
-                              tint: breakdown.net >= 0 ? .gold : .red,
-                              isEmphasized: true)
+                             value: GoldFormat.signed(breakdown.net),
+                             icon: "scalemass.fill",
+                             tint: breakdown.net >= 0 ? .gold : .red,
+                             isEmphasized: true)
             } else {
                 HStack {
                     Spacer()
@@ -174,7 +172,6 @@ struct WeeklyBreakdownCard: View {
 }
 
 private struct BreakdownRow: View {
-
     let label: String
     let value: String
     let icon: String
