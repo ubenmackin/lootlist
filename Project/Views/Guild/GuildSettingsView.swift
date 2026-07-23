@@ -77,7 +77,7 @@ struct GuildSettingsView: View {
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         familyNameSection(vm: vm)
         inviteLinkSection
-        payoutPolicySection
+        payoutPolicySection(vm: vm)
         membersSection(vm: vm)
         if let currentRole = appState.currentProfile?.role, currentRole != .guildMaster {
             leaveFamilySection
@@ -177,83 +177,66 @@ private extension GuildSettingsView {
         .padding(.horizontal)
     }
 
-    private var payoutPolicySection: some View {
+    private func payoutPolicySection(vm: FamilyDashboardViewModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Weekly Allowance Payout Rule")
+            Text("Weekly Allowance Payout Rules")
                 .font(.headline)
+            Text("Set rules per hero. Pay Per Quest pays gold for every completed quest. All-or-Nothing requires 100% completion for Sunday payout.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-            VStack(spacing: 10) {
-                payoutPolicyOptionRow(
-                    policy: .perQuest,
-                    title: "Pay Per Quest (Standard)",
-                    description: "Heroes earn gold for every individual quest they complete each week."
-                )
-
-                payoutPolicyOptionRow(
-                    policy: .allOrNothing,
-                    title: "All-or-Nothing (Strict 100%)",
-                    description: "Heroes must complete 100% of their assigned quests for the week to receive their Sunday allowance payout. Tracked independently per hero."
-                )
+            if vm.heroes.isEmpty {
+                Text("No hero profiles in the family.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(cardBackground)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(vm.heroes) { hero in
+                        heroPayoutPolicyRow(hero: hero)
+                    }
+                }
             }
         }
         .padding(.horizontal)
     }
 
-    private func payoutPolicyOptionRow(policy: PayoutPolicy,
-                                       title: String,
-                                       description: String) -> some View
-    {
-        let isSelected = (appState.family?.payoutPolicy ?? .perQuest) == policy
-        return Button {
-            if !isSelected {
-                Task { await updatePayoutPolicy(policy) }
+    private func heroPayoutPolicyRow(hero: Profile) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "person.circle.fill")
+                    .foregroundStyle(.tint)
+                Text(hero.displayName)
+                    .font(.body.weight(.semibold))
+                Spacer()
             }
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .padding(.top, 2)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.primary)
-
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+            Picker("Payout Rule", selection: Binding(
+                get: { hero.payoutPolicy },
+                set: { newPolicy in
+                    Task { await updateHeroPayoutPolicy(hero: hero, newPolicy: newPolicy) }
                 }
-
-                Spacer(minLength: 0)
+            )) {
+                ForEach(PayoutPolicy.allCases, id: \.self) { policy in
+                    Text(policy == .perQuest ? "Pay Per Quest" : "All-or-Nothing (100%)").tag(policy)
+                }
             }
-            .padding(14)
-            .background(cardBackground)
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.8) : Color.clear, lineWidth: 1.5)
-            )
+            .pickerStyle(.segmented)
         }
-        .buttonStyle(.plain)
+        .padding(14)
+        .background(cardBackground)
     }
 
     @MainActor
-    private func updatePayoutPolicy(_ newPolicy: PayoutPolicy) async {
-        guard let family = appState.family else { return }
-        let previousPolicy = family.payoutPolicy
-        guard previousPolicy != newPolicy else { return }
-
-        // Optimistically update local state immediately (0ms UI lag)
-        appState.family?.payoutPolicy = newPolicy
-
+    private func updateHeroPayoutPolicy(hero: Profile, newPolicy: PayoutPolicy) async {
         do {
-            try await familyService.updatePayoutPolicy(family: family, policy: newPolicy)
+            try await familyService.updateProfilePayoutPolicy(profile: hero, policy: newPolicy)
+            await viewModel?.refresh()
             actionError = nil
         } catch {
-            appState.family?.payoutPolicy = previousPolicy
-            actionError = "Could not update payout policy: \(error)"
+            actionError = "Could not update payout policy for \(hero.displayName): \(error)"
         }
     }
 

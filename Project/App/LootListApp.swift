@@ -78,6 +78,7 @@ struct LootListApp: App {
                 .task {
                     if !CommandLine.arguments.contains("--uitesting") {
                         await checkCloudKitAvailability()
+                        await cloudKitService.processAbandonedZonesQueue(appState: appState)
                         await appState.restoreSession(cloudKit: cloudKitService)
                     }
                 }
@@ -96,12 +97,12 @@ struct LootListApp: App {
             case .available:
                 break
             case .noAccount, .restricted, .couldNotDetermine, .temporarilyUnavailable:
-                appState.signOut()
+                logger.warning("CloudKit account status is \(String(describing: status))")
             @unknown default:
-                appState.signOut()
+                break
             }
         } catch {
-            appState.signOut()
+            logger.error("CloudKit availability check failed: \(error, privacy: .private)")
         }
     }
 
@@ -137,6 +138,22 @@ private struct RootView: View {
             case .restoringSession:
                 AppLaunchSplashScreen()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .checkingCloudData:
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text("Scanning iCloud for Guilds…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemBackground))
+            case .detectedPreviousFamily(let family, let profile, let zoneID, let isOwner):
+                DetectedFamilyView(
+                    family: family,
+                    profile: profile,
+                    zoneID: zoneID,
+                    isOwner: isOwner
+                )
             case .onboarding:
                 if let onboardingVM {
                     WelcomeView(viewModel: onboardingVM)
@@ -164,7 +181,7 @@ private struct RootView: View {
             case .authenticated:
                 onboardingVM = nil
                 spendingService = ManualSpendingService(cloudKit: cloudKitService)
-            case .restoringSession:
+            case .restoringSession, .checkingCloudData, .detectedPreviousFamily:
                 onboardingVM = nil
             }
         }

@@ -50,10 +50,8 @@ final class TreasuryService {
         var goldFromQuests = try await sumGold(for: logs)
         let slainCount = logs.filter { TreasuryService.isSlain($0) }.count
 
-        // Check if family has strict All-or-Nothing payout policy enabled.
-        if let family = try? await cloudKit.fetch(Family.self, id: profile.family.recordID),
-           family.payoutPolicy == .allOrNothing
-        {
+        // Check if hero has strict All-or-Nothing payout policy enabled.
+        if profile.payoutPolicy == .allOrNothing {
             let assigned = try await fetchAssignedQuests(profile: profile, weekOf: monday)
             if !assigned.isEmpty && slainCount < assigned.count {
                 goldFromQuests = 0.0

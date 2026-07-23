@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Loot List — Family Chore & Allowance RPG Tracker for iOS</title>
+  <meta name="description" content="Turn daily chores into heroic quests and allowance into real-time gold. Loot List is a family iOS app powered by CloudKit sync and RPG gamification.">
+  <meta name="keywords" content="chore tracker, allowance app, family sync, iOS app, CloudKit, gamified chores, kids allowance">
+  
+  <!-- Open Graph / Social Media -->
+  <meta property="og:title" content="Loot List — Family Chore & Allowance RPG Tracker">
+  <meta property="og:description" content="Turn chores into quests. Allowance into gold. Real-time family iCloud sync.">
+  <meta property="og:type" content="website">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Navigation Header -->
+  <header class="site-header" id="site-header">
+    <div class="container">
+      <nav class="nav-wrapper">
+        <a href="#" class="brand-logo">
+          <div class="brand-icon">⚔️</div>
+          <span>Loot List</span>
+        </a>
+
+        <button class="mobile-toggle" aria-label="Toggle Navigation">☰</button>
+
+        <ul class="nav-links">
+          <li><a href="#features">Features</a></li>
+          <li><a href="#showcase">Screenshots</a></li>
+          <li><a href="#roles">Guild & Heroes</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="#download" class="btn btn-primary" style="padding: 0.5rem 1.25rem; font-size: 0.9rem;">Get App</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="hero-bg-glow"></div>
+    <div class="container">
+      <div class="hero-grid">
+        <!-- Hero Text -->
+        <div class="hero-content">
+          <div class="badge-tag">
+            <span>🛡️</span> Family RPG Chore & Allowance Tracker
+          </div>
+          <h1>Turn Chores into <span class="text-gradient">Quests</span>. Allowance into <span class="text-gold">Gold</span>.</h1>
+          <p class="hero-subtitle">
+            Empower your family with real-time iCloud sync, gamified chore tracking, and automatic allowance management. Parents become Guild Masters, kids become Heroes.
+          </p>
+
+          <div class="hero-cta-group">
+            <a href="#download" class="btn btn-primary">
+              <span>🗡️</span> Get Loot List for iOS
+            </a>
+            <a href="#showcase" class="btn btn-secondary">
+              Explore Gameplay
+            </a>
+          </div>
+
+          <div class="hero-stats">
+            <div class="stat-item">
+              <div class="stat-num">CloudKit ☁️</div>
+              <div class="stat-label">Shared Family Sync</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-num">iOS 26+</div>
+              <div class="stat-label">Native SwiftUI</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-num">Zero Server</div>
+              <div class="stat-label">100% iCloud Private</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phone Mockups Showcase -->
+        <div class="hero-mockup-wrapper">
+          <div class="phone-frame primary">
+            <div class="phone-notch"></div>
+            <img src="assets/screenshots/hero_quests.png" alt="Loot List Hero Quests View" class="phone-screen">
+          </div>
+          <div class="phone-frame secondary">
+            <div class="phone-notch"></div>
+            <img src="assets/screenshots/treasury.png" alt="Loot List Treasury View" class="phone-screen">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Key Features Grid -->
+  <section class="features-section" id="features">
+    <div class="container">
+      <div class="section-header">
+        <div class="badge-tag">Core Mechanics</div>
+        <h2>Designed for Real Families, Built Like an RPG</h2>
+        <p>Replace nagging with motivation. Every chore is an opportunity for kids to earn loot and build habits.</p>
+      </div>
+
+      <div class="features-grid">
+        <!-- Feature 1 -->
+        <div class="feature-card">
+          <div class="feature-icon">⚔️</div>
+          <h3>Daily Quests & Slain Chores</h3>
+          <p>Parents assign daily or recurring chores as quests. Kids mark chores as "Slain" to claim their earned Gold.</p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="feature-card">
+          <div class="feature-icon">📜</div>
+          <h3>Scroll of Spending & Ledger</h3>
+          <p>Track real-time balances, payout histories, and manual spending entries—with optional Apple Card FinanceKit integration.</p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="feature-card">
+          <div class="feature-icon">☁️</div>
+          <h3>CloudKit Shared Sync</h3>
+          <p>Instant push notifications and real-time family database updates using Apple's native CloudKit technology. Zero extra accounts needed.</p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="feature-card">
+          <div class="feature-icon">🔥</div>
+          <h3>Combo Streaks & Loot Drops</h3>
+          <p>Keep the momentum going with daily combo multipliers, weekly Sunday Loot Day payouts, and custom trophy room unlocks.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Screenshots Showcase -->
+  <section class="showcase-section" id="showcase">
+    <div class="container">
+      <div class="section-header">
+        <div class="badge-tag">Interface Preview</div>
+        <h2>See Loot List in Action</h2>
+        <p>Designed natively for iPhone with rich animations, clear typography, and intuitive views for parents and kids.</p>
+      </div>
+
+      <div class="showcase-tabs">
+        <button class="tab-btn active" data-tab="hero">Hero View</button>
+        <button class="tab-btn" data-tab="treasury">Treasury & Ledger</button>
+        <button class="tab-btn" data-tab="trophies">Hall of Heroes</button>
+        <button class="tab-btn" data-tab="guildmaster">Parent Guild Dashboard</button>
+      </div>
+
+      <div class="showcase-display">
+        <div class="showcase-info">
+          <h3 id="showcase-title">Hero Quests & Slain Chores</h3>
+          <p id="showcase-desc">Kids earn Gold for every quest completed. Configurable approval modes allow auto-payouts or parent verification for high-reward quests.</p>
+          <ul class="showcase-bullets" id="showcase-bullets">
+            <li><span>⚔️</span> Interactive daily quest board with progress bars</li>
+            <li><span>⚔️</span> Mark quests as Slain ⚔️ with satisfying haptics</li>
+            <li><span>⚔️</span> Combo streaks 🔥 double gold rewards for consistency</li>
+          </ul>
+        </div>
+
+        <div class="showcase-phone-center">
+          <div class="phone-frame">
+            <div class="phone-notch"></div>
+            <img src="assets/screenshots/hero_quests.png" alt="Hero Quests" id="showcase-img" class="phone-screen">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Roles Spotlight -->
+  <section class="roles-section" id="roles">
+    <div class="container">
+      <div class="section-header">
+        <div class="badge-tag">Family Roles</div>
+        <h2>Tailored Experience for Guild Masters & Heroes</h2>
+        <p>Whether you're managing the household treasury or completing daily quests, Loot List offers a dedicated interface.</p>
+      </div>
+
+      <div class="roles-grid">
+        <!-- Guild Master Card -->
+        <div class="role-card guild-master">
+          <div class="role-header">
+            <div class="role-avatar-badge">👑</div>
+            <div>
+              <h3>Guild Master & Rangers</h3>
+              <span>Parents / Family Admins</span>
+            </div>
+          </div>
+          <p>Full control over family quests, allowance rules, and verification settings.</p>
+          <ul>
+            <li><span>✔️</span> Create & schedule recurring quest templates</li>
+            <li><span>✔️</span> Set verification requirements (Auto-Approve or Parent Verify)</li>
+            <li><span>✔️</span> Manage weekly Sunday Loot Day automated payouts</li>
+            <li><span>✔️</span> Invite family members effortlessly via iCloud</li>
+          </ul>
+        </div>
+
+        <!-- Hero Card -->
+        <div class="role-card hero-role">
+          <div class="role-header">
+            <div class="role-avatar-badge">⚔️</div>
+            <div>
+              <h3>Adventurer Heroes</h3>
+              <span>Kids / Family Members</span>
+            </div>
+          </div>
+          <p>Fun, motivating quest board focused on earning gold and achieving goals.</p>
+          <ul>
+            <li><span>⚔️</span> Mark quests as Slain to earn real-time Gold</li>
+            <li><span>⚔️</span> Track personal savings and spending in the Treasury</li>
+            <li><span>⚔️</span> Unlock badges and trophies in the Hall of Heroes</li>
+            <li><span>⚔️</span> Build daily combo streaks for bonus multiplier drops</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section class="faq-section" id="faq">
+    <div class="container">
+      <div class="section-header">
+        <div class="badge-tag">Questions & Answers</div>
+        <h2>Frequently Asked Questions</h2>
+        <p>Everything you need to know about setting up Loot List for your family.</p>
+      </div>
+
+      <div class="faq-list">
+        <div class="faq-item">
+          <button class="faq-question">
+            <span>How does family synchronization work?</span>
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Loot List uses Apple's native CloudKit Shared Database technology. The parent creates a family zone and invites family members via iCloud. All data syncs in real-time securely with zero third-party servers.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question">
+            <span>Do kids need their own Apple ID?</span>
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Yes, kids sign in with their iCloud account (including Family Sharing child accounts). Once invited, they select their character avatar and join the family guild.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question">
+            <span>Can parents approve chores before gold is paid out?</span>
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Absolutely. Each quest template can be set to either <strong>Auto-Approve</strong> (gold paid immediately when slain) or <strong>Parent Verify</strong> (pending parent review in the Guild Master dashboard).</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question">
+            <span>Is my family's financial data private?</span>
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>100% private. Your family data never leaves Apple's iCloud ecosystem. There are no tracking scripts, external databases, or third-party analytics servers.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download CTA Section -->
+  <section class="cta-banner" id="download">
+    <div class="container">
+      <div class="cta-box">
+        <h2>Ready to Quest with Your Family?</h2>
+        <p>Turn chores into adventure today. Download Loot List for iPhone and iPad.</p>
+        <a href="#" class="btn btn-primary" style="padding: 1rem 2.25rem; font-size: 1.1rem;">
+          <span></span> Download on the App Store
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-wrapper">
+        <div class="footer-info">
+          <div class="brand-icon" style="width: 28px; height: 28px; font-size: 0.9rem;">⚔️</div>
+          <span>&copy; 2026 Loot List. Built natively for iOS.</span>
+        </div>
+
+        <ul class="footer-links">
+          <li><a href="#features">Features</a></li>
+          <li><a href="#showcase">Screenshots</a></li>
+          <li><a href="#roles">Guild & Heroes</a></li>
+          <li><a href="#faq">FAQ</a></li>
+        </ul>
+      </div>
+    </div>
+  </footer>
+
+  <!-- JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>

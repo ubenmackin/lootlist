@@ -10,6 +10,9 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
     var description: String
     var defaultGold: Double
     var xpReward: Int
+    var rarity: QuestRarity {
+        QuestRarity.from(xp: xpReward)
+    }
     var scheduleType: QuestSchedule
 
     var specificDays: [String]
