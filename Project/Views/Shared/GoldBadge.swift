@@ -91,10 +91,6 @@ struct GoldBadge: View {
     }
 
     private static func defaultFormat(_ amount: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter.string(from: NSNumber(value: abs(amount))) ?? "0.00"
+        NumberFormatter.goldFormatter.string(from: NSNumber(value: abs(amount))) ?? "0.00"
     }
 }

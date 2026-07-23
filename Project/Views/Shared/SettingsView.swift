@@ -20,7 +20,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Guild Settings")
                                     .font(.body.weight(.semibold))
-                                Text("Family name, roles, invite code, disband")
+                                Text("Family name, roles, invitations, data reset")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

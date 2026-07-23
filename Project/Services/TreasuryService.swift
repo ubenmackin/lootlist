@@ -5,7 +5,7 @@ import Foundation
 @Observable
 final class TreasuryService {
     private let cloudKit: CloudKitService
-    var notificationService: NotificationService?
+    let notificationService: NotificationService?
 
     init(cloudKit: CloudKitService, notificationService: NotificationService? = nil) {
         self.cloudKit = cloudKit
@@ -245,7 +245,7 @@ final class TreasuryService {
     }
 
     static func weekRange(starting monday: Date) -> DateInterval {
-        let cal = Calendar(identifier: .iso8601)
+        let cal = Calendar.iso8601UTC
         let start = cal.startOfDay(for: monday)
 
         let end = cal.date(byAdding: .second, value: (7 * 24 * 60 * 60) - 1,
@@ -254,8 +254,7 @@ final class TreasuryService {
     }
 
     static func mondayOfWeek(for date: Date) -> Date {
-        var cal = Calendar(identifier: .iso8601)
-        cal.timeZone = TimeZone(identifier: "UTC") ?? cal.timeZone
+        let cal = Calendar.iso8601UTC
         let components = cal.dateComponents(
             [.yearForWeekOfYear, .weekOfYear], from: date
         )
