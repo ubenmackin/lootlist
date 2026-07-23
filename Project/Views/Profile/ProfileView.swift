@@ -1,6 +1,7 @@
 import CloudKit
 import SwiftUI
 
+@MainActor
 struct ProfileView: View {
     private let avatarService: AvatarService
 

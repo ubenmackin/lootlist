@@ -1,0 +1,39 @@
+# Snapfile for LootList
+# https://docs.fastlane.tools/actions/snapshot/#parameters
+
+# A list of devices you want to take the screenshots from
+devices([
+  "iPhone 17 Pro Max"
+])
+
+# A list of supported languages
+languages([
+  "en-US"
+])
+
+# The name of the scheme which contains the UI Tests
+scheme("LootList")
+
+# Where should the resulting screenshots be stored?
+output_directory("./fastlane/screenshots")
+
+# Clear all previously generated screenshots before creating new ones
+clear_previous_screenshots(true)
+
+# Open the HTML summary after running snapshot
+skip_open_summary(false)
+
+# The number of retries for failing tests
+number_of_retries(1)
+
+# Erase the simulator before running the snapshot
+erase_simulator(false)
+
+# Localize the simulator
+localize_simulator(true)
+
+# Run in dark mode
+dark_mode(true)
+
+# Reinstall the app before running snapshot
+reinstall_app(true)
