@@ -1,0 +1,29 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Generate screenshots for App Store"
+  lane :screenshots do
+    snapshot
+  end
+  
+  desc "Generate screenshots with frames"
+  lane :framed_screenshots do
+    snapshot
+    frameit(white: true, path: "./fastlane/screenshots")
+  end
+  
+  desc "Upload screenshots to App Store Connect"
+  lane :upload_screenshots do
+    upload_to_app_store(
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: false,
+      overwrite_screenshots: true
+    )
+  end
+  
+  desc "Complete screenshot workflow"
+  lane :screenshot_workflow do
+    framed_screenshots
+  end
+end

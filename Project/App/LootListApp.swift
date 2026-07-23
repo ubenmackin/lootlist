@@ -27,6 +27,31 @@ struct LootListApp: App {
         let achievement = AchievementService(cloudKit: ck)
         let avatar = AvatarService(xp: xp)
 
+        if CommandLine.arguments.contains("--uitesting") {
+            let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+            let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+            let userRecordID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
+            var heroProfile = Profile(
+                displayName: "Sir Testalot",
+                avatarClass: .knight,
+                avatarPresetID: "knight_01",
+                role: CommandLine.arguments.contains("--parent") ? .guildMaster : .hero,
+                iCloudUserID: userRecordID,
+                family: familyRef,
+                id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            )
+            heroProfile.xp = 1200
+            heroProfile.level = 5
+
+            if CommandLine.arguments.contains("--onboarding") {
+                app.authStatus = .onboarding
+            } else {
+                app.currentProfile = heroProfile
+                app.family = Family(name: "Test Guild", createdBy: userRecordID, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+                app.authStatus = .authenticated
+            }
+        }
+
         _appState = State(initialValue: app)
         _cloudKitService = State(initialValue: ck)
         _familyService = State(initialValue: family)
@@ -51,8 +76,10 @@ struct LootListApp: App {
                 .environment(avatarService)
                 .environment(notificationService)
                 .task {
-                    await checkCloudKitAvailability()
-                    await appState.restoreSession(cloudKit: cloudKitService)
+                    if !CommandLine.arguments.contains("--uitesting") {
+                        await checkCloudKitAvailability()
+                        await appState.restoreSession(cloudKit: cloudKitService)
+                    }
                 }
                 .onOpenURL { url in
                     handleIncomingShareURL(url)
