@@ -9,30 +9,49 @@ struct FamilyJoinView: View {
 
             Spacer()
 
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Enter your invite code", systemImage: "ticket.fill")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.primary)
+            if viewModel.hasShareInvitation {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.green)
 
-                TextField("ABCDE123", text: $viewModel.familyCode)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .font(.system(.title3, design: .monospaced).weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .padding(16)
-                    .background(.thinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                    )
-                    .accessibilityIdentifier("joinFamily.codeField")
+                    Text("Invitation Link Received!")
+                        .font(.headline.weight(.bold))
 
-                Text("Ask your Guild Master for the 6-character code.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    Text("You're ready to join your family's guild party.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(24)
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .padding(.horizontal, 24)
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Invitation Link", systemImage: "link.badge.plus")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.primary)
+
+                    TextField("https://www.icloud.com/share/...", text: $viewModel.shareURLString)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.subheadline)
+                        .padding(16)
+                        .background(.thinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                        )
+                        .accessibilityIdentifier("joinFamily.linkField")
+
+                    Text("Tap the invitation link sent by your Guild Master, or paste the link here.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
 
             Spacer()
 
@@ -46,7 +65,7 @@ struct FamilyJoinView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.blue)
-            .disabled(viewModel.familyCode.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(!viewModel.hasShareInvitation && viewModel.shareURLString.trimmingCharacters(in: .whitespaces).isEmpty)
             .padding(.horizontal, 24)
 
             Spacer().frame(height: 32)

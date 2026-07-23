@@ -8,7 +8,6 @@ struct FamilyDashboardView: View {
     @Environment(AchievementService.self) private var achievementService
 
     @State private var viewModel: FamilyDashboardViewModel?
-    @State private var showInviteCopiedToast: Bool = false
     @State private var showShareSheet: Bool = false
 
     var body: some View {
@@ -93,34 +92,17 @@ struct FamilyDashboardView: View {
         .padding(.horizontal)
     }
 
-    private var inviteCodeChip: some View {
-        let code = appState.family?.inviteCode ?? "—"
-        return Menu {
-            Button {
-                showShareSheet = true
-            } label: {
-                Label("Share Invitation Link…", systemImage: "square.and.arrow.up")
-            }
-
-            Button {
-                UIPasteboard.general.setItems(
-                    [[UIPasteboard.typeAutomatic: code]],
-                    options: [.expirationDate: Date().addingTimeInterval(30), .localOnly: true]
-                )
-                withAnimation { showInviteCopiedToast = true }
-            } label: {
-                Label("Copy Code (\(code))", systemImage: "doc.on.doc")
-            }
+    private var inviteButton: some View {
+        Button {
+            showShareSheet = true
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "person.crop.circle.badge.plus")
+                Image(systemName: "square.and.arrow.up")
                     .font(.caption.weight(.bold))
                 Text("Invite Heroes")
                     .font(.caption.weight(.semibold))
-                Image(systemName: "chevron.down")
-                    .font(.caption2)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(
                 Capsule()
@@ -130,17 +112,16 @@ struct FamilyDashboardView: View {
                     )
             )
         }
-        .accessibilityLabel("Invite Heroes. Tap to open share options.")
+        .accessibilityLabel("Invite Heroes. Tap to share invitation link.")
     }
 
     private var shareInviteItems: [Any] {
         let name = appState.family?.name ?? "our guild"
-        let code = appState.family?.inviteCode ?? ""
         if let shareURL = appState.activeShareURL {
-            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(shareURL.absoluteString)\n\nOr enter invite code: \(code)"
+            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(shareURL.absoluteString)"
             return [message, shareURL]
         } else {
-            let message = "Join \(name) on LootList! Enter invite code: \(code)"
+            let message = "Join \(name) on LootList!"
             return [message]
         }
     }
@@ -265,29 +246,9 @@ struct FamilyDashboardView: View {
                 Text("Heroes")
                     .font(.headline)
                 Spacer()
-                inviteCodeChip
+                inviteButton
             }
             .padding(.horizontal)
-            .overlay(alignment: .topTrailing) {
-                if showInviteCopiedToast {
-                    Text("Copied!")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.green.opacity(0.85)))
-                        .transition(.opacity)
-                        .padding(.trailing, 16)
-                        .padding(.top, -10)
-                }
-            }
-            .animation(.easeInOut(duration: 0.25), value: showInviteCopiedToast)
-            .task(id: showInviteCopiedToast) {
-                if showInviteCopiedToast {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
-                    withAnimation { showInviteCopiedToast = false }
-                }
-            }
 
             if vm.heroes.isEmpty {
                 emptyHeroesCard
