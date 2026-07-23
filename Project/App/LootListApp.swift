@@ -1,8 +1,11 @@
 import CloudKit
+import os
 import SwiftUI
 
 @main
 struct LootListApp: App {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
+
     @State private var appState: AppState
     @State private var cloudKitService: CloudKitService
     @State private var familyService: FamilyService
@@ -84,7 +87,7 @@ struct LootListApp: App {
                     pendingShareMetadata = metadata
                 }
             } catch {
-                print("Failed to fetch share metadata for URL \(url): \(error)")
+                logger.error("Share metadata fetch failed: \(error, privacy: .private)")
             }
         }
     }
@@ -99,6 +102,7 @@ private struct RootView: View {
     @Environment(FamilyService.self) private var familyService
 
     @State private var onboardingVM: OnboardingViewModel?
+    @State private var spendingService: ManualSpendingService?
 
     var body: some View {
         Group {
@@ -115,9 +119,11 @@ private struct RootView: View {
                         .background(Color(.systemBackground))
                 }
             case .authenticated:
-                TabBarView(spending: ManualSpendingService(cloudKit: cloudKitService))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(.systemBackground))
+                if let spendingService {
+                    TabBarView(spending: spendingService)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(.systemBackground))
+                }
             }
         }
         .task(id: appState.authStatus) {
@@ -127,7 +133,11 @@ private struct RootView: View {
                     familyService: familyService,
                     appState: appState
                 )
-            case .authenticated, .restoringSession:
+                spendingService = nil
+            case .authenticated:
+                onboardingVM = nil
+                spendingService = ManualSpendingService(cloudKit: cloudKitService)
+            case .restoringSession:
                 onboardingVM = nil
             }
         }

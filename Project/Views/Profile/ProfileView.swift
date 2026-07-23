@@ -10,11 +10,23 @@ struct ProfileView: View {
 
     @Environment(AppState.self) private var appState
 
+    @Environment(QuestService.self) private var questService
+
+    @Environment(TreasuryService.self) private var treasuryService
+
+    @Environment(AchievementService.self) private var achievementService
+
     @State private var showingEditName: Bool = false
 
     @State private var draftName: String = ""
 
     @State private var showingSignOutConfirm: Bool = false
+
+    @State private var streak: Int?
+
+    @State private var goldBalance: Double?
+
+    @State private var earnedAchievements: [Achievement] = []
 
     init(avatarService: AvatarService,
          xpService: XPService,
@@ -54,7 +66,36 @@ struct ProfileView: View {
                     editNameSheet(profile: profile)
                 }
             }
+            .task {
+                await loadCharacterData()
+            }
         }
+    }
+
+    private func loadCharacterData() async {
+        guard let profile = appState.currentProfile else {
+            streak = nil
+            goldBalance = nil
+            earnedAchievements = []
+            return
+        }
+
+        async let fetchedStreak: Int? = try? await questService.fetchStreak(for: profile)
+        async let fetchedGold: Double? = try? await treasuryService.currentBalance(for: profile)
+        async let fetchedEarned: [ProfileAchievement]? = try? await achievementService.fetchEarned(profile: profile)
+
+        var fetchedDefs: [Achievement]?
+        if let family = appState.family {
+            fetchedDefs = try? await achievementService.fetchAllDefinitions(family: family)
+        }
+
+        let earnedRows = await fetchedEarned ?? []
+        let defs = fetchedDefs ?? []
+        let earnedIDs = Set(earnedRows.map(\.achievement.recordID))
+
+        streak = await fetchedStreak
+        goldBalance = await fetchedGold
+        earnedAchievements = defs.filter { earnedIDs.contains($0.id) }
     }
 
     @ViewBuilder
@@ -187,9 +228,9 @@ struct ProfileView: View {
                     profile: profile,
                     avatarService: avatarService,
                     xpService: xpService,
-                    streak: nil,
-                    goldBalance: nil,
-                    earnedAchievements: [],
+                    streak: streak,
+                    goldBalance: goldBalance,
+                    earnedAchievements: earnedAchievements,
                     onSaveDisplayName: { newName in
                         guard profile.role == .hero,
                               var updated = appState.currentProfile else { return }

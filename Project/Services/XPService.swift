@@ -19,7 +19,7 @@ final class XPService {
     static let accessoryCadence: Int = 5
 
     private let cloudKit: CloudKitService
-    var notificationService: NotificationService?
+    let notificationService: NotificationService?
 
     init(cloudKit: CloudKitService, notificationService: NotificationService? = nil) {
         self.cloudKit = cloudKit

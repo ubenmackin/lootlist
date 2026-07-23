@@ -1,26 +1,26 @@
 import CloudKit
 import Foundation
 
-enum AchievementRequirement {
-    static let firstQuest = "firstQuest"
-    static let questCount10 = "questCount10"
-    static let questCount50 = "questCount50"
-    static let questCount100 = "questCount100"
-    static let weekly100 = "weekly100"
-    static let streak7 = "streak7"
-    static let streak30 = "streak30"
-    static let gold100 = "gold100"
-    static let gold500 = "gold500"
-    static let ledgerCount10 = "ledgerCount10"
-    static let ledgerWeeks4 = "ledgerWeeks4"
-    static let earlyBird9am = "earlyBird9am"
+enum AchievementRequirement: String, Codable, Sendable {
+    case firstQuest
+    case questCount10
+    case questCount50
+    case questCount100
+    case weekly100
+    case streak7
+    case streak30
+    case gold100
+    case gold500
+    case ledgerCount10
+    case ledgerWeeks4
+    case earlyBird9am
 }
 
-enum AchievementCategory {
-    static let quest = "quest"
-    static let streak = "streak"
-    static let gold = "gold"
-    static let special = "special"
+enum AchievementCategory: String, Codable, Sendable {
+    case quest
+    case streak
+    case gold
+    case special
 }
 
 struct ProfileStats: Sendable {
@@ -260,22 +260,27 @@ final class AchievementService {
             predicate: NSPredicate(format: "profile == %@", profileRef)
         )
 
+        let questIDs = Set(completedLogs.map(\.quest.recordID))
         var questCache: [CKRecord.ID: Quest] = [:]
+        if !questIDs.isEmpty {
+            let idArray = Array(questIDs)
+            let fetched = try await cloudKit.query(
+                Quest.self,
+                predicate: NSPredicate(format: "recordID IN %@", idArray)
+            )
+            for quest in fetched {
+                questCache[quest.id] = quest
+            }
+        }
+
         var totalGold: Double = 0
-        let calendar = Calendar.current
+        let calendar = Calendar.iso8601UTC
         var dailyCompletionDates: Set<DateComponents> = []
         var weekCompletionCounts: [Date: Int] = [:]
         var earlyBird = false
 
         for log in completedLogs {
-            let quest: Quest
-            if let cached = questCache[log.quest.recordID] {
-                quest = cached
-            } else {
-                let fetched = try await cloudKit.fetch(Quest.self, id: log.quest.recordID)
-                questCache[log.quest.recordID] = fetched
-                quest = fetched
-            }
+            guard let quest = questCache[log.quest.recordID] else { continue }
             totalGold += quest.goldReward
 
             let day = calendar.dateComponents([.year, .month, .day], from: log.completedDate)
@@ -372,9 +377,6 @@ final class AchievementService {
 
         case AchievementRequirement.earlyBird9am:
             stats.earlyBirdQualified
-
-        default:
-            false
         }
     }
 }

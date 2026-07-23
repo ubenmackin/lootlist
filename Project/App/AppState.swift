@@ -1,9 +1,12 @@
 import CloudKit
 import Foundation
+import os
 
 @MainActor
 @Observable
 final class AppState {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
+
     enum AuthStatus: Equatable {
         case restoringSession
         case onboarding
@@ -94,9 +97,16 @@ final class AppState {
             self.isZoneOwner = isOwner
             self.family = fetchedFamily
             self.currentProfile = fetchedProfile
+
+            if isOwner {
+                self.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: familyID)
+            } else {
+                self.activeShareURL = nil
+            }
+
             self.authStatus = .authenticated
         } catch {
-            print("Session restoration failed: \(error)")
+            logger.error("Session restoration failed: \(error, privacy: .private)")
             clearSession()
         }
     }

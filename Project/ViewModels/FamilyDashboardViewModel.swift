@@ -47,6 +47,10 @@ final class FamilyDashboardViewModel {
         defer { isLoading = false }
 
         let cloudKit = questService.cloudKitReference
+        if appState.isZoneOwner, appState.activeShareURL == nil, let zoneID = appState.familyZoneID {
+            appState.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
+        }
+
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let membershipPredicate = NSPredicate(format: "family == %@", familyRef)
         let members = await (try? cloudKit.query(

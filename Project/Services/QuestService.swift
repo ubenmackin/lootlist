@@ -17,17 +17,13 @@ final class QuestService {
     let cloudKit: CloudKitService
 
     private let xpService: XPService
-    var notificationService: NotificationService?
+    let notificationService: NotificationService?
 
     var cloudKitReference: CloudKitService {
         cloudKit
     }
 
-    private let calendar: Calendar = {
-        var cal = Calendar(identifier: .iso8601)
-        cal.timeZone = TimeZone(identifier: "UTC") ?? cal.timeZone
-        return cal
-    }()
+    private let calendar: Calendar = Calendar.iso8601UTC
 
     init(cloudKit: CloudKitService,
          xpService: XPService,
@@ -114,7 +110,7 @@ final class QuestService {
         )
         let saved = try await cloudKit.save(quest)
         if let notificationService {
-            Task {
+            Task { @Sendable in
                 try? await notificationService.send(
                     .questAssigned,
                     to: assignee,
@@ -179,11 +175,10 @@ final class QuestService {
         case .autoApprove:
             try await applyReward(for: quest, to: profile)
         case .parentVerify:
-            await parentReviewNeeded(questLog: saved)
             if let notificationService,
                let parent = try? await cloudKit.fetch(Profile.self, id: quest.createdBy.recordID)
             {
-                Task {
+                Task { @Sendable in
                     try? await notificationService.sendQuestNeedsReview(questLog: saved, to: parent)
                 }
             }
@@ -209,7 +204,7 @@ final class QuestService {
         try await applyReward(for: quest, to: hero)
 
         if let notificationService {
-            Task {
+            Task { @Sendable in
                 try? await notificationService.send(
                     .questCompleted,
                     to: hero,
@@ -237,12 +232,12 @@ final class QuestService {
 
     func generateWeeklyQuests(family: Family,
                               weekOf: Date,
-                              createdBy: Profile) async throws
+                              createdBy: Profile,
+                              heroes: [Profile]) async throws
     {
         let normalizedWeek = startOfWeek(for: weekOf)
 
         let templates = try await fetchTemplates(family: family).filter(\.isActive)
-        let heroes = try await fetchHeroes(in: family)
         guard !templates.isEmpty, !heroes.isEmpty else { return }
 
         let existing = try await fetchQuestsForFamilyWeek(family: family, weekOf: normalizedWeek)
@@ -317,10 +312,17 @@ final class QuestService {
                     || $0.verificationStatus == .verified)
             }
 
-        var total: Double = 0
+        guard !logs.isEmpty else { return 0 }
 
+        // Batch-fetch all referenced Quest records in a single query (N+1 fix).
+        let questIDs = Array(Set(logs.map(\.quest.recordID)))
+        let predicate = NSPredicate(format: "recordID IN %@", questIDs)
+        let quests = try await cloudKit.query(Quest.self, predicate: predicate)
+        let questMap = Dictionary(uniqueKeysWithValues: quests.map { ($0.id, $0) })
+
+        var total: Double = 0
         for log in logs {
-            if let quest = try? await cloudKit.fetch(Quest.self, id: log.quest.recordID) {
+            if let quest = questMap[log.quest.recordID] {
                 total += quest.goldReward
             }
         }
@@ -345,15 +347,6 @@ final class QuestService {
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-    }
-
-    private func fetchHeroes(in family: Family) async throws -> [Profile] {
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = try await cloudKit.query(Profile.self, predicate: predicate)
-        return all
-            .filter { $0.role == .hero && $0.isActive }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     private func fetchFamily(for reference: CKRecord.Reference) async throws -> Family {
@@ -384,8 +377,4 @@ final class QuestService {
         }
         return found
     }
-
-    func parentReviewNeeded(questLog _: QuestCompletion) async {}
-
-    func allOrNothingGroupResolved(groupId _: String, family _: Family, weekOf _: Date) async {}
 }

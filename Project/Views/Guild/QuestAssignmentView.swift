@@ -176,8 +176,7 @@ struct QuestAssignmentView: View {
     }
 
     private static func defaultWeekOf() -> Date {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = .current
+        let cal = Calendar.iso8601UTC
         let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
         return cal.date(from: comps) ?? Date()
     }
