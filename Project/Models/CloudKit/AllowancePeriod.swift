@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
 struct AllowancePeriod: Identifiable, Equatable, Sendable {
-
     static let recordType: String = "AllowancePeriod"
 
     let id: CKRecord.ID
@@ -24,9 +23,9 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
-                                                        actual: record.recordType)
+                                                       actual: record.recordType)
         }
-        self.id = record.recordID
+        id = record.recordID
 
         guard let weekOf = record["weekOf"] as? Date else {
             throw CKDecodingError.missingField("weekOf")
@@ -39,7 +38,8 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
         self.profile = profile
 
         guard let statusRaw = record["status"] as? String,
-              let status = PayoutStatus(rawValue: statusRaw) else {
+              let status = PayoutStatus(rawValue: statusRaw)
+        else {
             throw CKDecodingError.missingField("status")
         }
         self.status = status
@@ -59,8 +59,8 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
         }
         self.questsTotal = questsTotal
 
-        self.paidDate   = record["paidDate"]   as? Date
-        self.paidAmount = record["paidAmount"] as? Double
+        paidDate = record["paidDate"] as? Date
+        paidAmount = record["paidAmount"] as? Double
 
         guard let family = record["family"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("family")
@@ -70,19 +70,19 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
 
     func toRecord() -> CKRecord {
         let record = CKRecord(recordType: Self.recordType, recordID: id)
-        record["weekOf"]          = weekOf as CKRecordValue
-        record["profile"]         = profile as CKRecordValue
-        record["status"]          = status.rawValue as CKRecordValue
-        record["totalEarned"]     = totalEarned as CKRecordValue
+        record["weekOf"] = weekOf as CKRecordValue
+        record["profile"] = profile as CKRecordValue
+        record["status"] = status.rawValue as CKRecordValue
+        record["totalEarned"] = totalEarned as CKRecordValue
         record["questsCompleted"] = questsCompleted as CKRecordValue
-        record["questsTotal"]     = questsTotal as CKRecordValue
+        record["questsTotal"] = questsTotal as CKRecordValue
         if let paidDate {
             record["paidDate"] = paidDate as CKRecordValue
         }
         if let paidAmount {
             record["paidAmount"] = paidAmount as CKRecordValue
         }
-        record["family"]          = family as CKRecordValue
+        record["family"] = family as CKRecordValue
         return record
     }
 
@@ -90,16 +90,17 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
          profile: CKRecord.Reference,
          questsTotal: Int,
          family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString)) {
+         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+    {
         self.id = id
         self.weekOf = weekOf
         self.profile = profile
-        self.status = .active
-        self.totalEarned = 0
-        self.questsCompleted = 0
+        status = .active
+        totalEarned = 0
+        questsCompleted = 0
         self.questsTotal = questsTotal
-        self.paidDate = nil
-        self.paidAmount = nil
+        paidDate = nil
+        paidAmount = nil
         self.family = family
     }
 }

@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct TrophyRoomView: View {
-
     @State private var viewModel: TrophyRoomViewModel?
 
     @Environment(AchievementService.self) private var achievementService
@@ -28,7 +27,6 @@ struct TrophyRoomView: View {
             }
         }
         .task {
-
             if viewModel == nil {
                 viewModel = TrophyRoomViewModel(
                     achievementService: achievementService,
@@ -40,7 +38,6 @@ struct TrophyRoomView: View {
         }
     }
 
-    @ViewBuilder
     private func content(for viewModel: TrophyRoomViewModel) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             if let avatar = viewModel.avatarCard {

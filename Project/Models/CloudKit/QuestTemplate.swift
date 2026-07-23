@@ -1,8 +1,7 @@
-import Foundation
 import CloudKit
+import Foundation
 
-struct QuestTemplate: Identifiable, Equatable, Sendable {
-
+struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
     static let recordType: String = "QuestTemplate"
 
     let id: CKRecord.ID
@@ -15,6 +14,8 @@ struct QuestTemplate: Identifiable, Equatable, Sendable {
 
     var specificDays: [String]
 
+    var isAllOrNothing: Bool
+
     var approvalMode: ApprovalMode
 
     var createdBy: CKRecord.Reference
@@ -26,9 +27,9 @@ struct QuestTemplate: Identifiable, Equatable, Sendable {
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
-                                                        actual: record.recordType)
+                                                       actual: record.recordType)
         }
-        self.id = record.recordID
+        id = record.recordID
 
         guard let name = record["name"] as? String else {
             throw CKDecodingError.missingField("name")
@@ -50,16 +51,16 @@ struct QuestTemplate: Identifiable, Equatable, Sendable {
         }
         self.xpReward = xpReward
 
-        guard let scheduleRaw = record["scheduleType"] as? String,
-              let scheduleType = QuestSchedule(rawValue: scheduleRaw) else {
-            throw CKDecodingError.missingField("scheduleType")
-        }
-        self.scheduleType = scheduleType
+        let scheduleRaw = (record["scheduleType"] as? String) ?? QuestSchedule.weeklyFlexible.rawValue
+        self.scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
 
-        self.specificDays = (record["specificDays"] as? [String]) ?? []
+        specificDays = (record["specificDays"] as? [String]) ?? []
+
+        isAllOrNothing = (record["isAllOrNothing"] as? Bool) ?? false
 
         guard let approvalRaw = record["approvalMode"] as? String,
-              let approvalMode = ApprovalMode(rawValue: approvalRaw) else {
+              let approvalMode = ApprovalMode(rawValue: approvalRaw)
+        else {
             throw CKDecodingError.missingField("approvalMode")
         }
         self.approvalMode = approvalMode
@@ -74,21 +75,22 @@ struct QuestTemplate: Identifiable, Equatable, Sendable {
         }
         self.family = family
 
-        self.isActive = (record["isActive"] as? Bool) ?? false
+        isActive = (record["isActive"] as? Bool) ?? false
     }
 
     func toRecord() -> CKRecord {
         let record = CKRecord(recordType: Self.recordType, recordID: id)
-        record["name"]          = name as CKRecordValue
-        record["description"]   = description as CKRecordValue
-        record["defaultGold"]   = defaultGold as CKRecordValue
-        record["xpReward"]      = xpReward as CKRecordValue
-        record["scheduleType"]  = scheduleType.rawValue as CKRecordValue
-        record["specificDays"]  = specificDays as CKRecordValue
-        record["approvalMode"]  = approvalMode.rawValue as CKRecordValue
-        record["createdBy"]     = createdBy as CKRecordValue
-        record["family"]       = family as CKRecordValue
-        record["isActive"]     = isActive as CKRecordValue
+        record["name"] = name as CKRecordValue
+        record["description"] = description as CKRecordValue
+        record["defaultGold"] = defaultGold as CKRecordValue
+        record["xpReward"] = xpReward as CKRecordValue
+        record["scheduleType"] = scheduleType.rawValue as CKRecordValue
+        record["specificDays"] = specificDays as CKRecordValue
+        record["isAllOrNothing"] = isAllOrNothing as CKRecordValue
+        record["approvalMode"] = approvalMode.rawValue as CKRecordValue
+        record["createdBy"] = createdBy as CKRecordValue
+        record["family"] = family as CKRecordValue
+        record["isActive"] = isActive as CKRecordValue
         return record
     }
 
@@ -98,10 +100,13 @@ struct QuestTemplate: Identifiable, Equatable, Sendable {
          xpReward: Int,
          scheduleType: QuestSchedule,
          specificDays: [String] = [],
+         isAllOrNothing: Bool = false,
          approvalMode: ApprovalMode = .autoApprove,
          createdBy: CKRecord.Reference,
          family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString)) {
+         isActive: Bool = true,
+         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+    {
         self.id = id
         self.name = name
         self.description = description
@@ -109,14 +114,10 @@ struct QuestTemplate: Identifiable, Equatable, Sendable {
         self.xpReward = xpReward
         self.scheduleType = scheduleType
         self.specificDays = specificDays
+        self.isAllOrNothing = isAllOrNothing
         self.approvalMode = approvalMode
         self.createdBy = createdBy
         self.family = family
-        self.isActive = true
+        self.isActive = isActive
     }
-}
-
-extension QuestTemplate: Hashable {
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    static func == (lhs: QuestTemplate, rhs: QuestTemplate) -> Bool { lhs.id == rhs.id }
 }

@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct PayoutHistoryView: View {
-
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(TreasuryService.self) private var treasury
@@ -13,49 +12,54 @@ struct PayoutHistoryView: View {
     @State private var selectedPeriod: AllowancePeriod?
 
     enum PayoutFilter: String, CaseIterable, Identifiable {
-        case all  = "All"
+        case all = "All"
         case paid = "Paid"
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
     }
 
     var body: some View {
-
-        VStack(spacing: 0) {
-            filterPicker
-            contentList
-        }
-        .navigationTitle("Payout History")
-        .navigationBarTitleDisplayMode(.large)
-        .task {
-            if viewModel == nil {
-                viewModel = FamilyDashboardViewModel(
-                    questService: questService,
-                    treasury: treasury,
-                    achievementService: achievementService,
-                    appState: appState
-                )
+        NavigationStack {
+            VStack(spacing: 0) {
+                filterPicker
+                contentList
             }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .navigationTitle("Payout History")
+            .navigationBarTitleDisplayMode(.inline)
+            .task {
+                if viewModel == nil {
+                    viewModel = FamilyDashboardViewModel(
+                        questService: questService,
+                        treasury: treasury,
+                        achievementService: achievementService,
+                        appState: appState
+                    )
+                }
 
-            await viewModel?.refresh()
-            await viewModel?.loadPastPayouts(includeActive: true)
-        }
-        .refreshable {
-            await viewModel?.loadPastPayouts(includeActive: true)
-        }
-        .sheet(item: $selectedPeriod) { period in
-            PayoutDetailSheet(period: period, heroName: heroName(for: period))
+                await viewModel?.refresh()
+                await viewModel?.loadPastPayouts(includeActive: true)
+            }
+            .refreshable {
+                await viewModel?.loadPastPayouts(includeActive: true)
+            }
+            .sheet(item: $selectedPeriod) { period in
+                PayoutDetailSheet(period: period, heroName: heroName(for: period))
+            }
         }
     }
 
     private var filterPicker: some View {
         Picker("Filter", selection: $filter) {
-            ForEach(PayoutFilter.allCases) { f in
-                Text(f.rawValue).tag(f)
+            ForEach(PayoutFilter.allCases) { payoutFilter in
+                Text(payoutFilter.rawValue).tag(payoutFilter)
             }
         }
         .pickerStyle(.segmented)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        .background(Color(.systemGroupedBackground))
     }
 
     @ViewBuilder
@@ -85,7 +89,7 @@ struct PayoutHistoryView: View {
         guard let payouts = viewModel?.pastPayouts else { return [] }
         let sorted = payouts.sorted { $0.weekOf > $1.weekOf }
         switch filter {
-        case .all:  return sorted
+        case .all: return sorted
         case .paid: return sorted.filter { $0.status == .paid }
         }
     }
@@ -99,173 +103,95 @@ struct PayoutHistoryView: View {
                 Text(heroName(for: period))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
+
             Spacer()
-            VStack(alignment: .trailing, spacing: 6) {
-                GoldBadge(amount: period.totalEarned, size: .small)
-                questRatioLabel(period)
-                statusPill(period.status)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(String(format: "%.2f gold", period.totalEarned))
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+
+                statusBadge(for: period.status)
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
     }
 
-    private func questRatioLabel(_ period: AllowancePeriod) -> some View {
-        Text("\(period.questsCompleted) / \(period.questsTotal) quests")
-            .font(.caption2.monospacedDigit())
-            .foregroundStyle(.secondary)
-    }
-
-    private func statusPill(_ status: PayoutStatus) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: status.iconSystemName)
-                .font(.caption2.weight(.bold))
+    private func statusBadge(for status: PayoutStatus) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(statusColor(status))
+                .frame(width: 6, height: 6)
             Text(status.displayName)
                 .font(.caption2.weight(.semibold))
+                .foregroundStyle(statusColor(status))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(Capsule().fill(pillTint(status)))
-        .overlay(Capsule().strokeBorder(pillStroke(status), lineWidth: 1))
-    }
-
-    private func pillTint(_ status: PayoutStatus) -> Color {
-        switch status {
-        case .active:        return Color.blue.opacity(0.16)
-        case .payoutPending: return Color.orange.opacity(0.16)
-        case .paid:          return Color.green.opacity(0.16)
-        }
-    }
-
-    private func pillStroke(_ status: PayoutStatus) -> Color {
-        switch status {
-        case .active:        return Color.blue.opacity(0.50)
-        case .payoutPending: return Color.orange.opacity(0.50)
-        case .paid:          return Color.green.opacity(0.50)
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "calendar.badge.exclamationmark")
-                .font(.system(size: 44))
-                .foregroundStyle(.tertiary)
-            Text("No payouts to show")
-                .font(.headline)
-            Text("Once a week ends on Loot Day, payouts will land here.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 64)
-    }
-
-    private func heroName(for period: AllowancePeriod) -> String {
-        let recordID = period.profile.recordID
-        if let hero = viewModel?.heroes.first(where: { $0.id == recordID }) {
-            return hero.displayName
-        }
-
-        return "Hero"
-    }
-}
-
-private struct PayoutDetailSheet: View {
-
-    let period: AllowancePeriod
-    let heroName: String
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Hero") {
-                    Text(heroName)
-                }
-                Section("Week") {
-                    LabeledRow(label: "Week of") {
-                        Text(period.weekOf, format: .dateTime.month().day().year())
-                            .monospacedDigit()
-                    }
-                    LabeledRow(label: "Status") {
-                        statusText(period.status)
-                    }
-                }
-                Section("Gold") {
-                    LabeledRow(label: "Total Earned") {
-                        GoldBadge(amount: period.totalEarned, size: .medium)
-                    }
-                    if let paid = period.paidAmount {
-                        LabeledRow(label: "Paid Out") {
-                            Text(String(format: "%.2f", paid))
-                                .monospacedDigit()
-                        }
-                    }
-                    if let paidDate = period.paidDate {
-                        LabeledRow(label: "Paid On") {
-                            Text(paidDate, format: .dateTime.month().day().year())
-                                .monospacedDigit()
-                        }
-                    }
-                }
-                Section("Quests") {
-                    LabeledRow(label: "Completed") {
-                        Text("\(period.questsCompleted)")
-                            .monospacedDigit()
-                    }
-                    LabeledRow(label: "Total Assigned") {
-                        Text("\(period.questsTotal)")
-                            .monospacedDigit()
-                    }
-                    LabeledRow(label: "Completion %") {
-                        let ratio = period.questsTotal > 0
-                            ? Double(period.questsCompleted) / Double(period.questsTotal)
-                            : 0
-                        Text(String(format: "%.0f%%", ratio * 100))
-                            .monospacedDigit()
-                    }
-                }
-            }
-            .navigationTitle("Payout Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    @ViewBuilder
-    private func statusText(_ status: PayoutStatus) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: status.iconSystemName)
-            Text(status.displayName)
-        }
-        .foregroundStyle(statusColor(status))
+        .background(
+            Capsule()
+                .fill(statusColor(status).opacity(0.12))
+        )
     }
 
     private func statusColor(_ status: PayoutStatus) -> Color {
         switch status {
-        case .active:        return .blue
-        case .payoutPending: return .orange
-        case .paid:          return .green
+        case .paid: .green
+        case .payoutPending: .orange
+        case .active: .blue
         }
     }
 
-    private struct LabeledRow<Content: View>: View {
-        let label: String
-        @ViewBuilder let content: Content
-        var body: some View {
-            HStack {
-                Text(label)
-                Spacer()
-                content
-                    .foregroundStyle(.secondary)
+    private func heroName(for period: AllowancePeriod) -> String {
+        let match = viewModel?.heroes.first { $0.id == period.profile.recordID }
+        return match?.displayName ?? "Hero"
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 48))
+                .foregroundStyle(.tertiary)
+            Text("No Payout History Yet")
+                .font(.headline)
+            Text("Payouts occur every Sunday when quests are tallied.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+private struct PayoutDetailSheet: View {
+    let period: AllowancePeriod
+    let heroName: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Summary") {
+                    LabeledContent("Hero", value: heroName)
+                    LabeledContent("Week Of", value: period.weekOf.formatted(.dateTime.month().day().year()))
+                    LabeledContent("Status", value: period.status.displayName)
+                    LabeledContent("Quests Slain", value: "\(period.questsCompleted) of \(period.questsTotal)")
+                    LabeledContent("Total Gold Earned", value: String(format: "%.2f", period.totalEarned))
+                    if let paidDate = period.paidDate {
+                        LabeledContent("Paid Date", value: paidDate.formatted(.dateTime.month().day().year()))
+                    }
+                }
+            }
+            .navigationTitle("Payout Detail")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }

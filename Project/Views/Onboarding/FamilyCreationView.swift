@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct FamilyCreationView: View {
-
     @Bindable var viewModel: OnboardingViewModel
 
     var body: some View {
@@ -24,7 +23,8 @@ struct FamilyCreationView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
-                            .strokeBorder(.white.opacity(0.15), lineWidth: 1))
+                            .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                    )
                     .accessibilityIdentifier("createFamily.familyNameField")
 
                 Text("Your family will share this name across all devices.")
@@ -54,7 +54,9 @@ struct FamilyCreationView: View {
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.orange.opacity(0.12)],
-                startPoint: .top, endPoint: .bottom))
+                startPoint: .top, endPoint: .bottom
+            )
+        )
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -74,11 +76,13 @@ struct FamilyCreationView: View {
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.yellow, .orange],
-                        startPoint: .top, endPoint: .bottom))
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
             Text("Found Your Guild")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
             Text("As Guild Master you'll forge a shared realm "
-                   + "for the whole family.")
+                + "for the whole family.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)

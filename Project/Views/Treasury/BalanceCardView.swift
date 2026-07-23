@@ -1,11 +1,9 @@
 import SwiftUI
 
 enum GoldFormat {
-
     static let coinSystemName = "circle.hexagongrid.fill"
 
     static func magnitude(_ amount: Double) -> String {
-
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         formatter.minimumFractionDigits = 2
@@ -15,14 +13,17 @@ enum GoldFormat {
 
     static func signed(_ amount: Double) -> String {
         let body = magnitude(amount)
-        if amount < 0 { return "−\(body)" }
-        if amount > 0 { return "+\(body)" }
+        if amount < 0 {
+            return "−\(body)"
+        }
+        if amount > 0 {
+            return "+\(body)"
+        }
         return body
     }
 }
 
 struct BalanceCardView: View {
-
     let balance: Double?
 
     let weekOf: Date?
@@ -98,4 +99,3 @@ struct BalanceCardView: View {
         )
     }
 }
-

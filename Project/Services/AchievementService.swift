@@ -1,30 +1,29 @@
-import Foundation
 import CloudKit
+import Foundation
 
 enum AchievementRequirement {
-    static let firstQuest     = "firstQuest"
-    static let questCount10   = "questCount10"
-    static let questCount50   = "questCount50"
-    static let questCount100  = "questCount100"
-    static let weekly100      = "weekly100"
-    static let streak7        = "streak7"
-    static let streak30       = "streak30"
-    static let gold100        = "gold100"
-    static let gold500        = "gold500"
-    static let ledgerCount10  = "ledgerCount10"
-    static let ledgerWeeks4   = "ledgerWeeks4"
-    static let earlyBird9am   = "earlyBird9am"
+    static let firstQuest = "firstQuest"
+    static let questCount10 = "questCount10"
+    static let questCount50 = "questCount50"
+    static let questCount100 = "questCount100"
+    static let weekly100 = "weekly100"
+    static let streak7 = "streak7"
+    static let streak30 = "streak30"
+    static let gold100 = "gold100"
+    static let gold500 = "gold500"
+    static let ledgerCount10 = "ledgerCount10"
+    static let ledgerWeeks4 = "ledgerWeeks4"
+    static let earlyBird9am = "earlyBird9am"
 }
 
 enum AchievementCategory {
-    static let quest   = "quest"
-    static let streak  = "streak"
-    static let gold    = "gold"
-    static let special  = "special"
+    static let quest = "quest"
+    static let streak = "streak"
+    static let gold = "gold"
+    static let special = "special"
 }
 
 struct ProfileStats: Sendable {
-
     let questCount: Int
 
     let bestWeeklyCompletion: Double
@@ -43,7 +42,6 @@ struct ProfileStats: Sendable {
 @MainActor
 @Observable
 final class AchievementService {
-
     init(cloudKit: CloudKitService) {
         self.cloudKit = cloudKit
     }
@@ -53,7 +51,7 @@ final class AchievementService {
     func seedDefaultAchievements(family: Family) async throws {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let existing = try await fetchAllDefinitions(family: family)
-        let existingNames = Set(existing.map { $0.name })
+        let existingNames = Set(existing.map(\.name))
 
         let toSeed = defaultAchievements(for: familyRef)
             .filter { !existingNames.contains($0.name) }
@@ -64,8 +62,14 @@ final class AchievementService {
     }
 
     private func defaultAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
-        [
+        questAchievements(for: familyRef)
+            + streakAchievements(for: familyRef)
+            + financialAchievements(for: familyRef)
+            + specialAchievements(for: familyRef)
+    }
 
+    private func questAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+        [
             Achievement(
                 name: "First Steps",
                 description: "Complete your first quest",
@@ -101,8 +105,12 @@ final class AchievementService {
                 requirementType: AchievementRequirement.questCount100,
                 requirementValue: 100,
                 family: familyRef
-            ),
+            )
+        ]
+    }
 
+    private func streakAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+        [
             Achievement(
                 name: "Week Warrior",
                 description: "Complete all quests in a week",
@@ -112,7 +120,6 @@ final class AchievementService {
                 requirementValue: 1,
                 family: familyRef
             ),
-
             Achievement(
                 name: "Iron Will",
                 description: "7-day streak",
@@ -130,8 +137,12 @@ final class AchievementService {
                 requirementType: AchievementRequirement.streak30,
                 requirementValue: 30,
                 family: familyRef
-            ),
+            )
+        ]
+    }
 
+    private func financialAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+        [
             Achievement(
                 name: "Gold Hoarder",
                 description: "Earn $100 lifetime",
@@ -149,8 +160,12 @@ final class AchievementService {
                 requirementType: AchievementRequirement.gold500,
                 requirementValue: 500,
                 family: familyRef
-            ),
+            )
+        ]
+    }
 
+    private func specialAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+        [
             Achievement(
                 name: "Chronicler",
                 description: "Log 10 spending entries",
@@ -169,7 +184,6 @@ final class AchievementService {
                 requirementValue: 4,
                 family: familyRef
             ),
-
             Achievement(
                 name: "Early Bird",
                 description: "Complete a quest before 9 AM",
@@ -178,7 +192,7 @@ final class AchievementService {
                 requirementType: AchievementRequirement.earlyBird9am,
                 requirementValue: 1,
                 family: familyRef
-            ),
+            )
         ]
     }
 
@@ -203,7 +217,7 @@ final class AchievementService {
         guard !definitions.isEmpty else { return [] }
 
         let earned = try await fetchEarned(profile: profile)
-        let earnedIDs = Set(earned.map { $0.achievement.recordID })
+        let earnedIDs = Set(earned.map(\.achievement.recordID))
 
         let stats = try await computeStats(for: profile, family: family)
 
@@ -219,7 +233,8 @@ final class AchievementService {
 
     func award(_ achievement: Achievement,
                to profile: Profile,
-               family: Family) async throws -> ProfileAchievement {
+               family: Family) async throws -> ProfileAchievement
+    {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let row = ProfileAchievement(
             achievement: CKRecord.Reference(recordID: achievement.id, action: .none),
@@ -229,7 +244,7 @@ final class AchievementService {
         return try await cloudKit.save(row)
     }
 
-    private func computeStats(for profile: Profile, family: Family) async throws -> ProfileStats {
+    private func computeStats(for profile: Profile, family _: Family) async throws -> ProfileStats {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
         let questLogs = try await cloudKit.query(
@@ -253,7 +268,6 @@ final class AchievementService {
         var earlyBird = false
 
         for log in completedLogs {
-
             let quest: Quest
             if let cached = questCache[log.quest.recordID] {
                 quest = cached
@@ -305,13 +319,15 @@ final class AchievementService {
         }.sorted()
         var best = 1
         var run = 1
-        for i in 1..<reconstructed.count {
-            let prev = reconstructed[i - 1]
-            let curr = reconstructed[i]
+        for index in 1 ..< reconstructed.count {
+            let prev = reconstructed[index - 1]
+            let curr = reconstructed[index]
             let delta = calendar.dateComponents([.day], from: prev, to: curr).day ?? 0
             if delta == 1 {
                 run += 1
-                if run > best { best = run }
+                if run > best {
+                    best = run
+                }
             } else {
                 run = 1
             }
@@ -321,57 +337,55 @@ final class AchievementService {
 
     private func isRequirementMet(definition: Achievement, stats: ProfileStats) -> Bool {
         switch definition.requirementType {
-
         case AchievementRequirement.firstQuest:
-            return stats.questCount >= 1
+            stats.questCount >= 1
 
         case AchievementRequirement.questCount10:
-            return stats.questCount >= 10
+            stats.questCount >= 10
 
         case AchievementRequirement.questCount50:
-            return stats.questCount >= 50
+            stats.questCount >= 50
 
         case AchievementRequirement.questCount100:
-            return stats.questCount >= 100
+            stats.questCount >= 100
 
         case AchievementRequirement.weekly100:
-            return stats.bestWeeklyCompletion >= 1.0
+            stats.bestWeeklyCompletion >= 1.0
 
         case AchievementRequirement.streak7:
-            return stats.longestStreakDays >= 7
+            stats.longestStreakDays >= 7
 
         case AchievementRequirement.streak30:
-            return stats.longestStreakDays >= 30
+            stats.longestStreakDays >= 30
 
         case AchievementRequirement.gold100:
-            return stats.totalGoldEarned >= 100
+            stats.totalGoldEarned >= 100
 
         case AchievementRequirement.gold500:
-            return stats.totalGoldEarned >= 500
+            stats.totalGoldEarned >= 500
 
         case AchievementRequirement.ledgerCount10:
-            return stats.ledgerCount >= 10
+            stats.ledgerCount >= 10
 
         case AchievementRequirement.ledgerWeeks4:
-            return stats.ledgerWeeksCount >= 4
+            stats.ledgerWeeksCount >= 4
 
         case AchievementRequirement.earlyBird9am:
-            return stats.earlyBirdQualified
+            stats.earlyBirdQualified
 
         default:
-            return false
+            false
         }
     }
 }
 
 private extension Calendar {
-
     func nextOrSameMonday(for date: Date) -> Date {
-        let comps = self.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
+        let comps = dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
         var mondayComps = DateComponents()
         mondayComps.yearForWeekOfYear = comps.yearForWeekOfYear
         mondayComps.weekOfYear = comps.weekOfYear
-        mondayComps.weekday = 2 
+        mondayComps.weekday = 2
         return self.date(from: mondayComps) ?? date
     }
 }

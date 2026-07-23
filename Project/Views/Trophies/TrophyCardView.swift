@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct TrophyCardView: View {
-
     let achievement: Achievement
 
     let isEarned: Bool
@@ -26,7 +25,6 @@ struct TrophyCardView: View {
         }
     }
 
-    @ViewBuilder
     private var cardContent: some View {
         VStack(spacing: 12) {
             iconStack
@@ -76,7 +74,6 @@ struct TrophyCardView: View {
         .opacity(isEarned ? 1.0 : 0.65)
     }
 
-    @ViewBuilder
     private var iconStack: some View {
         ZStack {
             Circle()
@@ -108,37 +105,38 @@ struct TrophyCardView: View {
         return message
     }
 
-    private var statusHint: String { requirementHint }
+    private var statusHint: String {
+        requirementHint
+    }
 
     private var requirementHint: String {
         switch achievement.requirementType {
         case AchievementRequirement.firstQuest:
-            return "Slain your first quest"
+            "Slain your first quest"
         case AchievementRequirement.questCount10:
-            return "\(achievement.requirementValue) quests slain"
+            "\(achievement.requirementValue) quests slain"
         case AchievementRequirement.questCount50:
-            return "\(achievement.requirementValue) quests slain"
+            "\(achievement.requirementValue) quests slain"
         case AchievementRequirement.questCount100:
-            return "\(achievement.requirementValue) quests slain"
+            "\(achievement.requirementValue) quests slain"
         case AchievementRequirement.weekly100:
-            return "100% of a week slain"
+            "100% of a week slain"
         case AchievementRequirement.streak7:
-            return "\(achievement.requirementValue)-day combo streak"
+            "\(achievement.requirementValue)-day combo streak"
         case AchievementRequirement.streak30:
-            return "\(achievement.requirementValue)-day combo streak"
+            "\(achievement.requirementValue)-day combo streak"
         case AchievementRequirement.gold100:
-            return "$\(achievement.requirementValue) gold earned"
+            "$\(achievement.requirementValue) gold earned"
         case AchievementRequirement.gold500:
-            return "$\(achievement.requirementValue) gold earned"
+            "$\(achievement.requirementValue) gold earned"
         case AchievementRequirement.ledgerCount10:
-            return "\(achievement.requirementValue) ledger entries"
+            "\(achievement.requirementValue) ledger entries"
         case AchievementRequirement.ledgerWeeks4:
-            return "\(achievement.requirementValue) weeks of spending"
+            "\(achievement.requirementValue) weeks of spending"
         case AchievementRequirement.earlyBird9am:
-            return "Slay a quest before 9 AM"
+            "Slay a quest before 9 AM"
         default:
-            return "Keep questing"
+            "Keep questing"
         }
     }
 }
-

@@ -1,8 +1,7 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 struct QuestDetailView: View {
-
     let quest: Quest
 
     @Environment(AppState.self) private var appState
@@ -37,9 +36,11 @@ struct QuestDetailView: View {
             await load()
         }
         .alert("Couldn't update quest", isPresented: $isErrorPresented) {
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) {}
         } message: {
-            if let error = error { Text(error) }
+            if let error {
+                Text(error)
+            }
         }
     }
 
@@ -143,8 +144,8 @@ struct QuestDetailView: View {
         guard let log = latestLog else { return "Slain! ⚔️" }
         switch log.verificationStatus {
         case .autoApproved, .verified: return "Slain ⚔️"
-        case .pending:                   return "Awaiting Verification"
-        case .rejected:                  return "Slain! ⚔️ (Try Again)"
+        case .pending: return "Awaiting Verification"
+        case .rejected: return "Slain! ⚔️ (Try Again)"
         }
     }
 
@@ -158,39 +159,37 @@ struct QuestDetailView: View {
 
     private func statusIcon(_ status: VerificationStatus) -> String {
         switch status {
-        case .autoApproved: return "checkmark.seal.fill"
-        case .verified:     return "checkmark.seal.fill"
-        case .pending:      return "hourglass"
-        case .rejected:     return "xmark.octagon.fill"
+        case .autoApproved: "checkmark.seal.fill"
+        case .verified: "checkmark.seal.fill"
+        case .pending: "hourglass"
+        case .rejected: "xmark.octagon.fill"
         }
     }
 
     private func statusColor(_ status: VerificationStatus) -> Color {
         switch status {
-        case .autoApproved: return .green
-        case .verified:     return .green
-        case .pending:      return .orange
-        case .rejected:     return .red
+        case .autoApproved: .green
+        case .verified: .green
+        case .pending: .orange
+        case .rejected: .red
         }
     }
 
     private func statusLabel(_ status: VerificationStatus) -> String {
         switch status {
-        case .autoApproved: return "Auto-approved — gold & XP earned"
-        case .verified:     return "Verified by parent — gold & XP earned"
-        case .pending:      return "Awaiting parent verification"
-        case .rejected:     return "Rejected by parent — try again"
+        case .autoApproved: "Auto-approved — gold & XP earned"
+        case .verified: "Verified by parent — gold & XP earned"
+        case .pending: "Awaiting parent verification"
+        case .rejected: "Rejected by parent — try again"
         }
     }
 
     private func load() async {
-
         do {
             template = try await questService.cloudKitReference.fetch(
                 QuestTemplate.self, id: quest.template.recordID
             )
         } catch {
-
             template = nil
         }
 
@@ -198,27 +197,26 @@ struct QuestDetailView: View {
             let logs = try await questService.fetchQuestLogs(forQuest: quest)
             latestLog = logs.first
         } catch {
-
             latestLog = nil
         }
     }
 
     private func slain() async {
         guard let profile = appState.currentProfile else {
-            self.error = "No active hero profile."
-            self.isErrorPresented = true
+            error = "No active hero profile."
+            isErrorPresented = true
             return
         }
         isCompleting = true
         defer { isCompleting = false }
         do {
             latestLog = try await questService.markComplete(quest: quest, by: profile)
-        } catch let e as QuestServiceError {
-            self.error = e.localizedDescription
+        } catch let questError as QuestServiceError {
+            self.error = questError.localizedDescription
             self.isErrorPresented = true
         } catch {
             self.error = error.localizedDescription
-            self.isErrorPresented = true
+            isErrorPresented = true
         }
     }
 }
@@ -226,10 +224,10 @@ struct QuestDetailView: View {
 extension QuestServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .missingSession:           return "Sign in to iCloud to continue."
-        case .alreadyCompleted:         return "This quest has already been slain."
-        case .alreadyResolved(let s):   return "This quest is already \(s)."
-        case .missingRecord(let s):      return "A required record could not be loaded: \(s)"
+        case .missingSession: "Sign in to iCloud to continue."
+        case .alreadyCompleted: "This quest has already been slain."
+        case let .alreadyResolved(status): "This quest is already \(status)."
+        case let .missingRecord(status): "A required record could not be loaded: \(status)"
         }
     }
 }

@@ -1,5 +1,5 @@
-import SwiftUI
 import CloudKit
+import SwiftUI
 
 enum AvatarSize: Sendable {
     case small
@@ -8,46 +8,45 @@ enum AvatarSize: Sendable {
 
     var diameter: CGFloat {
         switch self {
-        case .small:  return 44
-        case .medium: return 88
-        case .large:  return 140
+        case .small: 44
+        case .medium: 88
+        case .large: 140
         }
     }
 
     var glyphSize: CGFloat {
         switch self {
-        case .small:  return 22
-        case .medium: return 44
-        case .large:  return 64
+        case .small: 22
+        case .medium: 44
+        case .large: 64
         }
     }
 
     var accessorySize: CGFloat {
         switch self {
-        case .small:  return 12
-        case .medium: return 22
-        case .large:  return 32
+        case .small: 12
+        case .medium: 22
+        case .large: 32
         }
     }
 
     var accessoryPadding: CGFloat {
         switch self {
-        case .small:  return 2
-        case .medium: return 4
-        case .large:  return 6
+        case .small: 2
+        case .medium: 4
+        case .large: 6
         }
     }
 }
 
 struct AvatarView: View {
-
     let spec: AvatarRenderSpec
 
     var size: AvatarSize = .large
 
     var showsNameAndTitle: Bool = true
 
-    var tintOverride: Color? = nil
+    var tintOverride: Color?
 
     var body: some View {
         VStack(spacing: size == .small ? 4 : 10) {
@@ -73,12 +72,22 @@ struct AvatarView: View {
                         )
                 )
 
-            Image(systemName: spec.preset.iconSystemName)
-                .font(.system(size: size.glyphSize, weight: .regular))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color.gold)
-                .symbolEffect(.pulse, options: .repeating)
-                .accessibilityHidden(true)
+            if UIImage(named: spec.preset.assetName) != nil {
+                Image(spec.preset.assetName)
+                    .resizable()
+                    .interpolation(.none)
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size.diameter, height: size.diameter)
+                    .offset(y: size.diameter * 0.07)
+                    .clipShape(Circle())
+            } else {
+                Image(systemName: spec.preset.iconSystemName)
+                    .font(.system(size: size.glyphSize, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Color.gold)
+                    .symbolEffect(.pulse, options: .repeating)
+                    .accessibilityHidden(true)
+            }
 
             accessoryOverlay
         }
@@ -92,7 +101,7 @@ struct AvatarView: View {
                 Circle()
                     .fill(Color.black.opacity(0.35))
                     .frame(width: size.accessorySize + size.accessoryPadding * 2,
-                            height: size.accessorySize + size.accessoryPadding * 2)
+                           height: size.accessorySize + size.accessoryPadding * 2)
                 Image(systemName: glyph)
                     .font(.system(size: size.accessorySize, weight: .bold))
                     .foregroundStyle(Color.gold)
@@ -103,7 +112,6 @@ struct AvatarView: View {
         }
     }
 
-    @ViewBuilder
     private var nameAndTitle: some View {
         VStack(spacing: 2) {
             Text(spec.displayName)
@@ -120,23 +128,24 @@ struct AvatarView: View {
 
     private var nameFont: Font {
         switch size {
-        case .small:  return .subheadline.weight(.semibold)
-        case .medium: return .title3.bold()
-        case .large:  return .title2.bold()
+        case .small: .subheadline.weight(.semibold)
+        case .medium: .title3.bold()
+        case .large: .title2.bold()
         }
     }
 
     private var titleFont: Font {
         switch size {
-        case .small:  return .caption2
-        case .medium: return .caption.weight(.semibold)
-        case .large:  return .subheadline.weight(.semibold)
+        case .small: .caption2
+        case .medium: .caption.weight(.semibold)
+        case .large: .subheadline.weight(.semibold)
         }
     }
 
     private var effectiveAccessoryGlyph: String? {
         if let equipped = spec.equippedAccessory,
-           let glyph = AvatarService.accessoryGlyph(for: equipped) {
+           let glyph = AvatarService.accessoryGlyph(for: equipped)
+        {
             return glyph
         }
         return spec.preset.accessoryIconSystemName
@@ -157,11 +166,11 @@ struct AvatarView: View {
 
     private var classColor: Color {
         switch spec.avatarClass {
-        case .knight:    return Color.blue
-        case .mage:      return Color.purple
-        case .rogue:     return Color.green
-        case .guardian:  return Color.teal
-        case .healer:    return Color.pink
+        case .knight: Color.blue
+        case .mage: Color.purple
+        case .rogue: Color.green
+        case .guardian: Color.teal
+        case .healer: Color.pink
         }
     }
 

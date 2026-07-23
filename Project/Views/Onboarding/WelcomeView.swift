@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct WelcomeView: View {
-
     @Bindable var viewModel: OnboardingViewModel
 
     var body: some View {
@@ -24,7 +23,9 @@ struct WelcomeView: View {
                 .foregroundStyle(
                     LinearGradient(
                         colors: [.yellow, .orange],
-                        startPoint: .top, endPoint: .bottom))
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
 
             VStack(spacing: 12) {
                 Text("Welcome,")
@@ -32,15 +33,17 @@ struct WelcomeView: View {
                     .foregroundStyle(.secondary)
                 Text("Adventurer!")
                     .font(.system(size: 44, weight: .heavy,
-                                    design: .rounded))
+                                  design: .rounded))
                     .foregroundStyle(
                         LinearGradient(
                             colors: [.yellow, .orange],
-                            startPoint: .leading, endPoint: .trailing))
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
             }
 
             Text("Your quest for gold and glory begins here. "
-                   + "Found a guild or join one to start earning loot.")
+                + "Found a guild or join one to start earning loot.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -68,14 +71,15 @@ struct WelcomeView: View {
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.purple.opacity(0.15)],
-                startPoint: .top, endPoint: .bottom))
+                startPoint: .top, endPoint: .bottom
+            )
+        )
     }
 
     @ViewBuilder
     private func destination(for step: OnboardingStep) -> some View {
         switch step {
         case .welcome:
-
             welcomeScreen
                 .navigationBarBackButtonHidden(true)
         case .roleSelection:
@@ -93,7 +97,6 @@ struct WelcomeView: View {
 }
 
 struct OnboardingCompletionView: View {
-
     @Bindable var viewModel: OnboardingViewModel
 
     var body: some View {
@@ -108,7 +111,7 @@ struct OnboardingCompletionView: View {
                 .font(.system(size: 36, weight: .heavy, design: .rounded))
 
             if !viewModel.familyName.isEmpty {
-                Text("Your guild “\(viewModel.familyName)” awaits.")
+                Text("Your guild \u{201C}\(viewModel.familyName)\u{201D} awaits.")
                     .font(.title3)
                     .foregroundStyle(.secondary)
             } else {
@@ -118,12 +121,35 @@ struct OnboardingCompletionView: View {
             }
 
             Spacer()
+
+            Button {
+                viewModel.completeOnboarding(
+                    family: viewModel.builtFamily,
+                    profile: viewModel.builtProfile
+                )
+            } label: {
+                Text("Continue")
+                    .font(.headline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .padding(.horizontal, 32)
+            // Both builtFamily and builtProfile must be non-nil to proceed,
+            // matching the `guard let family, let profile` in completeOnboarding.
+            .disabled(viewModel.builtFamily == nil || viewModel.builtProfile == nil)
+            .accessibilityIdentifier("onboarding.continueButton")
+
+            Spacer().frame(height: 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.green.opacity(0.12)],
-                startPoint: .top, endPoint: .bottom))
+                startPoint: .top, endPoint: .bottom
+            )
+        )
         .accessibilityIdentifier("onboarding.done")
     }
 }
