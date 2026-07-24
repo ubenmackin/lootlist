@@ -5,7 +5,7 @@ import CloudKit
 import Foundation
 import OSLog
 
-enum CloudKitServiceError: Error, Equatable, Sendable {
+enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
     case underlying(String)
 
     case accountUnavailable
@@ -25,6 +25,31 @@ enum CloudKitServiceError: Error, Equatable, Sendable {
     case invalidArguments(String)
 
     case shareFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .accountUnavailable:
+            "iCloud account is unavailable or not authenticated. Please check Settings."
+        case .networkUnavailable:
+            "Network connection is unavailable."
+        case let .notFound(details):
+            "Requested record was not found (\(details))."
+        case let .retryable(_, code):
+            "CloudKit service is temporarily busy (code: \(code ?? 0))."
+        case .exhaustedBudget:
+            "CloudKit operation timed out after multiple retries."
+        case let .zoneSetupFailed(msg):
+            "Failed to set up family CloudKit zone: \(msg)"
+        case .subscriptionSetupFailed:
+            "Failed to configure CloudKit subscriptions."
+        case let .invalidArguments(msg):
+            "Invalid arguments for CloudKit operation: \(msg)"
+        case let .shareFailed(msg):
+            "iCloud share operation failed: \(msg)"
+        case let .underlying(msg):
+            "CloudKit error: \(msg)"
+        }
+    }
 }
 
 actor SubscriptionManager {
@@ -744,7 +769,8 @@ final class CloudKitService {
                     .serviceUnavailable,
                     .requestRateLimited,
                     .networkUnavailable,
-                    .networkFailure
+                    .networkFailure,
+                    .notAuthenticated
                 ]
 
                 guard retryableCodes.contains(error.code) else {

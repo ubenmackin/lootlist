@@ -44,7 +44,7 @@ struct HeroStatusCard: View {
             avatarView
             nameAndTitle
             Spacer(minLength: 8)
-            badgesStack
+            StreakBadge(streak: summary.currentStreak, size: .small)
         }
     }
 
@@ -63,33 +63,6 @@ struct HeroStatusCard: View {
                 .font(.caption)
                 .foregroundStyle(Color.gold)
         }
-    }
-
-    private var badgesStack: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            levelChip
-            StreakBadge(streak: summary.currentStreak, size: .small)
-        }
-    }
-
-    private var levelChip: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "number")
-                .font(.caption2.weight(.bold))
-            Text("\(summary.profile.level)")
-                .font(.callout.weight(.bold))
-                .monospacedDigit()
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule()
-                .fill(Color.purple.opacity(0.80))
-                .overlay(
-                    Capsule().strokeBorder(Color.gold.opacity(0.65), lineWidth: 1)
-                )
-        )
     }
 
     private var questRatioBlock: some View {

@@ -308,8 +308,8 @@ final class QuestManagerViewModel {
                 guard let self else { return }
                 switch event {
                 case .recordChanged, .shareAccepted, .zoneReset:
-                    await self.load()
-                    await self.loadHeroes()
+                    await load()
+                    await loadHeroes()
                 }
             }
         }

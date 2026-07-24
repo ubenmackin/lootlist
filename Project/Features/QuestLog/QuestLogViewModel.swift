@@ -40,8 +40,9 @@ final class QuestLogViewModel {
         syncSubscriptionID = id
         syncTask = Task { [weak self] in
             for await _ in stream {
-                guard let self, let family = self.appState.family else { return }
-                await self.load(family: family)
+                guard let self else { return }
+                guard let family = appState.family else { return }
+                await load(family: family)
             }
         }
     }

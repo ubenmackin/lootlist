@@ -166,7 +166,7 @@ final class FamilyDashboardViewModel {
                 guard let self else { return }
                 switch event {
                 case .recordChanged, .shareAccepted, .zoneReset:
-                    await self.refresh()
+                    await refresh()
                 }
             }
         }

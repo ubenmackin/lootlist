@@ -254,6 +254,30 @@ final class FamilyService {
         }
     }
 
+    @discardableResult
+    func updateProfileDisplayName(profile: Profile, newName: String) async throws -> Profile {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw FamilyServiceError.persistenceFailed("Character name cannot be empty.")
+        }
+
+        var updated = profile
+        updated.displayName = trimmed
+
+        let (zoneID, db) = familyContext(for: profile.family.recordID)
+        do {
+            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            if appState.currentProfile?.id == saved.id {
+                appState.currentProfile = saved
+            }
+            return saved
+        } catch {
+            throw FamilyServiceError.persistenceFailed(
+                "Could not update character name: \(error)"
+            )
+        }
+    }
+
     // MARK: - Role & Membership Management
 
     /// Fetches all active hero profiles belonging to the given family.
