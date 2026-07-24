@@ -3,8 +3,6 @@ name: "CodeQL Advanced"
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   schedule:
     - cron: '24 4 * * 4'
 
@@ -53,3 +51,4 @@ jobs:
       uses: github/codeql-action/analyze@v4
       with:
         category: "/language:swift"
+

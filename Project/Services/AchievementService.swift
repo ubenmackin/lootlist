@@ -265,12 +265,20 @@ final class AchievementService {
         if !questIDs.isEmpty {
             let idArray = Array(questIDs)
             for chunk in idArray.chunked(into: 100) {
-                let fetched = try await cloudKit.query(
-                    Quest.self,
-                    predicate: NSPredicate(format: "recordID IN %@", chunk)
-                )
-                for quest in fetched {
-                    questCache[quest.id] = quest
+                do {
+                    let fetched = try await cloudKit.query(
+                        Quest.self,
+                        predicate: NSPredicate(format: "recordID IN %@", chunk)
+                    )
+                    for quest in fetched {
+                        questCache[quest.id] = quest
+                    }
+                } catch {
+                    for questID in chunk {
+                        if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                            questCache[questID] = fetched
+                        }
+                    }
                 }
             }
         }

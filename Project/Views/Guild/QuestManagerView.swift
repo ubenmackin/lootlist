@@ -5,6 +5,8 @@ struct QuestManagerView: View {
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(QuestService.self) private var questService
+    @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var viewModel: QuestManagerViewModel?
     @State private var selectedTab: ManagerTab = .assignments
@@ -12,6 +14,7 @@ struct QuestManagerView: View {
     @State private var showAssignSheet: Bool = false
     @State private var showAddTemplateSheet: Bool = false
     @State private var editingTemplate: QuestTemplate?
+    @State private var editingQuest: Quest?
 
     enum ManagerTab: String, CaseIterable, Identifiable {
         case assignments = "Assignments"
@@ -45,11 +48,36 @@ struct QuestManagerView: View {
                         appState: appState
                     )
                 }
+                viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 await viewModel?.load()
                 await viewModel?.loadHeroes()
             }
             .refreshable {
                 await viewModel?.load()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    Task {
+                        await viewModel?.load()
+                        await viewModel?.loadHeroes()
+                    }
+                }
+            }
+            .onDisappear {
+                viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        QuestLogView()
+                            .environment(questService)
+                            .environment(familyService)
+                            .environment(appState)
+                            .environment(appSyncCoordinator)
+                    } label: {
+                        Image(systemName: "scroll")
+                    }
+                }
             }
             .sheet(isPresented: $showAssignSheet) {
                 if let vm = viewModel {
@@ -59,6 +87,11 @@ struct QuestManagerView: View {
             .sheet(item: $editingTemplate) { template in
                 if let vm = viewModel {
                     TemplateManagerView(viewModel: vm, editing: template)
+                }
+            }
+            .sheet(item: $editingQuest) { quest in
+                if let vm = viewModel {
+                    QuestAssignmentView(mode: .edit(questID: quest.id), viewModel: vm)
                 }
             }
             .sheet(isPresented: $showAddTemplateSheet) {
@@ -117,19 +150,24 @@ struct QuestManagerView: View {
     }
 
     private func assignmentRow(quest: Quest, vm: QuestManagerViewModel) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: quest.approvalMode.iconSystemName)
-                .foregroundStyle(quest.approvalMode == .parentVerify ? .indigo : .green)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(quest.displayName)
-                    .font(.subheadline.bold())
-                Text(String(format: "%.2f gold · %@ (%d XP) · %@",
-                            quest.goldReward, quest.rarity.rawValue, quest.xpReward, quest.approvalMode.displayName))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        Button {
+            editingQuest = quest
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: quest.approvalMode.iconSystemName)
+                    .foregroundStyle(quest.approvalMode == .parentVerify ? .indigo : .green)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(quest.displayName)
+                        .font(.subheadline.bold())
+                    Text(String(format: "%.2f gold · %@ (%d XP) · %@",
+                                quest.goldReward, quest.rarity.rawValue, quest.xpReward, quest.approvalMode.displayName))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
             }
-            Spacer()
         }
+        .buttonStyle(.plain)
         .contentShape(Rectangle())
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {

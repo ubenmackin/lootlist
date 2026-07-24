@@ -4,8 +4,11 @@ import SwiftUI
 struct FamilyDashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
+    @Environment(FamilyService.self) private var familyService
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
+    @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showShareSheet: Bool = false
@@ -35,7 +38,16 @@ struct FamilyDashboardView: View {
                         appState: appState
                     )
                 }
+                viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 await viewModel?.refresh()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    Task { await viewModel?.refresh() }
+                }
+            }
+            .onDisappear {
+                viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareInviteItems)
@@ -248,7 +260,16 @@ struct FamilyDashboardView: View {
             } else {
                 VStack(spacing: 12) {
                     ForEach(vm.weekSummary?.heroSummaries ?? []) { summary in
-                        HeroStatusCard(summary: summary)
+                        NavigationLink {
+                            QuestLogView(initialHero: summary.profile)
+                                .environment(questService)
+                                .environment(familyService)
+                                .environment(appState)
+                                .environment(appSyncCoordinator)
+                        } label: {
+                            HeroStatusCard(summary: summary)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal)
