@@ -1,5 +1,9 @@
+// swiftlint:disable file_length
+// CloudKit service consolidates all CK operations under one coordinator; splitting would be an architectural refactor outside lint scope.
+
 import CloudKit
 import Foundation
+import OSLog
 
 enum CloudKitServiceError: Error, Equatable, Sendable {
     case underlying(String)
@@ -83,6 +87,8 @@ actor SubscriptionManager {
 @MainActor
 @Observable
 final class CloudKitService {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CloudKitService")
+
     private let container: CKContainer
 
     /// The database used for standard CRUD. Defaults to the private database.
@@ -107,7 +113,11 @@ final class CloudKitService {
         }
     }
 
-    init(container: CKContainer = .default(),
+    static var defaultContainer: CKContainer {
+        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+    }
+
+    init(container: CKContainer = CloudKitService.defaultContainer,
          zoneID: CKRecordZone.ID = CKRecordZone.ID(zoneName: "LootListZone",
                                                    ownerName: CKCurrentUserDefaultName))
     {
@@ -159,11 +169,10 @@ final class CloudKitService {
         let source = model.toRecord()
         let targetID = CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
 
-        var recordToSave: CKRecord
-        if let existing = try? await targetDB.record(for: targetID) {
-            recordToSave = existing
+        let recordToSave: CKRecord = if let existing = try? await targetDB.record(for: targetID) {
+            existing
         } else {
-            recordToSave = CKRecord(recordType: T.recordType, recordID: targetID)
+            CKRecord(recordType: T.recordType, recordID: targetID)
         }
 
         if T.recordType != Family.recordType {
@@ -180,7 +189,12 @@ final class CloudKitService {
             recordToSave[key] = source[key]
         }
 
-        print("[CloudKitService] Saving \(T.recordType) (\(recordToSave.recordID.recordName)) in zone '\(zone.zoneName)' (owner: \(zone.ownerName)) using \(targetDB == sharedDatabase ? "sharedDatabase" : "privateDatabase"). Parent: '\(recordToSave.parent?.recordID.recordName ?? "none")'")
+        let dbLabel = targetDB == sharedDatabase ? "sharedDatabase" : "privateDatabase"
+        let zoneName = zone.zoneName
+        let ownerName = zone.ownerName
+        let parentName = recordToSave.parent?.recordID.recordName ?? "none"
+        logger.info("Save \(T.recordType, privacy: .public) id=\(recordToSave.recordID.recordName, privacy: .private) zone=\(zoneName, privacy: .private)")
+        logger.info("owner=\(ownerName, privacy: .private) db=\(dbLabel, privacy: .public) parent=\(parentName, privacy: .private)")
 
         let saved: CKRecord
         do {
@@ -198,10 +212,10 @@ final class CloudKitService {
                 }
             }
         } catch {
-            print("[CloudKitService ERROR] Save failed for \(T.recordType) (\(recordToSave.recordID.recordName)): \(error)")
+            logger.error("Save failed for \(T.recordType, privacy: .public) (\(recordToSave.recordID.recordName, privacy: .private)): \(error, privacy: .private)")
             throw error
         }
-        print("[CloudKitService SUCCESS] Saved \(T.recordType) (\(saved.recordID.recordName))")
+        logger.info("Saved \(T.recordType, privacy: .public) (\(saved.recordID.recordName, privacy: .private))")
         return try T(record: saved)
     }
 
@@ -341,9 +355,26 @@ final class CloudKitService {
 
     /// Fetches an existing CKShare URL for the zone, or creates a new CKShare if one does not exist.
     func fetchOrCreateShareURL(in zoneID: CKRecordZone.ID, rootRecordID: CKRecord.ID) async throws -> URL {
+        let pvtDB = privateDatabase
+        let targetID = CKRecord.ID(recordName: rootRecordID.recordName, zoneID: zoneID)
+
+        // Step 1: Check root record's share reference directly via point lookup (requires no query index)
+        if let rootRecord = try? await pvtDB.record(for: targetID),
+           let shareRef = rootRecord.share,
+           let existingShare = await (try? pvtDB.record(for: shareRef.recordID)) as? CKShare,
+           let existingURL = existingShare.url
+        {
+            logger.info("Found existing CKShare URL via rootRecord.share: \(existingURL, privacy: .private)")
+            return existingURL
+        }
+
+        // Step 2: Fallback query search
         if let existingURL = try? await fetchShareURL(in: zoneID) {
             return existingURL
         }
+
+        // Step 3: Only create a NEW share if no share exists at all
+        logger.info("No existing CKShare found for zone '\(zoneID.zoneName, privacy: .private)'. Creating new share...")
         let share = try await createShare(for: rootRecordID)
         guard let url = share.url else {
             throw CloudKitServiceError.shareFailed("Share created but URL was nil")
@@ -373,7 +404,7 @@ final class CloudKitService {
 
     /// Discovers all custom private record zones in `privateCloudDatabase`.
     func fetchPrivateZones() async throws -> [CKRecordZone] {
-        return try await privateDatabase.allRecordZones()
+        try await privateDatabase.allRecordZones()
     }
 
     /// Discovers all shared record zones available to the current user in
@@ -394,13 +425,12 @@ final class CloudKitService {
             do {
                 try await deleteZone(zoneID)
                 appState.removeAbandonedZoneID(zoneName)
-                print("[CloudKitService] Successfully processed abandoned zone deletion: \(zoneName)")
+                logger.info("Successfully processed abandoned zone deletion: \(zoneName, privacy: .private)")
             } catch {
-                print("[CloudKitService] Retrying abandoned zone deletion failed for \(zoneName): \(error)")
+                logger.error("Retrying abandoned zone deletion failed for \(zoneName, privacy: .private): \(error, privacy: .private)")
             }
         }
     }
-
 
     /// Fetches the CKShare URL for a given record zone. Used by Guild Masters
     /// to retrieve the invitation link after creating a family.

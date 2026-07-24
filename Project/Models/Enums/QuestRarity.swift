@@ -7,14 +7,16 @@ enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
     case epic = "Epic"
     case legendary = "Legendary"
 
-    var id: String { rawValue }
+    var id: String {
+        rawValue
+    }
 
     var xpReward: Int {
         switch self {
-        case .common: 50
-        case .rare: 100
-        case .epic: 250
-        case .legendary: 500
+        case .common: AppConstants.Rarity.commonXP
+        case .rare: AppConstants.Rarity.rareXP
+        case .epic: AppConstants.Rarity.epicXP
+        case .legendary: AppConstants.Rarity.legendaryXP
         }
     }
 
@@ -37,9 +39,15 @@ enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 
     static func from(xp: Int) -> QuestRarity {
-        if xp >= 500 { return .legendary }
-        if xp >= 250 { return .epic }
-        if xp >= 100 { return .rare }
+        if xp >= AppConstants.Rarity.legendaryXP {
+            return .legendary
+        }
+        if xp >= AppConstants.Rarity.epicXP {
+            return .epic
+        }
+        if xp >= AppConstants.Rarity.rareXP {
+            return .rare
+        }
         return .common
     }
 }

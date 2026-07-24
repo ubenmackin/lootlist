@@ -193,7 +193,7 @@ struct HeroDashboardView: View {
                     }
                 }
             } else {
-                if vm.weekQuests.isEmpty && !vm.isLoading {
+                if vm.weekQuests.isEmpty, !vm.isLoading {
                     emptyState(text: "No quests assigned for this week")
                 } else {
                     VStack(alignment: .leading, spacing: 16) {

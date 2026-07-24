@@ -1,13 +1,12 @@
-import Foundation
-import Testing
 import CloudKit
+import Foundation
 @testable import LootList
+import Testing
 
 @MainActor
 struct XPServiceTests {
-
-    @Test("Cumulative XP calculations for levels")
-    func testCumulativeXPForLevel() {
+    @Test
+    func `cumulative XP calculations for levels`() {
         #expect(XPService.cumulativeXPForLevel(1) == 0)
         #expect(XPService.cumulativeXPForLevel(2) == 100)
         #expect(XPService.cumulativeXPForLevel(3) == 300)
@@ -15,8 +14,8 @@ struct XPServiceTests {
         #expect(XPService.cumulativeXPForLevel(5) == 1000)
     }
 
-    @Test("Level determination for given XP amounts")
-    func testLevelForXP() {
+    @Test
+    func `level determination for given XP amounts`() {
         let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let service = XPService(cloudKit: CloudKitService(zoneID: dummyZone))
 
@@ -28,8 +27,8 @@ struct XPServiceTests {
         #expect(service.level(forXP: 1000) == 5)
     }
 
-    @Test("Level progress calculations")
-    func testLevelProgress() {
+    @Test
+    func `level progress calculations`() {
         let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let service = XPService(cloudKit: CloudKitService(zoneID: dummyZone))
 
@@ -55,8 +54,8 @@ struct XPServiceTests {
         #expect(progress.progress == 0.25)
     }
 
-    @Test("RPG Title mapping for level bounds")
-    func testTitleForLevel() {
+    @Test
+    func `rPG Title mapping for level bounds`() {
         #expect(XPService.title(forLevel: 1) == "Novice")
         #expect(XPService.title(forLevel: 2) == "Apprentice")
         #expect(XPService.title(forLevel: 3) == "Adept")
@@ -69,8 +68,8 @@ struct XPServiceTests {
         #expect(XPService.title(forLevel: 13) == "Heroic II")
     }
 
-    @Test("Unlocked accessories cadence")
-    func testUnlockedAccessories() {
+    @Test
+    func `unlocked accessories cadence`() {
         let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let service = XPService(cloudKit: CloudKitService(zoneID: dummyZone))
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam123", zoneID: dummyZone), action: .none)

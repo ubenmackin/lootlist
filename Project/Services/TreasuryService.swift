@@ -53,7 +53,7 @@ final class TreasuryService {
         // Check if hero has strict All-or-Nothing payout policy enabled.
         if profile.payoutPolicy == .allOrNothing {
             let assigned = try await fetchAssignedQuests(profile: profile, weekOf: monday)
-            if !assigned.isEmpty && slainCount < assigned.count {
+            if !assigned.isEmpty, slainCount < assigned.count {
                 goldFromQuests = 0.0
             }
         }
@@ -246,7 +246,7 @@ final class TreasuryService {
         let cal = Calendar.iso8601UTC
         let start = cal.startOfDay(for: monday)
 
-        let end = cal.date(byAdding: .second, value: (7 * 24 * 60 * 60) - 1,
+        let end = cal.date(byAdding: .second, value: AppConstants.Time.secondsInWeek - 1,
                            to: start) ?? start
         return DateInterval(start: start, end: end)
     }

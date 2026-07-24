@@ -2,7 +2,6 @@ import XCTest
 
 @MainActor
 final class OnboardingUITests: XCTestCase {
-
     var app: XCUIApplication!
 
     override func setUp() async throws {
@@ -13,12 +12,12 @@ final class OnboardingUITests: XCTestCase {
         app.launch()
     }
 
-    func testOnboardingWelcomeScreenDisplays() throws {
+    func testOnboardingWelcomeScreenDisplays() {
         let welcomeTitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Adventurer' OR label CONTAINS[c] 'Loot List'")).firstMatch
         XCTAssertTrue(welcomeTitle.waitForExistence(timeout: 5.0), "Welcome screen title should appear")
     }
 
-    func testRoleSelectionFlow() throws {
+    func testRoleSelectionFlow() {
         let startButton = app.buttons["welcome.startButton"]
         if startButton.waitForExistence(timeout: 5.0) {
             startButton.tap()

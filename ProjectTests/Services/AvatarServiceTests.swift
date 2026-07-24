@@ -1,13 +1,12 @@
-import Foundation
-import Testing
 import CloudKit
+import Foundation
 @testable import LootList
+import Testing
 
 @MainActor
 struct AvatarServiceTests {
-
-    @Test("Avatar preset resolution for classes and IDs")
-    func testAvatarPresetResolution() {
+    @Test
+    func `avatar preset resolution for classes and IDs`() {
         let presetKnight = AvatarPreset.resolve(.knight, id: "knight_01")
         #expect(presetKnight == .knightV1)
 
@@ -18,16 +17,16 @@ struct AvatarServiceTests {
         #expect(presetRogue == .rogueV3)
     }
 
-    @Test("Presets list per AvatarClass")
-    func testPresetsForClass() {
+    @Test
+    func `presets list per AvatarClass`() {
         let knights = AvatarPreset.presets(for: .knight)
         #expect(knights.count == 4)
         #expect(knights.contains(.knightV1))
         #expect(knights.contains(.knightV4))
     }
 
-    @Test("AvatarRenderSpec generation from Profile")
-    func testRenderSpec() {
+    @Test
+    func `avatarRenderSpec generation from Profile`() {
         let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: dummyZone)
         let xpService = XPService(cloudKit: cloudKit)
@@ -55,8 +54,8 @@ struct AvatarServiceTests {
         #expect(spec.equippedAccessory == "accessory.level.5")
     }
 
-    @Test("Accessory glyph mapping")
-    func testAccessoryGlyphs() {
+    @Test
+    func `accessory glyph mapping`() {
         #expect(AvatarService.accessoryGlyph(for: "accessory.level.5") == "sparkles")
         #expect(AvatarService.accessoryGlyph(for: "accessory.level.10") == "bolt.fill")
         #expect(AvatarService.accessoryGlyph(for: "accessory.level.15") == "star.fill")

@@ -1,7 +1,7 @@
-import Foundation
-import Testing
 import CloudKit
+import Foundation
 @testable import LootList
+import Testing
 
 final class MockSpendingService: SpendingService, @unchecked Sendable {
     var transactions: [LedgerEntry] = []
@@ -12,7 +12,7 @@ final class MockSpendingService: SpendingService, @unchecked Sendable {
         isAvailableValue
     }
 
-    func fetchTransactions(for profile: Profile, in dateRange: DateInterval) async throws -> [LedgerEntry] {
+    func fetchTransactions(for _: Profile, in _: DateInterval) async throws -> [LedgerEntry] {
         if shouldFail {
             throw SpendingServiceError.underlying("Mock error")
         }
@@ -38,9 +38,8 @@ final class MockSpendingService: SpendingService, @unchecked Sendable {
 
 @MainActor
 struct TreasuryViewModelTests {
-
-    @Test("Logging spending with empty description fails validation")
-    func testLogSpendingEmptyDescription() async {
+    @Test
+    func `logging spending with empty description fails validation`() async {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
@@ -54,8 +53,8 @@ struct TreasuryViewModelTests {
         #expect(viewModel.errorMessage == "Describe your spending first.")
     }
 
-    @Test("Logging spending with negative or zero amount fails validation")
-    func testLogSpendingInvalidAmount() async {
+    @Test
+    func `logging spending with negative or zero amount fails validation`() async {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)

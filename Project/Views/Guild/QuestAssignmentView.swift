@@ -31,14 +31,18 @@ struct QuestAssignmentView: View {
     enum AssignmentMode: String, CaseIterable, Identifiable {
         case fromTemplate = "From Template"
         case quickCreate = "Quick Create (One-Off)"
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
     }
 
     enum ApprovalModeSelection: String, CaseIterable, Identifiable {
         case useTemplate = "Use Template Default"
         case autoApproveOverride = "Auto-Approve (override)"
         case parentVerifyOverride = "Parent Verifies (override)"
-        var id: String { rawValue }
+        var id: String {
+            rawValue
+        }
     }
 
     private static let weekdayCodes: [String] = [
@@ -171,7 +175,7 @@ struct QuestAssignmentView: View {
             TextField("Quest Name (e.g. Wash the Car)", text: $quickName)
 
             TextField("Description (optional)", text: $quickDescription, axis: .vertical)
-                .lineLimit(2...3)
+                .lineLimit(2 ... 3)
         }
 
         Section("Hero") {
@@ -272,17 +276,16 @@ struct QuestAssignmentView: View {
         }
     }
 
+    @ViewBuilder
     private var heroPicker: some View {
-        Group {
-            if viewModel.heroes.isEmpty {
-                Text("No heroes in the family.")
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("Hero", selection: $selectedHero) {
-                    Text("Choose…").tag(nil as Profile?)
-                    ForEach(viewModel.heroes) { hero in
-                        Text(hero.displayName).tag(hero as Profile?)
-                    }
+        if viewModel.heroes.isEmpty {
+            Text("No heroes in the family.")
+                .foregroundStyle(.secondary)
+        } else {
+            Picker("Hero", selection: $selectedHero) {
+                Text("Choose…").tag(nil as Profile?)
+                ForEach(viewModel.heroes) { hero in
+                    Text(hero.displayName).tag(hero as Profile?)
                 }
             }
         }
@@ -300,7 +303,9 @@ struct QuestAssignmentView: View {
     }
 
     private var isSubmitDisabled: Bool {
-        if isSubmitting || selectedHero == nil { return true }
+        if isSubmitting || selectedHero == nil {
+            return true
+        }
         if assignmentMode == .fromTemplate {
             return selectedTemplate == nil
         } else {
@@ -369,7 +374,7 @@ struct QuestAssignmentView: View {
 
         let xp = quickRarity.xpReward
 
-        if quickSchedule == .specificDays && quickSpecificDays.isEmpty {
+        if quickSchedule == .specificDays, quickSpecificDays.isEmpty {
             validationError = "Select at least one day for specific-days schedule."
             return
         }

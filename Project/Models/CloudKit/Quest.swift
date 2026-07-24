@@ -15,6 +15,7 @@ struct Quest: Identifiable, Equatable, Sendable {
     var rarity: QuestRarity {
         QuestRarity.from(xp: xpReward)
     }
+
     var scheduleType: QuestSchedule
 
     var isAllOrNothing: Bool
@@ -75,7 +76,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         self.xpReward = xpReward
 
         let scheduleRaw = (record["scheduleType"] as? String) ?? QuestSchedule.weeklyFlexible.rawValue
-        self.scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
+        scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
 
         isAllOrNothing = (record["isAllOrNothing"] as? Bool) ?? false
 

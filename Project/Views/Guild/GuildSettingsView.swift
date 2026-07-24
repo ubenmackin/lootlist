@@ -56,9 +56,12 @@ struct GuildSettingsView: View {
             .alert("Transfer Guild Master Role?",
                    isPresented: Binding(
                        get: { showRoleTransferConfirm != nil },
-                       set: { if !$0 { showRoleTransferConfirm = nil } }
-                   ))
-            {
+                       set: {
+                           if !$0 {
+                               showRoleTransferConfirm = nil
+                           }
+                       }
+                   )) {
                 if let target = showRoleTransferConfirm {
                     Button("Transfer Ownership", role: .destructive) {
                         Task { await confirmTransferGuildMaster(to: target) }
@@ -251,8 +254,6 @@ private extension GuildSettingsView {
         }
     }
 
-
-
     private func membersSection(vm: FamilyDashboardViewModel) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -279,7 +280,11 @@ private extension GuildSettingsView {
             .padding(.horizontal)
             .alert("Remove \(memberToKick?.displayName ?? "Member")?", isPresented: Binding(
                 get: { memberToKick != nil },
-                set: { if !$0 { memberToKick = nil } }
+                set: {
+                    if !$0 {
+                        memberToKick = nil
+                    }
+                }
             )) {
                 Button("Remove", role: .destructive) {
                     if let member = memberToKick {
@@ -339,7 +344,7 @@ private extension GuildSettingsView {
                         showRoleTransferConfirm = member
                     } label: {
                         Label("Transfer Guild Master…",
-                               systemImage: "crown.fill")
+                              systemImage: "crown.fill")
                     }
                 }
 
@@ -486,7 +491,9 @@ private extension GuildSettingsView {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will permanently delete your family zone, quest history, loot, and member profiles from iCloud, returning you to the onboarding screen. This cannot be undone.")
+            Text(
+                "This will permanently delete your family zone, quest history, loot, and member profiles from iCloud, returning you to the onboarding screen. This cannot be undone."
+            )
         }
         .alert("Final Confirmation", isPresented: $showDisbandFinalConfirm) {
             Button("Delete Forever & Start Fresh", role: .destructive) {

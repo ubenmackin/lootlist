@@ -1,8 +1,8 @@
 import Foundation
 
 enum PayoutPolicy: String, Codable, CaseIterable, Sendable {
-    case perQuest = "perQuest"
-    case allOrNothing = "allOrNothing"
+    case perQuest
+    case allOrNothing
 
     var displayName: String {
         switch self {

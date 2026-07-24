@@ -2,7 +2,6 @@ import XCTest
 
 @MainActor
 final class TrophyRoomUITests: XCTestCase {
-
     var app: XCUIApplication!
 
     override func setUp() async throws {
@@ -13,7 +12,7 @@ final class TrophyRoomUITests: XCTestCase {
         app.launch()
     }
 
-    func testTrophyRoomDisplaysCharacterInfo() throws {
+    func testTrophyRoomDisplaysCharacterInfo() {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0))
 

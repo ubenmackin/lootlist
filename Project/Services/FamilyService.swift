@@ -41,7 +41,7 @@ final class FamilyService {
     /// 4. Save the Guild Master's `Profile` in the same zone.
     @discardableResult
     func createFamily(name: String,
-                      ownerProfile: Profile) async throws -> (family: Family, profile: Profile, shareURL: URL?)
+                      ownerProfile: Profile) async throws -> (family: Family, profile: Profile, shareURL: URL?) // swiftlint:disable:this large_tuple
     {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else {
             throw FamilyServiceError.creationFailed("Family name cannot be empty.")
@@ -147,11 +147,10 @@ final class FamilyService {
 
         // Step 3: Fetch the Family record from the shared zone directly by ID (no query index required).
         let family: Family
-        let targetRecordID: CKRecord.ID
-        if #available(iOS 16.0, *) {
-            targetRecordID = metadata.hierarchicalRootRecordID ?? CKRecord.ID(recordName: "root")
+        let targetRecordID: CKRecord.ID = if #available(iOS 16.0, *) {
+            metadata.hierarchicalRootRecordID ?? CKRecord.ID(recordName: "root")
         } else {
-            targetRecordID = metadata.rootRecordID
+            metadata.rootRecordID
         }
         let sharedFamilyID = CKRecord.ID(
             recordName: targetRecordID.recordName,
@@ -252,8 +251,6 @@ final class FamilyService {
         }
     }
 
-
-
     // MARK: - Role & Membership Management
 
     /// Fetches all active hero profiles belonging to the given family.
@@ -292,8 +289,8 @@ final class FamilyService {
 
     /// Returns the CloudKit zone ID and database for the given family record ID,
     /// using the current user's zone-ownership context.
-    private func familyContext(for familyID: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase) {
-        let zoneID = cloudKit.resolvedZoneID  // already set with correct ownerName
+    private func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase) {
+        let zoneID = cloudKit.resolvedZoneID // already set with correct ownerName
         let db = cloudKit.database(isOwner: appState.isZoneOwner)
         return (zoneID, db)
     }
@@ -310,7 +307,7 @@ final class FamilyService {
         }
     }
 
-    func deleteFamilyAndReset(family: Family) async throws {
+    func deleteFamilyAndReset(family _: Family) async throws {
         // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
         if appState.isZoneOwner, let zoneID = appState.familyZoneID {
             do {

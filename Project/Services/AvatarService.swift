@@ -183,10 +183,10 @@ extension AvatarService {
             .replacingOccurrences(of: "accessory.level.", with: "")
         guard let gate = Int(suffix) else { return nil }
         switch gate {
-        case 5: return "sparkles"
-        case 10: return "bolt.fill"
-        case 15: return "star.fill"
-        case 20: return "flame.fill"
+        case AppConstants.Accessories.levelGate5: return "sparkles"
+        case AppConstants.Accessories.levelGate10: return "bolt.fill"
+        case AppConstants.Accessories.levelGate15: return "star.fill"
+        case AppConstants.Accessories.levelGate20: return "flame.fill"
         default: return "sparkles"
         }
     }

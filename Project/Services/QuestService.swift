@@ -23,7 +23,7 @@ final class QuestService {
         cloudKit
     }
 
-    private let calendar: Calendar = Calendar.iso8601UTC
+    private let calendar: Calendar = .iso8601UTC
 
     init(cloudKit: CloudKitService,
          xpService: XPService,

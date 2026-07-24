@@ -35,7 +35,7 @@ struct TemplateManagerView: View {
                 Section("Basic Info") {
                     TextField("Quest Name", text: $name)
                     TextField("Description", text: $descriptionText, axis: .vertical)
-                        .lineLimit(2...4)
+                        .lineLimit(2 ... 4)
                 }
 
                 Section("Rewards") {

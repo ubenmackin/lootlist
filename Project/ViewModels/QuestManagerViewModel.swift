@@ -152,6 +152,8 @@ final class QuestManagerViewModel {
         }
     }
 
+    // Quest assignment form collects many fields; consolidating into a struct would be an API change outside lint scope.
+    // swiftlint:disable:next function_parameter_count
     func assignQuickQuest(name: String,
                           description: String,
                           assignee: Profile,
@@ -221,5 +223,4 @@ final class QuestManagerViewModel {
 
         heroes = await (try? familyService.fetchHeroes(for: family)) ?? []
     }
-
 }

@@ -11,32 +11,35 @@ on:
 jobs:
   analyze:
     name: Analyze (Swift)
-    runs-on: macos-latest
+    runs-on: macOS-26
     permissions:
       security-events: write
       packages: read
       actions: read
       contents: read
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - language: swift
-          build-mode: manual
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Select Xcode 26.3
+      run: sudo xcode-select -s /Applications/Xcode_26.3.app || true
+
+    - uses: actions/cache@v4
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData
+        key: ${{ runner.os }}-derived-data-${{ hashFiles('**/*.swift') }}
+        restore-keys: |
+          ${{ runner.os }}-derived-data-
 
     # Initializes CodeQL tools for scanning
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
-        languages: ${{ matrix.language }}
-        build-mode: ${{ matrix.build-mode }}
+        languages: swift
+        build-mode: manual
 
-    # Fast build step using generic destination (avoids simulator daemon hangs)
+    # Build step using generic destination (avoids simulator daemon hangs)
     - name: Build Swift Code
       run: |
         xcodebuild -project LootList.xcodeproj \
@@ -49,4 +52,4 @@ jobs:
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
       with:
-        category: "/language:${{matrix.language}}"
+        category: "/language:swift"

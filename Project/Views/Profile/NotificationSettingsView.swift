@@ -29,6 +29,7 @@ struct NotificationSettingsView: View {
     var body: some View {
         Form {
             // MARK: - 1. Authorization Status Section
+
             Section {
                 HStack(spacing: 14) {
                     Image(systemName: statusIcon)
@@ -49,7 +50,7 @@ struct NotificationSettingsView: View {
                     if authorizationStatus == .notDetermined {
                         Button("Enable") {
                             Task {
-                                let granted = (try? await notificationService.requestAuthorization()) ?? false
+                                let granted = await (try? notificationService.requestAuthorization()) ?? false
                                 await updateAuthStatus()
                                 if granted {
                                     notificationService.registerForRemoteNotifications()
@@ -69,6 +70,7 @@ struct NotificationSettingsView: View {
             }
 
             // MARK: - 2. Master Toggle Section
+
             Section {
                 Toggle("Allow Push Notifications", isOn: $masterNotificationsEnabled)
                     .tint(.accentColor)
@@ -95,6 +97,7 @@ struct NotificationSettingsView: View {
             }
 
             // MARK: - 3. Individual Event Sub-Toggles
+
             Section {
                 Toggle(isOn: $questAssignedNotificationsEnabled) {
                     Label("Quest Assignments", systemImage: "scroll.fill")
@@ -127,6 +130,7 @@ struct NotificationSettingsView: View {
             }
 
             // MARK: - 4. Actions Section
+
             Section {
                 Button(role: .destructive) {
                     UNUserNotificationCenter.current().removeAllPendingNotificationRequests()

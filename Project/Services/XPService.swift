@@ -14,9 +14,9 @@ struct LevelProgress: Equatable, Sendable {
 @MainActor
 @Observable
 final class XPService {
-    static let stepBase: Int = 100
+    static let stepBase: Int = AppConstants.Experience.stepBase
 
-    static let accessoryCadence: Int = 5
+    static let accessoryCadence: Int = AppConstants.Experience.accessoryCadence
 
     private let cloudKit: CloudKitService
     let notificationService: NotificationService?

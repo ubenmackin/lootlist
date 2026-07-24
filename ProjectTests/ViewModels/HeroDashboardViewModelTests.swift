@@ -1,20 +1,19 @@
-import Foundation
-import Testing
 import CloudKit
+import Foundation
 @testable import LootList
+import Testing
 
 @MainActor
 struct HeroDashboardViewModelTests {
-
-    @Test("Weekday code formatting")
-    func testTodayWeekdayCode() {
+    @Test
+    func `weekday code formatting`() {
         let code = HeroDashboardViewModel.todayWeekdayCode()
         let validCodes = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
         #expect(validCodes.contains(code))
     }
 
-    @Test("Initial state before loading")
-    func testInitialState() {
+    @Test
+    func `initial state before loading`() {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let questService = QuestService(cloudKit: cloudKit)
@@ -28,8 +27,8 @@ struct HeroDashboardViewModelTests {
         #expect(viewModel.isLoading == false)
     }
 
-    @Test("Load clears state when no profile is present")
-    func testLoadWithoutProfile() async {
+    @Test
+    func `load clears state when no profile is present`() async {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let questService = QuestService(cloudKit: cloudKit)
@@ -44,14 +43,15 @@ struct HeroDashboardViewModelTests {
         #expect(viewModel.availableTemplatesCount == 0)
     }
 
-    @Test("Sunday-Saturday week days calculation")
-    func testCurrentWeekDays() {
+    @Test
+    func `sunday-Saturday week days calculation`() {
         let weekDays = HeroDashboardViewModel.currentWeekDays()
         #expect(weekDays.count == 7)
         #expect(weekDays.first?.weekdayCode == "sunday")
         #expect(weekDays.first?.shortName == "Sun")
         #expect(weekDays.last?.weekdayCode == "saturday")
         #expect(weekDays.last?.shortName == "Sat")
+        // swiftformat:disable:next preferKeyPath redundantClosure
         #expect(weekDays.contains(where: { $0.isToday }))
     }
 }

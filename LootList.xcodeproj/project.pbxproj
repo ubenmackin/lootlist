@@ -20,6 +20,7 @@
 		1FA25F4E06D8E49631CF8F9B /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA257916025679E0AA31706 /* ProgressBar.swift */; };
 		1FAA4DB4ADD5C7F7B2A84527 /* XPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A029B21BB9CA3C965490F84 /* XPServiceTests.swift */; };
 		20B709BE101F5846C617809D /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F98296EAA473AB324F18004 /* ShareSheet.swift */; };
+		214CE8D6A7157C8F10E073FE /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */; };
 		2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */; };
 		292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F750555385910A36899A9BE /* ApprovalMode.swift */; };
 		2A00B0CD73498D56AE7C0EE5 /* TrophyRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C3E6FC5C9D55197733AA29 /* TrophyRoomView.swift */; };
@@ -42,6 +43,7 @@
 		4DE4E9257E98EBD2264C991C /* QuestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793AE042C54685940F7C3EF1 /* QuestService.swift */; };
 		50E39FEEA657632AB7AF960A /* QuestCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5860C6168028B967E157D8 /* QuestCardView.swift */; };
 		52A53EA19BB89D7C3EFCB445 /* CloudKitModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE5E3D8D810E51ADA1E99FB /* CloudKitModelTests.swift */; };
+		52FE085830E8699E665FCC4A /* TestEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9C9A669EA50B98696C391D /* TestEnvironment.swift */; };
 		55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B02119865F6610D00BD4F2A /* TabBarView.swift */; };
 		5AA1D57882CFB340382F3C4D /* TreasuryUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AB9A4FCD7CD3B589F4D935 /* TreasuryUITests.swift */; };
 		5D0377D38CABC77D7BA8F6F7 /* TemplateManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136948D3323E0410CAA49E77 /* TemplateManagerView.swift */; };
@@ -153,6 +155,7 @@
 		5C3ABA1D09005EC293F24135 /* CloudKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitService.swift; sourceTree = "<group>"; };
 		5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardViewModel.swift; sourceTree = "<group>"; };
 		5E814D2A43FF37F0A6AC51C5 /* HeroDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardView.swift; sourceTree = "<group>"; };
+		5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		6030F1A54F52EBA1F3AB0AF2 /* FamilyJoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyJoinView.swift; sourceTree = "<group>"; };
 		6333B737C7E26ABA1AFF02EE /* VerificationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationStatus.swift; sourceTree = "<group>"; };
 		63CB3B3860E66B17113116B5 /* TreasuryViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryViewModelTests.swift; sourceTree = "<group>"; };
@@ -194,6 +197,7 @@
 		CD7309A7921898E5B1910AA9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutPolicy.swift; sourceTree = "<group>"; };
 		CEED66C9830A57FFB23082CE /* LogSpendingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogSpendingView.swift; sourceTree = "<group>"; };
+		CF9C9A669EA50B98696C391D /* TestEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestEnvironment.swift; sourceTree = "<group>"; };
 		D64BE7B9FE409A629B17A1B0 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
 		D64CDD4E3D55127858D95F0E /* AppLaunchSplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchSplashScreen.swift; sourceTree = "<group>"; };
 		D7A4358651CDDB644ED05D11 /* TrophyRoomUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyRoomUITests.swift; sourceTree = "<group>"; };
@@ -495,7 +499,9 @@
 		F58B2A3E0B1026D46835E3C2 /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */,
 				BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */,
+				CF9C9A669EA50B98696C391D /* TestEnvironment.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -621,6 +627,7 @@
 				C858F8205B3AADAE18F68327 /* Achievement.swift in Sources */,
 				A4C417A639EA1ED09CC600D9 /* AchievementService.swift in Sources */,
 				B00BB4EEEA8F28B42CE519BB /* AllowancePeriod.swift in Sources */,
+				214CE8D6A7157C8F10E073FE /* AppConstants.swift in Sources */,
 				799DA050CD218472172DB5BC /* AppLaunchSplashScreen.swift in Sources */,
 				3692548EBCEFDB0795C8892C /* AppState.swift in Sources */,
 				292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */,
@@ -683,6 +690,7 @@
 				478DAB9FF630E62B539FD2D3 /* StreakBadge.swift in Sources */,
 				55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */,
 				5D0377D38CABC77D7BA8F6F7 /* TemplateManagerView.swift in Sources */,
+				52FE085830E8699E665FCC4A /* TestEnvironment.swift in Sources */,
 				B08A23CAFB867A2750ED0BB5 /* TreasuryService.swift in Sources */,
 				48D5AF22A208D1D904393F6E /* TreasuryView.swift in Sources */,
 				A5EDA6D44BE252D8ACAE9A05 /* TreasuryViewModel.swift in Sources */,
@@ -746,6 +754,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = Project/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Loot List";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -850,6 +859,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = Project/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Loot List";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
