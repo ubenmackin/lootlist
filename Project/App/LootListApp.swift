@@ -6,6 +6,8 @@ import SwiftUI
 struct LootListApp: App {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     @State private var appState: AppState
     @State private var cloudKitService: CloudKitService
     @State private var familyService: FamilyService
@@ -15,40 +17,47 @@ struct LootListApp: App {
     @State private var achievementService: AchievementService
     @State private var avatarService: AvatarService
     @State private var notificationService: NotificationService
+    @State private var appSyncCoordinator: AppSyncCoordinator
+    @State private var dataMigrationsCoordinator: DataMigrationsCoordinator
 
     init() {
         let app = AppState()
         let ck = CloudKitService()
-        let family = FamilyService(cloudKit: ck, appState: app)
         let notification = NotificationService(cloudKit: ck)
         let xp = XPService(cloudKit: ck, notificationService: notification)
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification)
+        let family = FamilyService(cloudKit: ck, appState: app, questService: quest)
         let treasury = TreasuryService(cloudKit: ck, notificationService: notification)
         let achievement = AchievementService(cloudKit: ck)
         let avatar = AvatarService(xp: xp)
+        let appSync = AppSyncCoordinator()
+
+        let migrations = DataMigrationsCoordinator()
+        migrations.register(
+            DataMigrationsCoordinator.questNameBackfillV1(cloudKit: ck)
+        )
 
         if TestEnvironment.isRunningUnitOrUITests {
-            logger.info("Tests detected — skipping CloudKit initialization and setting test auth state")
-            let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-            let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
-            let userRecordID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
-            var heroProfile = Profile(
-                displayName: "Sir Testalot",
-                avatarClass: .knight,
-                avatarPresetID: "knight_01",
-                role: CommandLine.arguments.contains("--parent") ? .guildMaster : .hero,
-                iCloudUserID: userRecordID,
-                family: familyRef,
-                id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-            )
-            heroProfile.xp = 1200
-            heroProfile.level = 5
+            logger.info("Tests detected — seeding mock data and setting test auth state")
+            SampleData.populate(cloudKit: ck)
+
+            ck.activeFamilyZoneID = SampleData.zoneID
 
             if CommandLine.arguments.contains("--onboarding") {
                 app.authStatus = .onboarding
+            } else if CommandLine.arguments.contains("--parent") {
+                ck.activeIsOwner = true
+                app.currentProfile = SampleData.parentProfile
+                app.family = SampleData.family
+                app.familyZoneID = SampleData.zoneID
+                app.isZoneOwner = true
+                app.authStatus = .authenticated
             } else {
-                app.currentProfile = heroProfile
-                app.family = Family(name: "Test Guild", createdBy: userRecordID, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+                ck.activeIsOwner = false
+                app.currentProfile = SampleData.heroProfile
+                app.family = SampleData.family
+                app.familyZoneID = SampleData.zoneID
+                app.isZoneOwner = false
                 app.authStatus = .authenticated
             }
         }
@@ -62,6 +71,8 @@ struct LootListApp: App {
         _achievementService = State(initialValue: achievement)
         _avatarService = State(initialValue: avatar)
         _notificationService = State(initialValue: notification)
+        _appSyncCoordinator = State(initialValue: appSync)
+        _dataMigrationsCoordinator = State(initialValue: migrations)
     }
 
     var body: some Scene {
@@ -76,11 +87,21 @@ struct LootListApp: App {
                 .environment(achievementService)
                 .environment(avatarService)
                 .environment(notificationService)
+                .environment(appSyncCoordinator)
                 .task {
                     if !TestEnvironment.isRunningUnitOrUITests {
                         await checkCloudKitAvailability()
                         await cloudKitService.processAbandonedZonesQueue(appState: appState)
                         await appState.restoreSession(cloudKit: cloudKitService)
+
+                        // Register CloudKit subscriptions for live sync
+                        if let zoneID = appState.familyZoneID {
+                            let db = cloudKitService.database(isOwner: appState.isZoneOwner)
+                            await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
+                        }
+
+                        // Run data migrations
+                        await dataMigrationsCoordinator.runPendingMigrations()
                     }
                 }
                 .onOpenURL { url in

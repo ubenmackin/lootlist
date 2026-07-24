@@ -24,6 +24,9 @@ final class FamilyDashboardViewModel {
     private let achievements: AchievementService
     private let appState: AppState
 
+    private var syncSubscriptionID: UUID?
+    private var syncTask: Task<Void, Never>?
+
     init(questService: QuestService,
          treasury: TreasuryService,
          achievementService: AchievementService,
@@ -152,6 +155,30 @@ final class FamilyDashboardViewModel {
 
     var isGuildMaster: Bool {
         appState.currentProfile?.role == .guildMaster
+    }
+
+    func subscribeToSyncEvents(_ coordinator: AppSyncCoordinator) {
+        guard syncSubscriptionID == nil else { return }
+        let (stream, id) = coordinator.subscribe()
+        syncSubscriptionID = id
+        syncTask = Task { [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                switch event {
+                case .recordChanged, .shareAccepted, .zoneReset:
+                    await refresh()
+                }
+            }
+        }
+    }
+
+    func unsubscribeFromSyncEvents(_ coordinator: AppSyncCoordinator) {
+        syncTask?.cancel()
+        syncTask = nil
+        if let id = syncSubscriptionID {
+            coordinator.unsubscribe(id: id)
+            syncSubscriptionID = nil
+        }
     }
 
     func reset() {

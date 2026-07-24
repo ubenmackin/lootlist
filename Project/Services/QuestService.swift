@@ -91,11 +91,14 @@ final class QuestService {
                      goldOverride: Double? = nil,
                      xpOverride: Int? = nil,
                      approvalOverride: ApprovalMode? = nil,
+                     nameOverride: String? = nil,
                      weekOf: Date,
                      createdBy: Profile,
                      family: Family) async throws -> Quest
     {
         let normalizedWeek = startOfWeek(for: weekOf)
+        let questName = nameOverride.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+            ?? template.name
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: assignee.id, action: .none),
@@ -107,7 +110,7 @@ final class QuestService {
             weekOf: normalizedWeek,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            name: template.name,
+            name: questName,
             descriptionText: template.description
         )
         let saved = try await cloudKit.save(quest)
@@ -117,11 +120,16 @@ final class QuestService {
                     .questAssigned,
                     to: assignee,
                     title: "⚔️ New Quest Assigned!",
-                    body: "You have been assigned '\(template.name)'."
+                    body: "You have been assigned '\(questName)'."
                 )
             }
         }
         return saved
+    }
+
+    @discardableResult
+    func updateQuest(_ quest: Quest) async throws -> Quest {
+        try await cloudKit.save(quest)
     }
 
     @discardableResult
@@ -192,9 +200,15 @@ final class QuestService {
             assigneeRef, normalizedWeek as CVarArg
         )
         let all = try await cloudKit.query(Quest.self, predicate: predicate)
-        return all
+        let active = all
             .filter(\.active)
             .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
+        // Defense-in-depth: stamp names from templates if nil
+        var stamped: [Quest] = []
+        for quest in active {
+            await stamped.append(stampNameIfNeeded(quest))
+        }
+        return stamped
     }
 
     func fetchQuestsForFamilyWeek(family: Family, weekOf: Date) async throws -> [Quest] {
@@ -205,9 +219,15 @@ final class QuestService {
             familyRef, normalizedWeek as CVarArg
         )
         let all = try await cloudKit.query(Quest.self, predicate: predicate)
-        return all
+        let active = all
             .filter(\.active)
             .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
+        // Defense-in-depth: stamp names from templates if nil
+        var stamped: [Quest] = []
+        for quest in active {
+            await stamped.append(stampNameIfNeeded(quest))
+        }
+        return stamped
     }
 
     @discardableResult
@@ -377,9 +397,17 @@ final class QuestService {
         var questMap: [CKRecord.ID: Quest] = [:]
         for chunk in questIDs.chunked(into: 100) {
             let predicate = NSPredicate(format: "recordID IN %@", chunk)
-            let fetched = try await cloudKit.query(Quest.self, predicate: predicate)
-            for quest in fetched {
-                questMap[quest.id] = quest
+            do {
+                let fetched = try await cloudKit.query(Quest.self, predicate: predicate)
+                for quest in fetched {
+                    questMap[quest.id] = quest
+                }
+            } catch {
+                for questID in chunk {
+                    if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                        questMap[questID] = fetched
+                    }
+                }
             }
         }
 
@@ -414,6 +442,20 @@ final class QuestService {
 
     private func fetchFamily(for reference: CKRecord.Reference) async throws -> Family {
         try await cloudKit.fetch(Family.self, id: reference.recordID)
+    }
+
+    /// Defense-in-depth: stamp Quest.name from template if nil at read time.
+    /// This catches edge cases where the backfill hasn't run yet on this device.
+    private func stampNameIfNeeded(_ quest: Quest) async -> Quest {
+        guard quest.name == nil else { return quest }
+        guard let template = try? await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID) else {
+            return quest
+        }
+        var updated = quest
+        updated.name = template.name
+        // Save asynchronously — don't block the read path
+        _ = try? await cloudKit.save(updated)
+        return updated
     }
 
     private func applyReward(for quest: Quest, to hero: Profile) async throws {

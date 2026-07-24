@@ -11,6 +11,8 @@ struct ProfileView: View {
 
     @Environment(AppState.self) private var appState
 
+    @Environment(FamilyService.self) private var familyService
+
     @Environment(QuestService.self) private var questService
 
     @Environment(TreasuryService.self) private var treasuryService
@@ -237,6 +239,9 @@ struct ProfileView: View {
                               var updated = appState.currentProfile else { return }
                         updated.displayName = newName
                         appState.currentProfile = updated
+                        Task {
+                            try? await familyService.updateProfileDisplayName(profile: updated, newName: newName)
+                        }
                     }
                 )
             } label: {
@@ -408,6 +413,9 @@ struct ProfileView: View {
                         if var updated = appState.currentProfile {
                             updated.displayName = trimmed
                             appState.currentProfile = updated
+                            Task {
+                                try? await familyService.updateProfileDisplayName(profile: updated, newName: trimmed)
+                            }
                         }
                         showingEditName = false
                     }

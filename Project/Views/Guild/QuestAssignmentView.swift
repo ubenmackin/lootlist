@@ -1,14 +1,42 @@
+// swiftlint:disable file_length
 import CloudKit
 import SwiftUI
 
+// swiftlint:disable:next type_body_length
 struct QuestAssignmentView: View {
+    var mode: Mode = .fromTemplate
     @Bindable var viewModel: QuestManagerViewModel
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(QuestService.self) private var questService
 
-    @State private var assignmentMode: AssignmentMode = .fromTemplate
+    /// --- Mode enum ---
+    enum Mode: Equatable, Identifiable {
+        case fromTemplate
+        case quickCreate
+        case edit(questID: CKRecord.ID)
 
-    // From Template state
+        var id: String {
+            switch self {
+            case .fromTemplate: "fromTemplate"
+            case .quickCreate: "quickCreate"
+            case let .edit(id): "edit-\(id.recordName)"
+            }
+        }
+
+        static func == (lhs: Mode, rhs: Mode) -> Bool {
+            lhs.id == rhs.id
+        }
+
+        var isCreateMode: Bool {
+            switch self {
+            case .fromTemplate, .quickCreate: true
+            case .edit: false
+            }
+        }
+    }
+
+    // --- From Template state ---
     @State private var selectedTemplate: QuestTemplate?
     @State private var selectedHero: Profile?
     @State private var goldOverrideText: String = ""
@@ -16,7 +44,7 @@ struct QuestAssignmentView: View {
     @State private var approvalOverride: ApprovalModeSelection = .useTemplate
     @State private var weekOf: Date = defaultWeekOf()
 
-    // Quick Create state
+    // --- Quick Create state ---
     @State private var quickName: String = ""
     @State private var quickDescription: String = ""
     @State private var quickGoldText: String = "1.00"
@@ -25,16 +53,34 @@ struct QuestAssignmentView: View {
     @State private var quickSpecificDays: Set<String> = []
     @State private var quickApproval: ApprovalMode = .autoApprove
 
+    // --- Edit state ---
+    @State private var editQuestName: String = ""
+    @State private var editQuestDescription: String = ""
+    @State private var editGoldText: String = ""
+    @State private var editXpText: String = ""
+    @State private var editSchedule: QuestSchedule = .weeklyFlexible
+    @State private var editIsAllOrNothing: Bool = false
+    @State private var editApproval: ApprovalMode = .autoApprove
+    @State private var editAssignee: Profile?
+    @State private var allowLockedFieldsOverride: Bool = false
+    @State private var editQuest: Quest?
+    @State private var editHasLogs: Bool = false
+    @State private var showOverrideAlert: Bool = false
+
+    // --- Shared ---
     @State private var validationError: String?
     @State private var isSubmitting: Bool = false
 
-    enum AssignmentMode: String, CaseIterable, Identifiable {
+    /// --- Creation-mode picker (for create modes only) ---
+    enum CreationPickerOption: String, CaseIterable, Identifiable {
         case fromTemplate = "From Template"
         case quickCreate = "Quick Create (One-Off)"
         var id: String {
             rawValue
         }
     }
+
+    @State private var creationPickerMode: CreationPickerOption = .fromTemplate
 
     enum ApprovalModeSelection: String, CaseIterable, Identifiable {
         case useTemplate = "Use Template Default"
@@ -57,25 +103,32 @@ struct QuestAssignmentView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Picker("Creation Mode", selection: $assignmentMode) {
-                        ForEach(AssignmentMode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
+                if mode.isCreateMode {
+                    Section {
+                        Picker("Creation Mode", selection: $creationPickerMode) {
+                            ForEach(CreationPickerOption.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
                         }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                 }
 
-                if assignmentMode == .fromTemplate {
+                switch displayMode {
+                case .fromTemplate:
                     templateAssignmentSections
-                } else {
+                case .quickCreate:
                     quickCreateSections
+                case .edit:
+                    editSections
                 }
 
-                Section("Week Of") {
-                    DatePicker("Week Starting Monday",
-                               selection: $weekOf,
-                               displayedComponents: .date)
+                if mode.isCreateMode {
+                    Section("Week Of") {
+                        DatePicker("Week Starting Monday",
+                                   selection: $weekOf,
+                                   displayedComponents: .date)
+                    }
                 }
 
                 if let validationError {
@@ -86,7 +139,7 @@ struct QuestAssignmentView: View {
                     }
                 }
             }
-            .navigationTitle("Assign Quest")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -97,22 +150,60 @@ struct QuestAssignmentView: View {
                         if isSubmitting {
                             ProgressView()
                         } else {
-                            Text("Assign")
+                            Text(submitButtonLabel)
                         }
                     }
                     .disabled(isSubmitDisabled)
                 }
             }
             .onAppear {
-                if selectedTemplate == nil {
-                    selectedTemplate = viewModel.templates.first { $0.isActive }
+                performOnAppear()
+            }
+            .alert("Override Lock?", isPresented: $showOverrideAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Override", role: .destructive) {
+                    allowLockedFieldsOverride = true
                 }
-                if selectedHero == nil {
-                    selectedHero = viewModel.heroes.first
-                }
+            } message: {
+                Text("Hero has already started this quest. Changing the assignee will move this quest. Continue?")
             }
         }
     }
+
+    // MARK: - Display mode (what the form actually shows)
+
+    private var displayMode: DisplayMode {
+        switch mode {
+        case .fromTemplate:
+            creationPickerMode == .fromTemplate ? .fromTemplate : .quickCreate
+        case .quickCreate:
+            .quickCreate
+        case .edit:
+            .edit
+        }
+    }
+
+    private enum DisplayMode {
+        case fromTemplate, quickCreate, edit
+    }
+
+    // --- Navigation title / button ---
+
+    private var navigationTitle: String {
+        switch mode {
+        case .fromTemplate, .quickCreate: "Assign Quest"
+        case .edit: "Edit Quest"
+        }
+    }
+
+    private var submitButtonLabel: String {
+        switch mode {
+        case .fromTemplate, .quickCreate: "Assign"
+        case .edit: "Save"
+        }
+    }
+
+    // MARK: - Template assignment sections
 
     @ViewBuilder
     private var templateAssignmentSections: some View {
@@ -127,7 +218,26 @@ struct QuestAssignmentView: View {
                         Text(template.name).tag(template as QuestTemplate?)
                     }
                 }
+                .onChange(of: selectedTemplate) { _, newTemplate in
+                    if mode == .fromTemplate, editQuestName.isEmpty || editQuestName == (selectedTemplate?.name ?? "") {
+                        editQuestName = newTemplate?.name ?? ""
+                    }
+                }
             }
+        }
+
+        // Edit-mode name override (fromTemplate path)
+        Section {
+            TextField("Quest Name", text: $editQuestName)
+            if let template = selectedTemplate {
+                Text("From template: \(template.name)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Quest Name")
+        } footer: {
+            Text("Leave blank to use the template name.")
         }
 
         Section("Hero") {
@@ -168,6 +278,8 @@ struct QuestAssignmentView: View {
             Text("Leaving a field blank uses the template's default value.")
         }
     }
+
+    // MARK: - Quick Create sections
 
     @ViewBuilder
     private var quickCreateSections: some View {
@@ -268,13 +380,98 @@ struct QuestAssignmentView: View {
             }
 
             Picker("Approval", selection: $quickApproval) {
-                ForEach(ApprovalMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
+                ForEach(ApprovalMode.allCases, id: \.self) { approval in
+                    Text(approval.displayName).tag(approval)
                 }
             }
             .pickerStyle(.segmented)
         }
     }
+
+    // MARK: - Edit sections
+
+    @ViewBuilder
+    private var editSections: some View {
+        Section("Quest Details") {
+            TextField("Quest Name", text: $editQuestName)
+
+            TextField("Description (optional)", text: $editQuestDescription, axis: .vertical)
+                .lineLimit(2 ... 3)
+        }
+
+        Section("Hero") {
+            if editHasLogs, !allowLockedFieldsOverride {
+                HStack {
+                    if let assignee = editAssignee {
+                        Text(assignee.displayName)
+                    } else {
+                        Text("Unknown Hero")
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Override") {
+                        showOverrideAlert = true
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                }
+            } else {
+                heroPickerEdit
+            }
+        }
+
+        Section("Rewards") {
+            HStack {
+                Text("Gold Reward")
+                    .foregroundStyle(editHasLogs ? .secondary : .primary)
+                Spacer()
+                TextField("0", text: $editGoldText)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                    .disabled(editHasLogs)
+            }
+
+            HStack {
+                Text("XP Reward")
+                    .foregroundStyle(editHasLogs ? .secondary : .primary)
+                Spacer()
+                TextField("0", text: $editXpText)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                    .disabled(editHasLogs)
+            }
+
+            Toggle("All-or-Nothing", isOn: $editIsAllOrNothing)
+        }
+
+        Section("Schedule & Approval") {
+            Picker("Schedule", selection: $editSchedule) {
+                ForEach(QuestSchedule.allCases, id: \.self) { schedule in
+                    Text(schedule.displayName).tag(schedule)
+                }
+            }
+            .disabled(editHasLogs)
+
+            Picker("Approval", selection: $editApproval) {
+                ForEach(ApprovalMode.allCases, id: \.self) { approval in
+                    Text(approval.displayName).tag(approval)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+
+        if editHasLogs {
+            Section {
+                Text("🔒 Locked — Hero has started this quest. Name and description remain editable.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    // MARK: - Hero pickers
 
     @ViewBuilder
     private var heroPicker: some View {
@@ -283,6 +480,21 @@ struct QuestAssignmentView: View {
                 .foregroundStyle(.secondary)
         } else {
             Picker("Hero", selection: $selectedHero) {
+                Text("Choose…").tag(nil as Profile?)
+                ForEach(viewModel.heroes) { hero in
+                    Text(hero.displayName).tag(hero as Profile?)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var heroPickerEdit: some View {
+        if viewModel.heroes.isEmpty {
+            Text("No heroes in the family.")
+                .foregroundStyle(.secondary)
+        } else {
+            Picker("Hero", selection: $editAssignee) {
                 Text("Choose…").tag(nil as Profile?)
                 ForEach(viewModel.heroes) { hero in
                     Text(hero.displayName).tag(hero as Profile?)
@@ -302,31 +514,88 @@ struct QuestAssignmentView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Submit disabled
+
     private var isSubmitDisabled: Bool {
-        if isSubmitting || selectedHero == nil {
+        if isSubmitting {
             return true
         }
-        if assignmentMode == .fromTemplate {
-            return selectedTemplate == nil
-        } else {
-            return quickName.trimmingCharacters(in: .whitespaces).isEmpty
+
+        switch displayMode {
+        case .fromTemplate:
+            return selectedHero == nil || selectedTemplate == nil
+        case .quickCreate:
+            return selectedHero == nil || quickName.trimmingCharacters(in: .whitespaces).isEmpty
+        case .edit:
+            return editAssignee == nil
         }
     }
 
+    // MARK: - On Appear
+
+    private func performOnAppear() {
+        switch mode {
+        case .fromTemplate:
+            if selectedTemplate == nil {
+                selectedTemplate = viewModel.templates.first { $0.isActive }
+            }
+            if selectedHero == nil {
+                selectedHero = viewModel.heroes.first
+            }
+            // Pre-fill template name
+            editQuestName = selectedTemplate?.name ?? ""
+        case .quickCreate:
+            if selectedHero == nil {
+                selectedHero = viewModel.heroes.first
+            }
+        case let .edit(questID):
+            loadQuestForEditing(questID: questID)
+        }
+    }
+
+    private func loadQuestForEditing(questID: CKRecord.ID) {
+        guard let quest = viewModel.activeAssignments.first(where: { $0.id == questID }) else { return }
+        editQuest = quest
+        editQuestName = quest.name ?? ""
+        editQuestDescription = quest.descriptionText ?? ""
+        editGoldText = String(format: "%.2f", quest.goldReward)
+        editXpText = "\(quest.xpReward)"
+        editSchedule = quest.scheduleType
+        editIsAllOrNothing = quest.isAllOrNothing
+        editApproval = quest.approvalMode
+
+        // Resolve assignee from heroes list
+        editAssignee = viewModel.heroes.first { $0.id.recordName == quest.assignee.recordID.recordName }
+
+        // Check if quest has logs (determines locked fields)
+        Task {
+            do {
+                let logs = try await questService.fetchQuestLogs(forQuest: quest)
+                editHasLogs = !logs.isEmpty
+            } catch {
+                editHasLogs = false
+            }
+        }
+    }
+
+    // MARK: - Submit
+
     private func submit() {
+        switch displayMode {
+        case .fromTemplate:
+            submitFromTemplate()
+        case .quickCreate:
+            submitQuickCreate()
+        case .edit:
+            submitEdit()
+        }
+    }
+
+    private func submitFromTemplate() {
         guard let hero = selectedHero else {
             validationError = "Select a hero."
             return
         }
-
-        if assignmentMode == .fromTemplate {
-            submitFromTemplate(hero: hero)
-        } else {
-            submitQuickCreate(hero: hero)
-        }
-    }
-
-    private func submitFromTemplate(hero: Profile) {
         guard let template = selectedTemplate else {
             validationError = "Select a template."
             return
@@ -340,6 +609,9 @@ struct QuestAssignmentView: View {
         case .parentVerifyOverride: .parentVerify
         }
 
+        // Template name override: use editQuestName if non-empty, else nil (falls back to template.name)
+        let nameOverride = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
+
         isSubmitting = true
         Task {
             do {
@@ -349,6 +621,7 @@ struct QuestAssignmentView: View {
                     goldOverride: gold,
                     xpOverride: xp,
                     approvalOverride: approval,
+                    nameOverride: nameOverride,
                     weekOf: weekOf
                 )
                 isSubmitting = false
@@ -360,13 +633,16 @@ struct QuestAssignmentView: View {
         }
     }
 
-    private func submitQuickCreate(hero: Profile) {
+    private func submitQuickCreate() {
+        guard let hero = selectedHero else {
+            validationError = "Select a hero."
+            return
+        }
         let trimmedName = quickName.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else {
             validationError = "Quest name is required."
             return
         }
-
         guard let gold = Double(quickGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
             validationError = "Gold reward must be a valid non-negative number."
             return
@@ -392,6 +668,52 @@ struct QuestAssignmentView: View {
                     specificDays: Array(quickSpecificDays),
                     approvalMode: quickApproval,
                     weekOf: weekOf
+                )
+                isSubmitting = false
+                dismiss()
+            } catch {
+                isSubmitting = false
+                validationError = error.localizedDescription
+            }
+        }
+    }
+
+    private func submitEdit() {
+        guard let quest = editQuest else {
+            validationError = "No quest to edit."
+            return
+        }
+        guard let hero = editAssignee else {
+            validationError = "Select a hero."
+            return
+        }
+
+        guard let gold = Double(editGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
+            validationError = "Gold reward must be a valid non-negative number."
+            return
+        }
+        guard let xp = Int(editXpText.trimmingCharacters(in: .whitespaces)), xp >= 0 else {
+            validationError = "XP reward must be a valid non-negative number."
+            return
+        }
+
+        let name = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
+        let description = editQuestDescription.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestDescription
+
+        isSubmitting = true
+        Task {
+            do {
+                try await viewModel.updateQuest(
+                    quest,
+                    name: name,
+                    descriptionText: description,
+                    goldReward: gold,
+                    xpReward: xp,
+                    scheduleType: editSchedule,
+                    isAllOrNothing: editIsAllOrNothing,
+                    approvalMode: editApproval,
+                    assignee: hero,
+                    allowLockedFieldsOverride: allowLockedFieldsOverride
                 )
                 isSubmitting = false
                 dismiss()
