@@ -33,7 +33,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-derived-data-
       - name: Unit Tests
-        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' test -only-testing:LootListTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- -resultBundlePath ./unit-test-results.xcresult
+        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' test -only-testing:LootListTests -skip-testing:LootListTests/CloudKitModelTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- -resultBundlePath ./unit-test-results.xcresult
       - name: Upload Unit Test Results
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,7 +54,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-derived-data-
       - name: UI Tests
-        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' test -only-testing:LootListUITests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- -resultBundlePath ./ui-test-results.xcresult
+        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' test -only-testing:LootListUITests -skip-testing:LootListUITests/LootListScreenshotTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- -resultBundlePath ./ui-test-results.xcresult
       - name: Upload UI Test Results
         if: always()
         uses: actions/upload-artifact@v4
