@@ -1,7 +1,6 @@
 import XCTest
 
 final class LootListScreenshotTests: XCTestCase {
-
     var app: XCUIApplication!
 
     override func setUpWithError() throws {
@@ -9,7 +8,7 @@ final class LootListScreenshotTests: XCTestCase {
     }
 
     @MainActor
-    func testHeroScreenshots() throws {
+    func testHeroScreenshots() {
         let app = XCUIApplication()
         setupSnapshot(app)
         app.launchArguments += ["--uitesting"]
@@ -44,7 +43,7 @@ final class LootListScreenshotTests: XCTestCase {
     }
 
     @MainActor
-    func testParentScreenshots() throws {
+    func testParentScreenshots() {
         let app = XCUIApplication()
         setupSnapshot(app)
         app.launchArguments += ["--uitesting", "--parent"]
@@ -79,7 +78,7 @@ final class LootListScreenshotTests: XCTestCase {
     }
 
     @MainActor
-    func testOnboardingScreenshot() throws {
+    func testOnboardingScreenshot() {
         let app = XCUIApplication()
         setupSnapshot(app)
         app.launchArguments += ["--uitesting", "--onboarding"]

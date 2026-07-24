@@ -52,6 +52,11 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES 
         PRODUCT_NAME: LootList
+      configs:
+        Debug:
+          ICLOUD_CONTAINER_ENVIRONMENT: Development
+        Release:
+          ICLOUD_CONTAINER_ENVIRONMENT: Production
         
     entitlements:
       path: LootList.entitlements

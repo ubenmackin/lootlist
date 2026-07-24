@@ -13,6 +13,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
     var rarity: QuestRarity {
         QuestRarity.from(xp: xpReward)
     }
+
     var scheduleType: QuestSchedule
 
     var specificDays: [String]
@@ -55,7 +56,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         self.xpReward = xpReward
 
         let scheduleRaw = (record["scheduleType"] as? String) ?? QuestSchedule.weeklyFlexible.rawValue
-        self.scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
+        scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
 
         specificDays = (record["specificDays"] as? [String]) ?? []
 

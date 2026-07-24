@@ -20,6 +20,7 @@
 		1FA25F4E06D8E49631CF8F9B /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA257916025679E0AA31706 /* ProgressBar.swift */; };
 		1FAA4DB4ADD5C7F7B2A84527 /* XPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A029B21BB9CA3C965490F84 /* XPServiceTests.swift */; };
 		20B709BE101F5846C617809D /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F98296EAA473AB324F18004 /* ShareSheet.swift */; };
+		214CE8D6A7157C8F10E073FE /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */; };
 		2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */; };
 		292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F750555385910A36899A9BE /* ApprovalMode.swift */; };
 		2A00B0CD73498D56AE7C0EE5 /* TrophyRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C3E6FC5C9D55197733AA29 /* TrophyRoomView.swift */; };
@@ -153,6 +154,7 @@
 		5C3ABA1D09005EC293F24135 /* CloudKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitService.swift; sourceTree = "<group>"; };
 		5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardViewModel.swift; sourceTree = "<group>"; };
 		5E814D2A43FF37F0A6AC51C5 /* HeroDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardView.swift; sourceTree = "<group>"; };
+		5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		6030F1A54F52EBA1F3AB0AF2 /* FamilyJoinView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyJoinView.swift; sourceTree = "<group>"; };
 		6333B737C7E26ABA1AFF02EE /* VerificationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerificationStatus.swift; sourceTree = "<group>"; };
 		63CB3B3860E66B17113116B5 /* TreasuryViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryViewModelTests.swift; sourceTree = "<group>"; };
@@ -495,6 +497,7 @@
 		F58B2A3E0B1026D46835E3C2 /* Utilities */ = {
 			isa = PBXGroup;
 			children = (
+				5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */,
 				BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */,
 			);
 			path = Utilities;
@@ -621,6 +624,7 @@
 				C858F8205B3AADAE18F68327 /* Achievement.swift in Sources */,
 				A4C417A639EA1ED09CC600D9 /* AchievementService.swift in Sources */,
 				B00BB4EEEA8F28B42CE519BB /* AllowancePeriod.swift in Sources */,
+				214CE8D6A7157C8F10E073FE /* AppConstants.swift in Sources */,
 				799DA050CD218472172DB5BC /* AppLaunchSplashScreen.swift in Sources */,
 				3692548EBCEFDB0795C8892C /* AppState.swift in Sources */,
 				292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */,
@@ -746,6 +750,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = Project/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Loot List";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -850,6 +855,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = Project/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Loot List";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;

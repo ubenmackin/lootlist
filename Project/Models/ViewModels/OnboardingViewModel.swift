@@ -173,7 +173,7 @@ final class OnboardingViewModel {
                 do {
                     let container = CKContainer.default()
                     let metadata = try await container.shareMetadata(for: url)
-                    self.pendingShareMetadata = metadata
+                    pendingShareMetadata = metadata
                 } catch {
                     isLoading = false
                     self.error = "Could not open share invitation: \(error.localizedDescription)"

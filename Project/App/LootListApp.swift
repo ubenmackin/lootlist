@@ -147,7 +147,7 @@ private struct RootView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemBackground))
-            case .detectedPreviousFamily(let family, let profile, let zoneID, let isOwner):
+            case let .detectedPreviousFamily(family, profile, zoneID, isOwner):
                 DetectedFamilyView(
                     family: family,
                     profile: profile,

@@ -82,7 +82,7 @@ struct LedgerEntryRow: View {
                     ? GoldFormat.coinSystemName
                     : "arrow.down.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(entry.amount >= 0 ? .gold : .red)
+                    .foregroundStyle(entry.amount >= 0 ? Color.gold : .red)
                     .frame(width: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -98,7 +98,7 @@ struct LedgerEntryRow: View {
 
                 Text(GoldFormat.signed(entry.amount))
                     .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(entry.amount >= 0 ? .gold : .red)
+                    .foregroundStyle(entry.amount >= 0 ? Color.gold : .red)
             }
             .padding(12)
             .background(

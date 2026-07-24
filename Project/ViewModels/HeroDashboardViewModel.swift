@@ -27,7 +27,7 @@ final class HeroDashboardViewModel {
     private(set) var availableTemplatesCount: Int = 0
 
     private(set) var weekDays: [DayInfo] = []
-    var selectedDayCode: String? = nil
+    var selectedDayCode: String?
 
     var loadError: String?
     private(set) var isLoading: Bool = false
@@ -38,7 +38,7 @@ final class HeroDashboardViewModel {
     init(questService: QuestService, appState: AppState) {
         self.questService = questService
         self.appState = appState
-        self.weekDays = HeroDashboardViewModel.currentWeekDays()
+        weekDays = HeroDashboardViewModel.currentWeekDays()
     }
 
     func load() async {
@@ -82,15 +82,13 @@ final class HeroDashboardViewModel {
 
         let completedQuestIDs = Set(
             logs.filter { $0.verificationStatus != .rejected }
-                .map { $0.quest.recordID }
+                .map(\.quest.recordID)
         )
 
         var completed: [Quest] = []
         var todayList: [Quest] = []
         var upcoming: [Quest] = []
         var missed: [Quest] = []
-
-        let todayDayInfo = weekDays.first(where: { $0.isToday })
 
         for quest in quests {
             if completedQuestIDs.contains(quest.id) {
@@ -99,8 +97,8 @@ final class HeroDashboardViewModel {
             }
 
             let specDays: [String] = {
-                if let t = templatesByID[quest.template.recordID.recordName] {
-                    return t.specificDays
+                if let template = templatesByID[quest.template.recordID.recordName] {
+                    return template.specificDays
                 }
                 return []
             }()
@@ -158,9 +156,9 @@ final class HeroDashboardViewModel {
         return weekQuests.filter { quest in
             switch quest.scheduleType {
             case .weeklyFlexible:
-                return true
+                true
             case .specificDays:
-                return quest.isScheduledFor(weekdayCode: selectedDayCode)
+                quest.isScheduledFor(weekdayCode: selectedDayCode)
             }
         }
     }
@@ -191,7 +189,7 @@ final class HeroDashboardViewModel {
 
         let todayStart = cal.startOfDay(for: date)
 
-        return (0..<7).compactMap { offset in
+        return (0 ..< 7).compactMap { offset in
             guard let dayDate = cal.date(byAdding: .day, value: offset, to: sundayDate) else { return nil }
             let dayStart = cal.startOfDay(for: dayDate)
             let isToday = cal.isDate(dayStart, inSameDayAs: todayStart)
@@ -214,7 +212,7 @@ final class HeroDashboardViewModel {
 }
 
 private extension Quest {
-    func isScheduledFor(weekdayCode: String) -> Bool {
+    func isScheduledFor(weekdayCode _: String) -> Bool {
         scheduleType == .weeklyFlexible || true
     }
 }

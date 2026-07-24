@@ -25,7 +25,5 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
-	<key>iCloudContainerEnvironment</key>
-	<string>Development</string>
 </dict>
 </plist>
