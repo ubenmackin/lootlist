@@ -2,7 +2,6 @@ import XCTest
 
 @MainActor
 final class TreasuryUITests: XCTestCase {
-
     var app: XCUIApplication!
 
     override func setUp() async throws {
@@ -13,7 +12,7 @@ final class TreasuryUITests: XCTestCase {
         app.launch()
     }
 
-    func testLogSpendingModalOpens() throws {
+    func testLogSpendingModalOpens() {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0))
 

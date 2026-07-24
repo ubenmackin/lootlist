@@ -1,12 +1,11 @@
-import Foundation
-import Testing
 import CloudKit
+import Foundation
 @testable import LootList
+import Testing
 
 struct CloudKitModelTests {
-
-    @Test("Profile initialization and defaults")
-    func testProfileInit() {
+    @Test
+    func `profile initialization and defaults`() {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let userID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
@@ -27,16 +26,16 @@ struct CloudKitModelTests {
         #expect(profile.xp == 0)
     }
 
-    @Test("Family initialization and payout policy default")
-    func testFamilyInit() {
+    @Test
+    func `family initialization and payout policy default`() {
         let userID = CKRecord.ID(recordName: "user1")
         let family = Family(name: "Dragons", createdBy: userID)
         #expect(family.name == "Dragons")
         #expect(family.payoutPolicy == .perQuest)
     }
 
-    @Test("QuestTemplate initialization")
-    func testQuestTemplateInit() {
+    @Test
+    func `questTemplate initialization`() {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let creatorRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "parent1", zoneID: zoneID), action: .none)
@@ -59,8 +58,8 @@ struct CloudKitModelTests {
         #expect(template.approvalMode == .autoApprove)
     }
 
-    @Test("LedgerEntry spending vs earnings amount logic")
-    func testLedgerEntryAmounts() {
+    @Test
+    func `ledgerEntry spending vs earnings amount logic`() {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let profileRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none)
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)

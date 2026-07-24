@@ -122,18 +122,18 @@ final class AppState {
             let fetchedProfile: Profile = try await cloudKit.fetch(Profile.self, id: profileID, using: db)
             let fetchedFamily: Family = try await cloudKit.fetch(Family.self, id: familyID, using: db)
 
-            self.familyZoneID = zoneID
-            self.isZoneOwner = isOwner
-            self.family = fetchedFamily
-            self.currentProfile = fetchedProfile
+            familyZoneID = zoneID
+            isZoneOwner = isOwner
+            family = fetchedFamily
+            currentProfile = fetchedProfile
 
             if isOwner {
-                self.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: familyID)
+                activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: familyID)
             } else {
-                self.activeShareURL = nil
+                activeShareURL = nil
             }
 
-            self.authStatus = .authenticated
+            authStatus = .authenticated
         } catch {
             logger.error("Session restoration failed: \(error, privacy: .private)")
             if let ckErr = error as? CloudKitServiceError, case .notFound = ckErr {
@@ -147,30 +147,32 @@ final class AppState {
 
     // MARK: - Cloud State Discovery
 
+    // CloudKit discoverability logic requires branching over known containers; refactoring would be a behavioral change outside lint scope.
+    // swiftlint:disable:next cyclomatic_complexity
     func discoverExistingCloudState(cloudKit: CloudKitService) async {
         guard authStatus == .checkingCloudData else { return }
 
-        print("[CloudDiscovery] Starting iCloud family discovery...")
+        logger.info("Starting iCloud family discovery...")
         let userRecordID = try? await cloudKit.currentUserRecordID()
-        print("[CloudDiscovery] Current user record ID: \(userRecordID?.recordName ?? "nil")")
+        logger.info("Current user record ID: \(userRecordID?.recordName ?? "nil", privacy: .private)")
 
         // 1. Parent Search: Check privateCloudDatabase custom zones
         do {
             let privateZones = try await cloudKit.fetchPrivateZones()
-            print("[CloudDiscovery] Found \(privateZones.count) private zones: \(privateZones.map { $0.zoneID.zoneName })")
+            logger.info("Found \(privateZones.count) private zones")
             let customZones = privateZones.filter { $0.zoneID.zoneName != "_defaultZone" && $0.zoneID.zoneName != "LootListZone" }
 
             for zone in customZones {
-                print("[CloudDiscovery] Inspecting private custom zone: '\(zone.zoneID.zoneName)'")
+                logger.info("Inspecting private custom zone: '\(zone.zoneID.zoneName, privacy: .private)'")
                 let db = cloudKit.privateDatabase
 
-                var family: Family? = nil
+                var family: Family?
 
                 // Strategy A: Direct point lookup by zone record ID (requires no CloudKit query index)
                 let familyID = CKRecord.ID(recordName: zone.zoneID.zoneName, zoneID: zone.zoneID)
                 if let fetched: Family = try? await cloudKit.fetch(Family.self, id: familyID, using: db) {
                     family = fetched
-                    print("[CloudDiscovery] Direct point lookup found Family: '\(fetched.name)'")
+                    logger.info("Direct point lookup found Family: '\(fetched.name, privacy: .private)'")
                 }
 
                 // Strategy B: Query search fallback
@@ -178,89 +180,106 @@ final class AppState {
                     do {
                         let families: [Family] = try await cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)
                         family = families.first
-                        print("[CloudDiscovery] Query fallback returned \(families.count) Family records.")
+                        logger.info("Query fallback returned \(families.count) Family records.")
                     } catch {
-                        print("[CloudDiscovery] Query fallback error for zone '\(zone.zoneID.zoneName)': \(error)")
+                        logger.error("Query fallback error for zone '\(zone.zoneID.zoneName, privacy: .private)': \(error, privacy: .private)")
                     }
                 }
 
                 if let foundFamily = family {
-                    var profile: Profile? = nil
+                    var profile: Profile?
 
                     // Strategy A: Direct point lookup for Guild Master profile using createdBy record ID
                     let creatorID = CKRecord.ID(recordName: foundFamily.createdBy.recordName, zoneID: zone.zoneID)
                     if let fetchedProfile: Profile = try? await cloudKit.fetch(Profile.self, id: creatorID, using: db), fetchedProfile.isActive {
                         profile = fetchedProfile
-                        print("[CloudDiscovery] Direct point lookup found active Guild Master profile: '\(fetchedProfile.displayName)'")
+                        logger.info("Direct point lookup found active Guild Master profile: '\(fetchedProfile.displayName, privacy: .private)'")
                     }
 
                     // Strategy B: Query search fallback for profiles
                     if profile == nil {
                         do {
                             let profiles: [Profile] = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)
-                            print("[CloudDiscovery] Profile query returned \(profiles.count) Profile records.")
+                            logger.info("Profile query returned \(profiles.count) Profile records.")
                             profile = profiles.first(where: { $0.role == .guildMaster && $0.isActive }) ?? profiles.first(where: { $0.isActive })
                         } catch {
-                            print("[CloudDiscovery] Profile query error for zone '\(zone.zoneID.zoneName)': \(error)")
+                            logger.error("Profile query error for zone '\(zone.zoneID.zoneName, privacy: .private)': \(error, privacy: .private)")
                         }
                     }
 
                     if let activeProfile = profile {
-                        print("[CloudDiscovery] SUCCESS: Detected Guild Master profile '\(activeProfile.displayName)' in family '\(foundFamily.name)'")
-                        self.authStatus = .detectedPreviousFamily(family: foundFamily, profile: activeProfile, zoneID: zone.zoneID, isOwner: true)
+                        logger.info("SUCCESS: Detected Guild Master profile '\(activeProfile.displayName, privacy: .private)' in family '\(foundFamily.name, privacy: .private)'")
+                        authStatus = .detectedPreviousFamily(family: foundFamily, profile: activeProfile, zoneID: zone.zoneID, isOwner: true)
                         return
                     }
                 }
             }
         } catch {
-            print("[CloudDiscovery] Error fetching private zones: \(error)")
+            logger.error("Error fetching private zones: \(error, privacy: .private)")
         }
 
         // 2. Child Search: Check sharedCloudDatabase zones
         do {
-            let sharedZones = try await cloudKit.fetchSharedZones()
-            print("[CloudDiscovery] Found \(sharedZones.count) shared zones: \(sharedZones.map { $0.zoneID.zoneName })")
+            var sharedZones = try await cloudKit.fetchSharedZones()
+            logger.info("Initial shared zones check: \(sharedZones.count) shared zones")
+
+            // If empty on cold launch (reinstall), perform a brief retry pulse to allow CloudKit daemon to sync accepted shares
+            if sharedZones.isEmpty {
+                for attempt in 1 ... AppConstants.Sync.maxPulseAttempts {
+                    logger.info("Shared zone sync pulse attempt \(attempt)...")
+                    try? await Task.sleep(nanoseconds: AppConstants.Sync.pulseDelayNanoseconds)
+                    sharedZones = await (try? cloudKit.fetchSharedZones()) ?? []
+                    if !sharedZones.isEmpty {
+                        logger.info("Shared zone sync pulse succeeded! Found \(sharedZones.count) shared zones.")
+                        break
+                    }
+                }
+            }
+
+            logger.info("Final shared zones count: \(sharedZones.count)")
 
             for zone in sharedZones {
-                print("[CloudDiscovery] Inspecting shared zone: '\(zone.zoneID.zoneName)'")
+                logger.info("Inspecting shared zone: '\(zone.zoneID.zoneName, privacy: .private)' (owner: '\(zone.zoneID.ownerName, privacy: .private)')")
                 let db = cloudKit.sharedDatabase
 
                 do {
                     let profiles: [Profile] = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)
-                    print("[CloudDiscovery] Shared zone '\(zone.zoneID.zoneName)' returned \(profiles.count) Profile records.")
+                    logger.info("Shared zone '\(zone.zoneID.zoneName, privacy: .private)' returned \(profiles.count) Profile records.")
 
-                    if let activeHeroProfile = profiles.first(where: { $0.isActive && (userRecordID == nil || $0.iCloudUserID.recordName == userRecordID?.recordName) }) ?? profiles.first(where: { $0.isActive }) {
+                    if let activeHeroProfile = profiles.first(where: { $0.isActive && (userRecordID == nil || $0.iCloudUserID.recordName == userRecordID?.recordName) }) ?? profiles
+                        .first(where: { $0.isActive })
+                    {
                         let sharedFamilyID = CKRecord.ID(recordName: zone.zoneID.zoneName, zoneID: zone.zoneID)
                         var family: Family? = try? await cloudKit.fetch(Family.self, id: sharedFamilyID, using: db)
                         if family == nil {
-                            let families: [Family] = (try? await cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)) ?? []
+                            let families: [Family] = await (try? cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)) ?? []
                             family = families.first
                         }
 
                         if let family {
-                            print("[CloudDiscovery] SUCCESS: Detected Hero profile '\(activeHeroProfile.displayName)' in shared family '\(family.name)'")
-                            self.authStatus = .detectedPreviousFamily(family: family, profile: activeHeroProfile, zoneID: zone.zoneID, isOwner: false)
+                            logger.info("SUCCESS: Detected Hero profile '\(activeHeroProfile.displayName, privacy: .private)' in shared family '\(family.name, privacy: .private)'")
+                            authStatus = .detectedPreviousFamily(family: family, profile: activeHeroProfile, zoneID: zone.zoneID, isOwner: false)
                             return
                         }
                     }
                 } catch {
-                    print("[CloudDiscovery] Error querying shared zone '\(zone.zoneID.zoneName)': \(error)")
+                    logger.error("Error querying shared zone '\(zone.zoneID.zoneName, privacy: .private)': \(error, privacy: .private)")
                 }
             }
         } catch {
-            print("[CloudDiscovery] Error fetching shared zones: \(error)")
+            logger.error("Error fetching shared zones: \(error, privacy: .private)")
         }
 
-        print("[CloudDiscovery] Discovery complete — no active family detected. Transitioning to onboarding.")
-        self.authStatus = .onboarding
+        logger.info("Discovery complete — no active family detected. Transitioning to onboarding.")
+        authStatus = .onboarding
     }
 
     func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) {
         saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: isOwner)
-        self.familyZoneID = zoneID
-        self.isZoneOwner = isOwner
+        familyZoneID = zoneID
+        isZoneOwner = isOwner
         self.family = family
-        self.currentProfile = profile
+        currentProfile = profile
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = isOwner
         if isOwner {
@@ -268,10 +287,10 @@ final class AppState {
                 self.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
             }
         }
-        self.authStatus = .authenticated
+        authStatus = .authenticated
     }
 
-    func rejectDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) async {
+    func rejectDetectedFamily(family _: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) async {
         if isOwner {
             addAbandonedZoneID(zoneID.zoneName)
             try? await cloudKit.deleteZone(zoneID)

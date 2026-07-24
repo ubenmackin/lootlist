@@ -27,7 +27,8 @@ struct LootListApp: App {
         let achievement = AchievementService(cloudKit: ck)
         let avatar = AvatarService(xp: xp)
 
-        if CommandLine.arguments.contains("--uitesting") {
+        if TestEnvironment.isRunningUnitOrUITests {
+            logger.info("Tests detected — skipping CloudKit initialization and setting test auth state")
             let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
             let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
             let userRecordID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
@@ -76,7 +77,7 @@ struct LootListApp: App {
                 .environment(avatarService)
                 .environment(notificationService)
                 .task {
-                    if !CommandLine.arguments.contains("--uitesting") {
+                    if !TestEnvironment.isRunningUnitOrUITests {
                         await checkCloudKitAvailability()
                         await cloudKitService.processAbandonedZonesQueue(appState: appState)
                         await appState.restoreSession(cloudKit: cloudKitService)
@@ -89,7 +90,11 @@ struct LootListApp: App {
     }
 
     private func checkCloudKitAvailability() async {
-        let container = CKContainer.default()
+        guard !TestEnvironment.isRunningUnitOrUITests else {
+            logger.info("Tests detected — skipping CloudKit availability check")
+            return
+        }
+        let container = CloudKitService.defaultContainer
 
         do {
             let status = try await container.accountStatus()
@@ -107,7 +112,8 @@ struct LootListApp: App {
     }
 
     private func handleIncomingShareURL(_ url: URL) {
-        let container = CKContainer.default()
+        guard !TestEnvironment.isRunningUnitOrUITests else { return }
+        let container = CloudKitService.defaultContainer
         Task {
             do {
                 let metadata = try await container.shareMetadata(for: url)
@@ -147,7 +153,7 @@ private struct RootView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemBackground))
-            case .detectedPreviousFamily(let family, let profile, let zoneID, let isOwner):
+            case let .detectedPreviousFamily(family, profile, zoneID, isOwner):
                 DetectedFamilyView(
                     family: family,
                     profile: profile,

@@ -2,7 +2,6 @@ import XCTest
 
 @MainActor
 final class HeroDashboardUITests: XCTestCase {
-
     var app: XCUIApplication!
 
     override func setUp() async throws {
@@ -13,7 +12,7 @@ final class HeroDashboardUITests: XCTestCase {
         app.launch()
     }
 
-    func testTabBarNavigation() throws {
+    func testTabBarNavigation() {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0), "Tab bar should be visible")
 
@@ -26,7 +25,7 @@ final class HeroDashboardUITests: XCTestCase {
         XCTAssertTrue(trophiesTab.exists, "Trophies tab should exist")
     }
 
-    func testSwitchingTabs() throws {
+    func testSwitchingTabs() {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0))
 

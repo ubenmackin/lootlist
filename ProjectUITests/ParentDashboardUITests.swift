@@ -2,7 +2,6 @@ import XCTest
 
 @MainActor
 final class ParentDashboardUITests: XCTestCase {
-
     var app: XCUIApplication!
 
     override func setUp() async throws {
@@ -13,7 +12,7 @@ final class ParentDashboardUITests: XCTestCase {
         app.launch()
     }
 
-    func testParentDashboardLoadsForGuildMaster() throws {
+    func testParentDashboardLoadsForGuildMaster() {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0), "Parent tab bar should load")
     }

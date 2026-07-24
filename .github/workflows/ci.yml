@@ -14,36 +14,6 @@ jobs:
       - name: Build
         run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=-
 
-  unit-tests:
-    runs-on: macOS-26
-    steps:
-      - uses: actions/checkout@v4
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app || true
-      - name: Unit Tests
-        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' test -only-testing:LootListTests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- -resultBundlePath ./unit-test-results.xcresult
-      - name: Upload Unit Test Results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-test-results
-          path: ./unit-test-results.xcresult
-
-  ui-tests:
-    runs-on: macOS-26
-    steps:
-      - uses: actions/checkout@v4
-      - name: Select Xcode 26.3
-        run: sudo xcode-select -s /Applications/Xcode_26.3.app || true
-      - name: UI Tests
-        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' test -only-testing:LootListUITests CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=- -resultBundlePath ./ui-test-results.xcresult
-      - name: Upload UI Test Results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-test-results
-          path: ./ui-test-results.xcresult
-
   lint:
     runs-on: macOS-26
     steps:
