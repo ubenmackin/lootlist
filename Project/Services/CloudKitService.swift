@@ -113,7 +113,11 @@ final class CloudKitService {
         }
     }
 
-    init(container: CKContainer = .default(),
+    static var defaultContainer: CKContainer {
+        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+    }
+
+    init(container: CKContainer = CloudKitService.defaultContainer,
          zoneID: CKRecordZone.ID = CKRecordZone.ID(zoneName: "LootListZone",
                                                    ownerName: CKCurrentUserDefaultName))
     {

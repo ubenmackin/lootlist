@@ -171,7 +171,7 @@ final class OnboardingViewModel {
             let rawURL = shareURLString.trimmingCharacters(in: .whitespacesAndNewlines)
             if let url = URL(string: rawURL) {
                 do {
-                    let container = CKContainer.default()
+                    let container = CloudKitService.defaultContainer
                     let metadata = try await container.shareMetadata(for: url)
                     pendingShareMetadata = metadata
                 } catch {
@@ -254,7 +254,7 @@ final class OnboardingViewModel {
 
     private func iCloudUserID() async -> CKRecord.ID {
         do {
-            return try await CKContainer.default().userRecordID()
+            return try await CloudKitService.defaultContainer.userRecordID()
         } catch {
             // Fallback to a generated ID if we can't get the real one.
             return CKRecord.ID(recordName: UUID().uuidString)
