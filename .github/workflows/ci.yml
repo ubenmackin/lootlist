@@ -18,7 +18,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-derived-data-
       - name: Build
-        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 16 Pro' build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=-
+        run: xcodebuild -project LootList.xcodeproj -scheme LootList -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max,OS=26.2' build CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=-
 
   lint:
     runs-on: macOS-26
