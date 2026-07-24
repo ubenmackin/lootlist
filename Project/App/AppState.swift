@@ -274,7 +274,7 @@ final class AppState {
         authStatus = .onboarding
     }
 
-    func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) {
+    func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) async {
         saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: isOwner)
         familyZoneID = zoneID
         isZoneOwner = isOwner
@@ -283,8 +283,10 @@ final class AppState {
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = isOwner
         if isOwner {
-            Task {
-                self.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
+            do {
+                activeShareURL = try await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
+            } catch {
+                logger.error("Failed to generate share URL on accept: \(error, privacy: .private)")
             }
         }
         authStatus = .authenticated
@@ -293,15 +295,34 @@ final class AppState {
     func rejectDetectedFamily(family _: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) async {
         if isOwner {
             addAbandonedZoneID(zoneID.zoneName)
-            try? await cloudKit.deleteZone(zoneID)
-            removeAbandonedZoneID(zoneID.zoneName)
+            do {
+                try await cloudKit.deleteZone(zoneID)
+                removeAbandonedZoneID(zoneID.zoneName)
+            } catch {
+                logger.error("Failed to delete zone on rejection: \(error, privacy: .private)")
+            }
         } else {
             var deactivated = profile
             deactivated.isActive = false
             let db = cloudKit.database(isOwner: false)
-            _ = try? await cloudKit.save(deactivated, in: zoneID, using: db)
+            do {
+                _ = try await cloudKit.save(deactivated, in: zoneID, using: db)
+            } catch {
+                logger.error("Failed to save profile deactivation on rejection: \(error, privacy: .private)")
+            }
         }
         clearSession()
+    }
+
+    var shareInviteItems: [Any] {
+        let name = family?.name ?? "our guild"
+        if let activeShareURL {
+            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(activeShareURL.absoluteString)"
+            return [message, activeShareURL]
+        } else {
+            let message = "Join \(name) on LootList!"
+            return [message]
+        }
     }
 
     func signOut() {

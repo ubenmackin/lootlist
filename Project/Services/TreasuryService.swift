@@ -219,20 +219,30 @@ final class TreasuryService {
         }
         guard !slainLogs.isEmpty else { return 0 }
 
+        let uniqueQuestIDs = Array(Set(slainLogs.map(\.quest.recordID)))
         var questCache: [CKRecord.ID: Quest] = [:]
-        var totalGold: Double = 0
 
-        for log in slainLogs {
-            let quest: Quest
-            if let cached = questCache[log.quest.recordID] {
-                quest = cached
-            } else {
-                let fetched = try await cloudKit.fetch(Quest.self,
-                                                       id: log.quest.recordID)
-                questCache[log.quest.recordID] = fetched
-                quest = fetched
+        for chunk in uniqueQuestIDs.chunked(into: 100) {
+            let predicate = NSPredicate(format: "recordID IN %@", chunk)
+            do {
+                let fetched: [Quest] = try await cloudKit.query(Quest.self, predicate: predicate)
+                for quest in fetched {
+                    questCache[quest.id] = quest
+                }
+            } catch {
+                for questID in chunk {
+                    if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                        questCache[questID] = fetched
+                    }
+                }
             }
-            totalGold += quest.goldReward
+        }
+
+        var totalGold: Double = 0
+        for log in slainLogs {
+            if let quest = questCache[log.quest.recordID] {
+                totalGold += quest.goldReward
+            }
         }
         return totalGold
     }

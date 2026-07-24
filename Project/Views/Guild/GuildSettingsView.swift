@@ -14,6 +14,7 @@ struct GuildSettingsView: View {
     @State private var isEditingFamilyName: Bool = false
 
     @State private var showShareSheet: Bool = false
+    @State private var heroToEdit: Profile?
 
     @State private var showRoleTransferConfirm: Profile?
     @State private var memberToKick: Profile?
@@ -53,6 +54,12 @@ struct GuildSettingsView: View {
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareInviteItems)
             }
+            .sheet(item: $heroToEdit) { hero in
+                HeroSettingsView(hero: hero)
+                    .onDisappear {
+                        Task { await viewModel?.refresh() }
+                    }
+            }
             .alert("Transfer Guild Master Role?",
                    isPresented: Binding(
                        get: { showRoleTransferConfirm != nil },
@@ -80,7 +87,6 @@ struct GuildSettingsView: View {
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         familyNameSection(vm: vm)
         inviteLinkSection
-        payoutPolicySection(vm: vm)
         membersSection(vm: vm)
         if let currentRole = appState.currentProfile?.role, currentRole != .guildMaster {
             leaveFamilySection
@@ -180,78 +186,8 @@ private extension GuildSettingsView {
         .padding(.horizontal)
     }
 
-    private func payoutPolicySection(vm: FamilyDashboardViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Weekly Allowance Payout Rules")
-                .font(.headline)
-            Text("Set rules per hero. Pay Per Quest pays gold for every completed quest. All-or-Nothing requires 100% completion for Sunday payout.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if vm.heroes.isEmpty {
-                Text("No hero profiles in the family.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(cardBackground)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(vm.heroes) { hero in
-                        heroPayoutPolicyRow(hero: hero)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal)
-    }
-
-    private func heroPayoutPolicyRow(hero: Profile) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "person.circle.fill")
-                    .foregroundStyle(.tint)
-                Text(hero.displayName)
-                    .font(.body.weight(.semibold))
-                Spacer()
-            }
-
-            Picker("Payout Rule", selection: Binding(
-                get: { hero.payoutPolicy },
-                set: { newPolicy in
-                    Task { await updateHeroPayoutPolicy(hero: hero, newPolicy: newPolicy) }
-                }
-            )) {
-                ForEach(PayoutPolicy.allCases, id: \.self) { policy in
-                    Text(policy == .perQuest ? "Pay Per Quest" : "All-or-Nothing (100%)").tag(policy)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-        .padding(14)
-        .background(cardBackground)
-    }
-
-    @MainActor
-    private func updateHeroPayoutPolicy(hero: Profile, newPolicy: PayoutPolicy) async {
-        do {
-            try await familyService.updateProfilePayoutPolicy(profile: hero, policy: newPolicy)
-            await viewModel?.refresh()
-            actionError = nil
-        } catch {
-            actionError = "Could not update payout policy for \(hero.displayName): \(error)"
-        }
-    }
-
     private var shareInviteItems: [Any] {
-        let name = appState.family?.name ?? "our guild"
-        if let shareURL = appState.activeShareURL {
-            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(shareURL.absoluteString)"
-            return [message, shareURL]
-        } else {
-            let message = "Join \(name) on LootList!"
-            return [message]
-        }
+        appState.shareInviteItems
     }
 
     private func membersSection(vm: FamilyDashboardViewModel) -> some View {
@@ -329,6 +265,12 @@ private extension GuildSettingsView {
         if appState.currentProfile?.role == .guildMaster, !isCurrent {
             Menu {
                 if member.role == .hero {
+                    Button {
+                        heroToEdit = member
+                    } label: {
+                        Label("Hero Settings…", systemImage: "slider.horizontal.3")
+                    }
+
                     Button {
                         Task { await changeRole(member, to: .ranger) }
                     } label: {

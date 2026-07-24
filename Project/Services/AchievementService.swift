@@ -264,12 +264,14 @@ final class AchievementService {
         var questCache: [CKRecord.ID: Quest] = [:]
         if !questIDs.isEmpty {
             let idArray = Array(questIDs)
-            let fetched = try await cloudKit.query(
-                Quest.self,
-                predicate: NSPredicate(format: "recordID IN %@", idArray)
-            )
-            for quest in fetched {
-                questCache[quest.id] = quest
+            for chunk in idArray.chunked(into: 100) {
+                let fetched = try await cloudKit.query(
+                    Quest.self,
+                    predicate: NSPredicate(format: "recordID IN %@", chunk)
+                )
+                for quest in fetched {
+                    questCache[quest.id] = quest
+                }
             }
         }
 

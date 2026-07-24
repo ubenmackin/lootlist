@@ -19,3 +19,9 @@ extension LedgerEntry: CloudKitRecord {}
 extension Achievement: CloudKitRecord {}
 extension ProfileAchievement: CloudKitRecord {}
 extension NotificationPreference: CloudKitRecord {}
+
+enum CKDecodingError: Error, Equatable, Sendable {
+    case unexpectedRecordType(expected: String, actual: String)
+
+    case missingField(String)
+}

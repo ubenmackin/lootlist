@@ -66,9 +66,3 @@ struct Family: Identifiable, Equatable, Sendable {
         self.payoutPolicy = payoutPolicy
     }
 }
-
-enum CKDecodingError: Error, Equatable, Sendable {
-    case unexpectedRecordType(expected: String, actual: String)
-
-    case missingField(String)
-}

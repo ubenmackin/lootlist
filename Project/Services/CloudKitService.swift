@@ -169,10 +169,13 @@ final class CloudKitService {
         let source = model.toRecord()
         let targetID = CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
 
-        let recordToSave: CKRecord = if let existing = try? await targetDB.record(for: targetID) {
-            existing
-        } else {
-            CKRecord(recordType: T.recordType, recordID: targetID)
+        let recordToSave: CKRecord
+        do {
+            recordToSave = try await targetDB.record(for: targetID)
+        } catch let ckError as CKError where ckError.code == .unknownItem {
+            recordToSave = CKRecord(recordType: T.recordType, recordID: targetID)
+        } catch {
+            throw wrapError(error)
         }
 
         if T.recordType != Family.recordType {
@@ -696,8 +699,15 @@ final class CloudKitService {
     }
 }
 
-private extension Array {
+extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
     }
 }

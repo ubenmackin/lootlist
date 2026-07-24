@@ -151,13 +151,15 @@ struct DetectedFamilyView: View {
     private var actionButtons: some View {
         VStack(spacing: 12) {
             Button {
-                appState.acceptDetectedFamily(
-                    family: family,
-                    profile: profile,
-                    zoneID: zoneID,
-                    isOwner: isOwner,
-                    cloudKit: cloudKitService
-                )
+                Task {
+                    await appState.acceptDetectedFamily(
+                        family: family,
+                        profile: profile,
+                        zoneID: zoneID,
+                        isOwner: isOwner,
+                        cloudKit: cloudKitService
+                    )
+                }
             } label: {
                 Label(isOwner ? "Restore Guild" : "Reconnect to Guild", systemImage: "arrow.triangle.2.circlepath")
                     .font(.headline.weight(.bold))

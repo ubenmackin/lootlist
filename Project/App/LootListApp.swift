@@ -66,7 +66,7 @@ struct LootListApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            RootView(pendingShareMetadata: pendingShareMetadata)
                 .environment(appState)
                 .environment(cloudKitService)
                 .environment(familyService)
@@ -131,6 +131,8 @@ struct LootListApp: App {
 }
 
 private struct RootView: View {
+    let pendingShareMetadata: CKShare.Metadata?
+
     @Environment(AppState.self) private var appState
     @Environment(CloudKitService.self) private var cloudKitService
     @Environment(FamilyService.self) private var familyService
@@ -179,10 +181,12 @@ private struct RootView: View {
         .task(id: appState.authStatus) {
             switch appState.authStatus {
             case .onboarding:
-                onboardingVM = OnboardingViewModel(
+                let vm = OnboardingViewModel(
                     familyService: familyService,
                     appState: appState
                 )
+                vm.pendingShareMetadata = pendingShareMetadata
+                onboardingVM = vm
                 spendingService = nil
             case .authenticated:
                 onboardingVM = nil
@@ -190,6 +194,9 @@ private struct RootView: View {
             case .restoringSession, .checkingCloudData, .detectedPreviousFamily:
                 onboardingVM = nil
             }
+        }
+        .onChange(of: pendingShareMetadata) { _, metadata in
+            onboardingVM?.pendingShareMetadata = metadata
         }
     }
 }

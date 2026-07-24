@@ -9,6 +9,7 @@ enum SpendingServiceError: Error, Equatable, Sendable {
     case underlying(String)
 }
 
+@MainActor
 protocol SpendingService: Sendable {
     func fetchTransactions(for profile: Profile,
                            in dateRange: DateInterval) async throws -> [LedgerEntry]
@@ -39,7 +40,8 @@ extension SpendingService {
     }
 }
 
-final class ManualSpendingService: SpendingService, Sendable {
+@MainActor
+final class ManualSpendingService: SpendingService {
     private let cloudKit: CloudKitService
 
     init(cloudKit: CloudKitService) {
@@ -88,7 +90,9 @@ final class ManualSpendingService: SpendingService, Sendable {
             source: "manual",
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
-        return try await cloudKit.save(entry)
+        let zoneID = cloudKit.resolvedZoneID
+        let db = cloudKit.activeFamilyDatabase
+        return try await cloudKit.save(entry, in: zoneID, using: db)
     }
 
     func delete(_ entry: LedgerEntry) async throws {
