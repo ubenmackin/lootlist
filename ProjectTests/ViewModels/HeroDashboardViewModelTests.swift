@@ -51,6 +51,7 @@ struct HeroDashboardViewModelTests {
         #expect(weekDays.first?.shortName == "Sun")
         #expect(weekDays.last?.weekdayCode == "saturday")
         #expect(weekDays.last?.shortName == "Sat")
-        #expect(weekDays.contains(where: \.isToday))
+        // swiftformat:disable:next preferKeyPath redundantClosure
+        #expect(weekDays.contains(where: { $0.isToday }))
     }
 }
