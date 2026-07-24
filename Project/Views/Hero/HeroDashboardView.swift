@@ -36,11 +36,6 @@ struct HeroDashboardView: View {
                 }
                 await viewModel?.load()
             }
-            .onAppear {
-                Task {
-                    await viewModel?.load()
-                }
-            }
             .overlay {
                 if let vm = viewModel, vm.isLoading, vm.weekQuests.isEmpty {
                     ProgressView("Summoning your quests…")

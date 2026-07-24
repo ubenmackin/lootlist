@@ -5,7 +5,7 @@ extension Calendar {
     /// and data-layer date calculations (week boundaries, start-of-day, etc.).
     static let iso8601UTC: Calendar = {
         var cal = Calendar(identifier: .iso8601)
-        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? TimeZone(abbreviation: "UTC") ?? .current
         return cal
     }()
 }

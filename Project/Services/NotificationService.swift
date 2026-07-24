@@ -19,7 +19,7 @@ final class NotificationService {
     private(set) var deviceToken: Data?
     private(set) var verificationCategoryRegistered = false
 
-    var weeklySummaryProvider: ((Profile, Family, Date) async -> String?)?
+    var weeklySummaryProvider: (@Sendable (Profile, Family, Date) async -> String?)?
 
     init(cloudKit: CloudKitService) {
         self.cloudKit = cloudKit

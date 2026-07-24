@@ -37,9 +37,6 @@ struct FamilyDashboardView: View {
                 }
                 await viewModel?.refresh()
             }
-            .onAppear {
-                Task { await viewModel?.refresh() }
-            }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareInviteItems)
             }
@@ -119,14 +116,7 @@ struct FamilyDashboardView: View {
     }
 
     private var shareInviteItems: [Any] {
-        let name = appState.family?.name ?? "our guild"
-        if let shareURL = appState.activeShareURL {
-            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(shareURL.absoluteString)"
-            return [message, shareURL]
-        } else {
-            let message = "Join \(name) on LootList!"
-            return [message]
-        }
+        appState.shareInviteItems
     }
 
     private func weeklySummaryCard(summary: WeekendSummary?) -> some View {

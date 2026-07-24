@@ -372,11 +372,16 @@ final class QuestService {
 
         guard !logs.isEmpty else { return 0 }
 
-        // Batch-fetch all referenced Quest records in a single query (N+1 fix).
+        // Batch-fetch all referenced Quest records in chunked queries (N+1 and limit crash fix).
         let questIDs = Array(Set(logs.map(\.quest.recordID)))
-        let predicate = NSPredicate(format: "recordID IN %@", questIDs)
-        let quests = try await cloudKit.query(Quest.self, predicate: predicate)
-        let questMap = Dictionary(uniqueKeysWithValues: quests.map { ($0.id, $0) })
+        var questMap: [CKRecord.ID: Quest] = [:]
+        for chunk in questIDs.chunked(into: 100) {
+            let predicate = NSPredicate(format: "recordID IN %@", chunk)
+            let fetched = try await cloudKit.query(Quest.self, predicate: predicate)
+            for quest in fetched {
+                questMap[quest.id] = quest
+            }
+        }
 
         var total: Double = 0
         for log in logs {
