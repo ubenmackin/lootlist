@@ -106,10 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showcaseBullets.innerHTML = '';
         data.bullets.forEach(bullet => {
           const li = document.createElement('li');
-          const span = document.createElement('span');
-          span.textContent = '\u2694\uFE0F';
-          li.appendChild(span);
-          li.appendChild(document.createTextNode(' ' + bullet));
+          li.textContent = bullet;
           showcaseBullets.appendChild(li);
         });
       }

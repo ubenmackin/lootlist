@@ -25,9 +25,12 @@ final class FamilyService {
 
     private let appState: AppState
 
-    init(cloudKit: CloudKitService, appState: AppState) {
+    private let questService: QuestService
+
+    init(cloudKit: CloudKitService, appState: AppState, questService: QuestService) {
         self.cloudKit = cloudKit
         self.appState = appState
+        self.questService = questService
     }
 
     // MARK: - Family Creation (Guild Master Flow)
@@ -263,6 +266,19 @@ final class FamilyService {
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
+    /// Fetches ALL profiles (active AND inactive) for the given family, sorted active first then by name.
+    func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let predicate = NSPredicate(format: "family == %@", familyRef)
+        let all = try await cloudKit.query(Profile.self, predicate: predicate)
+        return all.sorted { lhs, rhs in
+            if lhs.isActive != rhs.isActive {
+                return lhs.isActive && !rhs.isActive // active first
+            }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
     func updateMemberRole(profile: Profile, newRole: UserRole) async throws {
         var updated = profile
         updated.role = newRole
@@ -278,14 +294,33 @@ final class FamilyService {
     }
 
     func leaveFamily(profile: Profile) async throws {
+        await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile, errorMessage: "Could not leave family")
     }
 
     func kickMember(profile: Profile) async throws {
+        await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile, errorMessage: "Could not remove member")
     }
 
     // MARK: - Private Helpers
+
+    private func unassignActiveQuests(for profile: Profile) async {
+        guard appState.family != nil else { return }
+        let calendar = Calendar.iso8601UTC
+        let today = Date()
+        let weekComponents = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)
+        let currentWeek = calendar.date(from: weekComponents) ?? today
+
+        // Fetch active quests for current week and next week
+        let currentQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: currentWeek)) ?? []
+        let nextWeek = calendar.date(byAdding: .weekOfYear, value: 1, to: currentWeek) ?? currentWeek
+        let nextQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: nextWeek)) ?? []
+
+        for quest in currentQuests + nextQuests {
+            try? await questService.unassignQuest(quest)
+        }
+    }
 
     /// Returns the CloudKit zone ID and database for the given family record ID,
     /// using the current user's zone-ownership context.

@@ -2,6 +2,17 @@ import CloudKit
 import Foundation
 import Observation
 
+enum QuestEditLockedError: LocalizedError {
+    case lockedFields
+
+    var errorDescription: String? {
+        switch self {
+        case .lockedFields:
+            "This quest has log entries. Gold, XP, schedule, and assignee are locked."
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class QuestManagerViewModel {
@@ -16,6 +27,9 @@ final class QuestManagerViewModel {
     private let questService: QuestService
     private let familyService: FamilyService
     private let appState: AppState
+
+    private var syncSubscriptionID: UUID?
+    private var syncTask: Task<Void, Never>?
 
     init(questService: QuestService, familyService: FamilyService, appState: AppState) {
         self.questService = questService
@@ -125,6 +139,7 @@ final class QuestManagerViewModel {
                      goldOverride: Double?,
                      xpOverride: Int?,
                      approvalOverride: ApprovalMode?,
+                     nameOverride: String? = nil,
                      weekOf: Date) async throws
     {
         guard let parent = appState.currentProfile,
@@ -138,6 +153,7 @@ final class QuestManagerViewModel {
             goldOverride: goldOverride,
             xpOverride: xpOverride,
             approvalOverride: approvalOverride,
+            nameOverride: nameOverride,
             weekOf: weekOf,
             createdBy: parent,
             family: family
@@ -148,7 +164,12 @@ final class QuestManagerViewModel {
         activeAssignments.append(created)
 
         if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: weekOf) {
-            activeAssignments = fetched
+            // Reconcile: merge fetched with optimistic list, dedupe by recordID, prefer newer
+            var merged = fetched
+            for optimistic in activeAssignments where !fetched.contains(where: { $0.id == optimistic.id }) {
+                merged.append(optimistic)
+            }
+            activeAssignments = merged
         }
     }
 
@@ -188,7 +209,70 @@ final class QuestManagerViewModel {
         activeAssignments.append(created)
 
         if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: weekOf) {
-            activeAssignments = fetched
+            // Reconcile: merge fetched with optimistic list, dedupe by recordID, prefer newer
+            var merged = fetched
+            for optimistic in activeAssignments where !fetched.contains(where: { $0.id == optimistic.id }) {
+                merged.append(optimistic)
+            }
+            activeAssignments = merged
+        }
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    func updateQuest(_ quest: Quest,
+                     name: String?,
+                     descriptionText: String?,
+                     goldReward: Double,
+                     xpReward: Int,
+                     scheduleType: QuestSchedule,
+                     isAllOrNothing: Bool,
+                     approvalMode: ApprovalMode,
+                     assignee: Profile,
+                     allowLockedFieldsOverride: Bool) async throws
+    {
+        guard let family = appState.family else {
+            throw QuestServiceError.missingSession
+        }
+
+        // If quest has logs, only name and descriptionText may change
+        if !allowLockedFieldsOverride {
+            let logs = try await questService.fetchQuestLogs(forQuest: quest)
+            if !logs.isEmpty {
+                // Verify only name/description are changing
+                let fieldsChanged = quest.goldReward != goldReward
+                    || quest.xpReward != xpReward
+                    || quest.scheduleType != scheduleType
+                    || quest.assignee.recordID != assignee.id
+                if fieldsChanged {
+                    throw QuestEditLockedError.lockedFields
+                }
+            }
+        }
+
+        var updated = quest
+        updated.name = name
+        updated.descriptionText = descriptionText
+        updated.goldReward = goldReward
+        updated.xpReward = xpReward
+        updated.scheduleType = scheduleType
+        updated.isAllOrNothing = isAllOrNothing
+        updated.approvalMode = approvalMode
+        updated.assignee = CKRecord.Reference(recordID: assignee.id, action: .none)
+
+        _ = try await questService.updateQuest(updated)
+
+        // Update in place
+        if let idx = activeAssignments.firstIndex(where: { $0.id == quest.id }) {
+            activeAssignments[idx] = updated
+        }
+
+        // Re-fetch to stay consistent
+        if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: quest.weekOf) {
+            var merged = fetched
+            for optimistic in activeAssignments where !fetched.contains(where: { $0.id == optimistic.id }) {
+                merged.append(optimistic)
+            }
+            activeAssignments = merged
         }
     }
 
@@ -214,6 +298,31 @@ final class QuestManagerViewModel {
     }
 
     private(set) var heroes: [Profile] = []
+
+    func subscribeToSyncEvents(_ coordinator: AppSyncCoordinator) {
+        guard syncSubscriptionID == nil else { return }
+        let (stream, id) = coordinator.subscribe()
+        syncSubscriptionID = id
+        syncTask = Task { [weak self] in
+            for await event in stream {
+                guard let self else { return }
+                switch event {
+                case .recordChanged, .shareAccepted, .zoneReset:
+                    await self.load()
+                    await self.loadHeroes()
+                }
+            }
+        }
+    }
+
+    func unsubscribeFromSyncEvents(_ coordinator: AppSyncCoordinator) {
+        syncTask?.cancel()
+        syncTask = nil
+        if let id = syncSubscriptionID {
+            coordinator.unsubscribe(id: id)
+            syncSubscriptionID = nil
+        }
+    }
 
     func loadHeroes() async {
         guard let family = appState.family else {

@@ -37,6 +37,9 @@ struct Quest: Identifiable, Equatable, Sendable {
         if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty {
             return name
         }
+        // Legacy fallback for Quests with nil name (pre-backfill).
+        // TASK-005 DataMigrationsCoordinator backfill eliminates these over time.
+        // Defense-in-depth stamping in QuestService also catches these at read time.
         let templateID = template.recordID.recordName
         if templateID.count > 6 {
             return "Quest \(templateID.suffix(6))"
