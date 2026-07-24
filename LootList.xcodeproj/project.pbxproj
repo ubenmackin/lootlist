@@ -46,6 +46,7 @@
 		52FE085830E8699E665FCC4A /* TestEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9C9A669EA50B98696C391D /* TestEnvironment.swift */; };
 		55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B02119865F6610D00BD4F2A /* TabBarView.swift */; };
 		5AA1D57882CFB340382F3C4D /* TreasuryUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89AB9A4FCD7CD3B589F4D935 /* TreasuryUITests.swift */; };
+		5C4EFB6067BD86F2A7EC99BB /* HeroSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 470436B9854D58D87A38076F /* HeroSettingsView.swift */; };
 		5D0377D38CABC77D7BA8F6F7 /* TemplateManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 136948D3323E0410CAA49E77 /* TemplateManagerView.swift */; };
 		60447CF3B1E15722E78854EF /* LootListScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CDF1B3CCF6974CB463FB5D /* LootListScreenshotTests.swift */; };
 		60574BA049549FCEA283D291 /* UserRole.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */; };
@@ -147,6 +148,7 @@
 		3C0AD0E8223D235A61B7686E /* Family.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Family.swift; sourceTree = "<group>"; };
 		45F11998DECE2BF4D394F56D /* QuestDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestDetailView.swift; sourceTree = "<group>"; };
 		463E5A4BD2FEA066CE2E2449 /* TrophyCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyCardView.swift; sourceTree = "<group>"; };
+		470436B9854D58D87A38076F /* HeroSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroSettingsView.swift; sourceTree = "<group>"; };
 		49F5B9AB44CCF6853B519183 /* LootListTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAchievement.swift; sourceTree = "<group>"; };
 		4F26C22CD753C226F9DEB82B /* AchievementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementService.swift; sourceTree = "<group>"; };
@@ -262,6 +264,7 @@
 			children = (
 				975CB482406B3EB4588EC345 /* FamilyDashboardView.swift */,
 				94FB9A652DA4D837BED9282F /* GuildSettingsView.swift */,
+				470436B9854D58D87A38076F /* HeroSettingsView.swift */,
 				286FC47A1B54C6C06F6524FB /* HeroStatusCard.swift */,
 				A29AFF3513D151637BD6AD3B /* PayoutHistoryView.swift */,
 				D870526224A67A707B7E4A4D /* QuestAssignmentView.swift */,
@@ -653,6 +656,7 @@
 				B7BABBF14D694CFA9AE05C17 /* GuildSettingsView.swift in Sources */,
 				6E6297E5BEA45D699F0EE442 /* HeroDashboardView.swift in Sources */,
 				E85CC461F3D68C44ED3B3599 /* HeroDashboardViewModel.swift in Sources */,
+				5C4EFB6067BD86F2A7EC99BB /* HeroSettingsView.swift in Sources */,
 				79C8EF523D7F760ACA53F0E8 /* HeroStatusCard.swift in Sources */,
 				311A36B8F51F7B4451661892 /* LedgerEntry.swift in Sources */,
 				DF2FE889C970BE09DE142988 /* LogSpendingView.swift in Sources */,

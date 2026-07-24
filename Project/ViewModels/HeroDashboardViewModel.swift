@@ -35,6 +35,8 @@ final class HeroDashboardViewModel {
     private let questService: QuestService
     private let appState: AppState
 
+    private var templatesByID: [String: QuestTemplate] = [:]
+
     init(questService: QuestService, appState: AppState) {
         self.questService = questService
         self.appState = appState
@@ -59,95 +61,90 @@ final class HeroDashboardViewModel {
 
         weekDays = HeroDashboardViewModel.currentWeekDays()
 
-        async let questsTask: [Quest]? = try? questService.fetchActiveQuests(
-            profile: profile, weekOf: Date()
-        )
-        async let logsTask: [QuestCompletion]? = try? questService.fetchQuestLogs(for: profile)
-        async let streakTask: Int? = try? questService.fetchStreak(for: profile)
-        async let earnedTask: Double? = try? questService.earnedThisWeek(
-            profile: profile, weekOf: Date()
-        )
-        async let templatesTask: [QuestTemplate]? = try? questService.fetchTemplates(family: family)
+        do {
+            async let questsTask = questService.fetchActiveQuests(profile: profile, weekOf: Date())
+            async let logsTask = questService.fetchQuestLogs(for: profile)
+            async let streakTask = questService.fetchStreak(for: profile)
+            async let earnedTask = questService.earnedThisWeek(profile: profile, weekOf: Date())
+            async let templatesTask = questService.fetchTemplates(family: family)
 
-        let quests = await questsTask ?? []
-        let logs = await logsTask ?? []
-        let streak = await streakTask ?? 0
-        let earned = await earnedTask ?? 0
-        let templates = await templatesTask ?? []
+            let (quests, logs, streak, earned, templates) = try await (
+                questsTask, logsTask, streakTask, earnedTask, templatesTask
+            )
 
-        let todayCode = HeroDashboardViewModel.todayWeekdayCode()
-        let templatesByID: [String: QuestTemplate] = Dictionary(
-            uniqueKeysWithValues: templates.map { ($0.id.recordName, $0) }
-        )
+            let todayCode = HeroDashboardViewModel.todayWeekdayCode()
+            templatesByID = Dictionary(
+                uniqueKeysWithValues: templates.map { ($0.id.recordName, $0) }
+            )
 
-        let completedQuestIDs = Set(
-            logs.filter { $0.verificationStatus != .rejected }
-                .map(\.quest.recordID)
-        )
+            let completedQuestIDs = Set(
+                logs.filter { $0.verificationStatus != .rejected }
+                    .map(\.quest.recordID)
+            )
 
-        var completed: [Quest] = []
-        var todayList: [Quest] = []
-        var upcoming: [Quest] = []
-        var missed: [Quest] = []
+            var completed: [Quest] = []
+            var todayList: [Quest] = []
+            var upcoming: [Quest] = []
+            var missed: [Quest] = []
 
-        for quest in quests {
-            if completedQuestIDs.contains(quest.id) {
-                completed.append(quest)
-                continue
-            }
-
-            let specDays: [String] = {
-                if let template = templatesByID[quest.template.recordID.recordName] {
-                    return template.specificDays
+            for quest in quests {
+                if completedQuestIDs.contains(quest.id) {
+                    completed.append(quest)
+                    continue
                 }
-                return []
-            }()
 
-            switch quest.scheduleType {
-            case .weeklyFlexible:
-                todayList.append(quest)
-                upcoming.append(quest)
+                let specDays: [String] = {
+                    if let template = templatesByID[quest.template.recordID.recordName] {
+                        return template.specificDays
+                    }
+                    return []
+                }()
 
-            case .specificDays:
-                if specDays.contains(todayCode) {
+                switch quest.scheduleType {
+                case .weeklyFlexible:
                     todayList.append(quest)
-                }
-
-                // Check if days are strictly in the past
-                let isPastOnly = !specDays.isEmpty && specDays.allSatisfy { code in
-                    if let day = weekDays.first(where: { $0.weekdayCode == code }) {
-                        return day.isPast
-                    }
-                    return false
-                }
-
-                let hasFutureDay = specDays.contains { code in
-                    if let day = weekDays.first(where: { $0.weekdayCode == code }) {
-                        return day.isFuture
-                    }
-                    return false
-                }
-
-                if isPastOnly {
-                    missed.append(quest)
-                } else if hasFutureDay {
                     upcoming.append(quest)
+
+                case .specificDays:
+                    if specDays.contains(todayCode) {
+                        todayList.append(quest)
+                    }
+
+                    // Check if days are strictly in the past
+                    let isPastOnly = !specDays.isEmpty && specDays.allSatisfy { code in
+                        if let day = weekDays.first(where: { $0.weekdayCode == code }) {
+                            return day.isPast
+                        }
+                        return false
+                    }
+
+                    let hasFutureDay = specDays.contains { code in
+                        if let day = weekDays.first(where: { $0.weekdayCode == code }) {
+                            return day.isFuture
+                        }
+                        return false
+                    }
+
+                    if isPastOnly {
+                        missed.append(quest)
+                    } else if hasFutureDay {
+                        upcoming.append(quest)
+                    }
                 }
             }
-        }
 
-        weekQuests = quests
-        completedQuests = completed
-        todaysQuests = todayList
-        upcomingQuests = upcoming
-        missedQuests = missed
+            weekQuests = quests
+            completedQuests = completed
+            todaysQuests = todayList
+            upcomingQuests = upcoming
+            missedQuests = missed
 
-        self.streak = streak
-        earnedThisWeek = earned
-        availableTemplatesCount = templates.filter(\.isActive).count
-
-        if loadError != nil {
+            self.streak = streak
+            earnedThisWeek = earned
+            availableTemplatesCount = templates.filter(\.isActive).count
             loadError = nil
+        } catch {
+            loadError = "Could not load quests: \(error.localizedDescription)"
         }
     }
 
@@ -156,9 +153,12 @@ final class HeroDashboardViewModel {
         return weekQuests.filter { quest in
             switch quest.scheduleType {
             case .weeklyFlexible:
-                true
+                return true
             case .specificDays:
-                quest.isScheduledFor(weekdayCode: selectedDayCode)
+                if let template = templatesByID[quest.template.recordID.recordName] {
+                    return template.specificDays.contains(selectedDayCode)
+                }
+                return true
             }
         }
     }

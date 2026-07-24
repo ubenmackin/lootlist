@@ -48,12 +48,6 @@ struct QuestManagerView: View {
                 await viewModel?.load()
                 await viewModel?.loadHeroes()
             }
-            .onAppear {
-                Task {
-                    await viewModel?.load()
-                    await viewModel?.loadHeroes()
-                }
-            }
             .refreshable {
                 await viewModel?.load()
             }
