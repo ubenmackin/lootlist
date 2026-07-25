@@ -1,3 +1,10 @@
+//
+//  ProfileAchievement.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -13,6 +20,14 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
     var earnedDate: Date
 
     var family: CKRecord.Reference
+
+    init(id: CKRecord.ID, achievement: CKRecord.Reference, profile: CKRecord.Reference, earnedDate: Date, family: CKRecord.Reference) {
+        self.id = id
+        self.achievement = achievement
+        self.profile = profile
+        self.earnedDate = earnedDate
+        self.family = family
+    }
 
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {

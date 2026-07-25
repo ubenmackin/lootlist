@@ -1,9 +1,20 @@
+//
+//  HeroDashboardView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct HeroDashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
+
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
 
     @State private var viewModel: HeroDashboardViewModel?
     @State private var showError = false
@@ -57,7 +68,29 @@ struct HeroDashboardView: View {
                     showError = true
                 }
             }
+            .onChange(of: cachedQuests) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedCompletions) { _, _ in
+                rebuildViewModel()
+            }
         }
+    }
+
+    private func rebuildViewModel() {
+        guard let vm = viewModel else { return }
+        guard let profileName = appState.currentProfile?.id.recordName else { return }
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+
+        let quests = cachedQuests
+            .filter { $0.assigneeRecordName == profileName && $0.isActive }
+            .map { $0.toQuest(zoneID: zoneID) }
+
+        let logs = cachedCompletions
+            .filter { $0.completerRecordName == profileName }
+            .map { $0.toQuestCompletion(zoneID: zoneID) }
+
+        vm.rebuildLists(quests: quests, logs: logs)
     }
 
     private var goldBalanceCard: some View {
@@ -112,12 +145,12 @@ struct HeroDashboardView: View {
     private var weekStrip: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Week Overview (Sun – Sat)")
+                Text(viewModel?.selectedDayCode != nil ? "Filter: \(selectedDayTitle)" : "Full Week Overview")
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
                 Spacer()
                 if viewModel?.selectedDayCode != nil {
-                    Button("Show All Week") {
+                    Button("Show Full Week") {
                         viewModel?.selectedDayCode = nil
                     }
                     .font(.caption.bold())
@@ -128,6 +161,9 @@ struct HeroDashboardView: View {
                 HStack(spacing: 6) {
                     ForEach(vm.weekDays) { day in
                         let isSelected = vm.selectedDayCode == day.weekdayCode
+                        let hasQuests = vm.hasQuests(on: day)
+                        let isCompleted = vm.isDayCompleted(day: day)
+
                         Button {
                             if isSelected {
                                 vm.selectedDayCode = nil
@@ -138,15 +174,19 @@ struct HeroDashboardView: View {
                             VStack(spacing: 4) {
                                 Text(day.shortName)
                                     .font(.caption2.weight(.bold))
-                                    .foregroundStyle(day.isToday ? Color.accentColor : .secondary)
+                                    .foregroundStyle(isSelected ? Color.white : (day.isToday ? Color.accentColor : .secondary))
 
                                 Text("\(day.dayNumber)")
                                     .font(.subheadline.bold())
                                     .foregroundStyle(isSelected ? Color.white : (day.isToday ? Color.accentColor : Color.primary))
 
-                                Circle()
-                                    .fill(day.isToday ? Color.accentColor : (day.isPast ? Color.gray.opacity(0.4) : Color.green))
-                                    .frame(width: 4, height: 4)
+                                if hasQuests {
+                                    Circle()
+                                        .fill(isCompleted ? Color.gray.opacity(0.5) : Color.green)
+                                        .frame(width: 4, height: 4)
+                                } else {
+                                    Spacer().frame(height: 4)
+                                }
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
@@ -156,7 +196,7 @@ struct HeroDashboardView: View {
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(day.isToday ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
+                                    .strokeBorder(day.isToday && !isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
                             )
                         }
                         .buttonStyle(.plain)
@@ -166,25 +206,40 @@ struct HeroDashboardView: View {
         }
     }
 
+    private var selectedDayTitle: String {
+        guard let code = viewModel?.selectedDayCode,
+              let day = viewModel?.weekDays.first(where: { $0.weekdayCode == code })
+        else {
+            return "Selected Day"
+        }
+        return "\(day.shortName) (\(day.dayNumber))"
+    }
+
     @ViewBuilder
     private var weeklyQuestsBreakdown: some View {
         if let vm = viewModel {
             if let selectedDay = vm.selectedDayCode {
                 let dayQuests = vm.questsForSelectedDay()
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("\(selectedDay.capitalized)'s Quests")
-                        .font(.headline)
-                    if dayQuests.isEmpty {
-                        emptyState(text: "No quests for \(selectedDay.capitalized)")
-                    } else {
-                        ForEach(dayQuests) { quest in
-                            NavigationLink {
-                                QuestDetailView(quest: quest)
-                            } label: {
-                                QuestCardView(quest: quest)
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("\(selectedDay.capitalized)'s Scheduled Quests")
+                            .font(.headline)
+                        if dayQuests.isEmpty {
+                            emptyState(text: "No scheduled quests for \(selectedDay.capitalized)")
+                        } else {
+                            ForEach(dayQuests) { quest in
+                                NavigationLink {
+                                    QuestDetailView(quest: quest, initialLog: vm.log(for: quest))
+                                } label: {
+                                    QuestCardView(quest: quest)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
+                    }
+
+                    if !vm.weeklyFlexibleQuests.isEmpty {
+                        questSection(title: "Weekly Quests (Do Anytime) 🎯", quests: vm.weeklyFlexibleQuests)
                     }
                 }
             } else {
@@ -196,12 +251,16 @@ struct HeroDashboardView: View {
                             questSection(title: "Today's Quests ⚔️", quests: vm.todaysQuests)
                         }
 
+                        if !vm.weeklyFlexibleQuests.isEmpty {
+                            questSection(title: "Weekly Quests (Do Anytime) 🎯", quests: vm.weeklyFlexibleQuests)
+                        }
+
                         if !vm.upcomingQuests.isEmpty {
                             questSection(title: "Coming Up 📅", quests: vm.upcomingQuests)
                         }
 
                         if !vm.completedQuests.isEmpty {
-                            questSection(title: "Done / Slain 🟢", quests: vm.completedQuests)
+                            questSection(title: "Completed 🟢", quests: vm.completedQuests)
                         }
 
                         if !vm.missedQuests.isEmpty {
@@ -219,7 +278,7 @@ struct HeroDashboardView: View {
                 .font(.headline)
             ForEach(quests) { quest in
                 NavigationLink {
-                    QuestDetailView(quest: quest)
+                    QuestDetailView(quest: quest, initialLog: viewModel?.log(for: quest))
                 } label: {
                     QuestCardView(quest: quest)
                 }

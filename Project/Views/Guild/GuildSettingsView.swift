@@ -1,3 +1,10 @@
+//
+//  GuildSettingsView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
@@ -46,6 +53,7 @@ struct GuildSettingsView: View {
                         questService: questService,
                         treasury: treasury,
                         achievementService: achievementService,
+                        familyService: familyService,
                         appState: appState
                     )
                 }

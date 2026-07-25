@@ -1,3 +1,10 @@
+//
+//  AppSyncCoordinator.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 import Observation
@@ -64,7 +71,7 @@ final class AppSyncCoordinator {
 
         do {
             _ = try await database.save(subscription)
-            logger.info("CloudKit subscription registered for zone \(zoneID.zoneName, privacy: .public)")
+            logger.info("CloudKit subscription registered for zone \(zoneID.zoneName, privacy: .private)")
         } catch {
             logger.error("Failed to register CloudKit subscription: \(error, privacy: .private)")
         }
@@ -88,7 +95,12 @@ final class AppSyncCoordinator {
         guard let databaseNotification = notification as? CKDatabaseNotification else { return }
 
         let recordTypeID = databaseNotification.subscriptionID ?? "unknown"
-        logger.debug("CloudKit change notification received for record type: \(recordTypeID, privacy: .public)")
+        logger.debug("CloudKit change notification received for record type: \(recordTypeID, privacy: .private)")
+        #if DEBUG
+            let subID = databaseNotification.subscriptionID ?? "nil"
+            let notifType = String(describing: type(of: notification))
+            logger.info("[DEBUG] handleNotification subscriptionID=\(subID, privacy: .private) notificationType=\(notifType, privacy: .public)")
+        #endif
 
         for (_, continuation) in continuations {
             continuation.yield(.recordChanged(recordTypeID: recordTypeID))
@@ -98,7 +110,7 @@ final class AppSyncCoordinator {
     /// Handle a CKShare acceptance notification.
     func handleShareAcceptance(shareMetadata: CKShare.Metadata) {
         let shareID = shareMetadata.hierarchicalRootRecordID ?? shareMetadata.share.recordID
-        logger.info("CKShare acceptance notification received for share: \(shareID.recordName, privacy: .public)")
+        logger.info("CKShare acceptance notification received for share: \(shareID.recordName, privacy: .private)")
 
         for (_, continuation) in continuations {
             continuation.yield(.shareAccepted(shareID: shareID))

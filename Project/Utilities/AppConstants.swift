@@ -1,3 +1,10 @@
+//
+//  AppConstants.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 /// Centralized constants for the LootList application.
@@ -34,6 +41,21 @@ enum AppConstants {
         /// Delay duration in nanoseconds between shared zone pulse attempts (1 second).
         static let pulseDelayNanoseconds: UInt64 = 1_000_000_000
     }
+
+    /// Weekday code arrays shared across views and services.
+    static let weekdayCodes = ["sunday", "monday", "tuesday", "wednesday",
+                               "thursday", "friday", "saturday"]
+
+    /// Human-readable weekday display names (matching `weekdayCodes` order).
+    static let weekdayDisplay = ["Sunday", "Monday", "Tuesday", "Wednesday",
+                                 "Thursday", "Friday", "Saturday"]
+
+    /// Single-letter / two-letter abbreviated weekday labels used in compact
+    /// day-of-week pills (matching `weekdayCodes` order).
+    static let weekdayAbbreviated = ["Su", "M", "Tu", "W", "Th", "F", "Sa"]
+
+    /// Short weekday names used in dashboard week strips (matching `weekdayCodes` order).
+    static let weekdayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     /// Time calculations and date interval constants.
     enum Time {

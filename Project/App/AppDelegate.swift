@@ -1,3 +1,10 @@
+//
+//  AppDelegate.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import UIKit
 
@@ -22,7 +29,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 object: notification
             )
         }
-        completionHandler(.newData)
+        // Give the sync engine time to process before telling iOS we're done.
+        // The SyncEngine listens for the notification and kicks off syncAll().
+        Task {
+            // Allow up to 25 seconds for background sync (iOS gives ~30s)
+            try? await Task.sleep(nanoseconds: 25_000_000_000)
+            completionHandler(.newData)
+        }
     }
 
     func application(

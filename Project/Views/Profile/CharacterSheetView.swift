@@ -1,3 +1,10 @@
+//
+//  CharacterSheetView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
@@ -65,7 +72,7 @@ struct CharacterSheetView: View {
             Text(spec.levelTitle)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.gold)
-            Text("\(profile.avatarClass.displayName) · \(profile.role.displayName)")
+            Text("\(profile.effectiveClassDisplay) · \(profile.role.displayName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

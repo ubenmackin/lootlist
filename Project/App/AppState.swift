@@ -1,3 +1,10 @@
+//
+//  AppState.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 import os
@@ -33,6 +40,8 @@ final class AppState {
     /// The active CKShare for the family zone (Guild Master only).
     /// Used to generate invitation links for new family members.
     var activeShareURL: URL?
+
+    var cacheService: CacheService?
 
     // MARK: - Session Persistence Keys
 
@@ -139,8 +148,26 @@ final class AppState {
             if let ckErr = error as? CloudKitServiceError, case .notFound = ckErr {
                 clearSession()
             } else {
-                // Non-destructive: fallback to cloud discovery or onboarding without deleting saved session keys
-                authStatus = .onboarding
+                // Network error — try cache fallback for offline launch
+                if let cache = cacheService,
+                   let cachedProfile = cache.fetchProfile(recordName: profileRecordName),
+                   let cachedFamily = cache.fetchFamily(recordName: familyRecordName)
+                {
+                    familyZoneID = zoneID
+                    isZoneOwner = isOwner
+                    // Restore Profile and Family from cache
+                    family = Family(
+                        name: cachedFamily.name,
+                        createdBy: CKRecord.ID(recordName: cachedFamily.createdByRecordName),
+                        payoutPolicy: PayoutPolicy(rawValue: cachedFamily.payoutPolicy) ?? .perQuest,
+                        id: CKRecord.ID(recordName: cachedFamily.recordName, zoneID: zoneID)
+                    )
+                    currentProfile = cachedProfile.toProfile(zoneID: zoneID)
+                    authStatus = .authenticated
+                    logger.info("Session restored from local cache (offline mode)")
+                } else {
+                    authStatus = .onboarding
+                }
             }
         }
     }

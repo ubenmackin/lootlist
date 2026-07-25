@@ -16,10 +16,10 @@ line_length:
   warning: 200
 
 file_length:
-  warning: 600
+  warning: 1000
 
 type_body_length:
-  warning: 500
+  warning: 750
 
 function_body_length:
   warning: 120

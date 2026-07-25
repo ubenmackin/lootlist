@@ -1,3 +1,10 @@
+//
+//  PayoutStatus.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 enum PayoutStatus: String, Codable, CaseIterable, Sendable {

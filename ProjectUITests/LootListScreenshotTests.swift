@@ -1,3 +1,10 @@
+//
+//  LootListScreenshotTests.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import XCTest
 
 final class LootListScreenshotTests: XCTestCase {

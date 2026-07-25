@@ -1,18 +1,27 @@
+//
+//  AvatarSelectionView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
+import PhotosUI
 import SwiftUI
 
 struct AvatarSelectionView: View {
     @Bindable var viewModel: OnboardingViewModel
 
+    @State private var isRPGExpanded: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+
     var body: some View {
         ScrollView {
-            VStack(spacing: 28) {
+            VStack(spacing: 24) {
                 header
-
-                classGrid
 
                 nameSection
 
-                presetSection
+                rpgDisclosureSection
 
                 finalizeButton
 
@@ -48,7 +57,7 @@ struct AvatarSelectionView: View {
 
     private var header: some View {
         VStack(spacing: 8) {
-            Image(systemName: "wand.and.stars")
+            Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(size: 48))
                 .foregroundStyle(
                     LinearGradient(
@@ -56,9 +65,9 @@ struct AvatarSelectionView: View {
                         startPoint: .top, endPoint: .bottom
                     )
                 )
-            Text("Forge Your Hero")
+            Text("Setup Profile")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
-            Text("Choose a class, name your character, and pick a look.")
+            Text("Enter your name to begin, or optionally pick an RPG character look.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -66,72 +75,11 @@ struct AvatarSelectionView: View {
         }
     }
 
-    private var classGrid: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Choose a class", systemImage: "shield.fill")
-                .font(.headline.weight(.bold))
-
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12)
-            ], spacing: 12) {
-                ForEach(AvatarClass.allCases, id: \.self) { klass in
-                    classCard(klass)
-                }
-            }
-        }
-        .padding(.horizontal, 24)
-    }
-
-    @ViewBuilder
-    private func classCard(_ klass: AvatarClass) -> some View {
-        let isSelected = viewModel.avatarClass == klass
-        Button {
-            viewModel.avatarClass = klass
-
-            viewModel.avatarPresetID = nil
-        } label: {
-            VStack(spacing: 10) {
-                Image(systemName: klass.iconSystemName)
-                    .font(.system(size: 32, weight: .semibold))
-                Text(klass.displayName)
-                    .font(.headline.weight(.bold))
-                Text(klass.tagline)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .padding(.horizontal, 8)
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .strokeBorder(
-                        isSelected ? Color.yellow : Color.white.opacity(0.15),
-                        lineWidth: isSelected ? 3 : 1
-                    )
-            )
-            .overlay(alignment: .topTrailing) {
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.yellow)
-                        .padding(8)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("avatar.class.\(klass.rawValue)")
-    }
-
     private var nameSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Name your hero", systemImage: "person.fill")
+            Label("Your Name", systemImage: "person.fill")
                 .font(.headline.weight(.bold))
-            TextField("Sir Cleanup", text: $viewModel.displayName)
+            TextField("Alex", text: $viewModel.displayName)
                 .textInputAutocapitalization(.words)
                 .font(.title3)
                 .padding(16)
@@ -146,10 +94,152 @@ struct AvatarSelectionView: View {
         .padding(.horizontal, 24)
     }
 
+    private var rpgDisclosureSection: some View {
+        DisclosureGroup(
+            isExpanded: $isRPGExpanded,
+            content: {
+                VStack(alignment: .leading, spacing: 20) {
+                    customPhotoSection
+                    classGrid
+                    presetSection
+                }
+                .padding(.top, 12)
+            },
+            label: {
+                Label("RPG Customization (Class & Avatar)", systemImage: "sparkles")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.primary)
+            }
+        )
+        .padding(16)
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+    }
+
+    private var customPhotoSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Device Photo Avatar", systemImage: "photo.fill")
+                .font(.subheadline.weight(.bold))
+
+            HStack(spacing: 16) {
+                if let customData = viewModel.customAvatarImageData,
+                   let uiImage = UIImage(data: customData)
+                {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 54, height: 54)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Color.gold, lineWidth: 2))
+                } else {
+                    Circle()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(width: 54, height: 54)
+                        .overlay(Image(systemName: "person.fill").foregroundStyle(.secondary))
+                }
+
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    Label("Choose Photo", systemImage: "photo.on.rectangle")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+
+                if viewModel.customAvatarImageData != nil {
+                    Button(role: .destructive) {
+                        viewModel.customAvatarImageData = nil
+                        selectedPhotoItem = nil
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+        .onChange(of: selectedPhotoItem) { _, newItem in
+            Task {
+                if let data = try? await newItem?.loadTransferable(type: Data.self),
+                   let rawImage = UIImage(data: data)
+                {
+                    let resized = resizeImageIfNeeded(rawImage, maxDimension: 512)
+                    viewModel.customAvatarImageData = resized.jpegData(compressionQuality: 0.8)
+                }
+            }
+        }
+    }
+
+    private var classGrid: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Choose a Class (Optional)", systemImage: "shield.fill")
+                .font(.subheadline.weight(.bold))
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12)
+            ], spacing: 12) {
+                ForEach(AvatarClass.allCases, id: \.self) { klass in
+                    classCard(klass)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func classCard(_ klass: AvatarClass) -> some View {
+        let isSelected = viewModel.avatarClass == klass
+        Button {
+            if isSelected {
+                viewModel.avatarClass = nil
+                viewModel.avatarPresetID = nil
+            } else {
+                viewModel.avatarClass = klass
+                viewModel.avatarPresetID = nil
+            }
+        } label: {
+            VStack(spacing: 8) {
+                Image(systemName: klass.iconSystemName)
+                    .font(.system(size: 28, weight: .semibold))
+                Text(klass.displayName)
+                    .font(.subheadline.weight(.bold))
+                Text(klass.tagline)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .padding(.horizontal, 6)
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(
+                        isSelected ? Color.yellow : Color.white.opacity(0.15),
+                        lineWidth: isSelected ? 3 : 1
+                    )
+            )
+            .overlay(alignment: .topTrailing) {
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.yellow)
+                        .padding(6)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("avatar.class.\(klass.rawValue)")
+    }
+
     private var presetSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Choose a look", systemImage: "wand.and.rays")
-                .font(.headline.weight(.bold))
+            Label("Choose a Look (Optional)", systemImage: "wand.and.rays")
+                .font(.subheadline.weight(.bold))
 
             if let klass = viewModel.avatarClass {
                 LazyVGrid(columns: [
@@ -163,20 +253,11 @@ struct AvatarSelectionView: View {
                     }
                 }
             } else {
-                HStack(spacing: 10) {
-                    ForEach(0 ..< 4, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.1))
-                            .overlay(
-                                Image(systemName: "questionmark")
-                                    .foregroundStyle(.secondary)
-                            )
-                            .frame(height: 72)
-                    }
-                }
+                Text("Select an RPG class above to choose a preset avatar look.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 24)
     }
 
     @ViewBuilder
@@ -184,7 +265,7 @@ struct AvatarSelectionView: View {
         let isSelected = viewModel.avatarPresetID == preset.id
 
         Button {
-            viewModel.avatarPresetID = preset.id
+            viewModel.avatarPresetID = isSelected ? nil : preset.id
         } label: {
             ZStack {
                 if UIImage(named: preset.assetName) != nil {
@@ -192,7 +273,7 @@ struct AvatarSelectionView: View {
                         .resizable()
                         .interpolation(.none)
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: 54, height: 54)
+                        .frame(width: 50, height: 50)
                         .offset(y: 4)
                         .clipShape(Circle())
                         .overlay(
@@ -200,13 +281,13 @@ struct AvatarSelectionView: View {
                         )
                 } else {
                     Image(systemName: preset.iconSystemName)
-                        .font(.system(size: 26, weight: .semibold))
+                        .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(Color.gold)
-                        .frame(height: 54)
+                        .frame(height: 50)
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(.thinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
@@ -254,9 +335,7 @@ struct AvatarSelectionView: View {
         .buttonStyle(.borderedProminent)
         .tint(viewModel.isParentFlow ? .orange : .blue)
         .disabled(viewModel.isLoading
-            || viewModel.avatarClass == nil
-            || viewModel.displayName.trimmingCharacters(in: .whitespaces).isEmpty
-            || viewModel.avatarPresetID == nil)
+            || viewModel.displayName.trimmingCharacters(in: .whitespaces).isEmpty)
         .padding(.horizontal, 24)
         .accessibilityIdentifier("avatar.finalizeButton")
     }
@@ -267,5 +346,16 @@ struct AvatarSelectionView: View {
             : (viewModel.isParentFlow
                 ? "Found the Guild"
                 : "Join the Quest")
+    }
+
+    private func resizeImageIfNeeded(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let maxSide = max(image.size.width, image.size.height)
+        guard maxSide > maxDimension else { return image }
+        let scale = maxDimension / maxSide
+        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
     }
 }

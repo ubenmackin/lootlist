@@ -1,4 +1,12 @@
+//
+//  QuestLogView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct QuestLogView: View {
@@ -6,6 +14,9 @@ struct QuestLogView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(AppState.self) private var appState
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
 
     @State private var viewModel: QuestLogViewModel?
 
@@ -17,7 +28,7 @@ struct QuestLogView: View {
 
     var body: some View {
         List {
-            if viewModel?.isLoading == true {
+            if viewModel?.isLoading == true, viewModel?.displayedQuests.isEmpty ?? true {
                 ProgressView("Loading quest log…")
                     .frame(maxWidth: .infinity)
                     .listRowSeparator(.hidden)
@@ -59,20 +70,32 @@ struct QuestLogView: View {
         .onDisappear {
             viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
         }
-        .onChange(of: viewModel?.dateRangePreset) { _, _ in
-            Task { await reload() }
+        .onChange(of: cachedQuests) { _, _ in
+            rebuildViewModel()
         }
-        .onChange(of: viewModel?.completionFilter) { _, _ in
-            Task { await reload() }
-        }
-        .onChange(of: viewModel?.selectedHero) { _, _ in
-            Task { await reload() }
+        .onChange(of: cachedCompletions) { _, _ in
+            rebuildViewModel()
         }
     }
 
-    private func reload() async {
-        guard let family = appState.family else { return }
-        await viewModel?.load(family: family)
+    private func rebuildViewModel() {
+        guard let vm = viewModel else { return }
+        guard let familyName = appState.family?.id.recordName else { return }
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+
+        // Quest Log is a historical record: include all family quests (active + inactive)
+        // so rolled-over/unassigned quests remain visible. Mirrors QuestLogViewModel.load,
+        // which fetches with no isActive filter — see FamilyDashboardView.rebuild for the
+        // sibling pattern.
+        let quests = cachedQuests
+            .filter { $0.familyRecordName == familyName }
+            .map { $0.toQuest(zoneID: zoneID) }
+
+        let logs = cachedCompletions
+            .filter { $0.familyRecordName == familyName }
+            .map { $0.toQuestCompletion(zoneID: zoneID) }
+
+        vm.rebuildLists(quests: quests, logs: logs)
     }
 
     // MARK: - Toolbar Menus

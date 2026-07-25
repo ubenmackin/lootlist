@@ -1,3 +1,10 @@
+//
+//  Profile.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -7,8 +14,9 @@ struct Profile: Identifiable, Equatable, Sendable {
     let id: CKRecord.ID
 
     var displayName: String
-    var avatarClass: AvatarClass
-    var avatarPresetID: String
+    var avatarClass: AvatarClass?
+    var avatarPresetID: String?
+    var customAvatarImageData: Data?
     var role: UserRole
     var xp: Int
     var level: Int
@@ -19,6 +27,14 @@ struct Profile: Identifiable, Equatable, Sendable {
 
     var isActive: Bool
     var payoutPolicy: PayoutPolicy
+
+    var effectiveClassDisplay: String {
+        if let avatarClass {
+            avatarClass.displayName
+        } else {
+            role.genericRoleName
+        }
+    }
 
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
@@ -32,17 +48,14 @@ struct Profile: Identifiable, Equatable, Sendable {
         }
         self.displayName = displayName
 
-        guard let avatarClassRaw = record["avatarClass"] as? String,
-              let avatarClass = AvatarClass(rawValue: avatarClassRaw)
-        else {
-            throw CKDecodingError.missingField("avatarClass")
+        if let avatarClassRaw = record["avatarClass"] as? String {
+            avatarClass = AvatarClass(rawValue: avatarClassRaw)
+        } else {
+            avatarClass = nil
         }
-        self.avatarClass = avatarClass
 
-        guard let avatarPresetID = record["avatarPresetID"] as? String else {
-            throw CKDecodingError.missingField("avatarPresetID")
-        }
-        self.avatarPresetID = avatarPresetID
+        avatarPresetID = record["avatarPresetID"] as? String
+        customAvatarImageData = record["customAvatarImageData"] as? Data
 
         guard let roleRaw = record["role"] as? String,
               let role = UserRole(rawValue: roleRaw)
@@ -85,8 +98,21 @@ struct Profile: Identifiable, Equatable, Sendable {
     func toRecord() -> CKRecord {
         let record = CKRecord(recordType: Self.recordType, recordID: id)
         record["displayName"] = displayName as CKRecordValue
-        record["avatarClass"] = avatarClass.rawValue as CKRecordValue
-        record["avatarPresetID"] = avatarPresetID as CKRecordValue
+        if let avatarClass {
+            record["avatarClass"] = avatarClass.rawValue as CKRecordValue
+        } else {
+            record["avatarClass"] = nil
+        }
+        if let avatarPresetID {
+            record["avatarPresetID"] = avatarPresetID as CKRecordValue
+        } else {
+            record["avatarPresetID"] = nil
+        }
+        if let customAvatarImageData {
+            record["customAvatarImageData"] = customAvatarImageData as CKRecordValue
+        } else {
+            record["customAvatarImageData"] = nil
+        }
         record["role"] = role.rawValue as CKRecordValue
         record["xp"] = xp as CKRecordValue
         record["level"] = level as CKRecordValue
@@ -98,8 +124,9 @@ struct Profile: Identifiable, Equatable, Sendable {
     }
 
     init(displayName: String,
-         avatarClass: AvatarClass,
-         avatarPresetID: String,
+         avatarClass: AvatarClass? = nil,
+         avatarPresetID: String? = nil,
+         customAvatarImageData: Data? = nil,
          role: UserRole,
          iCloudUserID: CKRecord.ID,
          family: CKRecord.Reference,
@@ -110,6 +137,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         self.displayName = displayName
         self.avatarClass = avatarClass
         self.avatarPresetID = avatarPresetID
+        self.customAvatarImageData = customAvatarImageData
         self.role = role
         xp = 0
         level = 1

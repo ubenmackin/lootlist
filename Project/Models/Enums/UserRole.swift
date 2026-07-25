@@ -1,3 +1,10 @@
+//
+//  UserRole.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 enum UserRole: String, Codable, CaseIterable, Sendable {
@@ -32,5 +39,12 @@ enum UserRole: String, Codable, CaseIterable, Sendable {
 
     var isOwner: Bool {
         self == .guildMaster
+    }
+
+    var genericRoleName: String {
+        switch self {
+        case .guildMaster, .ranger: "Parent"
+        case .hero: "Child"
+        }
     }
 }

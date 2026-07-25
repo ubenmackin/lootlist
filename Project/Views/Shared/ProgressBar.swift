@@ -1,3 +1,10 @@
+//
+//  ProgressBar.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import SwiftUI
 
 struct ProgressBar: View {

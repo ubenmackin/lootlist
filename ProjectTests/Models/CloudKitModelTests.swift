@@ -1,3 +1,10 @@
+//
+//  CloudKitModelTests.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 @testable import LootList
@@ -24,6 +31,35 @@ struct CloudKitModelTests {
         #expect(profile.avatarClass == .rogue)
         #expect(profile.level == 1)
         #expect(profile.xp == 0)
+        #expect(profile.effectiveClassDisplay == "Rogue")
+    }
+
+    @Test
+    func `profile optional avatar and role fallback`() {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let userID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
+
+        let profileHero = Profile(
+            displayName: "No Class Hero",
+            role: .hero,
+            iCloudUserID: userID,
+            family: familyRef
+        )
+
+        #expect(profileHero.avatarClass == nil)
+        #expect(profileHero.avatarPresetID == nil)
+        #expect(profileHero.effectiveClassDisplay == "Child")
+
+        let profileParent = Profile(
+            displayName: "No Class Parent",
+            role: .guildMaster,
+            iCloudUserID: userID,
+            family: familyRef
+        )
+
+        #expect(profileParent.avatarClass == nil)
+        #expect(profileParent.effectiveClassDisplay == "Parent")
     }
 
     @Test
