@@ -1,3 +1,10 @@
+//
+//  QuestLogViewModel.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 import Observation
@@ -6,9 +13,18 @@ import Observation
 @Observable
 final class QuestLogViewModel {
     var displayedQuests: [QuestLogRow] = []
-    var selectedHero: Profile? // nil = all heroes
-    var dateRangePreset: DateRangePreset = .allTime
-    var completionFilter: CompletionFilter = .all
+    var selectedHero: Profile? { // nil = all heroes
+        didSet { applyFilters() }
+    }
+
+    var dateRangePreset: DateRangePreset = .allTime {
+        didSet { applyFilters() }
+    }
+
+    var completionFilter: CompletionFilter = .all {
+        didSet { applyFilters() }
+    }
+
     var isLoading: Bool = false
 
     private let questService: QuestService
@@ -22,6 +38,10 @@ final class QuestLogViewModel {
     private var allProfiles: [Profile] = []
     /// Quick lookup by record ID
     private var profileByID: [CKRecord.ID: Profile] = [:]
+
+    /// In-memory cache of raw CloudKit data for instant filter switching
+    private var rawQuests: [Quest] = []
+    private var rawCompletionsByQuest: [String: [QuestCompletion]] = [:]
 
     /// Heroes available for filtering (active profiles with role == .hero).
     var availableHeroes: [Profile] {
@@ -122,10 +142,12 @@ final class QuestLogViewModel {
         case rejected
     }
 
-    // MARK: - Load
+    // MARK: - Load & Filter
 
     func load(family: Family) async {
-        isLoading = true
+        if rawQuests.isEmpty {
+            isLoading = true
+        }
         defer { isLoading = false }
 
         // Fetch ALL profiles (active + inactive) for name resolution
@@ -135,19 +157,36 @@ final class QuestLogViewModel {
         // Fetch quests across all weeks
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let allQuests = await (try? questService.cloudKitReference.query(
+        rawQuests = await (try? questService.cloudKitReference.query(
             Quest.self, predicate: predicate
         )) ?? []
 
-        // Filter by date range if not allTime
+        // Single batch fetch for ALL quest completions in the family
+        let allCompletions = await (try? questService.fetchQuestCompletionsForFamily(family: family)) ?? []
+
+        rebuildLists(quests: rawQuests, logs: allCompletions)
+    }
+
+    func rebuildLists(quests: [Quest], logs: [QuestCompletion]) {
+        rawQuests = quests
+        var completionsMap: [String: [QuestCompletion]] = [:]
+        for completion in logs {
+            let questName = completion.quest.recordID.recordName
+            completionsMap[questName, default: []].append(completion)
+        }
+        rawCompletionsByQuest = completionsMap
+
+        applyFilters()
+    }
+
+    func applyFilters() {
         let range = dateRangePreset.dateRange
         let filteredByDate: [Quest] = if let range {
-            allQuests.filter { range.contains($0.weekOf) }
+            rawQuests.filter { range.contains($0.weekOf) }
         } else {
-            allQuests
+            rawQuests
         }
 
-        // Filter by hero if selected
         let filteredByHero: [Quest] = if let selectedHero {
             filteredByDate.filter {
                 $0.assignee.recordID == selectedHero.id
@@ -156,14 +195,13 @@ final class QuestLogViewModel {
             filteredByDate
         }
 
-        // Build rows, fetching logs per quest to determine completion status
         var rows: [QuestLogRow] = []
         for quest in filteredByHero {
             let hero = profileByID[quest.assignee.recordID]
             let heroName = hero?.displayName ?? "Unknown Hero"
             let heroIsActive = hero?.isActive ?? false
 
-            let logs = await (try? questService.fetchQuestLogs(forQuest: quest)) ?? []
+            let logs = rawCompletionsByQuest[quest.id.recordName] ?? []
             let status: CompletionStatus = if logs.isEmpty {
                 .notStarted
             } else if logs.contains(where: {
@@ -176,7 +214,6 @@ final class QuestLogViewModel {
                 .pending
             }
 
-            // Apply completion filter
             switch completionFilter {
             case .all:
                 break
@@ -188,7 +225,6 @@ final class QuestLogViewModel {
                 break
             }
 
-            // Restrict inactive-hero quest data to Guild Masters only
             if !heroIsActive, appState.currentProfile?.role != .guildMaster {
                 continue
             }
@@ -201,7 +237,6 @@ final class QuestLogViewModel {
             ))
         }
 
-        // Sort by weekOf descending, then hero name
         rows.sort { lhs, rhs in
             if lhs.quest.weekOf != rhs.quest.weekOf {
                 return lhs.quest.weekOf > rhs.quest.weekOf

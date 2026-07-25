@@ -1,3 +1,10 @@
+//
+//  AvatarCardView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import SwiftUI
 
 struct AvatarCardView: View {
@@ -54,16 +61,27 @@ struct AvatarCardView: View {
 
     private var avatarSymbol: some View {
         ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.16))
-                .frame(width: 120, height: 120)
-                .overlay(
-                    Circle().strokeBorder(Color.gold.opacity(0.7), lineWidth: 2.5)
-                )
-            Image(systemName: model.avatarClass.iconSystemName)
-                .font(.system(size: 56, weight: .regular))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color.gold)
+            if let customData = model.customAvatarImageData, let uiImage = UIImage(data: customData) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 120, height: 120)
+                    .clipShape(Circle())
+                    .overlay(
+                        Circle().strokeBorder(Color.gold.opacity(0.7), lineWidth: 2.5)
+                    )
+            } else {
+                Circle()
+                    .fill(Color.white.opacity(0.16))
+                    .frame(width: 120, height: 120)
+                    .overlay(
+                        Circle().strokeBorder(Color.gold.opacity(0.7), lineWidth: 2.5)
+                    )
+                Image(systemName: model.avatarClass?.iconSystemName ?? "person.crop.circle.fill")
+                    .font(.system(size: 56, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Color.gold)
+            }
         }
     }
 
@@ -80,7 +98,7 @@ struct AvatarCardView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.gold)
 
-            Text(model.avatarClass.displayName)
+            Text(model.effectiveClassDisplay)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
         }

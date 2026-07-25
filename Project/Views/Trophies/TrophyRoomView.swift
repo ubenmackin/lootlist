@@ -1,3 +1,11 @@
+//
+//  TrophyRoomView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
+import SwiftData
 import SwiftUI
 
 struct TrophyRoomView: View {
@@ -6,6 +14,9 @@ struct TrophyRoomView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(XPService.self) private var xpService
     @Environment(AppState.self) private var appState
+
+    @Query private var cachedAchievements: [AchievementCache]
+    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
 
     var body: some View {
         NavigationStack {
@@ -25,6 +36,9 @@ struct TrophyRoomView: View {
                         .accessibilityHidden(true)
                 }
             }
+            .refreshable {
+                await viewModel?.refresh()
+            }
         }
         .task {
             if viewModel == nil {
@@ -36,6 +50,17 @@ struct TrophyRoomView: View {
             }
             await viewModel?.refresh()
         }
+        .onChange(of: cachedAchievements) { _, _ in rebuild() }
+        .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
+    }
+
+    private func rebuild() {
+        guard let familyZoneID = appState.familyZoneID else { return }
+
+        let mappedAchievements = cachedAchievements.map { $0.toAchievement(zoneID: familyZoneID) }
+        let mappedEarned = cachedProfileAchievements.map { $0.toProfileAchievement(zoneID: familyZoneID) }
+
+        viewModel?.rebuildLists(earned: mappedEarned, allAchievements: mappedAchievements)
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {

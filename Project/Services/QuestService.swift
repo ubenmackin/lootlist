@@ -1,3 +1,10 @@
+//
+//  QuestService.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -18,6 +25,10 @@ final class QuestService {
 
     private let xpService: XPService
     let notificationService: NotificationService?
+
+    /// Optional write-through cache. Set after initialization when the cache
+    /// subsystem is available (non-test environments).
+    var cacheService: CacheService?
 
     var cloudKitReference: CloudKitService {
         cloudKit
@@ -67,20 +78,41 @@ final class QuestService {
 
     @discardableResult
     func updateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
-        try await cloudKit.save(template)
+        let saved = try await cloudKit.save(template)
+        cacheService?.upsertQuestTemplate(saved)
+        return saved
     }
 
     @discardableResult
     func deactivateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
         var deactivated = template
         deactivated.isActive = false
-        return try await cloudKit.save(deactivated)
+        let saved = try await cloudKit.save(deactivated)
+        cacheService?.upsertQuestTemplate(saved)
+        return saved
     }
 
     func fetchTemplates(family: Family) async throws -> [QuestTemplate] {
+        if let cache = cacheService {
+            let familyName = family.id.recordName
+            let cached = cache.fetchQuestTemplates(family: familyName)
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    if let fresh = try? await cloudKit.query(QuestTemplate.self, predicate: predicate) {
+                        cacheService?.upsertQuestTemplates(fresh)
+                    }
+                }
+                return cached.map { templateFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            }
+        }
+
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = try await cloudKit.query(QuestTemplate.self, predicate: predicate)
+        cacheService?.upsertQuestTemplates(all)
         return all
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -96,7 +128,7 @@ final class QuestService {
                      createdBy: Profile,
                      family: Family) async throws -> Quest
     {
-        let normalizedWeek = startOfWeek(for: weekOf)
+        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
         let questName = nameOverride.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
             ?? template.name
         let quest = Quest(
@@ -114,6 +146,7 @@ final class QuestService {
             descriptionText: template.description
         )
         let saved = try await cloudKit.save(quest)
+        cacheService?.upsertQuest(saved)
         if let notificationService {
             Task { @Sendable in
                 try? await notificationService.send(
@@ -129,7 +162,9 @@ final class QuestService {
 
     @discardableResult
     func updateQuest(_ quest: Quest) async throws -> Quest {
-        try await cloudKit.save(quest)
+        let saved = try await cloudKit.save(quest)
+        cacheService?.upsertQuest(saved)
+        return saved
     }
 
     @discardableResult
@@ -159,7 +194,7 @@ final class QuestService {
         )
         _ = try await deactivateTemplate(adhocTemplate)
 
-        let normalizedWeek = startOfWeek(for: weekOf)
+        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
         let quest = Quest(
             template: CKRecord.Reference(recordID: adhocTemplate.id, action: .none),
             assignee: CKRecord.Reference(recordID: assignee.id, action: .none),
@@ -175,6 +210,7 @@ final class QuestService {
             descriptionText: description
         )
         let saved = try await cloudKit.save(quest)
+        cacheService?.upsertQuest(saved)
         if let notificationService {
             Task { @Sendable in
                 try? await notificationService.send(
@@ -189,50 +225,105 @@ final class QuestService {
     }
 
     func unassignQuest(_ quest: Quest) async throws {
+        cacheService?.invalidateQuest(recordName: quest.id.recordName)
         try await cloudKit.delete(quest.id)
     }
 
     func fetchActiveQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
-        let normalizedWeek = startOfWeek(for: weekOf)
-        let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(
-            format: "assignee == %@ AND weekOf == %@",
-            assigneeRef, normalizedWeek as CVarArg
-        )
-        let all = try await cloudKit.query(Quest.self, predicate: predicate)
-        let active = all
-            .filter(\.active)
-            .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
-        // Defense-in-depth: stamp names from templates if nil
-        var stamped: [Quest] = []
-        for quest in active {
-            await stamped.append(stampNameIfNeeded(quest))
+        let range = QuestService.weekRange(for: weekOf)
+
+        // Cache-first: check local cache
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let familyName = profile.family.recordID.recordName
+            let weekRange = range.start ... range.end
+            let cached = cache.fetchQuests(family: familyName, weekInRange: weekRange)
+                .filter { $0.assigneeRecordName == profileName && $0.isActive }
+            if !cached.isEmpty {
+                // Background refresh
+                Task { [cloudKit, cacheService] in
+                    let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
+                    if let fresh = try? await cloudKit.query(Quest.self, predicate: predicate) {
+                        cacheService?.upsertQuests(fresh)
+                    }
+                }
+                let cachedQuests = cached.map { questFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                // Defensive: stamp cache-returned quests in case prior cache rows were
+                // written before stamp-before-upsert was adopted (e.g. upgraded installs
+                // still holding legacy "Quest <suffix>" fallback names).
+                var stamped: [Quest] = []
+                for quest in cachedQuests {
+                    await stamped.append(stampNameIfNeeded(quest))
+                }
+                return stamped
+            }
         }
-        return stamped
+
+        let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
+        let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
+        let all = try await cloudKit.query(Quest.self, predicate: predicate)
+        // Stamp names from templates BEFORE upserting so cache rows hold the real
+        // stamped name (not the "Quest <suffix>" DisplayName fallback). Otherwise the
+        // cache would render "Quest abc123" from cache while CloudKit fetches the
+        // real template name, permanently diverging on display.
+        let stampedAll = await stampAllQuests(all)
+        cacheService?.upsertQuests(stampedAll)
+        return stampedAll
+            .filter { $0.active && range.start <= $0.weekOf && $0.weekOf < range.end }
+            .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
     }
 
     func fetchQuestsForFamilyWeek(family: Family, weekOf: Date) async throws -> [Quest] {
-        let normalizedWeek = startOfWeek(for: weekOf)
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(
-            format: "family == %@ AND weekOf == %@",
-            familyRef, normalizedWeek as CVarArg
-        )
-        let all = try await cloudKit.query(Quest.self, predicate: predicate)
-        let active = all
-            .filter(\.active)
-            .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
-        // Defense-in-depth: stamp names from templates if nil
-        var stamped: [Quest] = []
-        for quest in active {
-            await stamped.append(stampNameIfNeeded(quest))
+        let range = QuestService.weekRange(for: weekOf)
+
+        if let cache = cacheService {
+            let familyName = family.id.recordName
+            let weekRange = range.start ... range.end
+            let cached = cache.fetchQuests(family: familyName, weekInRange: weekRange)
+                .filter(\.isActive)
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    if let fresh = try? await cloudKit.query(Quest.self, predicate: predicate) {
+                        cacheService?.upsertQuests(fresh)
+                    }
+                }
+                let cachedQuests = cached.map { questFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                // Defensive: stamp cache-returned quests in case prior cache rows were
+                // written before stamp-before-upsert was adopted (e.g. upgraded installs
+                // still holding legacy "Quest <suffix>" fallback names).
+                var stamped: [Quest] = []
+                for quest in cachedQuests {
+                    await stamped.append(stampNameIfNeeded(quest))
+                }
+                return stamped
+            }
         }
-        return stamped
+
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let predicate = NSPredicate(format: "family == %@", familyRef)
+        let all = try await cloudKit.query(Quest.self, predicate: predicate)
+        // Stamp names from templates BEFORE upserting so cache rows hold the real
+        // stamped name (not the "Quest <suffix>" DisplayName fallback). Otherwise the
+        // cache would render "Quest abc123" from cache while CloudKit fetches the
+        // real template name, permanently diverging on display.
+        let stampedAll = await stampAllQuests(all)
+        cacheService?.upsertQuests(stampedAll)
+        return stampedAll
+            .filter { $0.active && range.start <= $0.weekOf && $0.weekOf < range.end }
+            .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
     }
 
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        let existingLogs = try await fetchQuestLogs(forQuest: quest)
+        // Skip cache for the 'already completed' correctness gate — a stale cached
+        // pending log could produce a false alreadyCompleted throw, and a stale
+        // cached empty set could allow a duplicate completion. CloudKit de-dupes
+        // any dup that slips through, but correctness here should not depend on
+        // cache freshness.
+        let existingLogs = await (try? fetchQuestLogs(forQuest: quest, useCache: false)) ?? []
         if existingLogs.contains(where: { $0.verificationStatus != .rejected }) {
             throw QuestServiceError.alreadyCompleted
         }
@@ -248,10 +339,11 @@ final class QuestService {
         var editable = log
         editable.completedDate = completedDate
         let saved = try await cloudKit.save(editable)
+        cacheService?.upsertQuestCompletion(saved)
 
         switch quest.approvalMode {
         case .autoApprove:
-            try await applyReward(for: quest, to: profile)
+            await applyReward(for: quest, to: profile)
         case .parentVerify:
             if let notificationService,
                let parent = try? await cloudKit.fetch(Profile.self, id: quest.createdBy.recordID)
@@ -276,10 +368,11 @@ final class QuestService {
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
         let saved = try await cloudKit.save(updated)
+        cacheService?.upsertQuestCompletion(saved)
 
         let quest = try await cloudKit.fetch(Quest.self, id: questLog.quest.recordID)
         let hero = try await cloudKit.fetch(Profile.self, id: questLog.completedBy.recordID)
-        try await applyReward(for: quest, to: hero)
+        await applyReward(for: quest, to: hero)
 
         if let notificationService {
             Task { @Sendable in
@@ -305,7 +398,9 @@ final class QuestService {
         updated.verificationStatus = .rejected
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
-        return try await cloudKit.save(updated)
+        let saved = try await cloudKit.save(updated)
+        cacheService?.upsertQuestCompletion(saved)
+        return saved
     }
 
     func generateWeeklyQuests(family: Family,
@@ -313,7 +408,7 @@ final class QuestService {
                               createdBy: Profile,
                               heroes: [Profile]) async throws
     {
-        let normalizedWeek = startOfWeek(for: weekOf)
+        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
 
         let templates = try await fetchTemplates(family: family).filter(\.isActive)
         guard !templates.isEmpty, !heroes.isEmpty else { return }
@@ -383,7 +478,7 @@ final class QuestService {
     }
 
     func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
-        let normalizedWeek = startOfWeek(for: weekOf)
+        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
         let logs = try await fetchQuestLogs(for: profile)
             .filter { $0.weekOf == normalizedWeek
                 && ($0.verificationStatus == .autoApproved
@@ -392,22 +487,12 @@ final class QuestService {
 
         guard !logs.isEmpty else { return 0 }
 
-        // Batch-fetch all referenced Quest records in chunked queries (N+1 and limit crash fix).
+        // Fetch referenced Quest records safely per ID (gracefully skipping deleted/missing quests)
         let questIDs = Array(Set(logs.map(\.quest.recordID)))
         var questMap: [CKRecord.ID: Quest] = [:]
-        for chunk in questIDs.chunked(into: 100) {
-            let predicate = NSPredicate(format: "recordID IN %@", chunk)
-            do {
-                let fetched = try await cloudKit.query(Quest.self, predicate: predicate)
-                for quest in fetched {
-                    questMap[quest.id] = quest
-                }
-            } catch {
-                for questID in chunk {
-                    if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
-                        questMap[questID] = fetched
-                    }
-                }
+        for questID in questIDs {
+            if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                questMap[questID] = fetched
             }
         }
 
@@ -420,24 +505,99 @@ final class QuestService {
         return total
     }
 
-    func fetchQuestLogs(forQuest quest: Quest) async throws -> [QuestCompletion] {
+    /// Fetches all `QuestCompletion` records for a single quest.
+    ///
+    /// - Parameter useCache: When `true` (default), reads cache-first (returning
+    ///   the cached subset immediately and refreshing from CloudKit in the
+    ///   background). When `false`, skips the cache and issues a fresh CloudKit
+    ///   query directly. Correctness-gate callers (e.g. `markComplete`'s
+    ///   'already completed' pre-check) should pass `false`: a stale cached
+    ///   pending log could produce a false `alreadyCompleted` throw, and a stale
+    ///   cached empty set could allow a duplicate completion. UI/display paths
+    ///   should keep the default `true` for instant reads.
+    func fetchQuestLogs(forQuest quest: Quest, useCache: Bool = true) async throws -> [QuestCompletion] {
+        if useCache, let cache = cacheService {
+            let questName = quest.id.recordName
+            let cached = cache.fetchQuestCompletions(family: quest.family.recordID.recordName)
+                .filter { $0.questRecordName == questName }
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
+                    let predicate = NSPredicate(format: "quest == %@", questRef)
+                    if let fresh = try? await cloudKit.query(
+                        QuestCompletion.self,
+                        predicate: predicate,
+                        sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+                    ) {
+                        cacheService?.upsertQuestCompletions(fresh)
+                    }
+                }
+                return cached.map { completionFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                    .sorted { $0.completedDate > $1.completedDate }
+            }
+        }
+
         let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
         let predicate = NSPredicate(format: "quest == %@", questRef)
-        return try await cloudKit.query(
+        let all = try await cloudKit.query(
             QuestCompletion.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
+        cacheService?.upsertQuestCompletions(all)
+        return all
     }
 
     func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let cached = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
+                .filter { $0.completerRecordName == profileName }
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "completedBy == %@", profileRef)
+                    if let fresh = try? await cloudKit.query(
+                        QuestCompletion.self,
+                        predicate: predicate,
+                        sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+                    ) {
+                        cacheService?.upsertQuestCompletions(fresh)
+                    }
+                }
+                return cached.map { completionFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                    .sorted { $0.completedDate > $1.completedDate }
+            }
+        }
+
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "completedBy == %@", profileRef)
-        return try await cloudKit.query(
+        let all = try await cloudKit.query(
             QuestCompletion.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
+        cacheService?.upsertQuestCompletions(all)
+        return all
+    }
+
+    // MARK: - Batch Fetch (N+1 fix for Quest Log)
+
+    /// Fetches ALL `QuestCompletion` records for a family in a single CloudKit
+    /// query, replacing the per-quest `fetchQuestLogs(forQuest:)` N+1 pattern.
+    /// Callers should group the results by `quest.recordID.recordName` to resolve
+    /// per-quest completion status client-side.
+    func fetchQuestCompletionsForFamily(family: Family) async throws -> [QuestCompletion] {
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let predicate = NSPredicate(format: "family == %@", familyRef)
+        let completions = try await cloudKit.query(
+            QuestCompletion.self,
+            predicate: predicate,
+            sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+        )
+        // Write-through: upsert every result into the local cache.
+        cacheService?.upsertQuestCompletions(completions)
+        return completions
     }
 
     private func fetchFamily(for reference: CKRecord.Reference) async throws -> Family {
@@ -458,18 +618,49 @@ final class QuestService {
         return updated
     }
 
-    private func applyReward(for quest: Quest, to hero: Profile) async throws {
-        _ = try await xpService.addXP(quest.xpReward, to: hero)
+    /// Stamps every quest in `quests` whose CloudKit name is nil/empty, returning
+    /// a new array whose elements reference the stamped Quests (and persisted via
+    /// `stampNameIfNeeded`'s async CloudKit save). Used to ensure cache upserts
+    /// receive the real template name instead of the "Quest <suffix>" fallback.
+    private func stampAllQuests(_ quests: [Quest]) async -> [Quest] {
+        var stamped: [Quest] = []
+        stamped.reserveCapacity(quests.count)
+        for quest in quests {
+            await stamped.append(stampNameIfNeeded(quest))
+        }
+        return stamped
     }
 
-    private func startOfWeek(for date: Date) -> Date {
-        let components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
-        return calendar.date(from: components) ?? date
+    private func applyReward(for quest: Quest, to hero: Profile) async {
+        _ = try? await xpService.addXP(quest.xpReward, to: hero)
+    }
+
+    /// Returns the Monday (start of ISO week) for the given date.
+    /// Canonical implementation lives on `TreasuryService.mondayOfWeek(for:)`;
+    /// this is a thin forwarder so all quest read/write paths share one definition.
+    static func mondayOfWeek(for date: Date) -> Date {
+        TreasuryService.mondayOfWeek(for: date)
+    }
+
+    /// Half-open `[start, end)` interval spanning the ISO week containing `date`.
+    ///
+    /// NOTE: `TreasuryService.weekRange(starting:)` returns a CLOSED `DateInterval`
+    /// (end = start + secondsInWeek - 1, i.e. Sunday 23:59:59) for its own consumers
+    /// (`<= weekEnding` and `DateInterval.contains`). Quest read paths, however, use
+    /// half-open `[start, end)` predicates (`weekOf >= start AND weekOf < end`, plus
+    /// `CacheService.fetchQuests(weekInRange:)`'s internal `item.weekOf < end`).
+    /// Forwarding to TreasuryService's closed interval would break that contract for
+    /// any `weekOf` every normalized to anything other than Monday 00:00:00. Compute
+    /// the half-open range directly here so all QuestService/CacheService consumers
+    /// share consistent boundary semantics
+    static func weekRange(for date: Date) -> (start: Date, end: Date) {
+        let start = mondayOfWeek(for: date)
+        let end = start.addingTimeInterval(7 * 24 * 60 * 60)
+        return (start, end)
     }
 
     private func weekdayCodes(inWeekOf weekOf: Date) -> Set<String> {
-        let codes = ["sunday", "monday", "tuesday", "wednesday",
-                     "thursday", "friday", "saturday"]
+        let codes = AppConstants.weekdayCodes
         var found: Set<String> = []
         for offset in 0 ..< 7 {
             let day = calendar.date(
@@ -481,5 +672,60 @@ final class QuestService {
             found.insert(codes[index])
         }
         return found
+    }
+
+    // MARK: - Cache Helpers
+
+    private func questFromCache(_ cache: QuestCache, zoneID: CKRecordZone.ID) -> Quest {
+        Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.templateRecordName ?? "", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.assigneeRecordName, zoneID: zoneID), action: .none),
+            goldReward: cache.goldReward,
+            xpReward: cache.xpReward,
+            scheduleType: QuestSchedule(rawValue: cache.scheduleType) ?? .weeklyFlexible,
+            isAllOrNothing: cache.isAllOrNothing,
+            approvalMode: ApprovalMode(rawValue: cache.approvalMode) ?? .autoApprove,
+            weekOf: cache.weekOf,
+            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.createdByRecordName, zoneID: zoneID), action: .none),
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.familyRecordName, zoneID: zoneID), action: .none),
+            name: cache.questName,
+            descriptionText: cache.descriptionText,
+            id: CKRecord.ID(recordName: cache.recordName, zoneID: zoneID)
+        )
+    }
+
+    private func templateFromCache(_ cache: QuestTemplateCache, zoneID: CKRecordZone.ID) -> QuestTemplate {
+        QuestTemplate(
+            name: cache.name,
+            description: cache.templateDescription,
+            defaultGold: cache.goldReward,
+            xpReward: cache.xpReward,
+            scheduleType: QuestSchedule(rawValue: cache.scheduleType) ?? .weeklyFlexible,
+            specificDays: cache.specificDays ?? [],
+            isAllOrNothing: cache.isAllOrNothing,
+            approvalMode: ApprovalMode(rawValue: cache.approvalMode) ?? .autoApprove,
+            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.createdByRecordName, zoneID: zoneID), action: .none),
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.familyRecordName, zoneID: zoneID), action: .none),
+            isActive: cache.isActive,
+            id: CKRecord.ID(recordName: cache.recordName, zoneID: zoneID)
+        )
+    }
+
+    private func completionFromCache(_ cache: QuestCompletionCache, zoneID: CKRecordZone.ID) -> QuestCompletion {
+        var completion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.questRecordName, zoneID: zoneID), action: .none),
+            completedBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.completerRecordName, zoneID: zoneID), action: .none),
+            approvalMode: .autoApprove, // Dummy, overridden by verificationStatus
+            weekOf: cache.weekOf,
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.familyRecordName, zoneID: zoneID), action: .none),
+            id: CKRecord.ID(recordName: cache.recordName, zoneID: zoneID)
+        )
+        completion.completedDate = cache.completedDate
+        completion.verificationStatus = VerificationStatus(rawValue: cache.verificationStatus) ?? .pending
+        if let verifiedByName = cache.verifiedByRecordName {
+            completion.verifiedBy = CKRecord.Reference(recordID: CKRecord.ID(recordName: verifiedByName, zoneID: zoneID), action: .none)
+        }
+        completion.verifiedDate = cache.verifiedDate
+        return completion
     }
 }

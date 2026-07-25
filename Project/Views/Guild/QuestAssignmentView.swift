@@ -1,8 +1,13 @@
-// swiftlint:disable file_length
+//
+//  QuestAssignmentView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
-// swiftlint:disable:next type_body_length
 struct QuestAssignmentView: View {
     var mode: Mode = .fromTemplate
     @Bindable var viewModel: QuestManagerViewModel
@@ -70,6 +75,7 @@ struct QuestAssignmentView: View {
     // --- Shared ---
     @State private var validationError: String?
     @State private var isSubmitting: Bool = false
+    @State private var userEditedQuestName: Bool = false
 
     /// --- Creation-mode picker (for create modes only) ---
     enum CreationPickerOption: String, CaseIterable, Identifiable {
@@ -91,14 +97,7 @@ struct QuestAssignmentView: View {
         }
     }
 
-    private static let weekdayCodes: [String] = [
-        "sunday", "monday", "tuesday", "wednesday",
-        "thursday", "friday", "saturday"
-    ]
-    private static let weekdayDisplay: [String] = [
-        "Sunday", "Monday", "Tuesday", "Wednesday",
-        "Thursday", "Friday", "Saturday"
-    ]
+    private static let weekdayCodes: [String] = AppConstants.weekdayCodes
 
     var body: some View {
         NavigationStack {
@@ -219,9 +218,8 @@ struct QuestAssignmentView: View {
                     }
                 }
                 .onChange(of: selectedTemplate) { _, newTemplate in
-                    if mode == .fromTemplate, editQuestName.isEmpty || editQuestName == (selectedTemplate?.name ?? "") {
-                        editQuestName = newTemplate?.name ?? ""
-                    }
+                    guard mode == .fromTemplate, !userEditedQuestName else { return }
+                    editQuestName = newTemplate?.name ?? ""
                 }
             }
         }
@@ -229,6 +227,9 @@ struct QuestAssignmentView: View {
         // Edit-mode name override (fromTemplate path)
         Section {
             TextField("Quest Name", text: $editQuestName)
+                .onChange(of: editQuestName) { _, _ in
+                    userEditedQuestName = true
+                }
             if let template = selectedTemplate {
                 Text("From template: \(template.name)")
                     .font(.caption)
@@ -245,15 +246,24 @@ struct QuestAssignmentView: View {
         }
 
         Section {
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Gold Override")
                     .foregroundStyle(.secondary)
-                Spacer()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
+                            PresetPill(
+                                text: "$\(preset)",
+                                isSelected: goldOverrideText == preset,
+                                action: { goldOverrideText = preset }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
                 TextField(selectedTemplate?.defaultGold.mapToText() ?? "",
                           text: $goldOverrideText)
                     .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 80)
             }
 
             HStack {
@@ -295,21 +305,22 @@ struct QuestAssignmentView: View {
         }
 
         Section("Rewards") {
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Gold Reward")
-                Spacer()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
+                            PresetPill(
+                                text: "$\(preset)",
+                                isSelected: quickGoldText == preset,
+                                action: { quickGoldText = preset }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
                 TextField("1.00", text: $quickGoldText)
                     .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 80)
-            }
-            HStack(spacing: 8) {
-                Text("Presets:")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                presetPill("$1.00") { quickGoldText = "1.00" }
-                presetPill("$2.50") { quickGoldText = "2.50" }
-                presetPill("$5.00") { quickGoldText = "5.00" }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -325,29 +336,13 @@ struct QuestAssignmentView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(QuestRarity.allCases) { rarity in
-                            let isSelected = quickRarity == rarity
-                            Button {
-                                quickRarity = rarity
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: rarity.iconSystemName)
-                                        .font(.caption)
-                                    Text("\(rarity.rawValue) (\(rarity.xpReward) XP)")
-                                        .font(.caption.weight(.semibold))
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule()
-                                        .fill(isSelected ? rarity.color : rarity.color.opacity(0.12))
-                                )
-                                .foregroundStyle(isSelected ? Color.white : rarity.color)
-                                .overlay(
-                                    Capsule()
-                                        .strokeBorder(rarity.color.opacity(0.4), lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(.plain)
+                            PresetPill(
+                                text: "\(rarity.rawValue) (\(rarity.xpReward) XP)",
+                                isSelected: quickRarity == rarity,
+                                action: { quickRarity = rarity },
+                                systemImage: rarity.iconSystemName,
+                                color: rarity.color
+                            )
                         }
                     }
                     .padding(.vertical, 2)
@@ -363,19 +358,27 @@ struct QuestAssignmentView: View {
             }
 
             if quickSchedule == .specificDays {
-                ForEach(Array(Self.weekdayCodes.indices), id: \.self) { idx in
-                    let code = Self.weekdayCodes[idx]
-                    let label = Self.weekdayDisplay[idx]
-                    Toggle(label, isOn: Binding(
-                        get: { quickSpecificDays.contains(code) },
-                        set: { isOn in
-                            if isOn {
-                                quickSpecificDays.insert(code)
-                            } else {
-                                quickSpecificDays.remove(code)
+                VStack(alignment: .leading) {
+                    Text("Repeat On")
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(Self.weekdayCodes.indices), id: \.self) { idx in
+                                let code = Self.weekdayCodes[idx]
+                                PresetPill(
+                                    text: AppConstants.weekdayAbbreviated[idx],
+                                    isSelected: quickSpecificDays.contains(code),
+                                    action: {
+                                        if quickSpecificDays.contains(code) {
+                                            quickSpecificDays.remove(code)
+                                        } else {
+                                            quickSpecificDays.insert(code)
+                                        }
+                                    }
+                                )
                             }
                         }
-                    ))
+                        .padding(.vertical, 2)
+                    }
                 }
             }
 
@@ -503,17 +506,6 @@ struct QuestAssignmentView: View {
         }
     }
 
-    private func presetPill(_ text: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(text)
-                .font(.caption.bold())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-        }
-        .buttonStyle(.plain)
-    }
-
     // MARK: - Submit disabled
 
     private var isSubmitDisabled: Bool {
@@ -542,6 +534,8 @@ struct QuestAssignmentView: View {
             if selectedHero == nil {
                 selectedHero = viewModel.heroes.first
             }
+            // Allow template selection to auto-sync name until user types
+            userEditedQuestName = false
             // Pre-fill template name
             editQuestName = selectedTemplate?.name ?? ""
         case .quickCreate:
@@ -556,6 +550,8 @@ struct QuestAssignmentView: View {
     private func loadQuestForEditing(questID: CKRecord.ID) {
         guard let quest = viewModel.activeAssignments.first(where: { $0.id == questID }) else { return }
         editQuest = quest
+        // Edited quest name must not be clobbered by template selection
+        userEditedQuestName = true
         editQuestName = quest.name ?? ""
         editQuestDescription = quest.descriptionText ?? ""
         editGoldText = String(format: "%.2f", quest.goldReward)
@@ -725,9 +721,7 @@ struct QuestAssignmentView: View {
     }
 
     private static func defaultWeekOf() -> Date {
-        let cal = Calendar.iso8601UTC
-        let comps = cal.dateComponents([.yearForWeekOfYear, .weekOfYear], from: Date())
-        return cal.date(from: comps) ?? Date()
+        QuestService.mondayOfWeek(for: Date())
     }
 }
 

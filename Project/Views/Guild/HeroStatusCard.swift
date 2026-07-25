@@ -1,3 +1,10 @@
+//
+//  HeroStatusCard.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
@@ -202,9 +209,12 @@ struct HeroStatusCard: View {
         let preset = AvatarPreset.preset(forProfile: profile)
         return AvatarRenderSpec(
             preset: preset,
+            customAvatarImageData: profile.customAvatarImageData,
             displayName: profile.displayName,
             levelTitle: XPService.title(forLevel: profile.level),
-            equippedAccessory: nil
+            equippedAccessory: nil,
+            avatarClass: profile.avatarClass,
+            role: profile.role
         )
     }
 }

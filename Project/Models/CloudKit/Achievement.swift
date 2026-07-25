@@ -1,3 +1,10 @@
+//
+//  Achievement.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -17,6 +24,26 @@ struct Achievement: Identifiable, Equatable, Sendable {
     var requirementValue: Int
 
     var family: CKRecord.Reference
+
+    init(
+        id: CKRecord.ID,
+        name: String,
+        description: String,
+        iconSystemName: String,
+        category: AchievementCategory,
+        requirementType: AchievementRequirement,
+        requirementValue: Int,
+        family: CKRecord.Reference
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.iconSystemName = iconSystemName
+        self.category = category
+        self.requirementType = requirementType
+        self.requirementValue = requirementValue
+        self.family = family
+    }
 
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {

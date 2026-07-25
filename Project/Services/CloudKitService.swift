@@ -1,5 +1,9 @@
-// swiftlint:disable file_length
-// CloudKit service consolidates all CK operations under one coordinator; splitting would be an architectural refactor outside lint scope.
+//
+//  CloudKitService.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
 
 import CloudKit
 import Foundation
@@ -111,27 +115,69 @@ actor SubscriptionManager {
 
 @MainActor
 @Observable
-// swiftlint:disable:next type_body_length
 final class CloudKitService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CloudKitService")
 
-    private let container: CKContainer
+    private var containerStorage: CKContainer?
+
+    var container: CKContainer {
+        if let containerStorage {
+            return containerStorage
+        }
+        if TestEnvironment.isRunningUnitOrUITests {
+            let defaultContainer = CKContainer.default()
+            containerStorage = defaultContainer
+            return defaultContainer
+        }
+        let customContainer = CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+        containerStorage = customContainer
+        return customContainer
+    }
+
+    private var cachedDatabase: CKDatabase?
+    private var cachedPrivateDatabase: CKDatabase?
+    private var cachedSharedDatabase: CKDatabase?
 
     /// The database used for standard CRUD. Defaults to the private database.
     /// Downstream services should call `database(isOwner:)` to route correctly.
-    let database: CKDatabase
+    var database: CKDatabase {
+        if let cachedDatabase {
+            return cachedDatabase
+        }
+        let db = container.privateCloudDatabase
+        cachedDatabase = db
+        return db
+    }
 
     /// Private database — used by zone owners (Guild Masters) for zone creation,
     /// record saves, and CKShare management.
-    let privateDatabase: CKDatabase
+    var privateDatabase: CKDatabase {
+        if let cachedPrivateDatabase {
+            return cachedPrivateDatabase
+        }
+        let db = container.privateCloudDatabase
+        cachedPrivateDatabase = db
+        return db
+    }
 
     /// Shared database — used by share participants (Heroes) for reading/writing
     /// family data that has been shared with them via CKShare.
-    let sharedDatabase: CKDatabase
+    var sharedDatabase: CKDatabase {
+        if let cachedSharedDatabase {
+            return cachedSharedDatabase
+        }
+        let db = container.sharedCloudDatabase
+        cachedSharedDatabase = db
+        return db
+    }
 
     let defaultZoneID: CKRecordZone.ID
 
     private let subscriptionManager = SubscriptionManager()
+
+    static var defaultContainer: CKContainer {
+        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+    }
 
     var activeSubscriptions: Set<String> {
         get async {
@@ -139,20 +185,16 @@ final class CloudKitService {
         }
     }
 
-    static var defaultContainer: CKContainer {
-        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
-    }
-
-    init(container: CKContainer = CloudKitService.defaultContainer,
+    init(container: CKContainer? = nil,
          zoneID: CKRecordZone.ID = CKRecordZone.ID(zoneName: "LootListZone",
                                                    ownerName: CKCurrentUserDefaultName))
     {
-        self.container = container
-        privateDatabase = container.privateCloudDatabase
-        sharedDatabase = container.sharedCloudDatabase
-        // Default database is private; callers should use database(isOwner:)
-        // for context-aware routing.
-        database = container.privateCloudDatabase
+        if let container {
+            containerStorage = container
+            cachedPrivateDatabase = container.privateCloudDatabase
+            cachedSharedDatabase = container.sharedCloudDatabase
+            cachedDatabase = container.privateCloudDatabase
+        }
         defaultZoneID = zoneID
     }
 
@@ -214,15 +256,17 @@ final class CloudKitService {
         let targetDB = db ?? activeFamilyDatabase
 
         let source = model.toRecord()
-        let targetID = CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
+        let targetID: CKRecord.ID = {
+            if source.recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
+                return source.recordID
+            }
+            return CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
+        }()
 
-        let recordToSave: CKRecord
-        do {
-            recordToSave = try await targetDB.record(for: targetID)
-        } catch let ckError as CKError where ckError.code == .unknownItem {
-            recordToSave = CKRecord(recordType: T.recordType, recordID: targetID)
-        } catch {
-            throw wrapError(error)
+        let recordToSave: CKRecord = if let existing = try? await targetDB.record(for: targetID) {
+            existing
+        } else {
+            CKRecord(recordType: T.recordType, recordID: targetID)
         }
 
         if T.recordType != Family.recordType {
@@ -499,17 +543,25 @@ final class CloudKitService {
 
     /// Fetches an existing CKShare URL for the zone, or creates a new CKShare if one does not exist.
     func fetchOrCreateShareURL(in zoneID: CKRecordZone.ID, rootRecordID: CKRecord.ID) async throws -> URL {
+        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+            return URL(string: "https://www.icloud.com/share/test-mock-share")!
+        }
         let pvtDB = privateDatabase
         let targetID = CKRecord.ID(recordName: rootRecordID.recordName, zoneID: zoneID)
 
         // Step 1: Check root record's share reference directly via point lookup (requires no query index)
         if let rootRecord = try? await pvtDB.record(for: targetID),
            let shareRef = rootRecord.share,
-           let existingShare = await (try? pvtDB.record(for: shareRef.recordID)) as? CKShare,
-           let existingURL = existingShare.url
+           let existingShare = await (try? pvtDB.record(for: shareRef.recordID)) as? CKShare
         {
-            logger.info("Found existing CKShare URL via rootRecord.share: \(existingURL, privacy: .private)")
-            return existingURL
+            if existingShare.publicPermission != .readWrite {
+                existingShare.publicPermission = .readWrite
+                _ = try? await pvtDB.save(existingShare)
+            }
+            if let existingURL = existingShare.url {
+                logger.info("Found existing CKShare URL via rootRecord.share: \(existingURL, privacy: .private)")
+                return existingURL
+            }
         }
 
         // Step 2: Fallback query search

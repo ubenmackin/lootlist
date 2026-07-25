@@ -1,3 +1,10 @@
+//
+//  OnboardingViewModel.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -25,6 +32,8 @@ final class OnboardingViewModel {
     var avatarClass: AvatarClass?
 
     var avatarPresetID: String?
+
+    var customAvatarImageData: Data?
 
     var shareURLString: String = ""
 
@@ -107,24 +116,20 @@ final class OnboardingViewModel {
             error = "Your guild needs a name, Guild Master."
             return
         }
-        guard let avatarClass else {
-            error = "Choose a character class first."
-            return
-        }
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            error = "Pick a hero name before founding your guild."
+            error = "Pick a name before founding your guild."
             return
         }
 
         isLoading = true
         error = nil
 
-        let presetID = avatarPresetID ?? "\(avatarClass.presetPrefix)_01"
         let ownerProfile = await Profile(
             displayName: trimmedName,
             avatarClass: avatarClass,
-            avatarPresetID: presetID,
+            avatarPresetID: avatarPresetID,
+            customAvatarImageData: customAvatarImageData,
             role: .guildMaster,
             iCloudUserID: iCloudUserID(),
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
@@ -153,13 +158,9 @@ final class OnboardingViewModel {
 
     /// Joins a family via a CKShare link (opened from iMessage/AirDrop or pasted into the app).
     func joinFamilyViaShareLink() async {
-        guard let avatarClass else {
-            error = "Choose a character class first."
-            return
-        }
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            error = "Pick a hero name before joining your party."
+            error = "Pick a name before joining your party."
             return
         }
 
@@ -188,11 +189,11 @@ final class OnboardingViewModel {
             return
         }
 
-        let presetID = avatarPresetID ?? "\(avatarClass.presetPrefix)_01"
         let heroProfile = await Profile(
             displayName: trimmedName,
             avatarClass: avatarClass,
-            avatarPresetID: presetID,
+            avatarPresetID: avatarPresetID,
+            customAvatarImageData: customAvatarImageData,
             role: .hero,
             iCloudUserID: iCloudUserID(),
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
@@ -241,6 +242,7 @@ final class OnboardingViewModel {
         displayName = ""
         avatarClass = nil
         avatarPresetID = nil
+        customAvatarImageData = nil
         shareURLString = ""
         familyName = ""
         error = nil

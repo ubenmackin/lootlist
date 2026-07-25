@@ -1,3 +1,10 @@
+//
+//  QuestSchedule.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 enum QuestSchedule: String, Codable, CaseIterable, Sendable {

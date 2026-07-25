@@ -1,3 +1,10 @@
+//
+//  SpendingService.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -43,9 +50,11 @@ extension SpendingService {
 @MainActor
 final class ManualSpendingService: SpendingService {
     private let cloudKit: CloudKitService
+    var cacheService: CacheService?
 
-    init(cloudKit: CloudKitService) {
+    init(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
+        self.cacheService = cacheService
     }
 
     func isAvailable() -> Bool {
@@ -56,17 +65,14 @@ final class ManualSpendingService: SpendingService {
                            in dateRange: DateInterval) async throws -> [LedgerEntry]
     {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(
-            format: "profile == %@ AND date >= %@ AND date <= %@",
-            profileRef as CVarArg,
-            dateRange.start as CVarArg,
-            dateRange.end as CVarArg
-        )
-        return try await cloudKit.query(
+        let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
+        let all = try await cloudKit.query(
             LedgerEntry.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)]
         )
+        cacheService?.upsertLedgerEntries(all)
+        return all.filter { dateRange.contains($0.date) }
     }
 
     func logManual(profile: Profile,
@@ -92,7 +98,9 @@ final class ManualSpendingService: SpendingService {
         )
         let zoneID = cloudKit.resolvedZoneID
         let db = cloudKit.activeFamilyDatabase
-        return try await cloudKit.save(entry, in: zoneID, using: db)
+        let saved = try await cloudKit.save(entry, in: zoneID, using: db)
+        cacheService?.upsertLedgerEntry(saved)
+        return saved
     }
 
     func delete(_ entry: LedgerEntry) async throws {

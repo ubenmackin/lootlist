@@ -1,4 +1,12 @@
+//
+//  TreasuryView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct TreasuryView: View {
@@ -10,6 +18,10 @@ struct TreasuryView: View {
     @State private var viewModel: TreasuryViewModel?
 
     @State private var isShowingLogSpending: Bool = false
+
+    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var cachedQuests: [QuestCache]
 
     init(spending: any SpendingService) {
         self.spending = spending
@@ -56,8 +68,28 @@ struct TreasuryView: View {
                 }
                 await viewModel?.refresh()
             }
-            .refreshable { await viewModel?.refresh() }
+            .onChange(of: cachedCompletions) { _, _ in rebuild() }
+            .onChange(of: cachedLedgers) { _, _ in rebuild() }
+            .onChange(of: cachedQuests) { _, _ in rebuild() }
+            .refreshable {
+                await viewModel?.refresh()
+            }
         }
+    }
+
+    private func rebuild() {
+        guard let familyZoneID = appState.familyZoneID else { return }
+
+        let mappedLogs = cachedCompletions.map { $0.toQuestCompletion(zoneID: familyZoneID) }
+        let mappedLedgers = cachedLedgers.map { $0.toLedgerEntry(zoneID: familyZoneID) }
+        let mappedQuests = cachedQuests.map { $0.toQuest(zoneID: familyZoneID) }
+
+        viewModel?.rebuildLists(
+            logs: mappedLogs,
+            ledgers: mappedLedgers,
+            quests: mappedQuests,
+            showAllTime: false // Default log mode
+        )
     }
 
     @ViewBuilder

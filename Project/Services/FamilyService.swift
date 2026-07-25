@@ -1,3 +1,10 @@
+//
+//  FamilyService.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 import os
@@ -22,15 +29,15 @@ final class FamilyService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
     private let cloudKit: CloudKitService
-
     private let appState: AppState
-
     private let questService: QuestService
+    var cacheService: CacheService?
 
-    init(cloudKit: CloudKitService, appState: AppState, questService: QuestService) {
+    init(cloudKit: CloudKitService, appState: AppState, questService: QuestService, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.appState = appState
         self.questService = questService
+        self.cacheService = cacheService
     }
 
     // MARK: - Family Creation (Guild Master Flow)
@@ -72,6 +79,7 @@ final class FamilyService {
         // Step 2: Save the Family record in the private database.
         do {
             family = try await cloudKit.save(family, in: zoneID, using: pvtDB)
+            cacheService?.upsertFamily(family)
         } catch {
             throw FamilyServiceError.creationFailed(
                 "Could not save family record: \(error)"
@@ -96,6 +104,7 @@ final class FamilyService {
         let savedOwner: Profile
         do {
             savedOwner = try await cloudKit.save(owner, in: zoneID, using: pvtDB)
+            cacheService?.upsertProfile(savedOwner)
         } catch {
             throw FamilyServiceError.creationFailed(
                 "Could not save guild master profile: \(error)"
@@ -162,6 +171,7 @@ final class FamilyService {
 
         do {
             family = try await cloudKit.fetch(Family.self, id: sharedFamilyID, using: sharedDB)
+            cacheService?.upsertFamily(family)
         } catch {
             throw FamilyServiceError.joinFailed(
                 "Could not fetch family record in shared zone: \(error)"
@@ -177,6 +187,7 @@ final class FamilyService {
         let savedHero: Profile
         do {
             savedHero = try await cloudKit.save(hero, in: zoneID, using: sharedDB)
+            cacheService?.upsertProfile(savedHero)
         } catch {
             throw FamilyServiceError.joinFailed(
                 "Could not save hero profile: \(error)"
@@ -209,6 +220,7 @@ final class FamilyService {
         let (zoneID, db) = familyContext(for: family.id)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertFamily(saved)
             appState.family = saved
             return saved
         } catch {
@@ -226,6 +238,7 @@ final class FamilyService {
         let (zoneID, db) = familyContext(for: family.id)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertFamily(saved)
             appState.family = saved
             return saved
         } catch {
@@ -243,6 +256,7 @@ final class FamilyService {
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertProfile(saved)
             if appState.currentProfile?.id == saved.id {
                 appState.currentProfile = saved
             }
@@ -267,6 +281,7 @@ final class FamilyService {
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertProfile(saved)
             if appState.currentProfile?.id == saved.id {
                 appState.currentProfile = saved
             }
@@ -278,13 +293,59 @@ final class FamilyService {
         }
     }
 
+    @discardableResult
+    func updateProfileAvatar(profile: Profile,
+                             avatarClass: AvatarClass?,
+                             avatarPresetID: String?,
+                             customAvatarImageData: Data?) async throws -> Profile
+    {
+        var updated = profile
+        updated.avatarClass = avatarClass
+        updated.avatarPresetID = avatarPresetID
+        updated.customAvatarImageData = customAvatarImageData
+
+        let (zoneID, db) = familyContext(for: profile.family.recordID)
+        do {
+            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertProfile(saved)
+            if appState.currentProfile?.id == saved.id {
+                appState.currentProfile = saved
+            }
+            return saved
+        } catch {
+            throw FamilyServiceError.persistenceFailed(
+                "Could not update avatar: \(error)"
+            )
+        }
+    }
+
     // MARK: - Role & Membership Management
 
     /// Fetches all active hero profiles belonging to the given family.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
+        // Cache-first: return cached profiles immediately
+        if let cache = cacheService {
+            let familyName = family.id.recordName
+            let cached = cache.fetchProfiles(family: familyName)
+                .filter { $0.role == UserRole.hero.rawValue && $0.isActive }
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+            if !cached.isEmpty {
+                // Background refresh
+                Task { [cloudKit, cacheService] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate) {
+                        cacheService?.upsertProfiles(fresh)
+                    }
+                }
+                return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
+            }
+        }
+        // Fallback to CloudKit
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = try await cloudKit.query(Profile.self, predicate: predicate)
+        cacheService?.upsertProfiles(all)
         return all
             .filter { $0.role == .hero && $0.isActive }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -292,9 +353,31 @@ final class FamilyService {
 
     /// Fetches ALL profiles (active AND inactive) for the given family, sorted active first then by name.
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
+        if let cache = cacheService {
+            let familyName = family.id.recordName
+            let cached = cache.fetchProfiles(family: familyName)
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate) {
+                        cacheService?.upsertProfiles(fresh)
+                    }
+                }
+                return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
+                    .sorted { lhs, rhs in
+                        if lhs.isActive != rhs.isActive {
+                            return lhs.isActive && !rhs.isActive // active first
+                        }
+                        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+                    }
+            }
+        }
+
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = try await cloudKit.query(Profile.self, predicate: predicate)
+        cacheService?.upsertProfiles(all)
         return all.sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive {
                 return lhs.isActive && !rhs.isActive // active first
@@ -309,7 +392,8 @@ final class FamilyService {
 
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
-            _ = try await cloudKit.save(updated, in: zoneID, using: db)
+            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertProfile(saved)
         } catch {
             throw FamilyServiceError.persistenceFailed(
                 "Could not update role: \(error)"
@@ -331,14 +415,19 @@ final class FamilyService {
 
     private func unassignActiveQuests(for profile: Profile) async {
         guard appState.family != nil else { return }
-        let calendar = Calendar.iso8601UTC
-        let today = Date()
-        let weekComponents = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: today)
-        let currentWeek = calendar.date(from: weekComponents) ?? today
+        let currentWeek = TreasuryService.mondayOfWeek(for: Date())
+
+        #if DEBUG
+            let questMonday = QuestService.mondayOfWeek(for: Date())
+            assert(
+                questMonday == currentWeek,
+                "TreasuryService.mondayOfWeek and QuestService.mondayOfWeek diverged: \(currentWeek) vs \(questMonday)"
+            )
+        #endif
 
         // Fetch active quests for current week and next week
         let currentQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: currentWeek)) ?? []
-        let nextWeek = calendar.date(byAdding: .weekOfYear, value: 1, to: currentWeek) ?? currentWeek
+        let nextWeek = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: 1, to: currentWeek) ?? currentWeek
         let nextQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: nextWeek)) ?? []
 
         for quest in currentQuests + nextQuests {
@@ -360,7 +449,8 @@ final class FamilyService {
 
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
-            _ = try await cloudKit.save(updated, in: zoneID, using: db)
+            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertProfile(saved)
         } catch {
             throw FamilyServiceError.persistenceFailed("\(errorMessage): \(error)")
         }

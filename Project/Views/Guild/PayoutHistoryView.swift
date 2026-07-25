@@ -1,3 +1,10 @@
+//
+//  PayoutHistoryView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
@@ -6,6 +13,7 @@ struct PayoutHistoryView: View {
     @Environment(QuestService.self) private var questService
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
+    @Environment(FamilyService.self) private var familyService
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var filter: PayoutFilter = .all
@@ -34,6 +42,7 @@ struct PayoutHistoryView: View {
                         questService: questService,
                         treasury: treasury,
                         achievementService: achievementService,
+                        familyService: familyService,
                         appState: appState
                     )
                 }

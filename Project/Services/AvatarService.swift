@@ -1,3 +1,10 @@
+//
+//  AvatarService.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 enum AvatarPreset: String, CaseIterable, Sendable {
@@ -105,13 +112,19 @@ enum AvatarPreset: String, CaseIterable, Sendable {
         allCases.filter { $0.avatarClass == cls }
     }
 
-    static func preset(forProfile profile: Profile) -> AvatarPreset {
-        resolve(profile.avatarClass, id: profile.avatarPresetID)
-            ?? presets(for: profile.avatarClass).first
-            ?? .knightV1
+    static func preset(forProfile profile: Profile) -> AvatarPreset? {
+        guard let cls = profile.avatarClass else {
+            if let id = profile.avatarPresetID, let hit = allCases.first(where: { $0.id == id }) {
+                return hit
+            }
+            return nil
+        }
+        return resolve(cls, id: profile.avatarPresetID)
+            ?? presets(for: cls).first
     }
 
-    static func resolve(_ cls: AvatarClass, id: String) -> AvatarPreset? {
+    static func resolve(_ cls: AvatarClass?, id: String?) -> AvatarPreset? {
+        guard let cls, let id else { return nil }
         if let hit = presets(for: cls).first(where: { $0.id == id }) {
             return hit
         }
@@ -132,7 +145,9 @@ enum AvatarPreset: String, CaseIterable, Sendable {
 }
 
 struct AvatarRenderSpec: Equatable, Sendable {
-    let preset: AvatarPreset
+    let preset: AvatarPreset?
+
+    let customAvatarImageData: Data?
 
     let displayName: String
 
@@ -140,8 +155,16 @@ struct AvatarRenderSpec: Equatable, Sendable {
 
     let equippedAccessory: String?
 
-    var avatarClass: AvatarClass {
-        preset.avatarClass
+    let avatarClass: AvatarClass?
+
+    let role: UserRole
+
+    var effectiveClassDisplay: String {
+        if let avatarClass {
+            avatarClass.displayName
+        } else {
+            role.genericRoleName
+        }
     }
 }
 
@@ -169,9 +192,12 @@ final class AvatarService {
         let equipped = unlocked.last
         return AvatarRenderSpec(
             preset: preset,
+            customAvatarImageData: profile.customAvatarImageData,
             displayName: profile.displayName,
             levelTitle: title,
-            equippedAccessory: equipped
+            equippedAccessory: equipped,
+            avatarClass: profile.avatarClass,
+            role: profile.role
         )
     }
 }

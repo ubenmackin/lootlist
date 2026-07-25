@@ -1,4 +1,12 @@
+//
+//  FamilyDashboardView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct FamilyDashboardView: View {
@@ -12,6 +20,11 @@ struct FamilyDashboardView: View {
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showShareSheet: Bool = false
+
+    @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedLedgers: [LedgerEntryCache]
 
     var body: some View {
         NavigationStack {
@@ -35,6 +48,7 @@ struct FamilyDashboardView: View {
                         questService: questService,
                         treasury: treasury,
                         achievementService: achievementService,
+                        familyService: familyService,
                         appState: appState
                     )
                 }
@@ -46,6 +60,10 @@ struct FamilyDashboardView: View {
                     Task { await viewModel?.refresh() }
                 }
             }
+            .onChange(of: cachedProfiles) { _, _ in rebuild() }
+            .onChange(of: cachedQuests) { _, _ in rebuild() }
+            .onChange(of: cachedCompletions) { _, _ in rebuild() }
+            .onChange(of: cachedLedgers) { _, _ in rebuild() }
             .onDisappear {
                 viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
@@ -53,6 +71,22 @@ struct FamilyDashboardView: View {
                 ShareSheet(items: shareInviteItems)
             }
         }
+    }
+
+    private func rebuild() {
+        guard let familyZoneID = appState.familyZoneID else { return }
+
+        let mappedProfiles = cachedProfiles.map { $0.toProfile(zoneID: familyZoneID) }
+        let mappedQuests = cachedQuests.map { $0.toQuest(zoneID: familyZoneID) }
+        let mappedLogs = cachedCompletions.map { $0.toQuestCompletion(zoneID: familyZoneID) }
+        let mappedLedgers = cachedLedgers.map { $0.toLedgerEntry(zoneID: familyZoneID) }
+
+        viewModel?.rebuildLists(
+            profiles: mappedProfiles,
+            quests: mappedQuests,
+            logs: mappedLogs,
+            ledgers: mappedLedgers
+        )
     }
 
     @ViewBuilder
@@ -74,9 +108,12 @@ struct FamilyDashboardView: View {
                 let preset = AvatarPreset.preset(forProfile: profile)
                 let spec = AvatarRenderSpec(
                     preset: preset,
+                    customAvatarImageData: profile.customAvatarImageData,
                     displayName: profile.displayName,
                     levelTitle: profile.role.displayName,
-                    equippedAccessory: nil
+                    equippedAccessory: nil,
+                    avatarClass: profile.avatarClass,
+                    role: profile.role
                 )
                 AvatarView(spec: spec, size: .small, showsNameAndTitle: false)
 

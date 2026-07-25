@@ -1,3 +1,10 @@
+//
+//  ColorExtensions.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import SwiftUI
 
 extension Color {

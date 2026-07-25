@@ -1,3 +1,10 @@
+//
+//  VerificationStatus.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 enum VerificationStatus: String, Sendable, CaseIterable, Codable {
