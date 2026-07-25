@@ -1,4 +1,12 @@
+//
+//  QuestManagerView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct QuestManagerView: View {
@@ -7,6 +15,9 @@ struct QuestManagerView: View {
     @Environment(QuestService.self) private var questService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(\.scenePhase) private var scenePhase
+
+    @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var cachedAssignments: [QuestCache]
 
     @State private var viewModel: QuestManagerViewModel?
     @State private var selectedTab: ManagerTab = .assignments
@@ -66,6 +77,12 @@ struct QuestManagerView: View {
             .onDisappear {
                 viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
+            .onChange(of: cachedTemplates) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedAssignments) { _, _ in
+                rebuildViewModel()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink {
@@ -77,6 +94,17 @@ struct QuestManagerView: View {
                     } label: {
                         Image(systemName: "scroll")
                     }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        switch selectedTab {
+                        case .assignments: showAssignSheet = true
+                        case .templates: showAddTemplateSheet = true
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(selectedTab == .assignments ? "Assign New Quest" : "New Template")
                 }
             }
             .sheet(isPresented: $showAssignSheet) {
@@ -100,6 +128,23 @@ struct QuestManagerView: View {
                 }
             }
         }
+    }
+
+    private func rebuildViewModel() {
+        guard let vm = viewModel else { return }
+        guard let family = appState.family else { return }
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let familyName = family.id.recordName
+
+        let templates = cachedTemplates
+            .filter { $0.familyRecordName == familyName }
+            .map { $0.toQuestTemplate(zoneID: zoneID) }
+
+        let assignments = cachedAssignments
+            .filter { $0.familyRecordName == familyName && $0.isActive }
+            .map { $0.toQuest(zoneID: zoneID) }
+
+        vm.rebuildLists(templates: templates, assignments: assignments)
     }
 
     private var tabPicker: some View {
@@ -134,19 +179,6 @@ struct QuestManagerView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .safeAreaInset(edge: .bottom) {
-            Button {
-                showAssignSheet = true
-            } label: {
-                Label("Assign New Quest", systemImage: "plus.circle.fill")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.bar)
-        }
     }
 
     private func assignmentRow(quest: Quest, vm: QuestManagerViewModel) -> some View {
@@ -207,19 +239,6 @@ struct QuestManagerView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .safeAreaInset(edge: .bottom) {
-            Button {
-                showAddTemplateSheet = true
-            } label: {
-                Label("New Template", systemImage: "plus.circle.fill")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.bar)
-        }
     }
 
     private func templateRow(template: QuestTemplate, vm: QuestManagerViewModel) -> some View {
@@ -248,12 +267,14 @@ struct QuestManagerView: View {
             editingTemplate = template
         }
         .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                Task { try? await vm.deactivateTemplate(template) }
-            } label: {
-                Label("Deactivate", systemImage: "trash.slash")
-            }
-            if !template.isActive {
+            if template.isActive {
+                Button {
+                    Task { try? await vm.deactivateTemplate(template) }
+                } label: {
+                    Label("Deactivate", systemImage: "trash.slash")
+                }
+                .tint(.orange)
+            } else {
                 Button {
                     Task { try? await vm.reactivateTemplate(template) }
                 } label: {

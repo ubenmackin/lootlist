@@ -1,5 +1,13 @@
+//
+//  AvatarView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
+import UIKit
 
 enum AvatarSize: Sendable {
     case small
@@ -72,20 +80,34 @@ struct AvatarView: View {
                         )
                 )
 
-            if UIImage(named: spec.preset.assetName) != nil {
-                Image(spec.preset.assetName)
+            if let customData = spec.customAvatarImageData, let uiImage = UIImage(data: customData) {
+                Image(uiImage: uiImage)
                     .resizable()
-                    .interpolation(.none)
                     .aspectRatio(contentMode: .fill)
                     .frame(width: size.diameter, height: size.diameter)
-                    .offset(y: size.diameter * 0.07)
                     .clipShape(Circle())
+            } else if let preset = spec.preset {
+                if UIImage(named: preset.assetName) != nil {
+                    Image(preset.assetName)
+                        .resizable()
+                        .interpolation(.none)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: size.diameter, height: size.diameter)
+                        .offset(y: size.diameter * 0.07)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: preset.iconSystemName)
+                        .font(.system(size: size.glyphSize, weight: .regular))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.gold)
+                        .symbolEffect(.pulse, options: .repeating)
+                        .accessibilityHidden(true)
+                }
             } else {
-                Image(systemName: spec.preset.iconSystemName)
-                    .font(.system(size: size.glyphSize, weight: .regular))
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: size.glyphSize * 1.2, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(Color.gold)
-                    .symbolEffect(.pulse, options: .repeating)
                     .accessibilityHidden(true)
             }
 
@@ -148,7 +170,7 @@ struct AvatarView: View {
         {
             return glyph
         }
-        return spec.preset.accessoryIconSystemName
+        return spec.preset?.accessoryIconSystemName
     }
 
     private var classGradient: LinearGradient {
@@ -165,18 +187,21 @@ struct AvatarView: View {
     }
 
     private var classColor: Color {
-        switch spec.avatarClass {
-        case .knight: Color.blue
-        case .mage: Color.purple
-        case .rogue: Color.green
-        case .guardian: Color.teal
-        case .healer: Color.pink
+        guard let cls = spec.avatarClass else {
+            return spec.role.isParent ? Color.orange : Color.blue
+        }
+        switch cls {
+        case .knight: return Color.blue
+        case .mage: return Color.purple
+        case .rogue: return Color.green
+        case .guardian: return Color.teal
+        case .healer: return Color.pink
         }
     }
 
     private var accessibilityLabel: String {
         var parts: [String] = [
-            "\(spec.preset.displayName) \(spec.avatarClass.displayName)",
+            spec.effectiveClassDisplay,
             spec.displayName,
             spec.levelTitle
         ]

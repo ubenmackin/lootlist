@@ -1,3 +1,10 @@
+//
+//  DetectedFamilyView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
@@ -94,7 +101,7 @@ struct DetectedFamilyView: View {
     private var familyCard: some View {
         VStack(spacing: 16) {
             HStack(spacing: 16) {
-                Image(systemName: profile.avatarClass.iconSystemName)
+                Image(systemName: profile.avatarClass?.iconSystemName ?? profile.role.iconSystemName)
                     .font(.system(size: 32))
                     .foregroundStyle(.orange)
                     .frame(width: 56, height: 56)

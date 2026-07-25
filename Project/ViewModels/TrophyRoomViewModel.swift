@@ -1,3 +1,10 @@
+//
+//  TrophyRoomViewModel.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -51,11 +58,21 @@ final class TrophyRoomViewModel {
         }
     }
 
+    func rebuildLists(earned: [ProfileAchievement], allAchievements: [Achievement]) {
+        guard let profile = appState.currentProfile else { return }
+
+        self.earned = earned.filter { $0.profile.recordID == profile.id }
+        self.allAchievements = allAchievements
+        avatarCard = makeAvatarCard(profile: profile)
+    }
+
     private func makeAvatarCard(profile: Profile) -> AvatarCardModel {
         let progress = xpService.levelProgress(profile: profile)
         return AvatarCardModel(
             displayName: profile.displayName,
             avatarClass: profile.avatarClass,
+            customAvatarImageData: profile.customAvatarImageData,
+            role: profile.role,
             title: XPService.title(forLevel: profile.level),
             level: profile.level,
             xpIntoCurrentLevel: progress.xpIntoCurrentLevel,
@@ -68,11 +85,21 @@ final class TrophyRoomViewModel {
 
 struct AvatarCardModel: Equatable, Sendable {
     let displayName: String
-    let avatarClass: AvatarClass
+    let avatarClass: AvatarClass?
+    let customAvatarImageData: Data?
+    let role: UserRole
     let title: String
     let level: Int
     let xpIntoCurrentLevel: Int
     let xpForNextLevel: Int
     let progress: Double
     let accessories: [String]
+
+    var effectiveClassDisplay: String {
+        if let avatarClass {
+            avatarClass.displayName
+        } else {
+            role.genericRoleName
+        }
+    }
 }

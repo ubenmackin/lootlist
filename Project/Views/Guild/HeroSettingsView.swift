@@ -1,3 +1,10 @@
+//
+//  HeroSettingsView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
@@ -57,7 +64,7 @@ struct HeroSettingsView: View {
                 Circle()
                     .fill(Color.purple.opacity(0.16))
                     .frame(width: 56, height: 56)
-                Image(systemName: hero.avatarClass.iconSystemName)
+                Image(systemName: hero.avatarClass?.iconSystemName ?? hero.role.iconSystemName)
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.purple)
             }
@@ -74,7 +81,7 @@ struct HeroSettingsView: View {
                         .background(Capsule().fill(Color.accentColor.opacity(0.15)))
                         .foregroundStyle(Color.accentColor)
 
-                    Text(hero.avatarClass.displayName)
+                    Text(hero.effectiveClassDisplay)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

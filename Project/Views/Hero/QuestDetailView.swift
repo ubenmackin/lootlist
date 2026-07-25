@@ -1,8 +1,16 @@
+//
+//  QuestDetailView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
 struct QuestDetailView: View {
     let quest: Quest
+    let initialLog: QuestCompletion?
 
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
@@ -10,8 +18,15 @@ struct QuestDetailView: View {
     @State private var latestLog: QuestCompletion?
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
+    @State private var isLoadingLog: Bool = false
     @State private var error: String?
     @State private var isErrorPresented: Bool = false
+
+    init(quest: Quest, initialLog: QuestCompletion? = nil) {
+        self.quest = quest
+        self.initialLog = initialLog
+        _latestLog = State(initialValue: initialLog)
+    }
 
     var body: some View {
         ScrollView {
@@ -22,7 +37,7 @@ struct QuestDetailView: View {
                 if let log = latestLog {
                     statusCard(log: log)
                 }
-                slainButton
+                completeButton
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -127,39 +142,43 @@ struct QuestDetailView: View {
         )
     }
 
-    private var slainButton: some View {
+    private var completeButton: some View {
         Button {
-            Task { await slain() }
+            Task { await completeQuest() }
         } label: {
-            HStack {
-                Image(systemName: "sword.fill")
-                Text(slainButtonLabel)
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                Text(completeButtonLabel)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .tint(.red)
-        .disabled(slainButtonDisabled)
-        .opacity(slainButtonDisabled ? 0.6 : 1)
+        .tint(.green)
+        .disabled(completeButtonDisabled)
+        .opacity(completeButtonDisabled ? 0.6 : 1)
     }
 
-    private var slainButtonLabel: String {
-        guard let log = latestLog else { return "Slain! ⚔️" }
-        switch log.verificationStatus {
-        case .autoApproved, .verified: return "Slain ⚔️"
-        case .pending: return "Awaiting Verification"
-        case .rejected: return "Slain! ⚔️ (Try Again)"
+    private var completeButtonLabel: String {
+        if let log = latestLog {
+            switch log.verificationStatus {
+            case .autoApproved, .verified: return "Completed"
+            case .pending: return "Awaiting Verification"
+            case .rejected: return "Complete (Try Again)"
+            }
         }
+        return (isLoadingLog && latestLog == nil) ? "Loading..." : "Complete"
     }
 
-    private var slainButtonDisabled: Bool {
-        guard let log = latestLog else { return isCompleting }
-        switch log.verificationStatus {
-        case .autoApproved, .verified, .pending: return true
-        case .rejected: return isCompleting
+    private var completeButtonDisabled: Bool {
+        if let log = latestLog {
+            switch log.verificationStatus {
+            case .autoApproved, .verified, .pending: return true
+            case .rejected: return isCompleting
+            }
         }
+        return isCompleting || (isLoadingLog && latestLog == nil)
     }
 
     private func statusIcon(_ status: VerificationStatus) -> String {
@@ -190,6 +209,9 @@ struct QuestDetailView: View {
     }
 
     private func load() async {
+        isLoadingLog = true
+        defer { isLoadingLog = false }
+
         do {
             template = try await questService.cloudKitReference.fetch(
                 QuestTemplate.self, id: quest.template.recordID
@@ -200,13 +222,15 @@ struct QuestDetailView: View {
 
         do {
             let logs = try await questService.fetchQuestLogs(forQuest: quest)
-            latestLog = logs.first
+            if let fetched = logs.first {
+                latestLog = fetched
+            }
         } catch {
-            latestLog = nil
+            // Keep existing log if fetch encounters error
         }
     }
 
-    private func slain() async {
+    private func completeQuest() async {
         guard let profile = appState.currentProfile else {
             error = "No active hero profile."
             isErrorPresented = true
@@ -230,7 +254,7 @@ extension QuestServiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingSession: "Sign in to iCloud to continue."
-        case .alreadyCompleted: "This quest has already been slain."
+        case .alreadyCompleted: "This quest has already been completed."
         case let .alreadyResolved(status): "This quest is already \(status)."
         case let .missingRecord(status): "A required record could not be loaded: \(status)"
         }

@@ -1,3 +1,10 @@
+//
+//  AvatarClass.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 enum AvatarClass: String, Codable, CaseIterable, Sendable {

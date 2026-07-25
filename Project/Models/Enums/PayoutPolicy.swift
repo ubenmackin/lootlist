@@ -1,3 +1,10 @@
+//
+//  PayoutPolicy.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import Foundation
 
 enum PayoutPolicy: String, Codable, CaseIterable, Sendable {

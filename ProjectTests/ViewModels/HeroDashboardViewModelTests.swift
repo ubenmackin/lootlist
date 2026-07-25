@@ -1,3 +1,10 @@
+//
+//  HeroDashboardViewModelTests.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 @testable import LootList
@@ -8,8 +15,7 @@ struct HeroDashboardViewModelTests {
     @Test
     func `weekday code formatting`() {
         let code = HeroDashboardViewModel.todayWeekdayCode()
-        let validCodes = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
-        #expect(validCodes.contains(code))
+        #expect(AppConstants.weekdayCodes.contains(code))
     }
 
     @Test

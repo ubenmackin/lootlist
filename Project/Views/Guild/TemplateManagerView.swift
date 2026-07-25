@@ -1,3 +1,10 @@
+//
+//  TemplateManagerView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import SwiftUI
 
@@ -19,15 +26,7 @@ struct TemplateManagerView: View {
     @State private var validationError: String?
     @State private var isSaving: Bool = false
 
-    private static let weekdayCodes: [String] = [
-        "sunday", "monday", "tuesday", "wednesday",
-        "thursday", "friday", "saturday"
-    ]
-
-    private static let weekdayDisplay: [String] = [
-        "Sunday", "Monday", "Tuesday", "Wednesday",
-        "Thursday", "Friday", "Saturday"
-    ]
+    private static let weekdayCodes: [String] = AppConstants.weekdayCodes
 
     var body: some View {
         NavigationStack {
@@ -39,13 +38,22 @@ struct TemplateManagerView: View {
                 }
 
                 Section("Rewards") {
-                    HStack {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Gold Reward")
-                        Spacer()
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
+                                    PresetPill(
+                                        text: "$\(preset)",
+                                        isSelected: defaultGoldText == preset,
+                                        action: { defaultGoldText = preset }
+                                    )
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
                         TextField("0.00", text: $defaultGoldText)
                             .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -61,29 +69,13 @@ struct TemplateManagerView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(QuestRarity.allCases) { rarity in
-                                    let isSelected = selectedRarity == rarity
-                                    Button {
-                                        selectedRarity = rarity
-                                    } label: {
-                                        HStack(spacing: 5) {
-                                            Image(systemName: rarity.iconSystemName)
-                                                .font(.caption)
-                                            Text("\(rarity.rawValue) (\(rarity.xpReward) XP)")
-                                                .font(.caption.weight(.semibold))
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(
-                                            Capsule()
-                                                .fill(isSelected ? rarity.color : rarity.color.opacity(0.12))
-                                        )
-                                        .foregroundStyle(isSelected ? Color.white : rarity.color)
-                                        .overlay(
-                                            Capsule()
-                                                .strokeBorder(rarity.color.opacity(0.4), lineWidth: 1)
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
+                                    PresetPill(
+                                        text: "\(rarity.rawValue) (\(rarity.xpReward) XP)",
+                                        isSelected: selectedRarity == rarity,
+                                        action: { selectedRarity = rarity },
+                                        systemImage: rarity.iconSystemName,
+                                        color: rarity.color
+                                    )
                                 }
                             }
                             .padding(.vertical, 2)
@@ -98,19 +90,27 @@ struct TemplateManagerView: View {
                         }
                     }
                     if schedule == .specificDays {
-                        ForEach(Array(Self.weekdayCodes.indices), id: \.self) { idx in
-                            let code = Self.weekdayCodes[idx]
-                            let label = Self.weekdayDisplay[idx]
-                            Toggle(label, isOn: Binding(
-                                get: { specificDays.contains(code) },
-                                set: { isOn in
-                                    if isOn {
-                                        specificDays.insert(code)
-                                    } else {
-                                        specificDays.remove(code)
+                        VStack(alignment: .leading) {
+                            Text("Repeat On")
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(Self.weekdayCodes.indices, id: \.self) { idx in
+                                        let code = Self.weekdayCodes[idx]
+                                        PresetPill(
+                                            text: AppConstants.weekdayAbbreviated[idx],
+                                            isSelected: specificDays.contains(code),
+                                            action: {
+                                                if specificDays.contains(code) {
+                                                    specificDays.remove(code)
+                                                } else {
+                                                    specificDays.insert(code)
+                                                }
+                                            }
+                                        )
                                     }
                                 }
-                            ))
+                                .padding(.vertical, 2)
+                            }
                         }
                     }
                 }

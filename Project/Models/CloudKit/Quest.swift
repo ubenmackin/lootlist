@@ -1,3 +1,10 @@
+//
+//  Quest.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -38,7 +45,6 @@ struct Quest: Identifiable, Equatable, Sendable {
             return name
         }
         // Legacy fallback for Quests with nil name (pre-backfill).
-        // TASK-005 DataMigrationsCoordinator backfill eliminates these over time.
         // Defense-in-depth stamping in QuestService also catches these at read time.
         let templateID = template.recordID.recordName
         if templateID.count > 6 {

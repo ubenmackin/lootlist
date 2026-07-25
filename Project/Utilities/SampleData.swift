@@ -1,3 +1,10 @@
+//
+//  SampleData.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -371,7 +378,7 @@ enum SampleData {
         return (defaultAchs, profileAchs)
     }
 
-    static func populate(cloudKit: CloudKitService) {
+    static func populate(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
         let (templates, quests, completions) = createTemplatesAndQuests()
         let ledger = createLedgerEntries()
         let periods = createAllowancePeriods()
@@ -391,5 +398,17 @@ enum SampleData {
         allRecords.append(contentsOf: profileAchs)
 
         cloudKit.seedMockRecords(allRecords)
+
+        if let cache = cacheService {
+            cache.upsertFamily(family)
+            cache.upsertProfiles([heroProfile, secondHeroProfile, parentProfile])
+            cache.upsertQuestTemplates(templates)
+            cache.upsertQuests(quests)
+            cache.upsertQuestCompletions(completions)
+            cache.upsertLedgerEntries(ledger)
+            cache.upsertAllowancePeriods(periods)
+            cache.upsertAchievements(achs)
+            cache.upsertProfileAchievements(profileAchs)
+        }
     }
 }

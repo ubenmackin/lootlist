@@ -1,3 +1,10 @@
+//
+//  XPService.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -20,10 +27,12 @@ final class XPService {
 
     private let cloudKit: CloudKitService
     let notificationService: NotificationService?
+    var cacheService: CacheService?
 
-    init(cloudKit: CloudKitService, notificationService: NotificationService? = nil) {
+    init(cloudKit: CloudKitService, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
+        self.cacheService = cacheService
     }
 
     static func cumulativeXPForLevel(_ targetLevel: Int) -> Int {
@@ -57,20 +66,26 @@ final class XPService {
         var updated = profile
         updated.xp += gained
         updated.level = level(forXP: updated.xp)
-        let saved = try await cloudKit.save(updated)
 
-        if saved.level > oldLevel, let notificationService {
-            let newLevel = saved.level
-            Task {
-                try? await notificationService.send(
-                    .levelUp,
-                    to: saved,
-                    title: "🎉 Level Up!",
-                    body: "\(saved.displayName) reached Level \(newLevel)!"
-                )
+        do {
+            let saved = try await cloudKit.save(updated)
+            cacheService?.upsertProfile(saved)
+
+            if saved.level > oldLevel, let notificationService {
+                let newLevel = saved.level
+                Task {
+                    try? await notificationService.send(
+                        .levelUp,
+                        to: saved,
+                        title: "🎉 Level Up!",
+                        body: "\(saved.displayName) reached Level \(newLevel)!"
+                    )
+                }
             }
+            return saved
+        } catch {
+            return updated
         }
-        return saved
     }
 
     func levelProgress(profile: Profile) -> LevelProgress {

@@ -1,4 +1,12 @@
+//
+//  ProfileView.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
+import PhotosUI
 import SwiftUI
 
 @MainActor
@@ -20,6 +28,8 @@ struct ProfileView: View {
     @Environment(AchievementService.self) private var achievementService
 
     @State private var showingEditName: Bool = false
+
+    @State private var showingEditAvatar: Bool = false
 
     @State private var draftName: String = ""
 
@@ -69,6 +79,11 @@ struct ProfileView: View {
                     editNameSheet(profile: profile)
                 }
             }
+            .sheet(isPresented: $showingEditAvatar) {
+                if let profile = appState.currentProfile {
+                    EditAvatarSheet(profile: profile)
+                }
+            }
             .task {
                 await loadCharacterData()
             }
@@ -115,17 +130,29 @@ struct ProfileView: View {
 
             xpBlock(profile: profile, progress: progress)
 
-            if profile.role == .hero {
+            HStack(spacing: 12) {
                 Button {
-                    draftName = profile.displayName
-                    showingEditName = true
+                    showingEditAvatar = true
                 } label: {
-                    Label("Rename Character", systemImage: "pencil.line")
+                    Label("Change Avatar", systemImage: "photo.badge.plus")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.bordered)
                 .tint(Color.gold)
-                .accessibilityIdentifier("profile.renameButton")
+                .accessibilityIdentifier("profile.changeAvatarButton")
+
+                if profile.role == .hero {
+                    Button {
+                        draftName = profile.displayName
+                        showingEditName = true
+                    } label: {
+                        Label("Rename", systemImage: "pencil.line")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color.gold)
+                    .accessibilityIdentifier("profile.renameButton")
+                }
             }
         }
         .padding(.vertical, 22)
@@ -169,7 +196,7 @@ struct ProfileView: View {
             Text(spec.levelTitle)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.gold)
-            Text("\(profile.avatarClass.displayName) • \(profile.role.displayName)")
+            Text("\(profile.effectiveClassDisplay) • \(profile.role.displayName)")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
         }
@@ -425,5 +452,132 @@ struct ProfileView: View {
             }
         }
         .presentationDetents([.medium])
+    }
+}
+
+struct EditAvatarSheet: View {
+    let profile: Profile
+    @Environment(AppState.self) private var appState
+    @Environment(FamilyService.self) private var familyService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedClass: AvatarClass?
+    @State private var selectedPresetID: String?
+    @State private var customData: Data?
+    @State private var photoItem: PhotosPickerItem?
+    @State private var isSaving: Bool = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Custom Device Photo") {
+                    HStack(spacing: 16) {
+                        if let customData, let uiImage = UIImage(data: customData) {
+                            Image(uiImage: uiImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 50, height: 50)
+                                .clipShape(Circle())
+                        } else {
+                            Circle()
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(width: 50, height: 50)
+                                .overlay(Image(systemName: "person.fill").foregroundStyle(.secondary))
+                        }
+
+                        PhotosPicker(selection: $photoItem, matching: .images) {
+                            Text("Choose Photo")
+                        }
+
+                        if customData != nil {
+                            Button("Remove Photo", role: .destructive) {
+                                customData = nil
+                                photoItem = nil
+                            }
+                        }
+                    }
+                }
+
+                Section("RPG Class & Look") {
+                    Picker("RPG Class", selection: $selectedClass) {
+                        Text("None (Generic)").tag(AvatarClass?.none)
+                        ForEach(AvatarClass.allCases, id: \.self) { cls in
+                            Text(cls.displayName).tag(AvatarClass?.some(cls))
+                        }
+                    }
+                    .onChange(of: selectedClass) { _, newCls in
+                        if let newCls {
+                            selectedPresetID = AvatarService.defaultPresetID(for: newCls)
+                        } else {
+                            selectedPresetID = nil
+                        }
+                    }
+
+                    if let cls = selectedClass {
+                        Picker("Avatar Preset", selection: $selectedPresetID) {
+                            ForEach(AvatarPreset.presets(for: cls), id: \.self) { preset in
+                                Text(preset.displayName).tag(String?.some(preset.id))
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Button("Reset to Generic Avatar", role: .destructive) {
+                        selectedClass = nil
+                        selectedPresetID = nil
+                        customData = nil
+                        photoItem = nil
+                    }
+                }
+            }
+            .navigationTitle("Edit Avatar")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        isSaving = true
+                        Task {
+                            _ = try? await familyService.updateProfileAvatar(
+                                profile: profile,
+                                avatarClass: selectedClass,
+                                avatarPresetID: selectedPresetID,
+                                customAvatarImageData: customData
+                            )
+                            dismiss()
+                        }
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .onChange(of: photoItem) { _, newItem in
+                Task {
+                    if let data = try? await newItem?.loadTransferable(type: Data.self),
+                       let rawImage = UIImage(data: data)
+                    {
+                        let maxDimension: CGFloat = 512
+                        let maxSide = max(rawImage.size.width, rawImage.size.height)
+                        let scaledImage: UIImage
+                        if maxSide > maxDimension {
+                            let scale = maxDimension / maxSide
+                            let newSize = CGSize(width: rawImage.size.width * scale, height: rawImage.size.height * scale)
+                            let renderer = UIGraphicsImageRenderer(size: newSize)
+                            scaledImage = renderer.image { _ in rawImage.draw(in: CGRect(origin: .zero, size: newSize)) }
+                        } else {
+                            scaledImage = rawImage
+                        }
+                        customData = scaledImage.jpegData(compressionQuality: 0.8)
+                    }
+                }
+            }
+            .onAppear {
+                selectedClass = profile.avatarClass
+                selectedPresetID = profile.avatarPresetID
+                customData = profile.customAvatarImageData
+            }
+        }
     }
 }

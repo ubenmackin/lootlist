@@ -1,3 +1,10 @@
+//
+//  QuestManagerViewModel.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 import Observation
@@ -49,7 +56,7 @@ final class QuestManagerViewModel {
 
         async let templatesTask: [QuestTemplate]? = try? questService.fetchTemplates(family: family)
         async let assignmentsTask: [Quest]? = try? questService.fetchQuestsForFamilyWeek(
-            family: family, weekOf: Date()
+            family: family, weekOf: QuestService.mondayOfWeek(for: Date())
         )
 
         templates = await templatesTask ?? []
@@ -58,6 +65,11 @@ final class QuestManagerViewModel {
         if loadError != nil {
             loadError = nil
         }
+    }
+
+    func rebuildLists(templates: [QuestTemplate], assignments: [Quest]) {
+        self.templates = templates
+        activeAssignments = assignments
     }
 
     func createTemplate(name: String,
@@ -113,11 +125,6 @@ final class QuestManagerViewModel {
         if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
             templates[idx] = saved
         }
-        if let family = appState.family,
-           let fetched = try? await questService.fetchTemplates(family: family)
-        {
-            templates = fetched
-        }
     }
 
     func reactivateTemplate(_ template: QuestTemplate) async throws {
@@ -126,11 +133,6 @@ final class QuestManagerViewModel {
         let saved = try await questService.updateTemplate(active)
         if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
             templates[idx] = saved
-        }
-        if let family = appState.family,
-           let fetched = try? await questService.fetchTemplates(family: family)
-        {
-            templates = fetched
         }
     }
 
@@ -286,12 +288,31 @@ final class QuestManagerViewModel {
         guard let family = appState.family else {
             throw QuestServiceError.missingSession
         }
-        let all = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: Date())
+        let all = try await questService.fetchQuestsForFamilyWeek(
+            family: family, weekOf: QuestService.mondayOfWeek(for: Date())
+        )
+
+        // Single batch fetch — replaces per-quest N+1 queries.
+        let allCompletions = await (try? questService.fetchQuestCompletionsForFamily(family: family)) ?? []
+
+        var completionsByQuest: [String: [QuestCompletion]] = [:]
+        for completion in allCompletions {
+            completionsByQuest[completion.quest.recordID.recordName, default: []].append(completion)
+        }
+
+        // Preserve the original "all pending logs" semantic: the per-quest path
+        // returned every log for the quest (sorted by completedDate desc) and the
+        // caller-wide filter kept only pending ones. Taking just `.first` here
+        // would silently drop an earlier pending log when a newer log for the same
+        // quest is verified/rejected/autoApproved, so iterate all logs and keep
+        // every pending entry. `completionsByQuest` preserves the descending
+        // completedDate order from `fetchQuestCompletionsForFamily`, so appended
+        // pending logs remain newest-first within each quest.
         var pending: [QuestCompletion] = []
         for quest in all where quest.approvalMode == .parentVerify {
-            let logs = try await questService.fetchQuestLogs(forQuest: quest)
-            if let mostRecent = logs.first, mostRecent.verificationStatus == .pending {
-                pending.append(mostRecent)
+            let logs = completionsByQuest[quest.id.recordName] ?? []
+            for log in logs where log.verificationStatus == .pending {
+                pending.append(log)
             }
         }
         return pending

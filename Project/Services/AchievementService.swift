@@ -1,3 +1,10 @@
+//
+//  AchievementService.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 
@@ -42,8 +49,11 @@ struct ProfileStats: Sendable {
 @MainActor
 @Observable
 final class AchievementService {
-    init(cloudKit: CloudKitService) {
+    var cacheService: CacheService?
+
+    init(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
+        self.cacheService = cacheService
     }
 
     private let cloudKit: CloudKitService
@@ -197,19 +207,54 @@ final class AchievementService {
     }
 
     func fetchAllDefinitions(family: Family) async throws -> [Achievement] {
+        if let cache = cacheService {
+            let familyName = family.id.recordName
+            let cached = cache.fetchAchievements(family: familyName)
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    if let fresh = try? await cloudKit.query(Achievement.self, predicate: predicate) {
+                        cacheService?.upsertAchievements(fresh)
+                    }
+                }
+                return cached.map { achievementFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+            }
+        }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        return try await cloudKit.query(Achievement.self, predicate: predicate)
+        let results = try await cloudKit.query(Achievement.self, predicate: predicate)
+        cacheService?.upsertAchievements(results)
+        return results
     }
 
     func fetchEarned(profile: Profile) async throws -> [ProfileAchievement] {
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let cached = cache.fetchProfileAchievements(profileRecordName: profileName)
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "profile == %@", profileRef)
+                    let sortDescriptors = [NSSortDescriptor(key: "earnedDate", ascending: false)]
+                    if let fresh = try? await cloudKit.query(ProfileAchievement.self, predicate: predicate, sortDescriptors: sortDescriptors) {
+                        cacheService?.upsertProfileAchievements(fresh)
+                    }
+                }
+                return cached.map { profileAchievementFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                    .sorted { $0.earnedDate > $1.earnedDate }
+            }
+        }
+
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef)
-        return try await cloudKit.query(
+        let results = try await cloudKit.query(
             ProfileAchievement.self,
             predicate: predicate,
             sortDescriptors: [NSSortDescriptor(key: "earnedDate", ascending: false)]
         )
+        cacheService?.upsertProfileAchievements(results)
+        return results
     }
 
     func evaluateAll(for profile: Profile, family: Family) async throws -> [Achievement] {
@@ -241,7 +286,9 @@ final class AchievementService {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             family: familyRef
         )
-        return try await cloudKit.save(row)
+        let saved = try await cloudKit.save(row)
+        cacheService?.upsertProfileAchievement(saved)
+        return saved
     }
 
     private func computeStats(for profile: Profile, family _: Family) async throws -> ProfileStats {
@@ -262,24 +309,9 @@ final class AchievementService {
 
         let questIDs = Set(completedLogs.map(\.quest.recordID))
         var questCache: [CKRecord.ID: Quest] = [:]
-        if !questIDs.isEmpty {
-            let idArray = Array(questIDs)
-            for chunk in idArray.chunked(into: 100) {
-                do {
-                    let fetched = try await cloudKit.query(
-                        Quest.self,
-                        predicate: NSPredicate(format: "recordID IN %@", chunk)
-                    )
-                    for quest in fetched {
-                        questCache[quest.id] = quest
-                    }
-                } catch {
-                    for questID in chunk {
-                        if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
-                            questCache[questID] = fetched
-                        }
-                    }
-                }
+        for questID in questIDs {
+            if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                questCache[questID] = fetched
             }
         }
 
@@ -388,6 +420,29 @@ final class AchievementService {
         case AchievementRequirement.earlyBird9am:
             stats.earlyBirdQualified
         }
+    }
+
+    private func achievementFromCache(_ cache: AchievementCache, zoneID: CKRecordZone.ID) -> Achievement {
+        Achievement(
+            name: cache.name,
+            description: cache.achievementDescription,
+            iconSystemName: cache.iconSystemName,
+            category: AchievementCategory(rawValue: cache.category) ?? .special,
+            requirementType: AchievementRequirement(rawValue: cache.requirementType) ?? .firstQuest,
+            requirementValue: cache.requirementValue,
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.familyRecordName, zoneID: zoneID), action: .none),
+            id: CKRecord.ID(recordName: cache.recordName, zoneID: zoneID)
+        )
+    }
+
+    private func profileAchievementFromCache(_ cache: ProfileAchievementCache, zoneID: CKRecordZone.ID) -> ProfileAchievement {
+        ProfileAchievement(
+            achievement: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.achievementRecordName, zoneID: zoneID), action: .none),
+            profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.profileRecordName, zoneID: zoneID), action: .none),
+            earnedDate: cache.earnedDate,
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.familyRecordName, zoneID: zoneID), action: .none),
+            id: CKRecord.ID(recordName: cache.recordName, zoneID: zoneID)
+        )
     }
 }
 
