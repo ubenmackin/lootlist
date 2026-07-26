@@ -9,22 +9,25 @@ import CloudKit
 import SwiftUI
 
 struct QuestCardView: View {
-    let quest: Quest
+    let quest: QuestCache
 
     var body: some View {
+        let approvalMode = quest.approvalModeEnum
+        let rarity = quest.rarityEnum
+
         HStack(spacing: 12) {
-            Image(systemName: quest.approvalMode.iconSystemName)
+            Image(systemName: approvalMode.iconSystemName)
                 .font(.title3)
-                .foregroundStyle(quest.approvalMode == .parentVerify ? .indigo : .green)
+                .foregroundStyle(approvalMode == .parentVerify ? .indigo : .green)
                 .frame(width: 32, height: 32)
                 .background(
                     Circle()
-                        .fill((quest.approvalMode == .parentVerify ? Color.indigo : Color.green)
+                        .fill((approvalMode == .parentVerify ? Color.indigo : Color.green)
                             .opacity(0.12))
                 )
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(quest.displayName)
+                Text(quest.questName)
                     .font(.headline)
                 HStack(spacing: 10) {
                     Label(String(format: "%.2f", quest.goldReward), systemImage: "dollarsign.circle.fill")
@@ -32,12 +35,12 @@ struct QuestCardView: View {
                         .font(.subheadline)
                         .foregroundStyle(.yellow)
 
-                    Label("\(quest.rarity.rawValue) · \(quest.xpReward) XP", systemImage: quest.rarity.iconSystemName)
+                    Label("\(rarity.rawValue) · \(quest.xpReward) XP", systemImage: rarity.iconSystemName)
                         .labelStyle(.titleAndIcon)
                         .font(.subheadline)
-                        .foregroundStyle(quest.rarity.color)
+                        .foregroundStyle(rarity.color)
 
-                    if quest.approvalMode == .parentVerify {
+                    if approvalMode == .parentVerify {
                         Text("Parent Verifies")
                             .font(.caption2)
                             .padding(.horizontal, 6)
@@ -63,7 +66,7 @@ struct QuestCardView: View {
     }
 
     private var templateNameGuess: String {
-        let name = quest.template.recordID.recordName
+        let name = quest.templateRecordName
         if name.count > 6 {
             return String(name.suffix(6))
         }

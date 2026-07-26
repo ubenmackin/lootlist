@@ -13,6 +13,7 @@ import os
 extension Notification.Name {
     static let cloudKitNotificationReceived = Notification.Name("cloudKitNotificationReceived")
     static let cloudKitShareAccepted = Notification.Name("cloudKitShareAccepted")
+    static let syncDidComplete = Notification.Name("syncDidComplete")
 }
 
 /// Coordinates CloudKit change notifications and CKShare acceptance events,

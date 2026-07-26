@@ -64,6 +64,37 @@ final class ManualSpendingService: SpendingService {
     func fetchTransactions(for profile: Profile,
                            in dateRange: DateInterval) async throws -> [LedgerEntry]
     {
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let cached = cache.fetchLedgerEntries(profileRecordName: profileName)
+            let filtered = cached.filter { dateRange.contains($0.date) }
+            if !filtered.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
+                    if let all = try? await cloudKit.query(
+                        LedgerEntry.self,
+                        predicate: predicate,
+                        sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)]
+                    ) {
+                        cacheService?.upsertLedgerEntries(all)
+                    }
+                }
+                let zoneID = cloudKit.resolvedZoneID
+                return filtered.map { cacheRow in
+                    LedgerEntry(
+                        profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: zoneID), action: .none),
+                        amount: cacheRow.amount,
+                        description: cacheRow.entryDescription,
+                        date: cacheRow.date,
+                        source: cacheRow.source,
+                        family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: zoneID), action: .none),
+                        id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: zoneID)
+                    )
+                }
+            }
+        }
+
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
         let all = try await cloudKit.query(
@@ -96,14 +127,38 @@ final class ManualSpendingService: SpendingService {
             source: "manual",
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
-        let zoneID = cloudKit.resolvedZoneID
-        let db = cloudKit.activeFamilyDatabase
-        let saved = try await cloudKit.save(entry, in: zoneID, using: db)
-        cacheService?.upsertLedgerEntry(saved)
-        return saved
+        cacheService?.upsertLedgerEntry(entry)
+        do {
+            let zoneID = cloudKit.resolvedZoneID
+            let db = cloudKit.activeFamilyDatabase
+            let saved = try await cloudKit.save(entry, in: zoneID, using: db)
+            cacheService?.upsertLedgerEntry(saved)
+            return saved
+        } catch {
+            cacheService?.invalidateLedgerEntry(recordName: entry.id.recordName)
+            throw error
+        }
     }
 
     func delete(_ entry: LedgerEntry) async throws {
-        try await cloudKit.delete(entry.id)
+        let name = entry.id.recordName
+        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName).first(where: { $0.recordName == name })
+        cacheService?.invalidateLedgerEntry(recordName: name)
+        do {
+            try await cloudKit.delete(entry.id)
+        } catch {
+            if let snapshot {
+                cacheService?.upsertLedgerEntry(LedgerEntry(
+                    profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.profileRecordName), action: .none),
+                    amount: snapshot.amount,
+                    description: snapshot.entryDescription,
+                    date: snapshot.date,
+                    source: snapshot.source,
+                    family: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.familyRecordName), action: .none),
+                    id: CKRecord.ID(recordName: snapshot.recordName)
+                ))
+            }
+            throw error
+        }
     }
 }

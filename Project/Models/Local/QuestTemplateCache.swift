@@ -9,6 +9,8 @@ import SwiftData
 
 @Model
 final class QuestTemplateCache {
+    #Index<QuestTemplateCache>([\.familyRecordName])
+
     @Attribute(.unique) var recordName: String
     var familyRecordName: String
     var name: String

@@ -16,8 +16,9 @@ struct QuestManagerView: View {
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(\.scenePhase) private var scenePhase
 
-    @Query private var cachedTemplates: [QuestTemplateCache]
-    @Query private var cachedAssignments: [QuestCache]
+    @Query(filter: #Predicate<QuestTemplateCache> { $0.isActive == true }, sort: \QuestTemplateCache.name) private var cachedTemplates: [QuestTemplateCache]
+    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedAssignments: [QuestCache]
+    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
 
     @State private var viewModel: QuestManagerViewModel?
     @State private var selectedTab: ManagerTab = .assignments
@@ -132,19 +133,13 @@ struct QuestManagerView: View {
 
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
-        guard let family = appState.family else { return }
-        let zoneID = questService.cloudKitReference.resolvedZoneID
-        let familyName = family.id.recordName
+        guard let familyName = appState.family?.id.recordName else { return }
 
-        let templates = cachedTemplates
-            .filter { $0.familyRecordName == familyName }
-            .map { $0.toQuestTemplate(zoneID: zoneID) }
-
-        let assignments = cachedAssignments
-            .filter { $0.familyRecordName == familyName && $0.isActive }
-            .map { $0.toQuest(zoneID: zoneID) }
+        let templates = cachedTemplates.filter { $0.familyRecordName == familyName }
+        let assignments = cachedAssignments.filter { $0.familyRecordName == familyName && $0.isActive }
 
         vm.rebuildLists(templates: templates, assignments: assignments)
+        vm.rebuildHeroes(profiles: cachedProfiles.filter { $0.familyRecordName == familyName })
     }
 
     private var tabPicker: some View {
@@ -165,11 +160,11 @@ struct QuestManagerView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             } else {
-                let grouped = Dictionary(grouping: vm.activeAssignments) { $0.assignee.recordID.recordName }
+                let grouped = Dictionary(grouping: vm.activeAssignments) { $0.assigneeRecordName }
                 let heroRecords = vm.heroes
                 ForEach(Array(grouped.keys.sorted()), id: \.self) { heroID in
                     let heroQuests = grouped[heroID] ?? []
-                    let hero = heroRecords.first { $0.id.recordName == heroID }
+                    let hero = heroRecords.first { $0.recordName == heroID }
                     Section(header: Text(hero?.displayName ?? "Unknown Hero")) {
                         ForEach(heroQuests) { quest in
                             assignmentRow(quest: quest, vm: vm)
@@ -181,18 +176,21 @@ struct QuestManagerView: View {
         .listStyle(.insetGrouped)
     }
 
-    private func assignmentRow(quest: Quest, vm: QuestManagerViewModel) -> some View {
-        Button {
-            editingQuest = quest
+    private func assignmentRow(quest: QuestCache, vm: QuestManagerViewModel) -> some View {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let approvalMode = quest.approvalModeEnum
+        let rarity = quest.rarityEnum
+        return Button {
+            editingQuest = quest.toQuest(zoneID: zoneID)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: quest.approvalMode.iconSystemName)
-                    .foregroundStyle(quest.approvalMode == .parentVerify ? .indigo : .green)
+                Image(systemName: approvalMode.iconSystemName)
+                    .foregroundStyle(approvalMode == .parentVerify ? .indigo : .green)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(quest.displayName)
+                    Text(quest.questName)
                         .font(.subheadline.bold())
                     Text(String(format: "%.2f gold · %@ (%d XP) · %@",
-                                quest.goldReward, quest.rarity.rawValue, quest.xpReward, quest.approvalMode.displayName))
+                                quest.goldReward, rarity.rawValue, quest.xpReward, approvalMode.displayName))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -203,7 +201,7 @@ struct QuestManagerView: View {
         .contentShape(Rectangle())
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                Task { try? await vm.unassignQuest(quest) }
+                Task { try? await vm.unassignQuest(quest.toQuest(zoneID: zoneID)) }
             } label: {
                 Label("Unassign", systemImage: "trash")
             }
@@ -241,16 +239,19 @@ struct QuestManagerView: View {
         .listStyle(.insetGrouped)
     }
 
-    private func templateRow(template: QuestTemplate, vm: QuestManagerViewModel) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: template.scheduleType.iconSystemName)
+    private func templateRow(template: QuestTemplateCache, vm: QuestManagerViewModel) -> some View {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let scheduleType = template.scheduleTypeEnum
+        let rarity = template.rarityEnum
+        return HStack(spacing: 12) {
+            Image(systemName: scheduleType.iconSystemName)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(template.name)
                     .font(.subheadline.bold())
                 Text(String(format: "%.2f gold · %@ (%d XP) · %@",
-                            template.defaultGold, template.rarity.rawValue, template.xpReward,
-                            template.scheduleType.displayName))
+                            template.goldReward, rarity.rawValue, template.xpReward,
+                            scheduleType.displayName))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !template.isActive {
@@ -264,19 +265,19 @@ struct QuestManagerView: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
-            editingTemplate = template
+            editingTemplate = template.toQuestTemplate(zoneID: zoneID)
         }
         .swipeActions(edge: .trailing) {
             if template.isActive {
                 Button {
-                    Task { try? await vm.deactivateTemplate(template) }
+                    Task { try? await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID)) }
                 } label: {
                     Label("Deactivate", systemImage: "trash.slash")
                 }
                 .tint(.orange)
             } else {
                 Button {
-                    Task { try? await vm.reactivateTemplate(template) }
+                    Task { try? await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID)) }
                 } label: {
                     Label("Activate", systemImage: "arrow.clockwise.circle.fill")
                 }

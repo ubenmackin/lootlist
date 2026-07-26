@@ -53,7 +53,8 @@ struct LootListApp: App {
         xp.cacheService = cache
 
         if let cache {
-            _syncEngine = State(initialValue: SyncEngine(cloudKit: ck, cacheService: cache, syncCoordinator: appSync))
+            let bgActor = BackgroundCacheActor(modelContainer: cache.container)
+            _syncEngine = State(initialValue: SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync))
         } else {
             _syncEngine = State(initialValue: nil)
         }

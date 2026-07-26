@@ -13,13 +13,13 @@ import os
 @MainActor
 @Observable
 final class FamilyDashboardViewModel {
-    private(set) var heroes: [Profile] = []
+    private(set) var heroes: [ProfileCache] = []
 
-    private(set) var parents: [Profile] = []
+    private(set) var parents: [ProfileCache] = []
 
     private(set) var weekSummary: WeekendSummary?
 
-    private(set) var pastPayouts: [AllowancePeriod] = []
+    private(set) var pastPayouts: [AllowancePeriodCache] = []
 
     private(set) var isLoading: Bool = false
 
@@ -67,48 +67,6 @@ final class FamilyDashboardViewModel {
         if appState.isZoneOwner, appState.activeShareURL == nil, let zoneID = appState.familyZoneID {
             appState.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
         }
-
-        // Cache-first: route member discovery through FamilyService so the
-        // write-through ProfileCache returns immediately on rename-related
-        // retries. The background refresh inside fetchAllProfilesForFamily
-        // keeps the cache honest.
-        let all = await (try? familyService.fetchAllProfilesForFamily(family)) ?? []
-        let active = all.filter(\.isActive)
-        heroes = active
-            .filter { $0.role == .hero }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-        parents = active
-            .filter(\.role.isParent)
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-        let weekOf = QuestService.mondayOfWeek(for: Date())
-        var heroSummaries: [HeroSummary] = []
-        heroSummaries.reserveCapacity(heroes.count)
-
-        for hero in heroes {
-            let summary = await buildHeroSummary(for: hero, weekOf: weekOf)
-            heroSummaries.append(summary)
-        }
-
-        let totalEarned = heroSummaries.reduce(into: 0.0) { $0 += $1.weeklyGoldEarned }
-        let totalQuests = heroSummaries.reduce(into: 0) { $0 += $1.weeklyQuestsCompleted }
-        weekSummary = WeekendSummary(
-            weekOf: TreasuryService.mondayOfWeek(for: weekOf),
-            totalEarned: totalEarned,
-            totalQuestsCompleted: totalQuests,
-            heroSummaries: heroSummaries
-        )
-
-        if loadError != nil {
-            loadError = nil
-        }
-
-        // Snapshot displayNames for change-detection in debounced retry
-        var updatedNames: [String: String] = [:]
-        for hero in heroes {
-            updatedNames[hero.id.recordName] = hero.displayName
-        }
-        lastHeroDisplayNames = updatedNames
     }
 
     func loadPastPayouts(includeActive: Bool = true) async {
@@ -120,31 +78,31 @@ final class FamilyDashboardViewModel {
         isLoadingPayouts = true
         defer { isLoadingPayouts = false }
 
-        // Cache-first: AllowancePeriodCache returns synchronously while a
-        // background CloudKit refresh keeps the cache honest. Keeps the late-
-        // propagation retry cheap (no async CloudKit hit per attempt).
-        let all = await treasury.fetchAllowancePeriods(family: family)
-        pastPayouts = includeActive
-            ? all
-            : all.filter { $0.status == .paid }
+        let familyName = family.id.recordName
+        if let cache = appState.cacheService {
+            let all = cache.fetchAllowancePeriods(family: familyName)
+            pastPayouts = includeActive ? all : all.filter { $0.status == PayoutStatus.paid.rawValue }
+        }
     }
 
-    private func buildHeroSummary(for hero: Profile,
+    private func buildHeroSummary(for hero: ProfileCache,
                                   weekOf: Date) async -> HeroSummary
     {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let domainHero = hero.toProfile(zoneID: zoneID)
         async let questsTask: [Quest]? = try? questService.fetchActiveQuests(
-            profile: hero, weekOf: weekOf
+            profile: domainHero, weekOf: weekOf
         )
         async let logsTask: [QuestCompletion]? = try? questService.fetchQuestLogs(
-            for: hero
+            for: domainHero
         )
-        async let streakTask: Int? = try? questService.fetchStreak(for: hero)
+        async let streakTask: Int? = try? questService.fetchStreak(for: domainHero)
         async let earnedTask: Double? = try? treasury.weeklyBreakdown(
-            profile: hero, weekOf: weekOf
+            profile: domainHero, weekOf: weekOf
         ).totalEarned
 
         async let earnedTrophiesTask: [ProfileAchievement]? = try? achievements.fetchEarned(
-            profile: hero
+            profile: domainHero
         )
 
         let quests = await questsTask ?? []
@@ -170,63 +128,49 @@ final class FamilyDashboardViewModel {
         )
     }
 
-    func rebuildLists(profiles: [Profile], quests: [Quest], logs: [QuestCompletion], ledgers: [LedgerEntry]) {
+    func rebuildLists(profiles: [ProfileCache], quests: [QuestCache], logs: [QuestCompletionCache], ledgers: [LedgerEntryCache]) {
         let weekOf = QuestService.mondayOfWeek(for: Date())
-
-        // Mirror the authoritative `TreasuryService.weeklyBreakdown` window so the
-        // cache-rebuild path produces byte-identical `weeklyGoldEarned` values to
-        // the async `buildHeroSummary` path. `weekOf` is already a Monday from
-        // `QuestService.mondayOfWeek`; re-normalize through TreasuryService for
-        // exact parity, then derive the closed `[start, end]` week interval used
-        // to bound both quest logs and ledger entries below.
         let monday = TreasuryService.mondayOfWeek(for: weekOf)
         let weekRange = TreasuryService.weekRange(starting: monday)
-        let questByID = Dictionary(
-            quests.map { ($0.id, $0) },
+        let questByName = Dictionary(
+            quests.map { ($0.recordName, $0) },
             uniquingKeysWith: { current, _ in current }
         )
 
         let active = profiles.filter(\.isActive)
         heroes = active
-            .filter { $0.role == .hero }
+            .filter { $0.roleEnum == .hero }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         parents = active
-            .filter(\.role.isParent)
+            .filter(\.roleEnum.isParent)
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
 
         var heroSummaries: [HeroSummary] = []
         heroSummaries.reserveCapacity(heroes.count)
 
         for hero in heroes {
-            let heroQuests = quests.filter { $0.assignee.recordID == hero.id && $0.weekOf == weekOf }
-            let heroLogs = logs.filter { $0.completedBy.recordID == hero.id && $0.weekOf == weekOf }
+            let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && $0.weekOf == weekOf }
+            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && $0.weekOf == weekOf }
             let completed = heroLogs.filter {
-                $0.verificationStatus == .autoApproved || $0.verificationStatus == .verified
+                $0.verificationStatus == VerificationStatus.autoApproved.rawValue || $0.verificationStatus == VerificationStatus.verified.rawValue
             }
 
-            // Compute `weeklyGoldEarned` exactly as `TreasuryService.weeklyBreakdown`
-            // does so the cache-rebuild and async-refresh paths agree byte-for-byte:
-            //   goldFromQuests (slain logs this week, All-or-Nothing-gated) + bonusGold
-            //   (positive ledger entries this week). Spending and unbounded sums are
-            //   excluded — the prior implementation summed all `amount`s since Monday,
-            //   which double-counted spending as negative and omitted quest-completion
-            //   gold entirely, flipping the hero card between refresh() and rebuild().
             let weekLogs = logs.filter {
-                $0.completedBy.recordID == hero.id && weekRange.contains($0.weekOf)
+                $0.completerRecordName == hero.recordName && weekRange.contains($0.weekOf)
             }
             let slainLogs = weekLogs.filter {
-                $0.verificationStatus == .verified
-                    || $0.verificationStatus == .autoApproved
+                $0.verificationStatus == VerificationStatus.verified.rawValue
+                    || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
             }
             var goldFromQuests = slainLogs.reduce(into: 0.0) { acc, log in
-                if let quest = questByID[log.quest.recordID] {
+                if let quest = questByName[log.questRecordName] {
                     acc += quest.goldReward
                 }
             }
             let assignedQuests = quests.filter {
-                $0.assignee.recordID == hero.id && weekRange.contains($0.weekOf)
+                $0.assigneeRecordName == hero.recordName && weekRange.contains($0.weekOf)
             }
-            if hero.payoutPolicy == .allOrNothing,
+            if hero.payoutPolicyEnum == .allOrNothing,
                !assignedQuests.isEmpty,
                slainLogs.count < assignedQuests.count
             {
@@ -234,14 +178,14 @@ final class FamilyDashboardViewModel {
             }
 
             let heroLedgers = ledgers.filter {
-                $0.profile.recordID == hero.id && weekRange.contains($0.date)
+                $0.profileRecordName == hero.recordName && weekRange.contains($0.date)
             }
             let bonusGold = heroLedgers
                 .filter { $0.amount > 0 }
                 .reduce(0.0) { $0 + $1.amount }
             let earned = goldFromQuests + bonusGold
 
-            let existing = weekSummary?.heroSummaries.first { $0.profile.id == hero.id }
+            let existing = weekSummary?.heroSummaries.first { $0.profile.recordName == hero.recordName }
             let streak = existing?.currentStreak ?? 0
             let trophies = existing?.trophiesEarned ?? 0
 
@@ -263,6 +207,10 @@ final class FamilyDashboardViewModel {
             totalQuestsCompleted: totalQuests,
             heroSummaries: heroSummaries
         )
+
+        if loadError != nil {
+            loadError = nil
+        }
     }
 
     var isGuildMaster: Bool {
@@ -303,7 +251,7 @@ final class FamilyDashboardViewModel {
 
             // Build current names from the freshly-refreshed heroes.
             let currentNames = heroes.reduce(into: [String: String]()) {
-                $0[$1.id.recordName] = $1.displayName
+                $0[$1.recordName] = $1.displayName
             }
             // Names unchanged across the refresh ⇒ CloudKit read returned stale
             // (pre-rename) data and the silent push was likely a Profile rename
@@ -348,7 +296,7 @@ final class FamilyDashboardViewModel {
     }
 }
 
-struct WeekendSummary: Equatable, Sendable {
+struct WeekendSummary: Equatable {
     let weekOf: Date
 
     let totalEarned: Double
@@ -364,12 +312,12 @@ extension WeekendSummary {
     }
 }
 
-struct HeroSummary: Equatable, Identifiable, Sendable {
-    var id: CKRecord.ID {
-        profile.id
+struct HeroSummary: Equatable, Identifiable {
+    var id: String {
+        profile.recordName
     }
 
-    let profile: Profile
+    let profile: ProfileCache
 
     let weeklyQuestsCompleted: Int
 

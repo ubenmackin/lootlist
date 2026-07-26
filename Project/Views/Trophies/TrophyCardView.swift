@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct TrophyCardView: View {
-    let achievement: Achievement
+    let achievement: AchievementCache
 
     let isEarned: Bool
 
@@ -105,7 +105,7 @@ struct TrophyCardView: View {
     }
 
     private var detailMessage: String {
-        var message = achievement.description
+        var message = achievement.achievementDescription
         if !isEarned {
             message += "\n\nNeed: \(requirementHint)"
         }
@@ -117,7 +117,7 @@ struct TrophyCardView: View {
     }
 
     private var requirementHint: String {
-        switch achievement.requirementType {
+        switch achievement.requirementTypeEnum {
         case AchievementRequirement.firstQuest:
             "Slain your first quest"
         case AchievementRequirement.questCount10:

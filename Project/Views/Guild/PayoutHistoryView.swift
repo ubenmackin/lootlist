@@ -17,7 +17,7 @@ struct PayoutHistoryView: View {
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var filter: PayoutFilter = .all
-    @State private var selectedPeriod: AllowancePeriod?
+    @State private var selectedPeriod: AllowancePeriodCache?
 
     enum PayoutFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -94,16 +94,16 @@ struct PayoutHistoryView: View {
         }
     }
 
-    private var filteredPayouts: [AllowancePeriod] {
+    private var filteredPayouts: [AllowancePeriodCache] {
         guard let payouts = viewModel?.pastPayouts else { return [] }
         let sorted = payouts.sorted { $0.weekOf > $1.weekOf }
         switch filter {
         case .all: return sorted
-        case .paid: return sorted.filter { $0.status == .paid }
+        case .paid: return sorted.filter { $0.status == PayoutStatus.paid.rawValue }
         }
     }
 
-    private func payoutRow(_ period: AllowancePeriod) -> some View {
+    private func payoutRow(_ period: AllowancePeriodCache) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(period.weekOf, format: .dateTime.month().day().year())
@@ -120,7 +120,7 @@ struct PayoutHistoryView: View {
                 Text(String(format: "%.2f gold", period.totalEarned))
                     .font(.subheadline.weight(.bold).monospacedDigit())
 
-                statusBadge(for: period.status)
+                statusBadge(for: period.statusEnum)
             }
         }
         .padding(.vertical, 4)
@@ -151,8 +151,8 @@ struct PayoutHistoryView: View {
         }
     }
 
-    private func heroName(for period: AllowancePeriod) -> String {
-        let match = viewModel?.heroes.first { $0.id == period.profile.recordID }
+    private func heroName(for period: AllowancePeriodCache) -> String {
+        let match = viewModel?.heroes.first { $0.recordName == period.profileRecordName }
         return match?.displayName ?? "Hero"
     }
 
@@ -177,7 +177,7 @@ struct PayoutHistoryView: View {
 }
 
 private struct PayoutDetailSheet: View {
-    let period: AllowancePeriod
+    let period: AllowancePeriodCache
     let heroName: String
     @Environment(\.dismiss) private var dismiss
 
@@ -187,7 +187,7 @@ private struct PayoutDetailSheet: View {
                 Section("Summary") {
                     LabeledContent("Hero", value: heroName)
                     LabeledContent("Week Of", value: period.weekOf.formatted(.dateTime.month().day().year()))
-                    LabeledContent("Status", value: period.status.displayName)
+                    LabeledContent("Status", value: period.statusEnum.displayName)
                     LabeledContent("Quests Slain", value: "\(period.questsCompleted) of \(period.questsTotal)")
                     LabeledContent("Total Gold Earned", value: String(format: "%.2f", period.totalEarned))
                     if let paidDate = period.paidDate {

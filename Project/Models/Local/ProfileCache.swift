@@ -9,12 +9,15 @@ import SwiftData
 
 @Model
 final class ProfileCache {
+    #Index<ProfileCache>([\.familyRecordName], [\.iCloudUserRecordName])
+
     @Attribute(.unique) var recordName: String
     var familyRecordName: String
     var displayName: String
     var role: String
     var xpTotal: Int
     var avatarName: String?
+    @Attribute(.externalStorage) var customAvatarImageData: Data?
     var isActive: Bool
     var level: Int
     var iCloudUserRecordName: String
@@ -27,6 +30,7 @@ final class ProfileCache {
          role: String,
          xpTotal: Int,
          avatarName: String?,
+         customAvatarImageData: Data? = nil,
          isActive: Bool,
          level: Int,
          iCloudUserRecordName: String,
@@ -39,6 +43,7 @@ final class ProfileCache {
         self.role = role
         self.xpTotal = xpTotal
         self.avatarName = avatarName
+        self.customAvatarImageData = customAvatarImageData
         self.isActive = isActive
         self.level = level
         self.iCloudUserRecordName = iCloudUserRecordName
@@ -55,6 +60,7 @@ final class ProfileCache {
             role: profile.role.rawValue,
             xpTotal: profile.xp,
             avatarName: profile.avatarPresetID,
+            customAvatarImageData: profile.customAvatarImageData,
             isActive: profile.isActive,
             level: profile.level,
             iCloudUserRecordName: profile.iCloudUserID.recordName,

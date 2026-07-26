@@ -8,6 +8,8 @@ import SwiftData
 
 @Model
 final class NotificationPreferenceCache {
+    #Index<NotificationPreferenceCache>([\.profileRecordName])
+
     @Attribute(.unique) var recordName: String
     var profileRecordName: String
     var familyRecordName: String

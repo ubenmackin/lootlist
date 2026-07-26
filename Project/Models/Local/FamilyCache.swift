@@ -10,6 +10,8 @@ import SwiftData
 
 @Model
 final class FamilyCache {
+    #Index<FamilyCache>([\.recordName])
+
     @Attribute(.unique) var recordName: String
     var name: String
     var createdByRecordName: String

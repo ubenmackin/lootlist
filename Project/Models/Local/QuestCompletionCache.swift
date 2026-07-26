@@ -9,6 +9,8 @@ import SwiftData
 
 @Model
 final class QuestCompletionCache {
+    #Index<QuestCompletionCache>([\.familyRecordName], [\.questRecordName], [\.completerRecordName], [\.weekOf])
+
     @Attribute(.unique) var recordName: String
     var questRecordName: String
     var familyRecordName: String

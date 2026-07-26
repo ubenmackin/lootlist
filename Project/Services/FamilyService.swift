@@ -217,6 +217,12 @@ final class FamilyService {
         var updated = family
         updated.name = trimmed
 
+        let name = family.id.recordName
+        let snapshot = cacheService?.fetchFamily(recordName: name)
+
+        cacheService?.upsertFamily(updated)
+        appState.family = updated
+
         let (zoneID, db) = familyContext(for: family.id)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -224,6 +230,10 @@ final class FamilyService {
             appState.family = saved
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
+                appState.family = snapshot.toFamily(zoneID: zoneID)
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update family name: \(error)"
             )
@@ -235,6 +245,12 @@ final class FamilyService {
         var updated = family
         updated.payoutPolicy = policy
 
+        let name = family.id.recordName
+        let snapshot = cacheService?.fetchFamily(recordName: name)
+
+        cacheService?.upsertFamily(updated)
+        appState.family = updated
+
         let (zoneID, db) = familyContext(for: family.id)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -242,6 +258,10 @@ final class FamilyService {
             appState.family = saved
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
+                appState.family = snapshot.toFamily(zoneID: zoneID)
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update payout policy: \(error)"
             )
@@ -253,6 +273,14 @@ final class FamilyService {
         var updated = profile
         updated.payoutPolicy = policy
 
+        let name = profile.id.recordName
+        let snapshot = cacheService?.fetchProfile(recordName: name)
+
+        cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == profile.id {
+            appState.currentProfile = updated
+        }
+
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -262,6 +290,12 @@ final class FamilyService {
             }
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                if appState.currentProfile?.id == profile.id {
+                    appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                }
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update profile payout policy: \(error)"
             )
@@ -278,6 +312,14 @@ final class FamilyService {
         var updated = profile
         updated.displayName = trimmed
 
+        let name = profile.id.recordName
+        let snapshot = cacheService?.fetchProfile(recordName: name)
+
+        cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == profile.id {
+            appState.currentProfile = updated
+        }
+
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -287,6 +329,12 @@ final class FamilyService {
             }
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                if appState.currentProfile?.id == profile.id {
+                    appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                }
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update character name: \(error)"
             )
@@ -471,7 +519,10 @@ final class FamilyService {
         cloudKit.activeFamilyZoneID = nil
         cloudKit.activeIsOwner = true
 
-        // 3. Clear persisted session and reset app state to onboarding.
+        // 3. Clear local SwiftData cache
+        cacheService?.clearAll()
+
+        // 4. Clear persisted session and reset app state to onboarding.
         appState.clearSession()
     }
 }

@@ -13,7 +13,7 @@ import Observation
 @Observable
 final class QuestLogViewModel {
     var displayedQuests: [QuestLogRow] = []
-    var selectedHero: Profile? { // nil = all heroes
+    var selectedHero: ProfileCache? { // nil = all heroes
         didSet { applyFilters() }
     }
 
@@ -35,17 +35,17 @@ final class QuestLogViewModel {
     private var syncTask: Task<Void, Never>?
 
     /// All profiles (active + inactive) for name resolution
-    private var allProfiles: [Profile] = []
-    /// Quick lookup by record ID
-    private var profileByID: [CKRecord.ID: Profile] = [:]
+    private var allProfiles: [ProfileCache] = []
+    /// Quick lookup by record Name
+    private var profileByName: [String: ProfileCache] = [:]
 
-    /// In-memory cache of raw CloudKit data for instant filter switching
-    private var rawQuests: [Quest] = []
-    private var rawCompletionsByQuest: [String: [QuestCompletion]] = [:]
+    /// In-memory cache of raw SwiftData cache objects for instant filter switching
+    private var rawQuests: [QuestCache] = []
+    private var rawCompletionsByQuest: [String: [QuestCompletionCache]] = [:]
 
     /// Heroes available for filtering (active profiles with role == .hero).
-    var availableHeroes: [Profile] {
-        allProfiles.filter { $0.role == .hero }
+    var availableHeroes: [ProfileCache] {
+        allProfiles.filter { $0.roleEnum == .hero }
     }
 
     init(questService: QuestService, familyService: FamilyService, appState: AppState) {
@@ -116,20 +116,20 @@ final class QuestLogViewModel {
     }
 
     enum CompletionFilter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case completed = "Completed"
-        case incomplete = "Incomplete"
+        case all = "All Quests"
+        case completed = "Slain Only"
+        case incomplete = "Unfinished"
         var id: String {
             rawValue
         }
     }
 
-    struct QuestLogRow: Identifiable {
-        var id: CKRecord.ID {
-            quest.id
+    struct QuestLogRow: Identifiable, Equatable {
+        var id: String {
+            quest.recordName
         }
 
-        let quest: Quest
+        let quest: QuestCache
         let heroName: String
         let heroIsActive: Bool
         let completionStatus: CompletionStatus
@@ -145,34 +145,26 @@ final class QuestLogViewModel {
     // MARK: - Load & Filter
 
     func load(family: Family) async {
-        if rawQuests.isEmpty {
-            isLoading = true
+        let familyName = family.id.recordName
+        if let cache = appState.cacheService {
+            let profiles = cache.fetchProfiles(family: familyName)
+            let quests = cache.fetchQuests(family: familyName)
+            let completions = cache.fetchQuestCompletions(family: familyName)
+            rebuildLists(profiles: profiles, quests: quests, logs: completions)
         }
-        defer { isLoading = false }
-
-        // Fetch ALL profiles (active + inactive) for name resolution
-        allProfiles = await (try? familyService.fetchAllProfilesForFamily(family)) ?? []
-        profileByID = Dictionary(uniqueKeysWithValues: allProfiles.map { ($0.id, $0) })
-
-        // Fetch quests across all weeks
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        rawQuests = await (try? questService.cloudKitReference.query(
-            Quest.self, predicate: predicate
-        )) ?? []
-
-        // Single batch fetch for ALL quest completions in the family
-        let allCompletions = await (try? questService.fetchQuestCompletionsForFamily(family: family)) ?? []
-
-        rebuildLists(quests: rawQuests, logs: allCompletions)
     }
 
-    func rebuildLists(quests: [Quest], logs: [QuestCompletion]) {
+    func rebuildLists(profiles: [ProfileCache] = [], quests: [QuestCache], logs: [QuestCompletionCache]) {
+        if !profiles.isEmpty {
+            allProfiles = profiles
+            profileByName = Dictionary(uniqueKeysWithValues: profiles.map { ($0.recordName, $0) })
+        }
         rawQuests = quests
-        var completionsMap: [String: [QuestCompletion]] = [:]
+
+        var completionsMap: [String: [QuestCompletionCache]] = [:]
         for completion in logs {
-            let questName = completion.quest.recordID.recordName
-            completionsMap[questName, default: []].append(completion)
+            let qName = completion.questRecordName
+            completionsMap[qName, default: []].append(completion)
         }
         rawCompletionsByQuest = completionsMap
 
@@ -181,15 +173,15 @@ final class QuestLogViewModel {
 
     func applyFilters() {
         let range = dateRangePreset.dateRange
-        let filteredByDate: [Quest] = if let range {
+        let filteredByDate: [QuestCache] = if let range {
             rawQuests.filter { range.contains($0.weekOf) }
         } else {
             rawQuests
         }
 
-        let filteredByHero: [Quest] = if let selectedHero {
+        let filteredByHero: [QuestCache] = if let selectedHero {
             filteredByDate.filter {
-                $0.assignee.recordID == selectedHero.id
+                $0.assigneeRecordName == selectedHero.recordName
             }
         } else {
             filteredByDate
@@ -197,18 +189,18 @@ final class QuestLogViewModel {
 
         var rows: [QuestLogRow] = []
         for quest in filteredByHero {
-            let hero = profileByID[quest.assignee.recordID]
+            let hero = profileByName[quest.assigneeRecordName]
             let heroName = hero?.displayName ?? "Unknown Hero"
             let heroIsActive = hero?.isActive ?? false
 
-            let logs = rawCompletionsByQuest[quest.id.recordName] ?? []
+            let logs = rawCompletionsByQuest[quest.recordName] ?? []
             let status: CompletionStatus = if logs.isEmpty {
                 .notStarted
             } else if logs.contains(where: {
-                $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
+                $0.verificationStatus == VerificationStatus.verified.rawValue || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
             }) {
                 .completed
-            } else if logs.contains(where: { $0.verificationStatus == .rejected }) {
+            } else if logs.contains(where: { $0.verificationStatus == VerificationStatus.rejected.rawValue }) {
                 .rejected
             } else {
                 .pending

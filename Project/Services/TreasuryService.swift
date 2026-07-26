@@ -111,9 +111,16 @@ final class TreasuryService {
             questsTotal: slainCount,
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
-        let saved = try await cloudKit.save(period)
-        cacheService?.upsertAllowancePeriod(saved)
-        return saved
+
+        cacheService?.upsertAllowancePeriod(period)
+        do {
+            let saved = try await cloudKit.save(period)
+            cacheService?.upsertAllowancePeriod(saved)
+            return saved
+        } catch {
+            cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName)
+            throw error
+        }
     }
 
     func updateAllowance(period: AllowancePeriod,
@@ -139,9 +146,21 @@ final class TreasuryService {
         if let questsTotal {
             updated.questsTotal = questsTotal
         }
-        let saved = try await cloudKit.save(updated)
-        cacheService?.upsertAllowancePeriod(saved)
-        return saved
+
+        let name = period.id.recordName
+        let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
+
+        cacheService?.upsertAllowancePeriod(updated)
+        do {
+            let saved = try await cloudKit.save(updated)
+            cacheService?.upsertAllowancePeriod(saved)
+            return saved
+        } catch {
+            if let snapshot {
+                cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+            }
+            throw error
+        }
     }
 
     func runPayout(period: AllowancePeriod) async throws {
@@ -149,26 +168,57 @@ final class TreasuryService {
         updated.status = .paid
         updated.paidDate = Date()
         updated.paidAmount = updated.totalEarned
-        let saved = try await cloudKit.save(updated)
-        cacheService?.upsertAllowancePeriod(saved)
 
-        if let notificationService {
-            Task {
-                if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
-                   let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
-                {
-                    try? await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
+        let name = period.id.recordName
+        let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
+
+        // Optimistic write first
+        cacheService?.upsertAllowancePeriod(updated)
+
+        do {
+            let saved = try await cloudKit.save(updated)
+            cacheService?.upsertAllowancePeriod(saved)
+
+            if let notificationService {
+                Task {
+                    if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
+                       let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
+                    {
+                        try? await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
+                    }
                 }
             }
+        } catch {
+            if let snapshot {
+                cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+            }
+            throw error
         }
     }
 
     private func goldFromQuests(profile: Profile) async throws -> Double {
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let cachedCompletions = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
+                .filter { $0.completerRecordName == profileName }
+            if !cachedCompletions.isEmpty {
+                let zoneID = cloudKit.resolvedZoneID
+                let logs = cachedCompletions.map { $0.toQuestCompletion(zoneID: zoneID) }
+                Task { [cloudKit, cacheService] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
+                    if let fresh = try? await cloudKit.query(QuestCompletion.self, predicate: predicate) {
+                        cacheService?.upsertQuestCompletions(fresh)
+                    }
+                }
+                return try await sumGold(for: logs)
+            }
+        }
+
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(format: "completedBy == %@",
-                                    profileRef as CVarArg)
-        let logs = try await cloudKit.query(QuestCompletion.self,
-                                            predicate: predicate)
+        let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
+        let logs = try await cloudKit.query(QuestCompletion.self, predicate: predicate)
+        cacheService?.upsertQuestCompletions(logs)
         return try await sumGold(for: logs)
     }
 
@@ -280,23 +330,80 @@ final class TreasuryService {
                                 weekStarting: Date,
                                 weekEnding: Date) async throws -> [QuestCompletion]
     {
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let cached = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
+                .filter { $0.completerRecordName == profileName && $0.weekOf >= weekStarting && $0.weekOf <= weekEnding }
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
+                    if let fresh = try? await cloudKit.query(QuestCompletion.self, predicate: predicate) {
+                        cacheService?.upsertQuestCompletions(fresh)
+                    }
+                }
+                let zoneID = cloudKit.resolvedZoneID
+                return cached.map { $0.toQuestCompletion(zoneID: zoneID) }
+            }
+        }
+
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
         let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate)
+        cacheService?.upsertQuestCompletions(all)
         return all.filter { $0.weekOf >= weekStarting && $0.weekOf <= weekEnding }
     }
 
     private func fetchAssignedQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
         let range = TreasuryService.weekRange(starting: TreasuryService.mondayOfWeek(for: weekOf))
+
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let cached = cache.fetchQuests(family: profile.family.recordID.recordName)
+                .filter { $0.assigneeRecordName == profileName && range.contains($0.weekOf) }
+            if !cached.isEmpty {
+                Task { [cloudKit, cacheService] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(format: "assignee == %@", profileRef as CVarArg)
+                    if let fresh = try? await cloudKit.query(Quest.self, predicate: predicate) {
+                        cacheService?.upsertQuests(fresh)
+                    }
+                }
+                let zoneID = cloudKit.resolvedZoneID
+                return cached.map { $0.toQuest(zoneID: zoneID) }
+            }
+        }
+
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "assignee == %@", profileRef as CVarArg)
         let all = try await cloudKit.query(Quest.self, predicate: predicate)
+        cacheService?.upsertQuests(all)
         return all.filter { range.contains($0.weekOf) }
     }
 
     private func fetchAllowancePeriod(profile: Profile,
                                       weekOf: Date) async throws -> AllowancePeriod?
     {
+        if let cache = cacheService {
+            let profileName = profile.id.recordName
+            let cached = cache.fetchAllowancePeriods(profileRecordName: profileName)
+                .first { Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf) }
+            if let cached {
+                Task { [cloudKit, cacheService] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(
+                        format: "profile == %@ AND weekOf == %@",
+                        profileRef as CVarArg,
+                        weekOf as CVarArg
+                    )
+                    if let fresh = try? await cloudKit.query(AllowancePeriod.self, predicate: predicate).first {
+                        cacheService?.upsertAllowancePeriod(fresh)
+                    }
+                }
+                return cached.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
+            }
+        }
+
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(
             format: "profile == %@ AND weekOf == %@",
@@ -305,6 +412,7 @@ final class TreasuryService {
         )
         let periods = try await cloudKit.query(AllowancePeriod.self,
                                                predicate: predicate)
+        cacheService?.upsertAllowancePeriods(periods)
         return periods.first
     }
 

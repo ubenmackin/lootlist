@@ -6,6 +6,7 @@
 
 import CloudKit
 import Foundation
+import os
 import SwiftData
 
 /// Local SwiftData cache layered in front of CloudKit.
@@ -19,6 +20,8 @@ import SwiftData
 @Observable
 final class CacheService {
     let container: ModelContainer
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
+    private var isBatching = false
 
     init(inMemory: Bool = false) throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
@@ -35,6 +38,24 @@ final class CacheService {
             NotificationPreferenceCache.self,
             configurations: config
         )
+    }
+
+    func withBatch(_ work: () -> Void) {
+        isBatching = true
+        defer {
+            isBatching = false
+            saveContext()
+        }
+        work()
+    }
+
+    func saveContext() {
+        guard !isBatching else { return }
+        do {
+            try container.mainContext.save()
+        } catch {
+            logger.error("Failed to save main context: \(error, privacy: .private)")
+        }
     }
 
     // MARK: - Upserts (single)
@@ -63,7 +84,7 @@ final class CacheService {
         } else {
             context.insert(QuestCache(from: quest))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfile(_ profile: Profile, family _: String? = nil) {
@@ -78,6 +99,7 @@ final class CacheService {
             existing.role = profile.role.rawValue
             existing.xpTotal = profile.xp
             existing.avatarName = profile.avatarPresetID
+            existing.customAvatarImageData = profile.customAvatarImageData
             existing.isActive = profile.isActive
             existing.level = profile.level
             existing.iCloudUserRecordName = profile.iCloudUserID.recordName
@@ -86,7 +108,7 @@ final class CacheService {
         } else {
             context.insert(ProfileCache(from: profile))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestCompletion(_ completion: QuestCompletion, family _: String? = nil) {
@@ -107,7 +129,7 @@ final class CacheService {
         } else {
             context.insert(QuestCompletionCache(from: completion))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestTemplate(_ template: QuestTemplate, family _: String? = nil) {
@@ -132,7 +154,7 @@ final class CacheService {
         } else {
             context.insert(QuestTemplateCache(from: template))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertFamily(_ family: Family) {
@@ -149,7 +171,7 @@ final class CacheService {
         } else {
             context.insert(FamilyCache(from: family))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertLedgerEntry(_ entry: LedgerEntry) {
@@ -168,7 +190,7 @@ final class CacheService {
         } else {
             context.insert(LedgerEntryCache(from: entry))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAllowancePeriod(_ period: AllowancePeriod) {
@@ -190,7 +212,7 @@ final class CacheService {
         } else {
             context.insert(AllowancePeriodCache(from: period))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAchievement(_ achievement: Achievement) {
@@ -210,7 +232,7 @@ final class CacheService {
         } else {
             context.insert(AchievementCache(from: achievement))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertNotificationPreference(_ pref: NotificationPreference) {
@@ -228,7 +250,7 @@ final class CacheService {
         } else {
             context.insert(NotificationPreferenceCache(from: pref))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfileAchievement(_ pa: ProfileAchievement) {
@@ -245,7 +267,7 @@ final class CacheService {
         } else {
             context.insert(ProfileAchievementCache(from: pa))
         }
-        try? context.save()
+        saveContext()
     }
 
     // MARK: - Batch Upserts
@@ -276,7 +298,7 @@ final class CacheService {
                 context.insert(QuestCache(from: quest))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfiles(_ profiles: [Profile], family _: String? = nil) {
@@ -292,6 +314,7 @@ final class CacheService {
                 cached.role = profile.role.rawValue
                 cached.xpTotal = profile.xp
                 cached.avatarName = profile.avatarPresetID
+                cached.customAvatarImageData = profile.customAvatarImageData
                 cached.isActive = profile.isActive
                 cached.level = profile.level
                 cached.iCloudUserRecordName = profile.iCloudUserID.recordName
@@ -301,7 +324,7 @@ final class CacheService {
                 context.insert(ProfileCache(from: profile))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestCompletions(_ completions: [QuestCompletion], family _: String? = nil) {
@@ -324,7 +347,7 @@ final class CacheService {
                 context.insert(QuestCompletionCache(from: completion))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestTemplates(_ templates: [QuestTemplate], family _: String? = nil) {
@@ -351,7 +374,7 @@ final class CacheService {
                 context.insert(QuestTemplateCache(from: template))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertLedgerEntries(_ entries: [LedgerEntry]) {
@@ -372,7 +395,7 @@ final class CacheService {
                 context.insert(LedgerEntryCache(from: entry))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAllowancePeriods(_ periods: [AllowancePeriod]) {
@@ -396,7 +419,7 @@ final class CacheService {
                 context.insert(AllowancePeriodCache(from: period))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAchievements(_ achievements: [Achievement]) {
@@ -418,7 +441,7 @@ final class CacheService {
                 context.insert(AchievementCache(from: achievement))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfileAchievements(_ pas: [ProfileAchievement]) {
@@ -437,7 +460,7 @@ final class CacheService {
                 context.insert(ProfileAchievementCache(from: pa))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertNotificationPreferences(_ prefs: [NotificationPreference]) {
@@ -457,7 +480,7 @@ final class CacheService {
                 context.insert(NotificationPreferenceCache(from: pref))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     // MARK: - Fetches
@@ -538,6 +561,17 @@ final class CacheService {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    func fetchLedgerEntries(family: String?) -> [LedgerEntryCache] {
+        let context = container.mainContext
+        let descriptor = FetchDescriptor<LedgerEntryCache>(
+            predicate: #Predicate { item in
+                family == nil || item.familyRecordName == (family ?? "")
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     func fetchAllowancePeriods(profileRecordName: String) -> [AllowancePeriodCache] {
         let context = container.mainContext
         let descriptor = FetchDescriptor<AllowancePeriodCache>(
@@ -597,7 +631,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -608,7 +642,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -619,7 +653,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -630,7 +664,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -641,7 +675,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -652,7 +686,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -663,7 +697,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -674,7 +708,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -685,7 +719,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -696,8 +730,82 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
+    }
+
+    // MARK: - Deletion Purge (SyncEngine)
+
+    func purgeMissingQuests(validRecordNames: Set<String>, family: String? = nil) {
+        let context = container.mainContext
+        let all = fetchQuests(family: family)
+        for cached in all where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingProfiles(validRecordNames: Set<String>, family: String? = nil) {
+        let context = container.mainContext
+        let all = fetchProfiles(family: family)
+        for cached in all where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingQuestCompletions(validRecordNames: Set<String>, family: String? = nil) {
+        let context = container.mainContext
+        let all = fetchQuestCompletions(family: family)
+        for cached in all where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingQuestTemplates(validRecordNames: Set<String>, family: String? = nil) {
+        let context = container.mainContext
+        let all = fetchQuestTemplates(family: family)
+        for cached in all where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingLedgerEntries(validRecordNames: Set<String>, family: String? = nil) {
+        let context = container.mainContext
+        let all = fetchLedgerEntries(family: family)
+        for cached in all where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingAllowancePeriods(validRecordNames: Set<String>, family: String? = nil) {
+        let context = container.mainContext
+        let all = fetchAllowancePeriods(family: family)
+        for cached in all where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingAchievements(validRecordNames: Set<String>, family: String? = nil) {
+        let context = container.mainContext
+        let all = fetchAchievements(family: family)
+        for cached in all where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingProfileAchievements(validRecordNames: Set<String>) {
+        let context = container.mainContext
+        let existing = (try? context.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
+        for cached in existing where !validRecordNames.contains(cached.recordName) {
+            context.delete(cached)
+        }
+        try? context.save()
     }
 
     // MARK: - Bulk Clear

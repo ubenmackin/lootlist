@@ -15,8 +15,8 @@ struct TrophyRoomView: View {
     @Environment(XPService.self) private var xpService
     @Environment(AppState.self) private var appState
 
-    @Query private var cachedAchievements: [AchievementCache]
-    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
+    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
 
     var body: some View {
         NavigationStack {
@@ -55,12 +55,13 @@ struct TrophyRoomView: View {
     }
 
     private func rebuild() {
-        guard let familyZoneID = appState.familyZoneID else { return }
+        guard let familyName = appState.family?.id.recordName else { return }
+        guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        let mappedAchievements = cachedAchievements.map { $0.toAchievement(zoneID: familyZoneID) }
-        let mappedEarned = cachedProfileAchievements.map { $0.toProfileAchievement(zoneID: familyZoneID) }
+        let achievements = cachedAchievements.filter { $0.familyRecordName == familyName }
+        let earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
 
-        viewModel?.rebuildLists(earned: mappedEarned, allAchievements: mappedAchievements)
+        viewModel?.rebuildLists(earned: earned, allAchievements: achievements)
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {
@@ -118,12 +119,12 @@ struct TrophyRoomView: View {
             GridItem(.flexible(), spacing: 12)
         ]
 
-        let earnedIDs = viewModel.earnedIDs
+        let earnedNames = viewModel.earnedAchievementRecordNames
         return LazyVGrid(columns: columns, spacing: 12) {
             ForEach(viewModel.allAchievements) { achievement in
                 TrophyCardView(
                     achievement: achievement,
-                    isEarned: earnedIDs.contains(achievement.id)
+                    isEarned: earnedNames.contains(achievement.recordName)
                 )
             }
         }

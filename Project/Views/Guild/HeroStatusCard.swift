@@ -205,7 +205,9 @@ struct HeroStatusCard: View {
         return [name, ratio, gold, streak, trophies].joined(separator: ", ")
     }
 
-    private static func fallbackSpec(for profile: Profile) -> AvatarRenderSpec {
+    private static func fallbackSpec(for profileCache: ProfileCache) -> AvatarRenderSpec {
+        let defaultZone = CKRecordZone.ID(zoneName: "_defaultZone", ownerName: CKCurrentUserDefaultName)
+        let profile = profileCache.toProfile(zoneID: defaultZone)
         let preset = AvatarPreset.preset(forProfile: profile)
         return AvatarRenderSpec(
             preset: preset,

@@ -7,6 +7,7 @@
 
 import CloudKit
 import PhotosUI
+import SwiftData
 import SwiftUI
 
 @MainActor
@@ -26,6 +27,11 @@ struct ProfileView: View {
     @Environment(TreasuryService.self) private var treasuryService
 
     @Environment(AchievementService.self) private var achievementService
+
+    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
+    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
+    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
 
     @State private var showingEditName: Bool = false
 
@@ -86,6 +92,15 @@ struct ProfileView: View {
             }
             .task {
                 await loadCharacterData()
+            }
+            .onChange(of: cachedProfileAchievements) { _, _ in
+                Task { await loadCharacterData() }
+            }
+            .onChange(of: cachedCompletions) { _, _ in
+                Task { await loadCharacterData() }
+            }
+            .onChange(of: cachedLedgers) { _, _ in
+                Task { await loadCharacterData() }
             }
         }
     }

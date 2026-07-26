@@ -21,10 +21,11 @@ struct FamilyDashboardView: View {
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showShareSheet: Bool = false
 
-    @Query private var cachedProfiles: [ProfileCache]
-    @Query private var cachedQuests: [QuestCache]
-    @Query private var cachedCompletions: [QuestCompletionCache]
-    @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
+    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
+    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
+    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
+    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     var body: some View {
         NavigationStack {
@@ -74,18 +75,18 @@ struct FamilyDashboardView: View {
     }
 
     private func rebuild() {
-        guard let familyZoneID = appState.familyZoneID else { return }
+        guard let familyName = appState.family?.id.recordName else { return }
 
-        let mappedProfiles = cachedProfiles.map { $0.toProfile(zoneID: familyZoneID) }
-        let mappedQuests = cachedQuests.map { $0.toQuest(zoneID: familyZoneID) }
-        let mappedLogs = cachedCompletions.map { $0.toQuestCompletion(zoneID: familyZoneID) }
-        let mappedLedgers = cachedLedgers.map { $0.toLedgerEntry(zoneID: familyZoneID) }
+        let filteredProfiles = cachedProfiles.filter { $0.familyRecordName == familyName }
+        let filteredQuests = cachedQuests.filter { $0.familyRecordName == familyName }
+        let filteredLogs = cachedCompletions.filter { $0.familyRecordName == familyName }
+        let filteredLedgers = cachedLedgers.filter { $0.familyRecordName == familyName }
 
         viewModel?.rebuildLists(
-            profiles: mappedProfiles,
-            quests: mappedQuests,
-            logs: mappedLogs,
-            ledgers: mappedLedgers
+            profiles: filteredProfiles,
+            quests: filteredQuests,
+            logs: filteredLogs,
+            ledgers: filteredLedgers
         )
     }
 

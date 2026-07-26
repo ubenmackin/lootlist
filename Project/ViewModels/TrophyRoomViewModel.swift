@@ -24,16 +24,16 @@ final class TrophyRoomViewModel {
     private let xpService: XPService
     private let appState: AppState
 
-    private(set) var earned: [ProfileAchievement] = []
+    private(set) var earned: [ProfileAchievementCache] = []
 
-    private(set) var allAchievements: [Achievement] = []
+    private(set) var allAchievements: [AchievementCache] = []
 
     private(set) var avatarCard: AvatarCardModel?
 
     private(set) var lastError: String?
 
-    var earnedIDs: Set<CKRecord.ID> {
-        Set(earned.map(\.achievement.recordID))
+    var earnedAchievementRecordNames: Set<String> {
+        Set(earned.map(\.achievementRecordName))
     }
 
     func refresh() async {
@@ -46,22 +46,20 @@ final class TrophyRoomViewModel {
             return
         }
 
-        do {
-            let earnedRows = try await achievementService.fetchEarned(profile: profile)
-            let defs = try await achievementService.fetchAllDefinitions(family: family)
-            earned = earnedRows
-            allAchievements = defs
-            avatarCard = makeAvatarCard(profile: profile)
-            lastError = nil
-        } catch {
-            lastError = "\(error)"
+        if let cache = appState.cacheService {
+            let familyName = family.id.recordName
+            let profileName = profile.id.recordName
+            let allDefs = cache.fetchAchievements(family: familyName)
+            let earnedRows = cache.fetchProfileAchievements(profileRecordName: profileName)
+            rebuildLists(earned: earnedRows, allAchievements: allDefs)
         }
     }
 
-    func rebuildLists(earned: [ProfileAchievement], allAchievements: [Achievement]) {
+    func rebuildLists(earned: [ProfileAchievementCache], allAchievements: [AchievementCache]) {
         guard let profile = appState.currentProfile else { return }
+        let profileName = profile.id.recordName
 
-        self.earned = earned.filter { $0.profile.recordID == profile.id }
+        self.earned = earned.filter { $0.profileRecordName == profileName }
         self.allAchievements = allAchievements
         avatarCard = makeAvatarCard(profile: profile)
     }

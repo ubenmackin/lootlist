@@ -21,10 +21,10 @@ struct GuildSettingsView: View {
     @State private var isEditingFamilyName: Bool = false
 
     @State private var showShareSheet: Bool = false
-    @State private var heroToEdit: Profile?
+    @State private var heroToEdit: ProfileCache?
 
-    @State private var showRoleTransferConfirm: Profile?
-    @State private var memberToKick: Profile?
+    @State private var showRoleTransferConfirm: ProfileCache?
+    @State private var memberToKick: ProfileCache?
     @State private var showDisbandConfirm: Bool = false
     @State private var showDisbandFinalConfirm: Bool = false
     @State private var showLeaveConfirm: Bool = false
@@ -63,7 +63,8 @@ struct GuildSettingsView: View {
                 ShareSheet(items: shareInviteItems)
             }
             .sheet(item: $heroToEdit) { hero in
-                HeroSettingsView(hero: hero)
+                let zoneID = questService.cloudKitReference.resolvedZoneID
+                HeroSettingsView(hero: hero.toProfile(zoneID: zoneID))
                     .onDisappear {
                         Task { await viewModel?.refresh() }
                     }
@@ -242,20 +243,21 @@ private extension GuildSettingsView {
         }
     }
 
-    private func memberRow(_ member: Profile, vm: FamilyDashboardViewModel) -> some View {
-        HStack(spacing: 12) {
+    private func memberRow(_ member: ProfileCache, vm: FamilyDashboardViewModel) -> some View {
+        let role = member.roleEnum
+        return HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(roleColor(member.role).opacity(0.16))
+                    .fill(roleColor(role).opacity(0.16))
                     .frame(width: 36, height: 36)
-                Image(systemName: member.role.iconSystemName)
+                Image(systemName: role.iconSystemName)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(roleColor(member.role))
+                    .foregroundStyle(roleColor(role))
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(member.displayName)
                     .font(.body.weight(.semibold))
-                Text(member.role.displayName)
+                Text(role.displayName)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -268,11 +270,12 @@ private extension GuildSettingsView {
     }
 
     @ViewBuilder
-    private func roleManagementMenu(_ member: Profile, vm _: FamilyDashboardViewModel) -> some View {
-        let isCurrent = appState.currentProfile?.id == member.id
+    private func roleManagementMenu(_ member: ProfileCache, vm _: FamilyDashboardViewModel) -> some View {
+        let isCurrent = appState.currentProfile?.id.recordName == member.recordName
+        let role = member.roleEnum
         if appState.currentProfile?.role == .guildMaster, !isCurrent {
             Menu {
-                if member.role == .hero {
+                if role == .hero {
                     Button {
                         heroToEdit = member
                     } label: {
@@ -284,7 +287,7 @@ private extension GuildSettingsView {
                     } label: {
                         Label("Promote to Ranger", systemImage: "arrow.up.circle")
                     }
-                } else if member.role == .ranger {
+                } else if role == .ranger {
                     Button {
                         Task { await changeRole(member, to: .hero) }
                     } label: {
@@ -310,7 +313,7 @@ private extension GuildSettingsView {
                     .font(.title3)
                     .foregroundStyle(.tint)
             }
-            .accessibilityIdentifier("settings.roleMenu-\(member.id.recordName)")
+            .accessibilityIdentifier("settings.roleMenu-\(member.recordName)")
         } else if isCurrent {
             Text("You")
                 .font(.caption)
@@ -319,9 +322,10 @@ private extension GuildSettingsView {
     }
 
     @MainActor
-    private func kickMember(_ member: Profile) async {
+    private func kickMember(_ member: ProfileCache) async {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
         do {
-            try await familyService.kickMember(profile: member)
+            try await familyService.kickMember(profile: member.toProfile(zoneID: zoneID))
             await viewModel?.refresh()
             actionError = nil
         } catch {
@@ -330,9 +334,10 @@ private extension GuildSettingsView {
     }
 
     @MainActor
-    private func changeRole(_ member: Profile, to newRole: UserRole) async {
+    private func changeRole(_ member: ProfileCache, to newRole: UserRole) async {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
         do {
-            try await familyService.updateMemberRole(profile: member, newRole: newRole)
+            try await familyService.updateMemberRole(profile: member.toProfile(zoneID: zoneID), newRole: newRole)
             await viewModel?.refresh()
             actionError = nil
         } catch {
@@ -341,10 +346,11 @@ private extension GuildSettingsView {
     }
 
     @MainActor
-    private func confirmTransferGuildMaster(to newOwner: Profile) async {
+    private func confirmTransferGuildMaster(to newOwner: ProfileCache) async {
         guard let current = appState.currentProfile else { return }
+        let zoneID = questService.cloudKitReference.resolvedZoneID
         do {
-            try await familyService.updateMemberRole(profile: newOwner, newRole: .guildMaster)
+            try await familyService.updateMemberRole(profile: newOwner.toProfile(zoneID: zoneID), newRole: .guildMaster)
             try await familyService.updateMemberRole(profile: current, newRole: .ranger)
             if appState.currentProfile?.id == current.id {
                 var updated = current
@@ -458,11 +464,12 @@ private extension GuildSettingsView {
     @MainActor
     private func deleteFamilyAndReset() async {
         guard let family = appState.family else { return }
+        let zoneID = questService.cloudKitReference.resolvedZoneID
 
         let vm = viewModel
         let allMembers = (vm?.heroes ?? []) + (vm?.parents ?? [])
         for member in allMembers {
-            try? await familyService.leaveFamily(profile: member)
+            try? await familyService.leaveFamily(profile: member.toProfile(zoneID: zoneID))
         }
 
         try? await familyService.deleteFamilyAndReset(family: family)

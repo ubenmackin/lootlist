@@ -19,9 +19,10 @@ struct TreasuryView: View {
 
     @State private var isShowingLogSpending: Bool = false
 
-    @Query private var cachedCompletions: [QuestCompletionCache]
-    @Query private var cachedLedgers: [LedgerEntryCache]
-    @Query private var cachedQuests: [QuestCache]
+    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
+    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
+    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
+    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     init(spending: any SpendingService) {
         self.spending = spending
@@ -78,17 +79,18 @@ struct TreasuryView: View {
     }
 
     private func rebuild() {
-        guard let familyZoneID = appState.familyZoneID else { return }
+        guard let familyName = appState.family?.id.recordName else { return }
+        guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        let mappedLogs = cachedCompletions.map { $0.toQuestCompletion(zoneID: familyZoneID) }
-        let mappedLedgers = cachedLedgers.map { $0.toLedgerEntry(zoneID: familyZoneID) }
-        let mappedQuests = cachedQuests.map { $0.toQuest(zoneID: familyZoneID) }
+        let logs = cachedCompletions.filter { $0.familyRecordName == familyName && $0.completerRecordName == profileName }
+        let ledgers = cachedLedgers.filter { $0.familyRecordName == familyName && $0.profileRecordName == profileName }
+        let quests = cachedQuests.filter { $0.familyRecordName == familyName && $0.assigneeRecordName == profileName }
 
         viewModel?.rebuildLists(
-            logs: mappedLogs,
-            ledgers: mappedLedgers,
-            quests: mappedQuests,
-            showAllTime: false // Default log mode
+            logs: logs,
+            ledgers: ledgers,
+            quests: quests,
+            showAllTime: false
         )
     }
 

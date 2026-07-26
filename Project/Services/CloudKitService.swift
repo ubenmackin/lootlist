@@ -385,6 +385,77 @@ final class CloudKitService {
         return try records.map { try T(record: $0) }
     }
 
+    struct ZoneChangesResult: Sendable {
+        let changedRecords: [CKRecord]
+        let deletedRecordIDs: [(recordID: CKRecord.ID, recordType: String)]
+        let newToken: CKServerChangeToken?
+        let moreComing: Bool
+    }
+
+    func fetchZoneChanges(
+        in zoneID: CKRecordZone.ID? = nil,
+        since token: CKServerChangeToken? = nil,
+        using db: CKDatabase? = nil
+    ) async throws -> ZoneChangesResult {
+        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+            return ZoneChangesResult(
+                changedRecords: Array(mockRecords.values),
+                deletedRecordIDs: [],
+                newToken: nil,
+                moreComing: false
+            )
+        }
+
+        let zone = zoneID ?? resolvedZoneID
+        let targetDB = db ?? activeFamilyDatabase
+
+        return try await retrying {
+            var changedRecords: [CKRecord] = []
+            var deletedRecordIDs: [(recordID: CKRecord.ID, recordType: String)] = []
+            var newToken: CKServerChangeToken?
+            var moreComing = false
+
+            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+            config.previousServerChangeToken = token
+
+            let op = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zone], configurationsByRecordZoneID: [zone: config])
+
+            op.recordWasChangedBlock = { _, result in
+                if case let .success(record) = result {
+                    changedRecords.append(record)
+                }
+            }
+
+            op.recordWithIDWasDeletedBlock = { recordID, recordType in
+                deletedRecordIDs.append((recordID, recordType))
+            }
+
+            op.recordZoneFetchResultBlock = { _, result in
+                if case let .success((serverChangeToken, _, hasMoreComing)) = result {
+                    newToken = serverChangeToken
+                    moreComing = hasMoreComing
+                }
+            }
+
+            return try await withCheckedThrowingContinuation { continuation in
+                op.fetchRecordZoneChangesResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: ZoneChangesResult(
+                            changedRecords: changedRecords,
+                            deletedRecordIDs: deletedRecordIDs,
+                            newToken: newToken,
+                            moreComing: moreComing
+                        ))
+                    case let .failure(error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+                targetDB.add(op)
+            }
+        }
+    }
+
     private func evaluateMockPredicate(_ predicate: NSPredicate, record: CKRecord) -> Bool {
         let fmt = predicate.predicateFormat
         if fmt == "TRUEPRED" || fmt == "1 == 1" {

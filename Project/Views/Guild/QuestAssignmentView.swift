@@ -42,8 +42,8 @@ struct QuestAssignmentView: View {
     }
 
     // --- From Template state ---
-    @State private var selectedTemplate: QuestTemplate?
-    @State private var selectedHero: Profile?
+    @State private var selectedTemplate: QuestTemplateCache?
+    @State private var selectedHero: ProfileCache?
     @State private var goldOverrideText: String = ""
     @State private var xpOverrideText: String = ""
     @State private var approvalOverride: ApprovalModeSelection = .useTemplate
@@ -66,7 +66,7 @@ struct QuestAssignmentView: View {
     @State private var editSchedule: QuestSchedule = .weeklyFlexible
     @State private var editIsAllOrNothing: Bool = false
     @State private var editApproval: ApprovalMode = .autoApprove
-    @State private var editAssignee: Profile?
+    @State private var editAssignee: ProfileCache?
     @State private var allowLockedFieldsOverride: Bool = false
     @State private var editQuest: Quest?
     @State private var editHasLogs: Bool = false
@@ -212,9 +212,9 @@ struct QuestAssignmentView: View {
                     .foregroundStyle(.secondary)
             } else {
                 Picker("Template", selection: $selectedTemplate) {
-                    Text("Choose…").tag(nil as QuestTemplate?)
+                    Text("Choose…").tag(nil as QuestTemplateCache?)
                     ForEach(viewModel.templates.filter(\.isActive)) { template in
-                        Text(template.name).tag(template as QuestTemplate?)
+                        Text(template.name).tag(template as QuestTemplateCache?)
                     }
                 }
                 .onChange(of: selectedTemplate) { _, newTemplate in
@@ -261,7 +261,7 @@ struct QuestAssignmentView: View {
                     }
                     .padding(.vertical, 2)
                 }
-                TextField(selectedTemplate?.defaultGold.mapToText() ?? "",
+                TextField(selectedTemplate?.goldReward.mapToText() ?? "",
                           text: $goldOverrideText)
                     .keyboardType(.decimalPad)
             }
@@ -483,9 +483,9 @@ struct QuestAssignmentView: View {
                 .foregroundStyle(.secondary)
         } else {
             Picker("Hero", selection: $selectedHero) {
-                Text("Choose…").tag(nil as Profile?)
+                Text("Choose…").tag(nil as ProfileCache?)
                 ForEach(viewModel.heroes) { hero in
-                    Text(hero.displayName).tag(hero as Profile?)
+                    Text(hero.displayName).tag(hero as ProfileCache?)
                 }
             }
         }
@@ -498,9 +498,9 @@ struct QuestAssignmentView: View {
                 .foregroundStyle(.secondary)
         } else {
             Picker("Hero", selection: $editAssignee) {
-                Text("Choose…").tag(nil as Profile?)
+                Text("Choose…").tag(nil as ProfileCache?)
                 ForEach(viewModel.heroes) { hero in
-                    Text(hero.displayName).tag(hero as Profile?)
+                    Text(hero.displayName).tag(hero as ProfileCache?)
                 }
             }
         }
@@ -548,25 +548,26 @@ struct QuestAssignmentView: View {
     }
 
     private func loadQuestForEditing(questID: CKRecord.ID) {
-        guard let quest = viewModel.activeAssignments.first(where: { $0.id == questID }) else { return }
-        editQuest = quest
+        guard let quest = viewModel.activeAssignments.first(where: { $0.recordName == questID.recordName }) else { return }
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        editQuest = quest.toQuest(zoneID: zoneID)
         // Edited quest name must not be clobbered by template selection
         userEditedQuestName = true
-        editQuestName = quest.name ?? ""
+        editQuestName = quest.questName
         editQuestDescription = quest.descriptionText ?? ""
         editGoldText = String(format: "%.2f", quest.goldReward)
         editXpText = "\(quest.xpReward)"
-        editSchedule = quest.scheduleType
+        editSchedule = quest.scheduleTypeEnum
         editIsAllOrNothing = quest.isAllOrNothing
-        editApproval = quest.approvalMode
+        editApproval = quest.approvalModeEnum
 
         // Resolve assignee from heroes list
-        editAssignee = viewModel.heroes.first { $0.id.recordName == quest.assignee.recordID.recordName }
+        editAssignee = viewModel.heroes.first { $0.recordName == quest.assigneeRecordName }
 
         // Check if quest has logs (determines locked fields)
         Task {
             do {
-                let logs = try await questService.fetchQuestLogs(forQuest: quest)
+                let logs = try await questService.fetchQuestLogs(forQuest: quest.toQuest(zoneID: zoneID))
                 editHasLogs = !logs.isEmpty
             } catch {
                 editHasLogs = false
@@ -608,12 +609,13 @@ struct QuestAssignmentView: View {
         // Template name override: use editQuestName if non-empty, else nil (falls back to template.name)
         let nameOverride = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
 
+        let zoneID = questService.cloudKitReference.resolvedZoneID
         isSubmitting = true
         Task {
             do {
                 try await viewModel.assignQuest(
-                    template: template,
-                    assignee: hero,
+                    template: template.toQuestTemplate(zoneID: zoneID),
+                    assignee: hero.toProfile(zoneID: zoneID),
                     goldOverride: gold,
                     xpOverride: xp,
                     approvalOverride: approval,
@@ -651,13 +653,14 @@ struct QuestAssignmentView: View {
             return
         }
 
+        let zoneID = questService.cloudKitReference.resolvedZoneID
         isSubmitting = true
         Task {
             do {
                 try await viewModel.assignQuickQuest(
                     name: trimmedName,
                     description: quickDescription,
-                    assignee: hero,
+                    assignee: hero.toProfile(zoneID: zoneID),
                     goldReward: gold,
                     xpReward: xp,
                     scheduleType: quickSchedule,
@@ -696,6 +699,7 @@ struct QuestAssignmentView: View {
         let name = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
         let description = editQuestDescription.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestDescription
 
+        let zoneID = questService.cloudKitReference.resolvedZoneID
         isSubmitting = true
         Task {
             do {
@@ -708,7 +712,7 @@ struct QuestAssignmentView: View {
                     scheduleType: editSchedule,
                     isAllOrNothing: editIsAllOrNothing,
                     approvalMode: editApproval,
-                    assignee: hero,
+                    assignee: hero.toProfile(zoneID: zoneID),
                     allowLockedFieldsOverride: allowLockedFieldsOverride
                 )
                 isSubmitting = false

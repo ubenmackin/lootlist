@@ -15,14 +15,15 @@ struct QuestLogView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
 
-    @Query private var cachedQuests: [QuestCache]
-    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
+    @Query(sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
+    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
 
     @State private var viewModel: QuestLogViewModel?
 
-    let initialHero: Profile?
+    let initialHero: ProfileCache?
 
-    init(initialHero: Profile? = nil) {
+    init(initialHero: ProfileCache? = nil) {
         self.initialHero = initialHero
     }
 
@@ -66,9 +67,13 @@ struct QuestLogView: View {
             if let family = appState.family {
                 await viewModel?.load(family: family)
             }
+            rebuildViewModel()
         }
         .onDisappear {
             viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
+        }
+        .onChange(of: cachedProfiles) { _, _ in
+            rebuildViewModel()
         }
         .onChange(of: cachedQuests) { _, _ in
             rebuildViewModel()
@@ -81,21 +86,12 @@ struct QuestLogView: View {
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
         guard let familyName = appState.family?.id.recordName else { return }
-        let zoneID = questService.cloudKitReference.resolvedZoneID
 
-        // Quest Log is a historical record: include all family quests (active + inactive)
-        // so rolled-over/unassigned quests remain visible. Mirrors QuestLogViewModel.load,
-        // which fetches with no isActive filter — see FamilyDashboardView.rebuild for the
-        // sibling pattern.
-        let quests = cachedQuests
-            .filter { $0.familyRecordName == familyName }
-            .map { $0.toQuest(zoneID: zoneID) }
+        let profiles = cachedProfiles.filter { $0.familyRecordName == familyName }
+        let quests = cachedQuests.filter { $0.familyRecordName == familyName }
+        let logs = cachedCompletions.filter { $0.familyRecordName == familyName }
 
-        let logs = cachedCompletions
-            .filter { $0.familyRecordName == familyName }
-            .map { $0.toQuestCompletion(zoneID: zoneID) }
-
-        vm.rebuildLists(quests: quests, logs: logs)
+        vm.rebuildLists(profiles: profiles, quests: quests, logs: logs)
     }
 
     // MARK: - Toolbar Menus
@@ -114,7 +110,7 @@ struct QuestLogView: View {
                     viewModel?.selectedHero = hero
                 } label: {
                     Label(hero.displayName, systemImage: "checkmark")
-                        .opacity(viewModel?.selectedHero?.id == hero.id ? 1 : 0)
+                        .opacity(viewModel?.selectedHero?.recordName == hero.recordName ? 1 : 0)
                 }
             }
         } label: {
@@ -175,7 +171,7 @@ struct QuestLogView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(row.quest.displayName)
+                Text(row.quest.questName)
                     .font(.body)
 
                 HStack {

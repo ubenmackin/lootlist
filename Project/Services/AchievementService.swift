@@ -67,7 +67,8 @@ final class AchievementService {
             .filter { !existingNames.contains($0.name) }
 
         for achievement in toSeed {
-            _ = try await cloudKit.save(achievement)
+            let saved = try await cloudKit.save(achievement)
+            cacheService?.upsertAchievement(saved)
         }
     }
 
@@ -218,7 +219,7 @@ final class AchievementService {
                         cacheService?.upsertAchievements(fresh)
                     }
                 }
-                return cached.map { achievementFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                return cached.map { $0.toAchievement(zoneID: cloudKit.resolvedZoneID) }
             }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -241,7 +242,7 @@ final class AchievementService {
                         cacheService?.upsertProfileAchievements(fresh)
                     }
                 }
-                return cached.map { profileAchievementFromCache($0, zoneID: cloudKit.resolvedZoneID) }
+                return cached.map { $0.toProfileAchievement(zoneID: cloudKit.resolvedZoneID) }
                     .sorted { $0.earnedDate > $1.earnedDate }
             }
         }
@@ -286,32 +287,60 @@ final class AchievementService {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             family: familyRef
         )
-        let saved = try await cloudKit.save(row)
-        cacheService?.upsertProfileAchievement(saved)
-        return saved
+        cacheService?.upsertProfileAchievement(row)
+        do {
+            let saved = try await cloudKit.save(row)
+            cacheService?.upsertProfileAchievement(saved)
+            return saved
+        } catch {
+            cacheService?.invalidateProfileAchievement(recordName: row.id.recordName)
+            throw error
+        }
     }
 
     private func computeStats(for profile: Profile, family _: Family) async throws -> ProfileStats {
-        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+        let profileName = profile.id.recordName
+        let zoneID = cloudKit.resolvedZoneID
 
-        let questLogs = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: NSPredicate(format: "completedBy == %@", profileRef)
-        )
-        let completedLogs = questLogs.filter {
-            $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
-        }
-
-        let ledger = try await cloudKit.query(
-            LedgerEntry.self,
-            predicate: NSPredicate(format: "profile == %@", profileRef)
-        )
-
-        let questIDs = Set(completedLogs.map(\.quest.recordID))
+        var completedLogs: [QuestCompletion] = []
+        var ledger: [LedgerEntry] = []
         var questCache: [CKRecord.ID: Quest] = [:]
-        for questID in questIDs {
-            if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
-                questCache[questID] = fetched
+
+        if let cache = cacheService {
+            let cachedLogs = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
+                .filter { $0.completerRecordName == profileName }
+            completedLogs = cachedLogs
+                .map { $0.toQuestCompletion(zoneID: zoneID) }
+                .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+
+            let cachedLedger = cache.fetchLedgerEntries(profileRecordName: profileName)
+            ledger = cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
+
+            let cachedQuests = cache.fetchQuests(family: profile.family.recordID.recordName)
+            for questCacheRow in cachedQuests {
+                let questObj = questCacheRow.toQuest(zoneID: zoneID)
+                questCache[questObj.id] = questObj
+            }
+        } else {
+            let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+            let questLogs = try await cloudKit.query(
+                QuestCompletion.self,
+                predicate: NSPredicate(format: "completedBy == %@", profileRef)
+            )
+            completedLogs = questLogs.filter {
+                $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
+            }
+
+            ledger = try await cloudKit.query(
+                LedgerEntry.self,
+                predicate: NSPredicate(format: "profile == %@", profileRef)
+            )
+
+            let questIDs = Set(completedLogs.map(\.quest.recordID))
+            for questID in questIDs {
+                if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                    questCache[questID] = fetched
+                }
             }
         }
 

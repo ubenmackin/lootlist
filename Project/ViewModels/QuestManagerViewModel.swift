@@ -23,9 +23,9 @@ enum QuestEditLockedError: LocalizedError {
 @MainActor
 @Observable
 final class QuestManagerViewModel {
-    private(set) var templates: [QuestTemplate] = []
+    private(set) var templates: [QuestTemplateCache] = []
 
-    private(set) var activeAssignments: [Quest] = []
+    private(set) var activeAssignments: [QuestCache] = []
 
     private(set) var isLoading: Bool = false
 
@@ -54,20 +54,15 @@ final class QuestManagerViewModel {
         isLoading = true
         defer { isLoading = false }
 
-        async let templatesTask: [QuestTemplate]? = try? questService.fetchTemplates(family: family)
-        async let assignmentsTask: [Quest]? = try? questService.fetchQuestsForFamilyWeek(
-            family: family, weekOf: QuestService.mondayOfWeek(for: Date())
-        )
-
-        templates = await templatesTask ?? []
-        activeAssignments = await assignmentsTask ?? []
-
-        if loadError != nil {
-            loadError = nil
+        let familyName = family.id.recordName
+        if let cache = appState.cacheService {
+            let templates = cache.fetchQuestTemplates(family: familyName)
+            let quests = cache.fetchQuests(family: familyName).filter(\.isActive)
+            rebuildLists(templates: templates, assignments: quests)
         }
     }
 
-    func rebuildLists(templates: [QuestTemplate], assignments: [Quest]) {
+    func rebuildLists(templates: [QuestTemplateCache], assignments: [QuestCache]) {
         self.templates = templates
         activeAssignments = assignments
     }
@@ -86,7 +81,7 @@ final class QuestManagerViewModel {
         else {
             throw QuestServiceError.missingSession
         }
-        let created = try await questService.createTemplate(
+        _ = try await questService.createTemplate(
             name: name,
             description: description,
             defaultGold: defaultGold,
@@ -98,42 +93,20 @@ final class QuestManagerViewModel {
             createdBy: parent,
             family: family
         )
-
-        // Optimistically add to templates immediately
-        templates.append(created)
-        templates.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-        if let fetched = try? await questService.fetchTemplates(family: family) {
-            templates = fetched
-        }
     }
 
     func updateTemplate(_ template: QuestTemplate) async throws {
-        let saved = try await questService.updateTemplate(template)
-        if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
-            templates[idx] = saved
-        }
-        if let family = appState.family,
-           let fetched = try? await questService.fetchTemplates(family: family)
-        {
-            templates = fetched
-        }
+        _ = try await questService.updateTemplate(template)
     }
 
     func deactivateTemplate(_ template: QuestTemplate) async throws {
-        let saved = try await questService.deactivateTemplate(template)
-        if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
-            templates[idx] = saved
-        }
+        _ = try await questService.deactivateTemplate(template)
     }
 
     func reactivateTemplate(_ template: QuestTemplate) async throws {
         var active = template
         active.isActive = true
-        let saved = try await questService.updateTemplate(active)
-        if let idx = templates.firstIndex(where: { $0.id == saved.id }) {
-            templates[idx] = saved
-        }
+        _ = try await questService.updateTemplate(active)
     }
 
     func assignQuest(template: QuestTemplate,
@@ -149,7 +122,7 @@ final class QuestManagerViewModel {
         else {
             throw QuestServiceError.missingSession
         }
-        let created = try await questService.assignQuest(
+        _ = try await questService.assignQuest(
             template: template,
             assignee: assignee,
             goldOverride: goldOverride,
@@ -160,19 +133,6 @@ final class QuestManagerViewModel {
             createdBy: parent,
             family: family
         )
-
-        // Optimistically add assignment
-        activeAssignments.removeAll { $0.id == created.id }
-        activeAssignments.append(created)
-
-        if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: weekOf) {
-            // Reconcile: merge fetched with optimistic list, dedupe by recordID, prefer newer
-            var merged = fetched
-            for optimistic in activeAssignments where !fetched.contains(where: { $0.id == optimistic.id }) {
-                merged.append(optimistic)
-            }
-            activeAssignments = merged
-        }
     }
 
     // Quest assignment form collects many fields; consolidating into a struct would be an API change outside lint scope.
@@ -192,7 +152,7 @@ final class QuestManagerViewModel {
         else {
             throw QuestServiceError.missingSession
         }
-        let created = try await questService.assignQuickQuest(
+        _ = try await questService.assignQuickQuest(
             name: name,
             description: description,
             assignee: assignee,
@@ -205,19 +165,6 @@ final class QuestManagerViewModel {
             createdBy: parent,
             family: family
         )
-
-        // Optimistically add assignment
-        activeAssignments.removeAll { $0.id == created.id }
-        activeAssignments.append(created)
-
-        if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: weekOf) {
-            // Reconcile: merge fetched with optimistic list, dedupe by recordID, prefer newer
-            var merged = fetched
-            for optimistic in activeAssignments where !fetched.contains(where: { $0.id == optimistic.id }) {
-                merged.append(optimistic)
-            }
-            activeAssignments = merged
-        }
     }
 
     // swiftlint:disable:next function_parameter_count
@@ -232,7 +179,7 @@ final class QuestManagerViewModel {
                      assignee: Profile,
                      allowLockedFieldsOverride: Bool) async throws
     {
-        guard let family = appState.family else {
+        guard appState.family != nil else {
             throw QuestServiceError.missingSession
         }
 
@@ -262,26 +209,11 @@ final class QuestManagerViewModel {
         updated.assignee = CKRecord.Reference(recordID: assignee.id, action: .none)
 
         _ = try await questService.updateQuest(updated)
-
-        // Update in place
-        if let idx = activeAssignments.firstIndex(where: { $0.id == quest.id }) {
-            activeAssignments[idx] = updated
-        }
-
-        // Re-fetch to stay consistent
-        if let fetched = try? await questService.fetchQuestsForFamilyWeek(family: family, weekOf: quest.weekOf) {
-            var merged = fetched
-            for optimistic in activeAssignments where !fetched.contains(where: { $0.id == optimistic.id }) {
-                merged.append(optimistic)
-            }
-            activeAssignments = merged
-        }
     }
 
     func unassignQuest(_ quest: Quest) async throws {
         try await questService.unassignQuest(quest)
-
-        activeAssignments.removeAll { $0.id == quest.id }
+        activeAssignments.removeAll { $0.recordName == quest.id.recordName }
     }
 
     func fetchPendingQuestLogs() async throws -> [QuestCompletion] {
@@ -318,7 +250,11 @@ final class QuestManagerViewModel {
         return pending
     }
 
-    private(set) var heroes: [Profile] = []
+    private(set) var heroes: [ProfileCache] = []
+
+    func rebuildHeroes(profiles: [ProfileCache]) {
+        heroes = profiles.filter { $0.role == UserRole.hero.rawValue }
+    }
 
     func subscribeToSyncEvents(_ coordinator: AppSyncCoordinator) {
         guard syncSubscriptionID == nil else { return }
@@ -351,6 +287,8 @@ final class QuestManagerViewModel {
             return
         }
 
-        heroes = await (try? familyService.fetchHeroes(for: family)) ?? []
+        if let cache = appState.cacheService {
+            heroes = cache.fetchProfiles(family: family.id.recordName).filter { $0.role == UserRole.hero.rawValue }
+        }
     }
 }

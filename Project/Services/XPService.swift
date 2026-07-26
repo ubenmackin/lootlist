@@ -67,6 +67,9 @@ final class XPService {
         updated.xp += gained
         updated.level = level(forXP: updated.xp)
 
+        // Optimistic local write first
+        cacheService?.upsertProfile(updated)
+
         do {
             let saved = try await cloudKit.save(updated)
             cacheService?.upsertProfile(saved)

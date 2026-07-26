@@ -73,23 +73,50 @@ final class QuestService {
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
-        return try await cloudKit.save(template)
-    }
-
-    @discardableResult
-    func updateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
         let saved = try await cloudKit.save(template)
         cacheService?.upsertQuestTemplate(saved)
         return saved
     }
 
     @discardableResult
+    func updateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
+        let name = template.id.recordName
+        let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
+
+        cacheService?.upsertQuestTemplate(template)
+        do {
+            let saved = try await cloudKit.save(template)
+            cacheService?.upsertQuestTemplate(saved)
+            return saved
+        } catch {
+            if let snapshot {
+                cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+            } else {
+                cacheService?.invalidateQuestTemplate(recordName: name)
+            }
+            throw error
+        }
+    }
+
+    @discardableResult
     func deactivateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
         var deactivated = template
         deactivated.isActive = false
-        let saved = try await cloudKit.save(deactivated)
-        cacheService?.upsertQuestTemplate(saved)
-        return saved
+
+        let name = template.id.recordName
+        let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
+
+        cacheService?.upsertQuestTemplate(deactivated)
+        do {
+            let saved = try await cloudKit.save(deactivated)
+            cacheService?.upsertQuestTemplate(saved)
+            return saved
+        } catch {
+            if let snapshot {
+                cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+            }
+            throw error
+        }
     }
 
     func fetchTemplates(family: Family) async throws -> [QuestTemplate] {
@@ -145,6 +172,9 @@ final class QuestService {
             name: questName,
             descriptionText: template.description
         )
+        // Optimistic local write first
+        cacheService?.upsertQuest(quest)
+
         let saved = try await cloudKit.save(quest)
         cacheService?.upsertQuest(saved)
         if let notificationService {
@@ -162,6 +192,7 @@ final class QuestService {
 
     @discardableResult
     func updateQuest(_ quest: Quest) async throws -> Quest {
+        cacheService?.upsertQuest(quest)
         let saved = try await cloudKit.save(quest)
         cacheService?.upsertQuest(saved)
         return saved
@@ -209,6 +240,7 @@ final class QuestService {
             name: name,
             descriptionText: description
         )
+        cacheService?.upsertQuest(quest)
         let saved = try await cloudKit.save(quest)
         cacheService?.upsertQuest(saved)
         if let notificationService {
@@ -249,9 +281,6 @@ final class QuestService {
                     }
                 }
                 let cachedQuests = cached.map { questFromCache($0, zoneID: cloudKit.resolvedZoneID) }
-                // Defensive: stamp cache-returned quests in case prior cache rows were
-                // written before stamp-before-upsert was adopted (e.g. upgraded installs
-                // still holding legacy "Quest <suffix>" fallback names).
                 var stamped: [Quest] = []
                 for quest in cachedQuests {
                     await stamped.append(stampNameIfNeeded(quest))
@@ -263,10 +292,6 @@ final class QuestService {
         let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
         let all = try await cloudKit.query(Quest.self, predicate: predicate)
-        // Stamp names from templates BEFORE upserting so cache rows hold the real
-        // stamped name (not the "Quest <suffix>" DisplayName fallback). Otherwise the
-        // cache would render "Quest abc123" from cache while CloudKit fetches the
-        // real template name, permanently diverging on display.
         let stampedAll = await stampAllQuests(all)
         cacheService?.upsertQuests(stampedAll)
         return stampedAll
@@ -291,9 +316,6 @@ final class QuestService {
                     }
                 }
                 let cachedQuests = cached.map { questFromCache($0, zoneID: cloudKit.resolvedZoneID) }
-                // Defensive: stamp cache-returned quests in case prior cache rows were
-                // written before stamp-before-upsert was adopted (e.g. upgraded installs
-                // still holding legacy "Quest <suffix>" fallback names).
                 var stamped: [Quest] = []
                 for quest in cachedQuests {
                     await stamped.append(stampNameIfNeeded(quest))
@@ -305,10 +327,6 @@ final class QuestService {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = try await cloudKit.query(Quest.self, predicate: predicate)
-        // Stamp names from templates BEFORE upserting so cache rows hold the real
-        // stamped name (not the "Quest <suffix>" DisplayName fallback). Otherwise the
-        // cache would render "Quest abc123" from cache while CloudKit fetches the
-        // real template name, permanently diverging on display.
         let stampedAll = await stampAllQuests(all)
         cacheService?.upsertQuests(stampedAll)
         return stampedAll
@@ -318,12 +336,7 @@ final class QuestService {
 
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        // Skip cache for the 'already completed' correctness gate — a stale cached
-        // pending log could produce a false alreadyCompleted throw, and a stale
-        // cached empty set could allow a duplicate completion. CloudKit de-dupes
-        // any dup that slips through, but correctness here should not depend on
-        // cache freshness.
-        let existingLogs = await (try? fetchQuestLogs(forQuest: quest, useCache: false)) ?? []
+        let existingLogs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
         if existingLogs.contains(where: { $0.verificationStatus != .rejected }) {
             throw QuestServiceError.alreadyCompleted
         }
@@ -338,6 +351,10 @@ final class QuestService {
 
         var editable = log
         editable.completedDate = completedDate
+
+        // Optimistic local write first
+        cacheService?.upsertQuestCompletion(editable)
+
         let saved = try await cloudKit.save(editable)
         cacheService?.upsertQuestCompletion(saved)
 
@@ -367,25 +384,39 @@ final class QuestService {
         updated.verificationStatus = .verified
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
-        let saved = try await cloudKit.save(updated)
-        cacheService?.upsertQuestCompletion(saved)
 
-        let quest = try await cloudKit.fetch(Quest.self, id: questLog.quest.recordID)
-        let hero = try await cloudKit.fetch(Profile.self, id: questLog.completedBy.recordID)
-        await applyReward(for: quest, to: hero)
+        let name = questLog.id.recordName
+        let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
 
-        if let notificationService {
-            Task { @Sendable in
-                try? await notificationService.send(
-                    .questCompleted,
-                    to: hero,
-                    title: "🏆 Quest Verified!",
-                    body: "Your quest was verified! You earned \(quest.goldReward) gold."
-                )
+        cacheService?.upsertQuestCompletion(updated)
+        do {
+            let saved = try await cloudKit.save(updated)
+            cacheService?.upsertQuestCompletion(saved)
+
+            let quest = try await cloudKit.fetch(Quest.self, id: questLog.quest.recordID)
+            let hero = try await cloudKit.fetch(Profile.self, id: questLog.completedBy.recordID)
+            await applyReward(for: quest, to: hero)
+
+            if let notificationService {
+                Task { @Sendable in
+                    try? await notificationService.send(
+                        .questCompleted,
+                        to: hero,
+                        title: "🏆 Quest Verified!",
+                        body: "Your quest was verified! You earned \(quest.goldReward) gold."
+                    )
+                }
             }
-        }
 
-        return saved
+            return saved
+        } catch {
+            if let snapshot {
+                cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+            } else {
+                cacheService?.invalidateQuestCompletion(recordName: name)
+            }
+            throw error
+        }
     }
 
     @discardableResult
@@ -398,9 +429,23 @@ final class QuestService {
         updated.verificationStatus = .rejected
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
-        let saved = try await cloudKit.save(updated)
-        cacheService?.upsertQuestCompletion(saved)
-        return saved
+
+        let name = questLog.id.recordName
+        let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
+
+        cacheService?.upsertQuestCompletion(updated)
+        do {
+            let saved = try await cloudKit.save(updated)
+            cacheService?.upsertQuestCompletion(saved)
+            return saved
+        } catch {
+            if let snapshot {
+                cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+            } else {
+                cacheService?.invalidateQuestCompletion(recordName: name)
+            }
+            throw error
+        }
     }
 
     func generateWeeklyQuests(family: Family,
@@ -588,6 +633,26 @@ final class QuestService {
     /// Callers should group the results by `quest.recordID.recordName` to resolve
     /// per-quest completion status client-side.
     func fetchQuestCompletionsForFamily(family: Family) async throws -> [QuestCompletion] {
+        if let cache = cacheService {
+            let familyName = family.id.recordName
+            let cached = cache.fetchQuestCompletions(family: familyName)
+            if !cached.isEmpty {
+                let zoneID = cloudKit.resolvedZoneID
+                Task { [cloudKit, cacheService] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    if let completions = try? await cloudKit.query(
+                        QuestCompletion.self,
+                        predicate: predicate,
+                        sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+                    ) {
+                        cacheService?.upsertQuestCompletions(completions, family: familyName)
+                    }
+                }
+                return cached.map { $0.toQuestCompletion(zoneID: zoneID) }
+            }
+        }
+
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let completions = try await cloudKit.query(
@@ -596,7 +661,7 @@ final class QuestService {
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
         // Write-through: upsert every result into the local cache.
-        cacheService?.upsertQuestCompletions(completions)
+        cacheService?.upsertQuestCompletions(completions, family: family.id.recordName)
         return completions
     }
 
@@ -678,7 +743,7 @@ final class QuestService {
 
     private func questFromCache(_ cache: QuestCache, zoneID: CKRecordZone.ID) -> Quest {
         Quest(
-            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.templateRecordName ?? "", zoneID: zoneID), action: .none),
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.templateRecordName, zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.assigneeRecordName, zoneID: zoneID), action: .none),
             goldReward: cache.goldReward,
             xpReward: cache.xpReward,

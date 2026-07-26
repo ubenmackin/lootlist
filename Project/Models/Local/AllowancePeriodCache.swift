@@ -10,6 +10,8 @@ import SwiftData
 
 @Model
 final class AllowancePeriodCache {
+    #Index<AllowancePeriodCache>([\.familyRecordName], [\.profileRecordName], [\.weekOf])
+
     @Attribute(.unique) var recordName: String
     var profileRecordName: String
     var familyRecordName: String
