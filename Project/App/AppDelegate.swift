@@ -32,8 +32,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Give the sync engine time to process before telling iOS we're done.
         // The SyncEngine listens for the notification and kicks off syncAll().
         Task {
-            // Allow up to 25 seconds for background sync (iOS gives ~30s)
-            try? await Task.sleep(nanoseconds: 25_000_000_000)
+            _ = await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for await _ in NotificationCenter.default.notifications(named: .syncDidComplete) {
+                        break
+                    }
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 25_000_000_000)
+                }
+                await group.next()
+                group.cancelAll()
+            }
             completionHandler(.newData)
         }
     }

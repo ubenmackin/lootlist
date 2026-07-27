@@ -87,7 +87,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         let scheduleRaw = (record["scheduleType"] as? String) ?? QuestSchedule.weeklyFlexible.rawValue
         scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
 
-        isAllOrNothing = (record["isAllOrNothing"] as? Bool) ?? false
+        isAllOrNothing = (record["isAllOrNothing"] as? NSNumber)?.boolValue ?? (record["isAllOrNothing"] as? Bool) ?? false
 
         guard let approvalRaw = record["approvalMode"] as? String,
               let approvalMode = ApprovalMode(rawValue: approvalRaw)
@@ -96,7 +96,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         }
         self.approvalMode = approvalMode
 
-        active = (record["active"] as? Bool) ?? false
+        active = (record["active"] as? NSNumber)?.boolValue ?? (record["active"] as? Bool) ?? true
 
         guard let weekOf = record["weekOf"] as? Date else {
             throw CKDecodingError.missingField("weekOf")

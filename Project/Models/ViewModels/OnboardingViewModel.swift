@@ -49,12 +49,7 @@ final class OnboardingViewModel {
 
     var isLoading: Bool = false
 
-    /// The share URL generated after family creation (Guild Master only).
-    /// Presented to the parent so they can invite Heroes.
     var shareURL: URL?
-
-    /// Pending CKShare metadata from an incoming share link.
-    /// Set when the app opens via a CKShare URL before onboarding is complete.
     var pendingShareMetadata: CKShare.Metadata?
 
     private let familyService: FamilyService
@@ -125,13 +120,26 @@ final class OnboardingViewModel {
         isLoading = true
         error = nil
 
-        let ownerProfile = await Profile(
+        // Resolve the iCloud user ID up front. Surfacing a failure here (vs.
+        // synthesizing a random UUID) prevents duplicate `Profile` records on
+        // re-runs over a flaky network. The finalize button serves as the
+        // retry affordance — see `iCloudUserID()` docs.
+        let owneriCloudID: CKRecord.ID
+        do {
+            owneriCloudID = try await iCloudUserID()
+        } catch {
+            isLoading = false
+            self.error = "Could not reach iCloud to identify your account. Check your network and tap Found the Guild to retry."
+            return
+        }
+
+        let ownerProfile = Profile(
             displayName: trimmedName,
             avatarClass: avatarClass,
             avatarPresetID: avatarPresetID,
             customAvatarImageData: customAvatarImageData,
             role: .guildMaster,
-            iCloudUserID: iCloudUserID(),
+            iCloudUserID: owneriCloudID,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
                                        action: .none)
         )
@@ -156,7 +164,6 @@ final class OnboardingViewModel {
         isLoading = false
     }
 
-    /// Joins a family via a CKShare link (opened from iMessage/AirDrop or pasted into the app).
     func joinFamilyViaShareLink() async {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
@@ -189,13 +196,26 @@ final class OnboardingViewModel {
             return
         }
 
-        let heroProfile = await Profile(
+        // Resolve the iCloud user ID up front. Surfacing a failure here (vs.
+        // synthesizing a random UUID) prevents duplicate `Profile` records on
+        // re-runs over a flaky network. The finalize button serves as the
+        // retry affordance — see `iCloudUserID()` docs.
+        let heroiCloudID: CKRecord.ID
+        do {
+            heroiCloudID = try await iCloudUserID()
+        } catch {
+            isLoading = false
+            self.error = "Could not reach iCloud to identify your account. Check your network and tap Join the Quest to retry."
+            return
+        }
+
+        let heroProfile = Profile(
             displayName: trimmedName,
             avatarClass: avatarClass,
             avatarPresetID: avatarPresetID,
             customAvatarImageData: customAvatarImageData,
             role: .hero,
-            iCloudUserID: iCloudUserID(),
+            iCloudUserID: heroiCloudID,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
                                        action: .none)
         )
@@ -222,7 +242,6 @@ final class OnboardingViewModel {
         selectedRole?.isParent ?? false
     }
 
-    /// Whether the user has a pending CKShare invitation to join.
     var hasShareInvitation: Bool {
         pendingShareMetadata != nil
     }
@@ -232,8 +251,6 @@ final class OnboardingViewModel {
         appState.family = family
         appState.currentProfile = profile
         appState.authStatus = .authenticated
-        // Defense in depth: clear transient onboarding state so a future
-        // re-onboard (sign-out → sign-in) starts completely clean.
         reset()
     }
 
@@ -254,12 +271,7 @@ final class OnboardingViewModel {
         pendingShareMetadata = nil
     }
 
-    private func iCloudUserID() async -> CKRecord.ID {
-        do {
-            return try await CloudKitService.defaultContainer.userRecordID()
-        } catch {
-            // Fallback to a generated ID if we can't get the real one.
-            return CKRecord.ID(recordName: UUID().uuidString)
-        }
+    private func iCloudUserID() async throws -> CKRecord.ID {
+        try await CloudKitService.defaultContainer.userRecordID()
     }
 }

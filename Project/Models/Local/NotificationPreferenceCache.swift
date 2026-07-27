@@ -8,6 +8,8 @@ import SwiftData
 
 @Model
 final class NotificationPreferenceCache {
+    #Index<NotificationPreferenceCache>([\.profileRecordName])
+
     @Attribute(.unique) var recordName: String
     var profileRecordName: String
     var familyRecordName: String
@@ -30,7 +32,6 @@ final class NotificationPreferenceCache {
         self.pushEnabled = pushEnabled
     }
 
-    /// Creates a cache entry from a CloudKit `NotificationPreference` model.
     convenience init(from preference: NotificationPreference) {
         self.init(
             recordName: preference.id.recordName,

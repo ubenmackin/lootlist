@@ -19,9 +19,10 @@ struct TreasuryView: View {
 
     @State private var isShowingLogSpending: Bool = false
 
-    @Query private var cachedCompletions: [QuestCompletionCache]
-    @Query private var cachedLedgers: [LedgerEntryCache]
-    @Query private var cachedQuests: [QuestCache]
+    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
+    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
+    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
+    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     init(spending: any SpendingService) {
         self.spending = spending
@@ -66,29 +67,39 @@ struct TreasuryView: View {
                         appState: appState
                     )
                 }
-                await viewModel?.refresh()
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot. Subsequent mutations re-fire `.onChange`.
+                rebuild()
             }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
             .refreshable {
-                await viewModel?.refresh()
+                // Pull-to-refresh re-derives from the current cache snapshot.
+                // Background CloudKit freshness is driven by `SyncEngine`.
+                rebuild()
             }
         }
     }
 
     private func rebuild() {
-        guard let familyZoneID = appState.familyZoneID else { return }
+        guard let familyName = appState.family?.id.recordName else { return }
+        guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        let mappedLogs = cachedCompletions.map { $0.toQuestCompletion(zoneID: familyZoneID) }
-        let mappedLedgers = cachedLedgers.map { $0.toLedgerEntry(zoneID: familyZoneID) }
-        let mappedQuests = cachedQuests.map { $0.toQuest(zoneID: familyZoneID) }
+        let logs = cachedCompletions.filter { $0.familyRecordName == familyName && $0.completerRecordName == profileName }
+        let ledgers = cachedLedgers.filter { $0.familyRecordName == familyName && $0.profileRecordName == profileName }
+        let quests = cachedQuests.filter { $0.familyRecordName == familyName && $0.assigneeRecordName == profileName }
+        let allowancePeriods = cachedAllowancePeriods.filter {
+            $0.familyRecordName == familyName && $0.profileRecordName == profileName
+        }
 
         viewModel?.rebuildLists(
-            logs: mappedLogs,
-            ledgers: mappedLedgers,
-            quests: mappedQuests,
-            showAllTime: false // Default log mode
+            logs: logs,
+            ledgers: ledgers,
+            quests: quests,
+            allowancePeriods: allowancePeriods,
+            showAllTime: false
         )
     }
 
@@ -177,6 +188,14 @@ struct WeeklyBreakdownCard: View {
                              value: GoldFormat.signed(breakdown.spent),
                              icon: "arrow.down.circle.fill",
                              tint: .red)
+                if let status = breakdown.payoutStatus {
+                    Divider()
+                    BreakdownRow(label: "Payout",
+                                 value: payoutRowValue(status: status, paidAmount: breakdown.paidAmount),
+                                 icon: status.iconSystemName,
+                                 tint: status == .paid ? .green : .orange,
+                                 isEmphasized: true)
+                }
                 Divider()
                 BreakdownRow(label: "Net for the Week",
                              value: GoldFormat.signed(breakdown.net),
@@ -200,6 +219,13 @@ struct WeeklyBreakdownCard: View {
                 .fill(Color(.secondarySystemGroupedBackground))
         )
         .padding(.horizontal)
+    }
+
+    private func payoutRowValue(status: PayoutStatus, paidAmount: Double?) -> String {
+        if status == .paid, let paidAmount {
+            return "\(status.displayName) · \(GoldFormat.magnitude(paidAmount))"
+        }
+        return status.displayName
     }
 }
 

@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct PayoutHistoryView: View {
@@ -15,9 +16,14 @@ struct PayoutHistoryView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
 
+    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
+    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
+    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
+
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var filter: PayoutFilter = .all
-    @State private var selectedPeriod: AllowancePeriod?
+    @State private var selectedPeriod: AllowancePeriodCache?
 
     enum PayoutFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -47,16 +53,38 @@ struct PayoutHistoryView: View {
                     )
                 }
 
-                await viewModel?.refresh()
-                await viewModel?.loadPastPayouts(includeActive: true)
+                // D3: synchronous render from the current `@Query` cache
+                // snapshot. `pastPayouts` is derived inside `rebuildLists`
+                // from `cachedAllowancePeriods` (replaces the deleted
+                // `loadPastPayouts()` cache-fetch path). `heroes` is populated
+                // from `cachedProfiles` so `heroName(for:)` resolves.
+                Task { await viewModel?.refresh() }
+                rebuildFromCache()
             }
             .refreshable {
-                await viewModel?.loadPastPayouts(includeActive: true)
+                rebuildFromCache()
             }
+            .onChange(of: cachedAllowancePeriods) { _, _ in rebuildFromCache() }
+            .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
+            .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
+            .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
             .sheet(item: $selectedPeriod) { period in
                 PayoutDetailSheet(period: period, heroName: heroName(for: period))
             }
         }
+    }
+
+    private func rebuildFromCache() {
+        guard let familyName = appState.family?.id.recordName else { return }
+        viewModel?.rebuildLists(
+            profiles: cachedProfiles.filter { $0.familyRecordName == familyName },
+            quests: [],
+            logs: [],
+            ledgers: [],
+            allowancePeriods: cachedAllowancePeriods.filter { $0.familyRecordName == familyName },
+            profileAchievements: cachedProfileAchievements.filter { $0.familyRecordName == familyName },
+            achievements: cachedAchievements.filter { $0.familyRecordName == familyName }
+        )
     }
 
     private var filterPicker: some View {
@@ -94,16 +122,16 @@ struct PayoutHistoryView: View {
         }
     }
 
-    private var filteredPayouts: [AllowancePeriod] {
+    private var filteredPayouts: [AllowancePeriodCache] {
         guard let payouts = viewModel?.pastPayouts else { return [] }
         let sorted = payouts.sorted { $0.weekOf > $1.weekOf }
         switch filter {
         case .all: return sorted
-        case .paid: return sorted.filter { $0.status == .paid }
+        case .paid: return sorted.filter { $0.status == PayoutStatus.paid.rawValue }
         }
     }
 
-    private func payoutRow(_ period: AllowancePeriod) -> some View {
+    private func payoutRow(_ period: AllowancePeriodCache) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(period.weekOf, format: .dateTime.month().day().year())
@@ -120,7 +148,7 @@ struct PayoutHistoryView: View {
                 Text(String(format: "%.2f gold", period.totalEarned))
                     .font(.subheadline.weight(.bold).monospacedDigit())
 
-                statusBadge(for: period.status)
+                statusBadge(for: period.statusEnum)
             }
         }
         .padding(.vertical, 4)
@@ -151,8 +179,8 @@ struct PayoutHistoryView: View {
         }
     }
 
-    private func heroName(for period: AllowancePeriod) -> String {
-        let match = viewModel?.heroes.first { $0.id == period.profile.recordID }
+    private func heroName(for period: AllowancePeriodCache) -> String {
+        let match = viewModel?.heroes.first { $0.recordName == period.profileRecordName }
         return match?.displayName ?? "Hero"
     }
 
@@ -177,7 +205,7 @@ struct PayoutHistoryView: View {
 }
 
 private struct PayoutDetailSheet: View {
-    let period: AllowancePeriod
+    let period: AllowancePeriodCache
     let heroName: String
     @Environment(\.dismiss) private var dismiss
 
@@ -187,7 +215,7 @@ private struct PayoutDetailSheet: View {
                 Section("Summary") {
                     LabeledContent("Hero", value: heroName)
                     LabeledContent("Week Of", value: period.weekOf.formatted(.dateTime.month().day().year()))
-                    LabeledContent("Status", value: period.status.displayName)
+                    LabeledContent("Status", value: period.statusEnum.displayName)
                     LabeledContent("Quests Slain", value: "\(period.questsCompleted) of \(period.questsTotal)")
                     LabeledContent("Total Gold Earned", value: String(format: "%.2f", period.totalEarned))
                     if let paidDate = period.paidDate {

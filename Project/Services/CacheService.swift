@@ -6,19 +6,15 @@
 
 import CloudKit
 import Foundation
+import os
 import SwiftData
 
-/// Local SwiftData cache layered in front of CloudKit.
-///
-/// **Read path:** check cache first → return immediately if present → refresh
-/// from CloudKit in the background and update both cache + published state.
-///
-/// **Write path:** every successful CloudKit save/query also upserts into
-/// SwiftData so subsequent reads are instant.
 @MainActor
 @Observable
 final class CacheService {
     let container: ModelContainer
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
+    private var isBatching = false
 
     init(inMemory: Bool = false) throws {
         let config = ModelConfiguration(isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
@@ -35,6 +31,24 @@ final class CacheService {
             NotificationPreferenceCache.self,
             configurations: config
         )
+    }
+
+    func withBatch(_ work: () -> Void) {
+        isBatching = true
+        defer {
+            isBatching = false
+            saveContext()
+        }
+        work()
+    }
+
+    func saveContext() {
+        guard !isBatching else { return }
+        do {
+            try container.mainContext.save()
+        } catch {
+            logger.error("Failed to save main context: \(error, privacy: .private)")
+        }
     }
 
     // MARK: - Upserts (single)
@@ -63,7 +77,7 @@ final class CacheService {
         } else {
             context.insert(QuestCache(from: quest))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfile(_ profile: Profile, family _: String? = nil) {
@@ -78,6 +92,7 @@ final class CacheService {
             existing.role = profile.role.rawValue
             existing.xpTotal = profile.xp
             existing.avatarName = profile.avatarPresetID
+            existing.customAvatarImageData = profile.customAvatarImageData
             existing.isActive = profile.isActive
             existing.level = profile.level
             existing.iCloudUserRecordName = profile.iCloudUserID.recordName
@@ -86,7 +101,7 @@ final class CacheService {
         } else {
             context.insert(ProfileCache(from: profile))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestCompletion(_ completion: QuestCompletion, family _: String? = nil) {
@@ -102,12 +117,15 @@ final class CacheService {
             existing.completedDate = completion.completedDate
             existing.weekOf = completion.weekOf
             existing.verificationStatus = completion.verificationStatus.rawValue
+            existing.approvalMode = (completion.verificationStatus == .autoApproved)
+                ? ApprovalMode.autoApprove.rawValue
+                : ApprovalMode.parentVerify.rawValue
             existing.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
             existing.verifiedDate = completion.verifiedDate
         } else {
             context.insert(QuestCompletionCache(from: completion))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestTemplate(_ template: QuestTemplate, family _: String? = nil) {
@@ -132,7 +150,7 @@ final class CacheService {
         } else {
             context.insert(QuestTemplateCache(from: template))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertFamily(_ family: Family) {
@@ -149,7 +167,7 @@ final class CacheService {
         } else {
             context.insert(FamilyCache(from: family))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertLedgerEntry(_ entry: LedgerEntry) {
@@ -168,7 +186,7 @@ final class CacheService {
         } else {
             context.insert(LedgerEntryCache(from: entry))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAllowancePeriod(_ period: AllowancePeriod) {
@@ -190,7 +208,7 @@ final class CacheService {
         } else {
             context.insert(AllowancePeriodCache(from: period))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAchievement(_ achievement: Achievement) {
@@ -210,7 +228,7 @@ final class CacheService {
         } else {
             context.insert(AchievementCache(from: achievement))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertNotificationPreference(_ pref: NotificationPreference) {
@@ -228,7 +246,7 @@ final class CacheService {
         } else {
             context.insert(NotificationPreferenceCache(from: pref))
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfileAchievement(_ pa: ProfileAchievement) {
@@ -245,7 +263,7 @@ final class CacheService {
         } else {
             context.insert(ProfileAchievementCache(from: pa))
         }
-        try? context.save()
+        saveContext()
     }
 
     // MARK: - Batch Upserts
@@ -276,7 +294,7 @@ final class CacheService {
                 context.insert(QuestCache(from: quest))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfiles(_ profiles: [Profile], family _: String? = nil) {
@@ -292,6 +310,7 @@ final class CacheService {
                 cached.role = profile.role.rawValue
                 cached.xpTotal = profile.xp
                 cached.avatarName = profile.avatarPresetID
+                cached.customAvatarImageData = profile.customAvatarImageData
                 cached.isActive = profile.isActive
                 cached.level = profile.level
                 cached.iCloudUserRecordName = profile.iCloudUserID.recordName
@@ -301,7 +320,7 @@ final class CacheService {
                 context.insert(ProfileCache(from: profile))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestCompletions(_ completions: [QuestCompletion], family _: String? = nil) {
@@ -318,13 +337,16 @@ final class CacheService {
                 cached.completedDate = completion.completedDate
                 cached.weekOf = completion.weekOf
                 cached.verificationStatus = completion.verificationStatus.rawValue
+                cached.approvalMode = (completion.verificationStatus == .autoApproved)
+                    ? ApprovalMode.autoApprove.rawValue
+                    : ApprovalMode.parentVerify.rawValue
                 cached.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
                 cached.verifiedDate = completion.verifiedDate
             } else {
                 context.insert(QuestCompletionCache(from: completion))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertQuestTemplates(_ templates: [QuestTemplate], family _: String? = nil) {
@@ -351,7 +373,7 @@ final class CacheService {
                 context.insert(QuestTemplateCache(from: template))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertLedgerEntries(_ entries: [LedgerEntry]) {
@@ -372,7 +394,7 @@ final class CacheService {
                 context.insert(LedgerEntryCache(from: entry))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAllowancePeriods(_ periods: [AllowancePeriod]) {
@@ -396,7 +418,7 @@ final class CacheService {
                 context.insert(AllowancePeriodCache(from: period))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertAchievements(_ achievements: [Achievement]) {
@@ -418,7 +440,7 @@ final class CacheService {
                 context.insert(AchievementCache(from: achievement))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertProfileAchievements(_ pas: [ProfileAchievement]) {
@@ -437,7 +459,7 @@ final class CacheService {
                 context.insert(ProfileAchievementCache(from: pa))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     func upsertNotificationPreferences(_ prefs: [NotificationPreference]) {
@@ -457,12 +479,12 @@ final class CacheService {
                 context.insert(NotificationPreferenceCache(from: pref))
             }
         }
-        try? context.save()
+        saveContext()
     }
 
     // MARK: - Fetches
 
-    func fetchQuests(family: String?, weekInRange: ClosedRange<Date>? = nil) -> [QuestCache] {
+    func fetchQuests(family: String?, weekInRange: Range<Date>? = nil) -> [QuestCache] {
         let context = container.mainContext
         var descriptor = FetchDescriptor<QuestCache>(
             predicate: #Predicate { item in
@@ -538,6 +560,17 @@ final class CacheService {
         return (try? context.fetch(descriptor)) ?? []
     }
 
+    func fetchLedgerEntries(family: String?) -> [LedgerEntryCache] {
+        let context = container.mainContext
+        let descriptor = FetchDescriptor<LedgerEntryCache>(
+            predicate: #Predicate { item in
+                family == nil || item.familyRecordName == (family ?? "")
+            },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
     func fetchAllowancePeriods(profileRecordName: String) -> [AllowancePeriodCache] {
         let context = container.mainContext
         let descriptor = FetchDescriptor<AllowancePeriodCache>(
@@ -547,9 +580,6 @@ final class CacheService {
         return (try? context.fetch(descriptor)) ?? []
     }
 
-    /// Family-scoped read of cached allowance periods (sorted newest-first),
-    /// mirroring `fetchProfiles(family:)`. Used by the cache-first read path
-    /// so callers can render past payouts synchronously while CloudKit lags.
     func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache] {
         let context = container.mainContext
         let descriptor = FetchDescriptor<AllowancePeriodCache>(
@@ -597,7 +627,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -608,7 +638,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -619,7 +649,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -630,7 +660,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -641,7 +671,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -652,7 +682,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -663,7 +693,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -674,7 +704,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -685,7 +715,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 
@@ -696,7 +726,7 @@ final class CacheService {
         )
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
-            try? context.save()
+            saveContext()
         }
     }
 

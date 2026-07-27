@@ -28,20 +28,11 @@ final class AppState {
 
     var family: Family?
 
-    /// The CloudKit zone ID for the current family's shared data.
-    /// Set during onboarding or session restoration.
     var familyZoneID: CKRecordZone.ID?
-
-    /// Whether the current user is the owner of the family zone.
-    /// - `true` → Guild Master created the zone in `privateCloudDatabase`.
-    /// - `false` → Hero joined via CKShare; data lives in `sharedCloudDatabase`.
     var isZoneOwner: Bool = false
-
-    /// The active CKShare for the family zone (Guild Master only).
-    /// Used to generate invitation links for new family members.
     var activeShareURL: URL?
-
     var cacheService: CacheService?
+    var cacheInitError: String?
 
     // MARK: - Session Persistence Keys
 
@@ -183,7 +174,6 @@ final class AppState {
         let userRecordID = try? await cloudKit.currentUserRecordID()
         logger.info("Current user record ID: \(userRecordID?.recordName ?? "nil", privacy: .private)")
 
-        // 1. Parent Search: Check privateCloudDatabase custom zones
         do {
             let privateZones = try await cloudKit.fetchPrivateZones()
             logger.info("Found \(privateZones.count) private zones")
@@ -195,14 +185,12 @@ final class AppState {
 
                 var family: Family?
 
-                // Strategy A: Direct point lookup by zone record ID (requires no CloudKit query index)
                 let familyID = CKRecord.ID(recordName: zone.zoneID.zoneName, zoneID: zone.zoneID)
                 if let fetched: Family = try? await cloudKit.fetch(Family.self, id: familyID, using: db) {
                     family = fetched
                     logger.info("Direct point lookup found Family: '\(fetched.name, privacy: .private)'")
                 }
 
-                // Strategy B: Query search fallback
                 if family == nil {
                     do {
                         let families: [Family] = try await cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)
@@ -216,14 +204,12 @@ final class AppState {
                 if let foundFamily = family {
                     var profile: Profile?
 
-                    // Strategy A: Direct point lookup for Guild Master profile using createdBy record ID
                     let creatorID = CKRecord.ID(recordName: foundFamily.createdBy.recordName, zoneID: zone.zoneID)
                     if let fetchedProfile: Profile = try? await cloudKit.fetch(Profile.self, id: creatorID, using: db), fetchedProfile.isActive {
                         profile = fetchedProfile
                         logger.info("Direct point lookup found active Guild Master profile: '\(fetchedProfile.displayName, privacy: .private)'")
                     }
 
-                    // Strategy B: Query search fallback for profiles
                     if profile == nil {
                         do {
                             let profiles: [Profile] = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)
@@ -245,7 +231,6 @@ final class AppState {
             logger.error("Error fetching private zones: \(error, privacy: .private)")
         }
 
-        // 2. Child Search: Check sharedCloudDatabase zones
         do {
             var sharedZones = try await cloudKit.fetchSharedZones()
             logger.info("Initial shared zones check: \(sharedZones.count) shared zones")
