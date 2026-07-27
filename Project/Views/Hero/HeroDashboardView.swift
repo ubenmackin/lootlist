@@ -13,11 +13,11 @@ struct HeroDashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
 
-    @Query private var cachedQuests: [QuestCache]
-    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
+    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
+    @Query(filter: #Predicate<QuestTemplateCache> { $0.isActive == true }) private var cachedTemplates: [QuestTemplateCache]
 
     @State private var viewModel: HeroDashboardViewModel?
-    @State private var showError = false
 
     var body: some View {
         NavigationStack {
@@ -36,42 +36,25 @@ struct HeroDashboardView: View {
             .navigationTitle("Quests")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
-                await viewModel?.load()
+                // Pull-to-refresh re-derives from the current cache snapshot.
+                // Background CloudKit freshness is driven by `SyncEngine`.
+                rebuildViewModel()
             }
             .task {
                 if viewModel == nil {
-                    viewModel = HeroDashboardViewModel(
-                        questService: questService,
-                        appState: appState
-                    )
+                    viewModel = HeroDashboardViewModel(appState: appState)
                 }
-                await viewModel?.load()
-            }
-            .overlay {
-                if let vm = viewModel, vm.isLoading, vm.weekQuests.isEmpty {
-                    ProgressView("Summoning your quests…")
-                        .padding()
-                }
-            }
-            .alert("Couldn't load quests", isPresented: $showError) {
-                Button("Retry") {
-                    showError = false
-                    Task { await viewModel?.load() }
-                }
-            } message: {
-                if let error = viewModel?.loadError {
-                    Text(error)
-                }
-            }
-            .onChange(of: viewModel?.loadError) { _, newValue in
-                if newValue != nil {
-                    showError = true
-                }
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot. Subsequent mutations re-fire `.onChange`.
+                rebuildViewModel()
             }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
             }
             .onChange(of: cachedCompletions) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedTemplates) { _, _ in
                 rebuildViewModel()
             }
         }
@@ -80,17 +63,18 @@ struct HeroDashboardView: View {
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        guard let familyName = appState.family?.id.recordName else { return }
 
         let quests = cachedQuests
-            .filter { $0.assigneeRecordName == profileName && $0.isActive }
-            .map { $0.toQuest(zoneID: zoneID) }
+            .filter { $0.familyRecordName == familyName && $0.assigneeRecordName == profileName && $0.isActive }
 
         let logs = cachedCompletions
-            .filter { $0.completerRecordName == profileName }
-            .map { $0.toQuestCompletion(zoneID: zoneID) }
+            .filter { $0.familyRecordName == familyName && $0.completerRecordName == profileName }
 
-        vm.rebuildLists(quests: quests, logs: logs)
+        let templates = cachedTemplates
+            .filter { $0.familyRecordName == familyName }
+
+        vm.rebuildLists(quests: quests, logs: logs, templates: templates)
     }
 
     private var goldBalanceCard: some View {
@@ -228,8 +212,10 @@ struct HeroDashboardView: View {
                             emptyState(text: "No scheduled quests for \(selectedDay.capitalized)")
                         } else {
                             ForEach(dayQuests) { quest in
+                                let zoneID = questService.cloudKitReference.resolvedZoneID
+                                let logCache = vm.logsByQuestRecordName[quest.recordName]
                                 NavigationLink {
-                                    QuestDetailView(quest: quest, initialLog: vm.log(for: quest))
+                                    QuestDetailView(quest: quest.toQuest(zoneID: zoneID), initialLog: logCache?.toQuestCompletion(zoneID: zoneID))
                                 } label: {
                                     QuestCardView(quest: quest)
                                 }
@@ -243,7 +229,7 @@ struct HeroDashboardView: View {
                     }
                 }
             } else {
-                if vm.weekQuests.isEmpty, !vm.isLoading {
+                if vm.weekQuests.isEmpty {
                     emptyState(text: "No quests assigned for this week")
                 } else {
                     VStack(alignment: .leading, spacing: 16) {
@@ -272,13 +258,15 @@ struct HeroDashboardView: View {
         }
     }
 
-    private func questSection(title: String, quests: [Quest]) -> some View {
+    private func questSection(title: String, quests: [QuestCache]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.headline)
             ForEach(quests) { quest in
+                let zoneID = questService.cloudKitReference.resolvedZoneID
+                let logCache = viewModel?.logsByQuestRecordName[quest.recordName]
                 NavigationLink {
-                    QuestDetailView(quest: quest, initialLog: viewModel?.log(for: quest))
+                    QuestDetailView(quest: quest.toQuest(zoneID: zoneID), initialLog: logCache?.toQuestCompletion(zoneID: zoneID))
                 } label: {
                     QuestCardView(quest: quest)
                 }

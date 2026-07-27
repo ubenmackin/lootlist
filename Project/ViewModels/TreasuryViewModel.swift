@@ -24,7 +24,7 @@ final class TreasuryViewModel {
 
     private(set) var allowancePeriod: AllowancePeriod?
 
-    private(set) var spendingLog: [LedgerEntry] = []
+    private(set) var spendingLog: [LedgerEntryCache] = []
 
     private(set) var isLoading: Bool = false
 
@@ -39,42 +39,20 @@ final class TreasuryViewModel {
         self.appState = appState
     }
 
-    func refresh() async {
-        guard let profile = appState.currentProfile,
-              let family = appState.family
-        else {
-            errorMessage = "No hero profile loaded."
-            return
-        }
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            balance = try await treasury.currentBalance(for: profile)
-            weeklyBreakdown = try await treasury.weeklyBreakdown(
-                profile: profile, weekOf: Date()
-            )
-            allowancePeriod = try await treasury.getOrCreateAllowancePeriod(
-                profile: profile, weekOf: Date(), family: family
-            )
-            await loadSpendingLog(showAllTime: false)
-        } catch {
-            errorMessage = "\(error)"
-        }
-    }
-
-    func rebuildLists(logs: [QuestCompletion], ledgers: [LedgerEntry], quests: [Quest], showAllTime: Bool) {
+    func rebuildLists(logs: [QuestCompletionCache], ledgers: [LedgerEntryCache], quests: [QuestCache], allowancePeriods: [AllowancePeriodCache], showAllTime: Bool) {
         guard let profile = appState.currentProfile else { return }
+        let profileName = profile.id.recordName
 
-        let profileLogs = logs.filter { $0.completedBy.recordID == profile.id }
-        let profileLedgers = ledgers.filter { $0.profile.recordID == profile.id }
+        let profileLogs = logs.filter { $0.completerRecordName == profileName }
+        let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
-        let approvedLogs = profileLogs.filter { $0.verificationStatus == .autoApproved || $0.verificationStatus == .verified }
+        let approvedLogs = profileLogs.filter {
+            $0.verificationStatus == VerificationStatus.autoApproved.rawValue || $0.verificationStatus == VerificationStatus.verified.rawValue
+        }
 
         var goldFromQuests = 0.0
         for log in approvedLogs {
-            if let quest = quests.first(where: { $0.id == log.quest.recordID }) {
+            if let quest = quests.first(where: { $0.recordName == log.questRecordName }) {
                 goldFromQuests += quest.goldReward
             }
         }
@@ -84,38 +62,30 @@ final class TreasuryViewModel {
 
         balance = goldFromQuests + bonusGold + spent
 
-        let weekOf = TreasuryService.mondayOfWeek(for: Date())
-        let weekRange = TreasuryService.weekRange(starting: weekOf)
+        let weekOf = WeekMath.weekOf(date: Date())
+        let weekRange = WeekMath.weekRange(starting: weekOf)
 
-        // Match the authoritative async path exactly. The two data sources use
-        // DIFFERENT boundary semantics, so they must be filtered differently:
-        //  - QuestCompletion: `TreasuryService.fetchQuestLogs` filters on `weekOf`
-        //    with INCLUSIVE `<= weekEnding` (TreasuryService.swift:286). `weekRange`
-        //    is a CLOSED interval (end = start + secondsInWeek - 1), so the bound
-        //    here is `<= end` to include the final second of the week.
-        //  - LedgerEntry: `TreasuryService.fetchLedgerEntries` is cache-first and
-        //    filters with `dateRange.contains($0.date)` (TreasuryService.swift:249).
-        //    `DateInterval.contains(_ date:)` is end-EXCLUSIVE (half-open:
-        //    `start <= date && date < end`), so the cache path DROPS a ledger entry
-        //    timestamped at Sunday 23:59:59. The ledger filters below must use
-        //    `weekRange.contains` / `range.contains` to stay byte-for-byte aligned
-        //    with the authoritative async path and avoid a flip-flop on refresh.
-        let weekLogs = approvedLogs.filter { $0.weekOf >= weekRange.start && $0.weekOf <= weekRange.end }
+        let currentAllowance = allowancePeriods.first {
+            $0.profileRecordName == profileName && $0.weekOf == weekOf
+        }
+        let payoutStatus = currentAllowance?.statusEnum
+        let paidAmount = currentAllowance?.paidAmount
+        if let zoneID = appState.familyZoneID {
+            allowancePeriod = currentAllowance?.toAllowancePeriod(zoneID: zoneID)
+        } else {
+            allowancePeriod = nil
+        }
+
+        let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) }
         var weekQuestsGold = 0.0
         for log in weekLogs {
-            if let quest = quests.first(where: { $0.id == log.quest.recordID }) {
+            if let quest = quests.first(where: { $0.recordName == log.questRecordName }) {
                 weekQuestsGold += quest.goldReward
             }
         }
 
-        // All-or-Nothing payout gate — mirror `TreasuryService.weeklyBreakdown`
-        // (TreasuryService.swift:63-68) and `FamilyDashboardViewModel.rebuildLists`
-        // (:226-234): if any quest was assigned this week but not every assigned
-        // quest was slain, the hero forfeits all quest gold for the week. Use
-        // `weekLogs.count` since `weekLogs` is already the slain-this-week set,
-        // matching the authoritative `slainCount`.
         let assignedQuests = quests.filter {
-            $0.assignee.recordID == profile.id && weekRange.contains($0.weekOf)
+            $0.assigneeRecordName == profileName && weekRange.contains($0.weekOf)
         }
         if profile.payoutPolicy == .allOrNothing,
            !assignedQuests.isEmpty,
@@ -136,28 +106,31 @@ final class TreasuryViewModel {
             bonusGold: weekBonusGold,
             totalEarned: totalEarned,
             spent: weekSpent,
-            net: totalEarned + weekSpent
+            net: totalEarned + weekSpent,
+            payoutStatus: payoutStatus,
+            paidAmount: paidAmount
         )
 
-        let range: DateInterval = showAllTime
-            ? DateInterval(start: .distantPast, end: .distantFuture)
+        let range: Range<Date> = showAllTime
+            ? (Date.distantPast ..< Date.distantFuture)
             : weekRange
 
         let includedLedgers = profileLedgers.filter { range.contains($0.date) }
 
         // Include approved logs as ledger entries for display.
+        let familyName = appState.family?.id.recordName ?? ""
         let logLedgers = approvedLogs
-            .filter { $0.weekOf >= range.start && $0.weekOf <= range.end }
-            .compactMap { log -> LedgerEntry? in
-                guard let quest = quests.first(where: { $0.id == log.quest.recordID }) else { return nil }
-                let gold = quest.goldReward
-                return LedgerEntry(
-                    profile: CKRecord.Reference(recordID: profile.id, action: .none),
-                    amount: gold,
-                    description: "Completed: \(quest.displayName)",
+            .filter { range.contains($0.weekOf) }
+            .compactMap { log -> LedgerEntryCache? in
+                guard let quest = quests.first(where: { $0.recordName == log.questRecordName }) else { return nil }
+                return LedgerEntryCache(
+                    recordName: "log-\(log.recordName)",
+                    profileRecordName: profileName,
+                    familyRecordName: familyName,
+                    amount: quest.goldReward,
+                    entryDescription: "Completed: \(quest.questName)",
                     date: log.completedDate,
-                    family: log.family,
-                    id: CKRecord.ID(recordName: "log-\(log.id.recordName)")
+                    source: "quest"
                 )
             }
 
@@ -169,15 +142,19 @@ final class TreasuryViewModel {
             errorMessage = "No hero profile loaded."
             return
         }
+        let weekRange = WeekMath.weekRange(starting: WeekMath.weekOf(date: Date()))
+        // SpendingService.fetchTransactions takes a closed DateInterval; preserve
+        // the prior inclusive [start, start+secondsInWeek-1] window for that query
+        // (display path only — gold/quest totals route through the half-open Range).
         let range: DateInterval = showAllTime
             ? DateInterval(start: .distantPast, end: .distantFuture)
-            : TreasuryService.weekRange(
-                starting: TreasuryService.mondayOfWeek(for: Date())
-            )
+            : DateInterval(start: weekRange.lowerBound,
+                           end: weekRange.upperBound.addingTimeInterval(-1))
         do {
-            spendingLog = try await spending.fetchTransactions(
+            let entries = try await spending.fetchTransactions(
                 for: profile, in: range
             )
+            spendingLog = entries.map { LedgerEntryCache(from: $0) }
         } catch {
             errorMessage = "\(error)"
         }
@@ -215,7 +192,9 @@ final class TreasuryViewModel {
                 date: date
             )
             errorMessage = nil
-            await refresh()
+            // D3: `spending.logManual` refreshes the SwiftData cache; the
+            // resulting mutation re-fires `.onChange` → `rebuildLists`. No
+            // explicit `refresh()` needed here.
             return true
         } catch {
             errorMessage = "\(error)"

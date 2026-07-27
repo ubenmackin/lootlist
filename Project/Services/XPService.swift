@@ -8,6 +8,21 @@
 import CloudKit
 import Foundation
 
+@MainActor
+protocol CloudKitServicing {
+    func save<T: CloudKitRecord>(_ model: T,
+                                 in zoneID: CKRecordZone.ID?,
+                                 using db: CKDatabase?) async throws -> T
+}
+
+extension CloudKitServicing {
+    func save<T: CloudKitRecord>(_ model: T) async throws -> T {
+        try await save(model, in: nil, using: nil)
+    }
+}
+
+extension CloudKitService: CloudKitServicing {}
+
 struct LevelProgress: Equatable, Sendable {
     let currentLevel: Int
 
@@ -25,11 +40,11 @@ final class XPService {
 
     static let accessoryCadence: Int = AppConstants.Experience.accessoryCadence
 
-    private let cloudKit: CloudKitService
+    private let cloudKit: any CloudKitServicing
     let notificationService: NotificationService?
     var cacheService: CacheService?
 
-    init(cloudKit: CloudKitService, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
+    init(cloudKit: any CloudKitServicing, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
         self.cacheService = cacheService
@@ -67,6 +82,16 @@ final class XPService {
         updated.xp += gained
         updated.level = level(forXP: updated.xp)
 
+        // Snapshot the pre-mutation cached state so we can roll back on failure.
+        // Mirrors FamilyService.updateProfile*: snapshot is taken BEFORE the
+        // optimistic upsert so the cache can be restored to its prior value if
+        // CloudKit rejects the write.
+        let name = profile.id.recordName
+        let snapshotProfile = cacheService?.fetchProfile(recordName: name)?.toProfile(zoneID: profile.id.zoneID)
+
+        // Optimistic local write first
+        cacheService?.upsertProfile(updated)
+
         do {
             let saved = try await cloudKit.save(updated)
             cacheService?.upsertProfile(saved)
@@ -84,7 +109,12 @@ final class XPService {
             }
             return saved
         } catch {
-            return updated
+            if let snapshotProfile {
+                cacheService?.upsertProfile(snapshotProfile)
+                return snapshotProfile
+            }
+            cacheService?.invalidateProfile(recordName: name)
+            return profile
         }
     }
 

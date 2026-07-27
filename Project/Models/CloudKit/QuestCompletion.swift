@@ -90,6 +90,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
     init(quest: CKRecord.Reference,
          completedBy: CKRecord.Reference,
          approvalMode: ApprovalMode,
+         completedDate: Date = Date(),
          weekOf: Date,
          family: CKRecord.Reference,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
@@ -97,7 +98,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
         self.id = id
         self.quest = quest
         self.completedBy = completedBy
-        completedDate = Date()
+        self.completedDate = completedDate
         verificationStatus = (approvalMode == .autoApprove)
             ? .autoApproved
             : .pending

@@ -7,10 +7,6 @@
 
 import SwiftUI
 
-/// A capsule-shaped preset chip used to quickly pick a canned value
-/// (e.g. gold reward presets, rarity selectors). `isSelected` highlights
-/// the active preset. Optional `systemImage` renders a leading SF Symbol
-/// and optional `color` overrides the accent fill (used for per-rarity chips).
 public struct PresetPill: View {
     public var text: String
     public var isSelected: Bool

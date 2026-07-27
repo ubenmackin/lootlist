@@ -11,21 +11,24 @@ import os
 
 enum FamilyServiceError: Error, Equatable, Sendable {
     case invalidInviteCode
-
     case joinFailed(String)
-
     case creationFailed(String)
-
-    /// Generic save failure for operations other than family creation
-    /// (e.g. role updates, leave-family).
     case persistenceFailed(String)
-
     case accountUnavailable
 }
 
+// MARK: - Protocol for testable injection into ViewModels
+
+@MainActor
+protocol FamilyProfileFetching: Sendable {
+    func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile]
+}
+
+// MARK: - FamilyService
+
 @MainActor
 @Observable
-final class FamilyService {
+final class FamilyService: FamilyProfileFetching {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
     private let cloudKit: CloudKitService
@@ -42,13 +45,6 @@ final class FamilyService {
 
     // MARK: - Family Creation (Guild Master Flow)
 
-    /// Creates a new family in the Guild Master's **private** CloudKit database.
-    ///
-    /// Steps:
-    /// 1. Create a custom `CKRecordZone` in `privateCloudDatabase`.
-    /// 2. Save the `Family` record in that zone.
-    /// 3. Create a `CKShare` anchored to the `Family` record so Heroes can join.
-    /// 4. Save the Guild Master's `Profile` in the same zone.
     @discardableResult
     func createFamily(name: String,
                       ownerProfile: Profile) async throws -> (family: Family, profile: Profile, shareURL: URL?) // swiftlint:disable:this large_tuple
@@ -124,8 +120,6 @@ final class FamilyService {
 
     // MARK: - Join Family (Hero Flow via CKShare Link)
 
-    /// Joins a family by accepting a CKShare invitation.
-    /// After acceptance, the family zone appears in the Hero's `sharedCloudDatabase`.
     func joinFamilyViaShare(metadata: CKShare.Metadata,
                             heroProfile: Profile) async throws -> (family: Family, profile: Profile)
     {
@@ -217,6 +211,12 @@ final class FamilyService {
         var updated = family
         updated.name = trimmed
 
+        let name = family.id.recordName
+        let snapshot = cacheService?.fetchFamily(recordName: name)
+
+        cacheService?.upsertFamily(updated)
+        appState.family = updated
+
         let (zoneID, db) = familyContext(for: family.id)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -224,6 +224,10 @@ final class FamilyService {
             appState.family = saved
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
+                appState.family = snapshot.toFamily(zoneID: zoneID)
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update family name: \(error)"
             )
@@ -235,6 +239,12 @@ final class FamilyService {
         var updated = family
         updated.payoutPolicy = policy
 
+        let name = family.id.recordName
+        let snapshot = cacheService?.fetchFamily(recordName: name)
+
+        cacheService?.upsertFamily(updated)
+        appState.family = updated
+
         let (zoneID, db) = familyContext(for: family.id)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -242,6 +252,10 @@ final class FamilyService {
             appState.family = saved
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
+                appState.family = snapshot.toFamily(zoneID: zoneID)
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update payout policy: \(error)"
             )
@@ -253,6 +267,14 @@ final class FamilyService {
         var updated = profile
         updated.payoutPolicy = policy
 
+        let name = profile.id.recordName
+        let snapshot = cacheService?.fetchProfile(recordName: name)
+
+        cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == profile.id {
+            appState.currentProfile = updated
+        }
+
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -262,6 +284,12 @@ final class FamilyService {
             }
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                if appState.currentProfile?.id == profile.id {
+                    appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                }
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update profile payout policy: \(error)"
             )
@@ -278,6 +306,14 @@ final class FamilyService {
         var updated = profile
         updated.displayName = trimmed
 
+        let name = profile.id.recordName
+        let snapshot = cacheService?.fetchProfile(recordName: name)
+
+        cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == profile.id {
+            appState.currentProfile = updated
+        }
+
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -287,6 +323,12 @@ final class FamilyService {
             }
             return saved
         } catch {
+            if let snapshot {
+                cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                if appState.currentProfile?.id == profile.id {
+                    appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                }
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update character name: \(error)"
             )
@@ -321,16 +363,13 @@ final class FamilyService {
 
     // MARK: - Role & Membership Management
 
-    /// Fetches all active hero profiles belonging to the given family.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
-        // Cache-first: return cached profiles immediately
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchProfiles(family: familyName)
                 .filter { $0.role == UserRole.hero.rawValue && $0.isActive }
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             if !cached.isEmpty {
-                // Background refresh
                 Task { [cloudKit, cacheService] in
                     let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
                     let predicate = NSPredicate(format: "family == %@", familyRef)
@@ -341,7 +380,6 @@ final class FamilyService {
                 return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
             }
         }
-        // Fallback to CloudKit
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = try await cloudKit.query(Profile.self, predicate: predicate)
@@ -351,7 +389,6 @@ final class FamilyService {
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    /// Fetches ALL profiles (active AND inactive) for the given family, sorted active first then by name.
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
@@ -367,7 +404,7 @@ final class FamilyService {
                 return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
                     .sorted { lhs, rhs in
                         if lhs.isActive != rhs.isActive {
-                            return lhs.isActive && !rhs.isActive // active first
+                            return lhs.isActive && !rhs.isActive
                         }
                         return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
                     }
@@ -380,7 +417,7 @@ final class FamilyService {
         cacheService?.upsertProfiles(all)
         return all.sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive {
-                return lhs.isActive && !rhs.isActive // active first
+                return lhs.isActive && !rhs.isActive
             }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
@@ -425,7 +462,6 @@ final class FamilyService {
             )
         #endif
 
-        // Fetch active quests for current week and next week
         let currentQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: currentWeek)) ?? []
         let nextWeek = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: 1, to: currentWeek) ?? currentWeek
         let nextQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: nextWeek)) ?? []
@@ -435,8 +471,6 @@ final class FamilyService {
         }
     }
 
-    /// Returns the CloudKit zone ID and database for the given family record ID,
-    /// using the current user's zone-ownership context.
     private func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase) {
         let zoneID = cloudKit.resolvedZoneID // already set with correct ownerName
         let db = cloudKit.database(isOwner: appState.isZoneOwner)
@@ -471,7 +505,10 @@ final class FamilyService {
         cloudKit.activeFamilyZoneID = nil
         cloudKit.activeIsOwner = true
 
-        // 3. Clear persisted session and reset app state to onboarding.
+        // 3. Clear local SwiftData cache
+        cacheService?.clearAll()
+
+        // 4. Clear persisted session and reset app state to onboarding.
         appState.clearSession()
     }
 }

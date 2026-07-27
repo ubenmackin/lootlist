@@ -15,11 +15,6 @@ struct NotificationSettingsView: View {
     private let family: Family
 
     @AppStorage("masterNotificationsEnabled") private var masterNotificationsEnabled = true
-    @AppStorage("questAssignedNotificationsEnabled") private var questAssignedNotificationsEnabled = true
-    @AppStorage("questNeedsReviewNotificationsEnabled") private var questNeedsReviewNotificationsEnabled = true
-    @AppStorage("questVerifiedNotificationsEnabled") private var questVerifiedNotificationsEnabled = true
-    @AppStorage("levelUpNotificationsEnabled") private var levelUpNotificationsEnabled = true
-    @AppStorage("weeklySummaryNotificationsEnabled") private var weeklySummaryNotificationsEnabled = true
 
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showClearedToast = false
@@ -105,28 +100,36 @@ struct NotificationSettingsView: View {
 
             // MARK: - 3. Individual Event Sub-Toggles
 
+            //
+            // Per-event toggles write-through optimistically to the
+            // `NotificationPreferenceCache` + CloudKit via
+            // `NotificationService.updatePreference(event:enabled:)` (D5).
+            // The `UserDefaults` mirror write inside the setter preserves the
+            // first-launch fallback. The master toggle above remains a
+            // device-level authorization gate (not a synced preference).
+
             Section {
-                Toggle(isOn: $questAssignedNotificationsEnabled) {
+                Toggle(isOn: toggleBinding(for: .questAssigned)) {
                     Label("Quest Assignments", systemImage: "scroll.fill")
                 }
                 .disabled(!masterNotificationsEnabled)
 
-                Toggle(isOn: $questNeedsReviewNotificationsEnabled) {
+                Toggle(isOn: toggleBinding(for: .questNeedsReview)) {
                     Label("Quest Approvals", systemImage: "checkmark.shield.fill")
                 }
                 .disabled(!masterNotificationsEnabled)
 
-                Toggle(isOn: $questVerifiedNotificationsEnabled) {
+                Toggle(isOn: toggleBinding(for: .questCompleted)) {
                     Label("Quest Verification Alerts", systemImage: "seal.fill")
                 }
                 .disabled(!masterNotificationsEnabled)
 
-                Toggle(isOn: $levelUpNotificationsEnabled) {
+                Toggle(isOn: toggleBinding(for: .levelUp)) {
                     Label("Level Up Alerts", systemImage: "star.fill")
                 }
                 .disabled(!masterNotificationsEnabled)
 
-                Toggle(isOn: $weeklySummaryNotificationsEnabled) {
+                Toggle(isOn: toggleBinding(for: .goldEarned)) {
                     Label("Sunday Loot Day Payouts", systemImage: "circle.hexagongrid.fill")
                 }
                 .disabled(!masterNotificationsEnabled)
@@ -202,5 +205,18 @@ struct NotificationSettingsView: View {
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
         authorizationStatus = settings.authorizationStatus
+    }
+
+    private func toggleBinding(for event: NotificationEventType) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { notificationService.isNotificationEnabled(for: event) },
+            set: { newValue in
+                // Mirror to UserDefaults for first-launch fallback continuity.
+                UserDefaults.standard.set(newValue, forKey: event.userDefaultsKey)
+                Task {
+                    try? await notificationService.updatePreference(event: event, enabled: newValue)
+                }
+            }
+        )
     }
 }

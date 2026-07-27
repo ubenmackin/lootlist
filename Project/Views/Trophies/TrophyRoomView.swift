@@ -15,8 +15,8 @@ struct TrophyRoomView: View {
     @Environment(XPService.self) private var xpService
     @Environment(AppState.self) private var appState
 
-    @Query private var cachedAchievements: [AchievementCache]
-    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
+    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
 
     var body: some View {
         NavigationStack {
@@ -37,7 +37,9 @@ struct TrophyRoomView: View {
                 }
             }
             .refreshable {
-                await viewModel?.refresh()
+                // D3: re-derive from the current cache snapshot. Background
+                // CloudKit freshness is driven by `SyncEngine`.
+                rebuild()
             }
         }
         .task {
@@ -48,19 +50,31 @@ struct TrophyRoomView: View {
                     appState: appState
                 )
             }
-            await viewModel?.refresh()
+            // D3: synchronous initial render from the current `@Query` cache
+            // snapshot. Subsequent mutations re-fire `.onChange`.
+            rebuild()
+            // One-shot background freshness touch: warm the achievement caches
+            // from CK. The services upsert into SwiftData (cache-first), which
+            // re-fires `.onChange` → `rebuild`. Does NOT block the cache render.
+            if let profile = appState.currentProfile {
+                Task { _ = try? await achievementService.fetchEarned(profile: profile) }
+                if let family = appState.family {
+                    Task { _ = try? await achievementService.fetchAllDefinitions(family: family) }
+                }
+            }
         }
         .onChange(of: cachedAchievements) { _, _ in rebuild() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
     }
 
     private func rebuild() {
-        guard let familyZoneID = appState.familyZoneID else { return }
+        guard let familyName = appState.family?.id.recordName else { return }
+        guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        let mappedAchievements = cachedAchievements.map { $0.toAchievement(zoneID: familyZoneID) }
-        let mappedEarned = cachedProfileAchievements.map { $0.toProfileAchievement(zoneID: familyZoneID) }
+        let achievements = cachedAchievements.filter { $0.familyRecordName == familyName }
+        let earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
 
-        viewModel?.rebuildLists(earned: mappedEarned, allAchievements: mappedAchievements)
+        viewModel?.rebuildLists(earned: earned, allAchievements: achievements)
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {
@@ -118,12 +132,12 @@ struct TrophyRoomView: View {
             GridItem(.flexible(), spacing: 12)
         ]
 
-        let earnedIDs = viewModel.earnedIDs
+        let earnedNames = viewModel.earnedAchievementRecordNames
         return LazyVGrid(columns: columns, spacing: 12) {
             ForEach(viewModel.allAchievements) { achievement in
                 TrophyCardView(
                     achievement: achievement,
-                    isEarned: earnedIDs.contains(achievement.id)
+                    isEarned: earnedNames.contains(achievement.recordName)
                 )
             }
         }

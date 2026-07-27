@@ -60,7 +60,6 @@ actor SubscriptionManager {
     private(set) var activeSubscriptions: Set<String> = []
     private var changeContinuations:
         [String: [UUID: AsyncStream<[CKRecord]>.Continuation]] = [:]
-    /// Tracks consumer IDs that were cancelled before registration completed.
     private var cancelledBeforeRegistration: Set<UUID> = []
 
     func hasSubscription(_ id: String) -> Bool {
@@ -75,31 +74,23 @@ actor SubscriptionManager {
         activeSubscriptions.remove(id)
     }
 
-    /// Atomically registers a continuation, guarding against cancellation
-    /// that arrived before this call. If the consumer already cancelled,
-    /// the continuation is finished immediately instead of being stored.
     func registerContinuation(_ continuation: AsyncStream<[CKRecord]>.Continuation,
                               for recordType: String,
                               consumerID: UUID)
     {
         if cancelledBeforeRegistration.remove(consumerID) != nil {
-            // Consumer cancelled before we could register — finish and discard.
             continuation.finish()
             return
         }
         changeContinuations[recordType, default: [:]][consumerID] = continuation
     }
 
-    /// Removes a continuation for a consumer. If the consumer hasn't been
-    /// registered yet (cancellation arrived first), records it so that
-    /// `registerContinuation` can short-circuit.
     func unregisterContinuation(for recordType: String, consumerID: UUID) {
         if changeContinuations[recordType]?.removeValue(forKey: consumerID) != nil {
             if changeContinuations[recordType]?.isEmpty == true {
                 changeContinuations[recordType] = nil
             }
         } else {
-            // Registration hasn't happened yet — mark for cancellation.
             cancelledBeforeRegistration.insert(consumerID)
         }
     }
@@ -138,8 +129,6 @@ final class CloudKitService {
     private var cachedPrivateDatabase: CKDatabase?
     private var cachedSharedDatabase: CKDatabase?
 
-    /// The database used for standard CRUD. Defaults to the private database.
-    /// Downstream services should call `database(isOwner:)` to route correctly.
     var database: CKDatabase {
         if let cachedDatabase {
             return cachedDatabase
@@ -149,8 +138,6 @@ final class CloudKitService {
         return db
     }
 
-    /// Private database — used by zone owners (Guild Masters) for zone creation,
-    /// record saves, and CKShare management.
     var privateDatabase: CKDatabase {
         if let cachedPrivateDatabase {
             return cachedPrivateDatabase
@@ -160,8 +147,6 @@ final class CloudKitService {
         return db
     }
 
-    /// Shared database — used by share participants (Heroes) for reading/writing
-    /// family data that has been shared with them via CKShare.
     var sharedDatabase: CKDatabase {
         if let cachedSharedDatabase {
             return cachedSharedDatabase
@@ -200,29 +185,17 @@ final class CloudKitService {
 
     // MARK: - Active Family Context
 
-    /// The zone ID for the currently active family. Set after family creation or
-    /// joining. When set, CRUD operations that omit an explicit zone will use
-    /// this zone instead of `defaultZoneID`.
     var activeFamilyZoneID: CKRecordZone.ID?
-
-    /// Whether the current user owns the active family zone.
-    /// - `true` → operations target `privateCloudDatabase`
-    /// - `false` → operations target `sharedCloudDatabase`
     var activeIsOwner: Bool = true
 
-    /// The database for the active family context.
     var activeFamilyDatabase: CKDatabase {
         database(isOwner: activeIsOwner)
     }
 
-    /// The zone to use when no explicit zone is passed to CRUD methods.
     var resolvedZoneID: CKRecordZone.ID {
         activeFamilyZoneID ?? defaultZoneID
     }
 
-    /// Returns the correct database based on whether the current user owns the zone.
-    /// - Zone owners (Guild Masters) use `privateCloudDatabase`.
-    /// - Share participants (Heroes) use `sharedCloudDatabase`.
     func database(isOwner: Bool) -> CKDatabase {
         isOwner ? privateDatabase : sharedDatabase
     }
@@ -385,6 +358,77 @@ final class CloudKitService {
         return try records.map { try T(record: $0) }
     }
 
+    struct ZoneChangesResult: Sendable {
+        let changedRecords: [CKRecord]
+        let deletedRecordIDs: [(recordID: CKRecord.ID, recordType: String)]
+        let newToken: CKServerChangeToken?
+        let moreComing: Bool
+    }
+
+    func fetchZoneChanges(
+        in zoneID: CKRecordZone.ID? = nil,
+        since token: CKServerChangeToken? = nil,
+        using db: CKDatabase? = nil
+    ) async throws -> ZoneChangesResult {
+        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+            return ZoneChangesResult(
+                changedRecords: Array(mockRecords.values),
+                deletedRecordIDs: [],
+                newToken: nil,
+                moreComing: false
+            )
+        }
+
+        let zone = zoneID ?? resolvedZoneID
+        let targetDB = db ?? activeFamilyDatabase
+
+        return try await retrying {
+            var changedRecords: [CKRecord] = []
+            var deletedRecordIDs: [(recordID: CKRecord.ID, recordType: String)] = []
+            var newToken: CKServerChangeToken?
+            var moreComing = false
+
+            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+            config.previousServerChangeToken = token
+
+            let op = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zone], configurationsByRecordZoneID: [zone: config])
+
+            op.recordWasChangedBlock = { _, result in
+                if case let .success(record) = result {
+                    changedRecords.append(record)
+                }
+            }
+
+            op.recordWithIDWasDeletedBlock = { recordID, recordType in
+                deletedRecordIDs.append((recordID, recordType))
+            }
+
+            op.recordZoneFetchResultBlock = { _, result in
+                if case let .success((serverChangeToken, _, hasMoreComing)) = result {
+                    newToken = serverChangeToken
+                    moreComing = hasMoreComing
+                }
+            }
+
+            return try await withCheckedThrowingContinuation { continuation in
+                op.fetchRecordZoneChangesResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume(returning: ZoneChangesResult(
+                            changedRecords: changedRecords,
+                            deletedRecordIDs: deletedRecordIDs,
+                            newToken: newToken,
+                            moreComing: moreComing
+                        ))
+                    case let .failure(error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+                targetDB.add(op)
+            }
+        }
+    }
+
     private func evaluateMockPredicate(_ predicate: NSPredicate, record: CKRecord) -> Bool {
         let fmt = predicate.predicateFormat
         if fmt == "TRUEPRED" || fmt == "1 == 1" {
@@ -465,9 +509,6 @@ final class CloudKitService {
         }
     }
 
-    /// Creates a custom record zone in the **private** database.
-    /// Custom zones can only be created in privateCloudDatabase; attempting to
-    /// create one in sharedCloudDatabase causes CKError.invalidArguments.
     func ensureZoneExists(_ zoneID: CKRecordZone.ID) async throws {
         let pvtDB = privateDatabase
         do {
@@ -508,8 +549,6 @@ final class CloudKitService {
 
     // MARK: - CKShare Support
 
-    /// Creates a `CKShare` for the given root record ID in the private database.
-    /// The root record must already be saved in a custom zone in `privateCloudDatabase`.
     func createShare(for rootRecordID: CKRecord.ID) async throws -> CKShare {
         let pvtDB = privateDatabase
         let serverRoot = try await retrying {
@@ -541,7 +580,6 @@ final class CloudKitService {
         }
     }
 
-    /// Fetches an existing CKShare URL for the zone, or creates a new CKShare if one does not exist.
     func fetchOrCreateShareURL(in zoneID: CKRecordZone.ID, rootRecordID: CKRecord.ID) async throws -> URL {
         if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
             return URL(string: "https://www.icloud.com/share/test-mock-share")!
@@ -549,7 +587,6 @@ final class CloudKitService {
         let pvtDB = privateDatabase
         let targetID = CKRecord.ID(recordName: rootRecordID.recordName, zoneID: zoneID)
 
-        // Step 1: Check root record's share reference directly via point lookup (requires no query index)
         if let rootRecord = try? await pvtDB.record(for: targetID),
            let shareRef = rootRecord.share,
            let existingShare = await (try? pvtDB.record(for: shareRef.recordID)) as? CKShare
@@ -564,12 +601,10 @@ final class CloudKitService {
             }
         }
 
-        // Step 2: Fallback query search
         if let existingURL = try? await fetchShareURL(in: zoneID) {
             return existingURL
         }
 
-        // Step 3: Only create a NEW share if no share exists at all
         logger.info("No existing CKShare found for zone '\(zoneID.zoneName, privacy: .private)'. Creating new share...")
         let share = try await createShare(for: rootRecordID)
         guard let url = share.url else {
@@ -578,8 +613,6 @@ final class CloudKitService {
         return url
     }
 
-    /// Accepts a CKShare invitation. After acceptance the shared zone appears
-    /// in `sharedCloudDatabase`.
     func acceptShare(metadata: CKShare.Metadata) async throws {
         let operation = CKAcceptSharesOperation(shareMetadatas: [metadata])
 
@@ -598,20 +631,15 @@ final class CloudKitService {
         }
     }
 
-    /// Discovers all custom private record zones in `privateCloudDatabase`.
     func fetchPrivateZones() async throws -> [CKRecordZone] {
         try await privateDatabase.allRecordZones()
     }
 
-    /// Discovers all shared record zones available to the current user in
-    /// `sharedCloudDatabase`. Used by Heroes to find the family zone after
-    /// accepting a CKShare.
     func fetchSharedZones() async throws -> [CKRecordZone] {
         let sharedDB = sharedDatabase
         return try await sharedDB.allRecordZones()
     }
 
-    /// Background task executing on app startup to retry deleting queued abandoned zone IDs.
     func processAbandonedZonesQueue(appState: AppState) async {
         let queuedNames = appState.abandonedZoneIDs
         guard !queuedNames.isEmpty else { return }
@@ -628,8 +656,6 @@ final class CloudKitService {
         }
     }
 
-    /// Fetches the CKShare URL for a given record zone. Used by Guild Masters
-    /// to retrieve the invitation link after creating a family.
     func fetchShareURL(in zoneID: CKRecordZone.ID) async throws -> URL? {
         let pvtDB = privateDatabase
         let predicate = NSPredicate(value: true)
@@ -651,7 +677,6 @@ final class CloudKitService {
         return nil
     }
 
-    /// Fetches the current user's CloudKit record ID.
     func currentUserRecordID() async throws -> CKRecord.ID {
         try await container.userRecordID()
     }

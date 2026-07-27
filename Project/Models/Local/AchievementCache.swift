@@ -10,6 +10,8 @@ import SwiftData
 
 @Model
 final class AchievementCache {
+    #Index<AchievementCache>([\.familyRecordName])
+
     @Attribute(.unique) var recordName: String
     var familyRecordName: String
     var name: String

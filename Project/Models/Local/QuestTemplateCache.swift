@@ -9,6 +9,8 @@ import SwiftData
 
 @Model
 final class QuestTemplateCache {
+    #Index<QuestTemplateCache>([\.familyRecordName])
+
     @Attribute(.unique) var recordName: String
     var familyRecordName: String
     var name: String
@@ -52,7 +54,6 @@ final class QuestTemplateCache {
         self.createdByRecordName = createdByRecordName
     }
 
-    /// Creates a cache entry from a CloudKit `QuestTemplate` model.
     convenience init(from template: QuestTemplate) {
         self.init(
             recordName: template.id.recordName,

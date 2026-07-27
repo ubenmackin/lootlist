@@ -21,10 +21,13 @@ struct FamilyDashboardView: View {
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showShareSheet: Bool = false
 
-    @Query private var cachedProfiles: [ProfileCache]
-    @Query private var cachedQuests: [QuestCache]
-    @Query private var cachedCompletions: [QuestCompletionCache]
-    @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
+    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
+    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
+    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
+    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
+    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
 
     var body: some View {
         NavigationStack {
@@ -53,7 +56,13 @@ struct FamilyDashboardView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                await viewModel?.refresh()
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot. Subsequent mutations re-fire `.onChange`.
+                rebuild()
+                // Background freshness touch (share URL + zone setup) — does
+                // NOT call `rebuildLists`; the SwiftData cache + `.onChange`
+                // remain the single source of truth for lists.
+                Task { await viewModel?.refresh() }
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
@@ -64,6 +73,9 @@ struct FamilyDashboardView: View {
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
+            .onChange(of: cachedAchievements) { _, _ in rebuild() }
+            .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
             .onDisappear {
                 viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
@@ -74,18 +86,24 @@ struct FamilyDashboardView: View {
     }
 
     private func rebuild() {
-        guard let familyZoneID = appState.familyZoneID else { return }
+        guard let familyName = appState.family?.id.recordName else { return }
 
-        let mappedProfiles = cachedProfiles.map { $0.toProfile(zoneID: familyZoneID) }
-        let mappedQuests = cachedQuests.map { $0.toQuest(zoneID: familyZoneID) }
-        let mappedLogs = cachedCompletions.map { $0.toQuestCompletion(zoneID: familyZoneID) }
-        let mappedLedgers = cachedLedgers.map { $0.toLedgerEntry(zoneID: familyZoneID) }
+        let filteredProfiles = cachedProfiles.filter { $0.familyRecordName == familyName }
+        let filteredQuests = cachedQuests.filter { $0.familyRecordName == familyName }
+        let filteredLogs = cachedCompletions.filter { $0.familyRecordName == familyName }
+        let filteredLedgers = cachedLedgers.filter { $0.familyRecordName == familyName }
+        let filteredAllowancePeriods = cachedAllowancePeriods.filter { $0.familyRecordName == familyName }
+        let filteredProfileAchievements = cachedProfileAchievements.filter { $0.familyRecordName == familyName }
+        let filteredAchievements = cachedAchievements.filter { $0.familyRecordName == familyName }
 
         viewModel?.rebuildLists(
-            profiles: mappedProfiles,
-            quests: mappedQuests,
-            logs: mappedLogs,
-            ledgers: mappedLedgers
+            profiles: filteredProfiles,
+            quests: filteredQuests,
+            logs: filteredLogs,
+            ledgers: filteredLedgers,
+            allowancePeriods: filteredAllowancePeriods,
+            profileAchievements: filteredProfileAchievements,
+            achievements: filteredAchievements
         )
     }
 

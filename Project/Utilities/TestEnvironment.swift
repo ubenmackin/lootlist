@@ -8,7 +8,6 @@
 import Foundation
 
 enum TestEnvironment {
-    /// Detects if the current process is running unit tests (XCTest/Swift Testing) or UI tests.
     static var isRunningUnitOrUITests: Bool {
         // XCTestConfigurationFilePath is set in processes run by Xcode test runners
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
