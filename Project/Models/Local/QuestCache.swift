@@ -60,7 +60,6 @@ final class QuestCache {
         self.createdByRecordName = createdByRecordName
     }
 
-    /// Creates a cache entry from a CloudKit `Quest` model.
     convenience init(from quest: Quest) {
         self.init(
             recordName: quest.id.recordName,

@@ -8,9 +8,6 @@
 import Foundation
 import os
 
-/// A small, durable, reusable coordinator that runs registered migration steps on cold launch.
-/// Each step is gated by a UserDefaults key so it runs exactly once per device.
-/// Errors in a step are logged but do NOT fail subsequent steps.
 @MainActor
 final class DataMigrationsCoordinator {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
@@ -28,13 +25,10 @@ final class DataMigrationsCoordinator {
         self.defaults = defaults
     }
 
-    /// Register a migration step. Call this before `runPendingMigrations()`.
     func register(_ step: MigrationStep) {
         steps.append(step)
     }
 
-    /// Run all registered steps whose gating key is not yet set.
-    /// Steps run in registration order; an error in one step does not prevent subsequent steps.
     func runPendingMigrations() async {
         for step in steps {
             let key = "migration.\(step.id).v\(step.version).complete"
@@ -50,8 +44,6 @@ final class DataMigrationsCoordinator {
                 logger.info("Migration \(step.id) v\(step.version) completed successfully")
             } catch {
                 logger.error("Migration \(step.id) v\(step.version) failed: \(error, privacy: .private)")
-                // Do NOT set the key — step will be retried on next launch
-                // Do NOT fail subsequent steps — log and continue
             }
         }
     }
@@ -60,8 +52,6 @@ final class DataMigrationsCoordinator {
 // MARK: - Migration Steps
 
 extension DataMigrationsCoordinator {
-    /// Creates and returns the QuestNameBackfillV1 migration step.
-    /// Requires a CloudKitService reference to query/save records.
     static func questNameBackfillV1(cloudKit: CloudKitService) -> MigrationStep {
         MigrationStep(id: "QuestNameBackfillV1", version: 1) {
             // Guard: Must have an active family zone to backfill quests from

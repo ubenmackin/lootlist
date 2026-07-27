@@ -8,7 +8,6 @@ import Foundation
 import os
 import SwiftData
 
-/// Background SwiftData actor for heavy batch upsert and purge operations off the main thread.
 @ModelActor
 actor BackgroundCacheActor {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
@@ -79,6 +78,9 @@ actor BackgroundCacheActor {
                 target.completedDate = completion.completedDate
                 target.weekOf = completion.weekOf
                 target.verificationStatus = completion.verificationStatus.rawValue
+                target.approvalMode = (completion.verificationStatus == .autoApproved)
+                    ? ApprovalMode.autoApprove.rawValue
+                    : ApprovalMode.parentVerify.rawValue
                 target.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
                 target.verifiedDate = completion.verifiedDate
             } else {
@@ -297,70 +299,87 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func deleteRecord(recordName: String, recordType: String) {
-        if !deleteCoreRecord(recordName: recordName, recordType: recordType) {
-            deleteSecondaryRecord(recordName: recordName, recordType: recordType)
+    func purgeMissingNotificationPreferences(validRecordNames: Set<String>) {
+        let existing = (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
+        for cached in existing where !validRecordNames.contains(cached.recordName) {
+            modelContext.delete(cached)
+        }
+        saveContext()
+    }
+
+    func deleteRecord(recordName: String, type: CachedRecordType) {
+        if !deleteCoreRecord(recordName: recordName, type: type) {
+            deleteSecondaryRecord(recordName: recordName, type: type)
         }
         saveContext()
     }
 
     @discardableResult
-    private func deleteCoreRecord(recordName: String, recordType: String) -> Bool {
-        switch recordType {
-        case "Quest":
+    private func deleteCoreRecord(recordName: String, type: CachedRecordType) -> Bool {
+        switch type {
+        case .quest:
             if let obj = (try? modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
             return true
-        case "Profile":
+        case .profile:
             if let obj = (try? modelContext.fetch(FetchDescriptor<ProfileCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
             return true
-        case "QuestCompletion":
+        case .questCompletion:
             if let obj = (try? modelContext.fetch(FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
             return true
-        case "QuestTemplate":
+        case .questTemplate:
             if let obj = (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
             return true
-        case "LedgerEntry":
+        case .ledgerEntry:
             if let obj = (try? modelContext.fetch(FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
             return true
-        default:
+        case .family, .allowancePeriod, .achievement, .profileAchievement, .notificationPreference:
+            // Core record types only — secondary-only types fall through to
+            // `deleteSecondaryRecord`. Returning false here routes the caller
+            // onward without deleting anything.
             return false
         }
     }
 
-    private func deleteSecondaryRecord(recordName: String, recordType: String) {
-        switch recordType {
-        case "AllowancePeriod":
+    private func deleteSecondaryRecord(recordName: String, type: CachedRecordType) {
+        switch type {
+        case .allowancePeriod:
             if let obj = (try? modelContext.fetch(FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
-        case "Achievement":
+            return
+        case .achievement:
             if let obj = (try? modelContext.fetch(FetchDescriptor<AchievementCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
-        case "ProfileAchievement":
+            return
+        case .profileAchievement:
             if let obj = (try? modelContext.fetch(FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
-        case "Family":
+            return
+        case .family:
             if let obj = (try? modelContext.fetch(FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
-        case "NotificationPreference":
+            return
+        case .notificationPreference:
             if let obj = (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>(predicate: #Predicate { $0.recordName == recordName })))?.first {
                 modelContext.delete(obj)
             }
-        default:
-            break
+            return
+        case .profile, .quest, .questCompletion, .questTemplate, .ledgerEntry:
+            // Core record types — handled by `deleteCoreRecord`. Nothing to do.
+            return
         }
     }
 

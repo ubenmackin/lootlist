@@ -67,13 +67,18 @@ struct TreasuryView: View {
                         appState: appState
                     )
                 }
-                await viewModel?.refresh()
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot. Subsequent mutations re-fire `.onChange`.
+                rebuild()
             }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
             .refreshable {
-                await viewModel?.refresh()
+                // Pull-to-refresh re-derives from the current cache snapshot.
+                // Background CloudKit freshness is driven by `SyncEngine`.
+                rebuild()
             }
         }
     }
@@ -85,11 +90,15 @@ struct TreasuryView: View {
         let logs = cachedCompletions.filter { $0.familyRecordName == familyName && $0.completerRecordName == profileName }
         let ledgers = cachedLedgers.filter { $0.familyRecordName == familyName && $0.profileRecordName == profileName }
         let quests = cachedQuests.filter { $0.familyRecordName == familyName && $0.assigneeRecordName == profileName }
+        let allowancePeriods = cachedAllowancePeriods.filter {
+            $0.familyRecordName == familyName && $0.profileRecordName == profileName
+        }
 
         viewModel?.rebuildLists(
             logs: logs,
             ledgers: ledgers,
             quests: quests,
+            allowancePeriods: allowancePeriods,
             showAllTime: false
         )
     }
@@ -179,6 +188,14 @@ struct WeeklyBreakdownCard: View {
                              value: GoldFormat.signed(breakdown.spent),
                              icon: "arrow.down.circle.fill",
                              tint: .red)
+                if let status = breakdown.payoutStatus {
+                    Divider()
+                    BreakdownRow(label: "Payout",
+                                 value: payoutRowValue(status: status, paidAmount: breakdown.paidAmount),
+                                 icon: status.iconSystemName,
+                                 tint: status == .paid ? .green : .orange,
+                                 isEmphasized: true)
+                }
                 Divider()
                 BreakdownRow(label: "Net for the Week",
                              value: GoldFormat.signed(breakdown.net),
@@ -202,6 +219,13 @@ struct WeeklyBreakdownCard: View {
                 .fill(Color(.secondarySystemGroupedBackground))
         )
         .padding(.horizontal)
+    }
+
+    private func payoutRowValue(status: PayoutStatus, paidAmount: Double?) -> String {
+        if status == .paid, let paidAmount {
+            return "\(status.displayName) · \(GoldFormat.magnitude(paidAmount))"
+        }
+        return status.displayName
     }
 }
 

@@ -38,47 +38,21 @@ final class HeroDashboardViewModel {
     private(set) var weekDays: [DayInfo] = []
     var selectedDayCode: String?
 
-    var loadError: String?
-    private(set) var isLoading: Bool = false
-
-    private let questService: QuestService
     private let appState: AppState
 
     private var templatesByID: [String: QuestTemplateCache] = [:]
 
-    init(questService: QuestService, appState: AppState) {
-        self.questService = questService
+    init(appState: AppState) {
         self.appState = appState
         weekDays = HeroDashboardViewModel.currentWeekDays()
     }
 
-    func load() async {
-        guard let profile = appState.currentProfile, appState.family != nil else {
-            todaysQuests = []
-            weeklyFlexibleQuests = []
-            completedQuests = []
-            upcomingQuests = []
-            missedQuests = []
-            weekQuests = []
-            streak = 0
-            earnedThisWeek = 0
-            availableTemplatesCount = 0
-            return
-        }
-
-        isLoading = true
-        defer { isLoading = false }
-        weekDays = HeroDashboardViewModel.currentWeekDays()
-
-        if let fetchedStreak = try? await questService.fetchStreak(for: profile) {
-            streak = fetchedStreak
-        }
-        if let fetchedEarned = try? await questService.earnedThisWeek(profile: profile, weekOf: Date()) {
-            earnedThisWeek = fetchedEarned
-        }
-    }
-
     func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache] = []) {
+        guard let profileName = appState.currentProfile?.id.recordName,
+              appState.family != nil
+        else { return }
+
+        weekDays = HeroDashboardViewModel.currentWeekDays()
         let todayCode = HeroDashboardViewModel.todayWeekdayCode()
 
         if !templates.isEmpty {
@@ -155,6 +129,65 @@ final class HeroDashboardViewModel {
         upcomingQuests = upcoming
         missedQuests = missed
         availableTemplatesCount = templatesByID.values.filter(\.isActive).count
+
+        // D3: derive `earnedThisWeek` and `streak` synchronously from the
+        // passed `@Query *Cache` arrays (mirrors
+        // `TreasuryViewModel.rebuildLists` + `ProfileViewModel.recomputeCharacterFromCache`).
+        // No async `QuestService` fetch — background CloudKit freshness is
+        // driven by `SyncEngine` silent pushes that re-fire `.onChange`.
+        let heroLogs = logs.filter { $0.completerRecordName == profileName }
+        streak = Self.computeStreak(from: heroLogs)
+        earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests)
+    }
+
+    /// Half-open-week, approved-completions, quest-gold join — the same
+    /// derivation `TreasuryViewModel.rebuildLists` performs for its weekly
+    /// gold-from-quests total.
+    static func earnedThisWeek(logs: [QuestCompletionCache], quests: [QuestCache]) -> Double {
+        let weekOf = WeekMath.weekOf(date: Date())
+        let weekRange = WeekMath.weekRange(starting: weekOf)
+
+        let approvedWeekLogs = logs.filter {
+            ($0.verificationStatus == VerificationStatus.autoApproved.rawValue
+                || $0.verificationStatus == VerificationStatus.verified.rawValue)
+                && weekRange.contains($0.weekOf)
+        }
+        let questByName = Dictionary(
+            quests.map { ($0.recordName, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        return approvedWeekLogs.reduce(into: 0.0) { acc, log in
+            if let quest = questByName[log.questRecordName] {
+                acc += quest.goldReward
+            }
+        }
+    }
+
+    static func computeStreak(from logs: [QuestCompletionCache]) -> Int {
+        let calendar = Calendar.iso8601UTC
+        var daySet: Set<Date> = []
+        for log in logs where
+            log.verificationStatus == VerificationStatus.autoApproved.rawValue
+            || log.verificationStatus == VerificationStatus.verified.rawValue
+        {
+            if let day = calendar.dateInterval(of: .day, for: log.completedDate)?.start {
+                daySet.insert(day)
+            }
+        }
+
+        let today = calendar.startOfDay(for: Date())
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        let anchor = daySet.contains(today) ? today
+            : (daySet.contains(yesterday) ? yesterday : nil)
+        guard let anchor else { return 0 }
+
+        var streak = 0
+        var cursor = anchor
+        while daySet.contains(cursor) {
+            streak += 1
+            cursor = calendar.date(byAdding: .day, value: -1, to: cursor) ?? cursor
+        }
+        return streak
     }
 
     func questsForSelectedDay() -> [QuestCache] {

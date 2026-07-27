@@ -16,8 +16,6 @@ extension Notification.Name {
     static let syncDidComplete = Notification.Name("syncDidComplete")
 }
 
-/// Coordinates CloudKit change notifications and CKShare acceptance events,
-/// fanning them out to subscribers via an AsyncStream.
 @MainActor
 @Observable
 final class AppSyncCoordinator {
@@ -26,12 +24,11 @@ final class AppSyncCoordinator {
     // MARK: - Sync Events
 
     enum SyncEvent: Sendable {
-        case recordChanged(recordTypeID: String)
+        case recordChanged(subscriptionID: String)
         case shareAccepted(shareID: CKRecord.ID)
         case zoneReset
     }
 
-    /// The stream continuations for subscribers
     private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
 
     init() {
@@ -62,7 +59,6 @@ final class AppSyncCoordinator {
         NotificationCenter.default.removeObserver(self)
     }
 
-    /// Register for CloudKit subscription changes. Call on cold launch and when family/zone changes.
     func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase) async {
         let subscription = CKDatabaseSubscription(subscriptionID: "lootlist-changes-\(zoneID.zoneName)")
 
@@ -78,7 +74,6 @@ final class AppSyncCoordinator {
         }
     }
 
-    /// Remove subscriptions (e.g., when family changes or user logs out).
     func removeSubscriptions(from database: CKDatabase) async {
         do {
             let subscriptions = try await database.allSubscriptions()
@@ -91,26 +86,28 @@ final class AppSyncCoordinator {
         }
     }
 
-    /// Handle an incoming silent push notification for CloudKit changes.
     func handleNotification(_ notification: CKNotification) {
         guard let databaseNotification = notification as? CKDatabaseNotification else { return }
 
-        let recordTypeID = databaseNotification.subscriptionID ?? "unknown"
-        logger.debug("CloudKit change notification received for record type: \(recordTypeID, privacy: .private)")
+        let subscriptionID = databaseNotification.subscriptionID ?? "unknown"
+        logger.debug("CloudKit change notification received for subscription: \(subscriptionID, privacy: .private)")
         #if DEBUG
             let subID = databaseNotification.subscriptionID ?? "nil"
             let notifType = String(describing: type(of: notification))
             logger.info("[DEBUG] handleNotification subscriptionID=\(subID, privacy: .private) notificationType=\(notifType, privacy: .public)")
         #endif
 
+        handleDatabaseChange(subscriptionID: subscriptionID)
+    }
+
+    func handleDatabaseChange(subscriptionID: String) {
         for (_, continuation) in continuations {
-            continuation.yield(.recordChanged(recordTypeID: recordTypeID))
+            continuation.yield(.recordChanged(subscriptionID: subscriptionID))
         }
     }
 
-    /// Handle a CKShare acceptance notification.
     func handleShareAcceptance(shareMetadata: CKShare.Metadata) {
-        let shareID = shareMetadata.hierarchicalRootRecordID ?? shareMetadata.share.recordID
+        let shareID = shareMetadata.share.recordID
         logger.info("CKShare acceptance notification received for share: \(shareID.recordName, privacy: .private)")
 
         for (_, continuation) in continuations {
@@ -118,29 +115,23 @@ final class AppSyncCoordinator {
         }
     }
 
-    /// Subscribe to sync events. Returns an AsyncStream and a UUID for unsubscription.
-    func subscribe() -> (stream: AsyncStream<SyncEvent>, id: UUID) {
+    func subscribe() -> (AsyncStream<SyncEvent>, UUID) {
         let id = UUID()
-        let (stream, continuation) = AsyncStream<SyncEvent>.makeStream()
-        continuations[id] = continuation
-
-        continuation.onTermination = { @Sendable [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                self.unsubscribe(id: id)
+        let stream = AsyncStream<SyncEvent> { continuation in
+            continuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    self?.continuations.removeValue(forKey: id)
+                }
             }
         }
-
         return (stream, id)
     }
 
-    /// Unsubscribe from sync events.
     func unsubscribe(id: UUID) {
-        continuations[id]?.finish()
         continuations.removeValue(forKey: id)
     }
 
-    /// Notify subscribers of a zone reset (e.g., after CloudKit schema migration).
     func notifyZoneReset() {
         for (_, continuation) in continuations {
             continuation.yield(.zoneReset)

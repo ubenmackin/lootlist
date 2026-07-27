@@ -351,6 +351,12 @@ final class AchievementService {
         var earlyBird = false
 
         for log in completedLogs {
+            // Cache-first: fall back to CK only on genuine cache miss.
+            if questCache[log.quest.recordID] == nil {
+                if let fetched = try? await cloudKit.fetch(Quest.self, id: log.quest.recordID) {
+                    questCache[log.quest.recordID] = fetched
+                }
+            }
             guard let quest = questCache[log.quest.recordID] else { continue }
             totalGold += quest.goldReward
 
@@ -449,29 +455,6 @@ final class AchievementService {
         case AchievementRequirement.earlyBird9am:
             stats.earlyBirdQualified
         }
-    }
-
-    private func achievementFromCache(_ cache: AchievementCache, zoneID: CKRecordZone.ID) -> Achievement {
-        Achievement(
-            name: cache.name,
-            description: cache.achievementDescription,
-            iconSystemName: cache.iconSystemName,
-            category: AchievementCategory(rawValue: cache.category) ?? .special,
-            requirementType: AchievementRequirement(rawValue: cache.requirementType) ?? .firstQuest,
-            requirementValue: cache.requirementValue,
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.familyRecordName, zoneID: zoneID), action: .none),
-            id: CKRecord.ID(recordName: cache.recordName, zoneID: zoneID)
-        )
-    }
-
-    private func profileAchievementFromCache(_ cache: ProfileAchievementCache, zoneID: CKRecordZone.ID) -> ProfileAchievement {
-        ProfileAchievement(
-            achievement: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.achievementRecordName, zoneID: zoneID), action: .none),
-            profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.profileRecordName, zoneID: zoneID), action: .none),
-            earnedDate: cache.earnedDate,
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cache.familyRecordName, zoneID: zoneID), action: .none),
-            id: CKRecord.ID(recordName: cache.recordName, zoneID: zoneID)
-        )
     }
 }
 

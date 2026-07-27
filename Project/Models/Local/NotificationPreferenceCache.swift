@@ -32,7 +32,6 @@ final class NotificationPreferenceCache {
         self.pushEnabled = pushEnabled
     }
 
-    /// Creates a cache entry from a CloudKit `NotificationPreference` model.
     convenience init(from preference: NotificationPreference) {
         self.init(
             recordName: preference.id.recordName,

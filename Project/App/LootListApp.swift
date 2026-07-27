@@ -33,7 +33,19 @@ struct LootListApp: App {
     init() {
         let app = AppState()
         let ck = CloudKitService()
-        let notification = NotificationService(cloudKit: ck)
+
+        let isTest = TestEnvironment.isRunningUnitOrUITests
+        let cache: CacheService?
+        do {
+            cache = try CacheService(inMemory: isTest)
+        } catch {
+            cache = nil
+            if !isTest {
+                app.cacheInitError = "Failed to initialize the local cache: \(error.localizedDescription)"
+            }
+        }
+
+        let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
         let xp = XPService(cloudKit: ck, notificationService: notification)
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification)
         let family = FamilyService(cloudKit: ck, appState: app, questService: quest)
@@ -42,9 +54,6 @@ struct LootListApp: App {
         let avatar = AvatarService(xp: xp)
         let appSync = AppSyncCoordinator()
 
-        // Attempt to initialize the SwiftData local cache.
-        let isTest = TestEnvironment.isRunningUnitOrUITests
-        let cache = try? CacheService(inMemory: isTest)
         quest.cacheService = cache
         treasury.cacheService = cache
         family.cacheService = cache
@@ -147,22 +156,15 @@ struct LootListApp: App {
                 handleIncomingShareURL(url)
             }
 
-        if let container = cacheService?.container {
+        if appState.cacheInitError != nil {
+            // Cache init failed at launch (schema-migration error, etc.). The cache is
+            // a required layer; surface the error as a controlled launch failure rather
+            // than rendering blank `@Query *.Cache` views forever.
+            FatalCacheErrorView(message: appState.cacheInitError ?? "Unknown cache initialization failure.")
+        } else if let container = cacheService?.container {
             baseRoot.modelContainer(container)
-        } else if let fallback = try? ModelContainer(for: Schema([
-            QuestCache.self,
-            QuestTemplateCache.self,
-            ProfileCache.self,
-            QuestCompletionCache.self,
-            FamilyCache.self,
-            LedgerEntryCache.self,
-            AllowancePeriodCache.self,
-            AchievementCache.self,
-            ProfileAchievementCache.self,
-            NotificationPreferenceCache.self
-        ]), configurations: [ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)]) {
-            baseRoot.modelContainer(fallback)
         } else {
+            // Render `baseRoot` directly without a model container (test environment path).
             baseRoot
         }
     }
@@ -204,7 +206,6 @@ struct LootListApp: App {
         }
     }
 
-    /// Temporarily stores share metadata until the onboarding VM picks it up.
     @State private var pendingShareMetadata: CKShare.Metadata?
 }
 

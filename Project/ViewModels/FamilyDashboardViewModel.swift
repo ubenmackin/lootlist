@@ -30,19 +30,18 @@ final class FamilyDashboardViewModel {
     private let questService: QuestService
     private let treasury: TreasuryService
     private let achievements: AchievementService
-    private let familyService: FamilyService
+    private let familyService: FamilyProfileFetching
     private let appState: AppState
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboard")
 
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
     private var syncRefreshTask: Task<Void, Never>?
-    private var lastHeroDisplayNames: [String: String] = [:]
 
     init(questService: QuestService,
          treasury: TreasuryService,
          achievementService: AchievementService,
-         familyService: FamilyService,
+         familyService: FamilyProfileFetching,
          appState: AppState)
     {
         self.questService = questService
@@ -69,69 +68,18 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    func loadPastPayouts(includeActive: Bool = true) async {
-        guard let family = appState.family else {
-            pastPayouts = []
-            return
-        }
-
-        isLoadingPayouts = true
-        defer { isLoadingPayouts = false }
-
-        let familyName = family.id.recordName
-        if let cache = appState.cacheService {
-            let all = cache.fetchAllowancePeriods(family: familyName)
-            pastPayouts = includeActive ? all : all.filter { $0.status == PayoutStatus.paid.rawValue }
-        }
-    }
-
-    private func buildHeroSummary(for hero: ProfileCache,
-                                  weekOf: Date) async -> HeroSummary
-    {
-        let zoneID = questService.cloudKitReference.resolvedZoneID
-        let domainHero = hero.toProfile(zoneID: zoneID)
-        async let questsTask: [Quest]? = try? questService.fetchActiveQuests(
-            profile: domainHero, weekOf: weekOf
-        )
-        async let logsTask: [QuestCompletion]? = try? questService.fetchQuestLogs(
-            for: domainHero
-        )
-        async let streakTask: Int? = try? questService.fetchStreak(for: domainHero)
-        async let earnedTask: Double? = try? treasury.weeklyBreakdown(
-            profile: domainHero, weekOf: weekOf
-        ).totalEarned
-
-        async let earnedTrophiesTask: [ProfileAchievement]? = try? achievements.fetchEarned(
-            profile: domainHero
-        )
-
-        let quests = await questsTask ?? []
-        let logs = await logsTask ?? []
-        let streak = await streakTask ?? 0
-        let earned = await earnedTask ?? 0
-        let earnedTrophies = await earnedTrophiesTask ?? []
-
-        let monday = TreasuryService.mondayOfWeek(for: weekOf)
-        let weekLogs = logs.filter { $0.weekOf == monday }
-        let completed = weekLogs.filter {
-            $0.verificationStatus == .autoApproved
-                || $0.verificationStatus == .verified
-        }
-
-        return HeroSummary(
-            profile: hero,
-            weeklyQuestsCompleted: completed.count,
-            weeklyQuestsTotal: quests.count,
-            weeklyGoldEarned: earned,
-            currentStreak: streak,
-            trophiesEarned: earnedTrophies.count
-        )
-    }
-
-    func rebuildLists(profiles: [ProfileCache], quests: [QuestCache], logs: [QuestCompletionCache], ledgers: [LedgerEntryCache]) {
-        let weekOf = QuestService.mondayOfWeek(for: Date())
-        let monday = TreasuryService.mondayOfWeek(for: weekOf)
-        let weekRange = TreasuryService.weekRange(starting: monday)
+    func rebuildLists(
+        profiles: [ProfileCache],
+        quests: [QuestCache],
+        logs: [QuestCompletionCache],
+        ledgers: [LedgerEntryCache],
+        allowancePeriods: [AllowancePeriodCache],
+        profileAchievements: [ProfileAchievementCache],
+        achievements _: [AchievementCache]
+    ) {
+        let weekOf = WeekMath.weekOf(date: Date())
+        let monday = WeekMath.mondayOfWeek(for: weekOf)
+        let weekRange = WeekMath.weekRange(starting: monday)
         let questByName = Dictionary(
             quests.map { ($0.recordName, $0) },
             uniquingKeysWith: { current, _ in current }
@@ -185,9 +133,17 @@ final class FamilyDashboardViewModel {
                 .reduce(0.0) { $0 + $1.amount }
             let earned = goldFromQuests + bonusGold
 
-            let existing = weekSummary?.heroSummaries.first { $0.profile.recordName == hero.recordName }
-            let streak = existing?.currentStreak ?? 0
-            let trophies = existing?.trophiesEarned ?? 0
+            // D3: derive `streak` and `trophiesEarned` synchronously from the
+            // cache arrays passed into `rebuildLists` (NO CloudKit fetch). The
+            // prior implementation reused the stale `weekSummary` from the
+            // previous render (itself built from `existing ?? 0`), so the
+            // recurrence bottomed out at 0/0 on a fresh launch and never
+            // advanced — a correctness regression.
+            let streakLogs = logs.filter { $0.completerRecordName == hero.recordName }
+            let streak = HeroDashboardViewModel.computeStreak(from: streakLogs)
+            let trophies = profileAchievements
+                .filter { $0.profileRecordName == hero.recordName }
+                .count
 
             heroSummaries.append(HeroSummary(
                 profile: hero,
@@ -207,6 +163,18 @@ final class FamilyDashboardViewModel {
             totalQuestsCompleted: totalQuests,
             heroSummaries: heroSummaries
         )
+
+        // D3: `pastPayouts` is a computed property of the `@Query
+        // cachedAllowancePeriods` passed in by `FamilyDashboardView` (replaces
+        // the deleted `loadPastPayouts()` cache-fetch path). A silent push
+        // that mutates an `AllowancePeriodCache` row re-fires
+        // `.onChange(of: cachedAllowancePeriods)` → `rebuild()` → here, with
+        // NO CloudKit fetch. Sorted by `weekOf` descending (most recent first)
+        // and scoped to the current family.
+        let familyName = appState.family?.id.recordName
+        pastPayouts = allowancePeriods
+            .filter { familyName == nil || $0.familyRecordName == familyName }
+            .sorted { $0.weekOf > $1.weekOf }
 
         if loadError != nil {
             loadError = nil
@@ -235,39 +203,22 @@ final class FamilyDashboardViewModel {
     }
 
     private func handleRecordChangedSync() {
+        // D3: the cache + `.onChange` already refresh the dashboard on
+        // `.recordChanged`. The display-name-stale heuristic and the
+        // `scheduleLatePropagationRetry` 1.5s retry loop were removed (they
+        // fired on every silent push and only papered over a stale-CK-read
+        // race). A single background `fetchAllProfilesForFamily` refreshes
+        // SwiftData for any data not yet in cache; the resulting mutation
+        // re-fires `.onChange` → `rebuildLists`. NO retry loop.
+        //
+        // Debounce: rapid `.recordChanged` bursts cancel the sleeping task
+        // before it reaches the fetch, so at most ONE fetch fires per burst.
         syncRefreshTask?.cancel()
-        syncRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .milliseconds(300))
+        guard let family = appState.family else { return }
+        syncRefreshTask = Task { [familyService] in
+            try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-
-            // Snapshot the display-name map BEFORE refresh so we can compare
-            // pre- vs post-refresh. `refresh()` overwrites lastHeroDisplayNames
-            // at the end, so a comparison against lastHeroDisplayNames would
-            // always be true (the bug) and retry every .recordChanged event.
-            let preRefreshNames = lastHeroDisplayNames
-
-            await refresh()
-
-            // Build current names from the freshly-refreshed heroes.
-            let currentNames = heroes.reduce(into: [String: String]()) {
-                $0[$1.recordName] = $1.displayName
-            }
-            // Names unchanged across the refresh ⇒ CloudKit read returned stale
-            // (pre-rename) data and the silent push was likely a Profile rename
-            // whose CloudKit propagation is lagging. Schedule a late retry.
-            if currentNames == preRefreshNames {
-                scheduleLatePropagationRetry()
-            }
-        }
-    }
-
-    private func scheduleLatePropagationRetry() {
-        syncRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: .seconds(1.5))
-            guard !Task.isCancelled else { return }
-            await refresh()
+            _ = try? await familyService.fetchAllProfilesForFamily(family)
         }
     }
 
@@ -290,7 +241,6 @@ final class FamilyDashboardViewModel {
         loadError = nil
         isLoading = false
         isLoadingPayouts = false
-        lastHeroDisplayNames = [:]
         syncRefreshTask?.cancel()
         syncRefreshTask = nil
     }

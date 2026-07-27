@@ -18,7 +18,6 @@ struct HeroDashboardView: View {
     @Query(filter: #Predicate<QuestTemplateCache> { $0.isActive == true }) private var cachedTemplates: [QuestTemplateCache]
 
     @State private var viewModel: HeroDashboardViewModel?
-    @State private var showError = false
 
     var body: some View {
         NavigationStack {
@@ -37,38 +36,17 @@ struct HeroDashboardView: View {
             .navigationTitle("Quests")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
-                await viewModel?.load()
+                // Pull-to-refresh re-derives from the current cache snapshot.
+                // Background CloudKit freshness is driven by `SyncEngine`.
+                rebuildViewModel()
             }
             .task {
                 if viewModel == nil {
-                    viewModel = HeroDashboardViewModel(
-                        questService: questService,
-                        appState: appState
-                    )
+                    viewModel = HeroDashboardViewModel(appState: appState)
                 }
-                await viewModel?.load()
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuildViewModel()
-            }
-            .overlay {
-                if let vm = viewModel, vm.isLoading, vm.weekQuests.isEmpty {
-                    ProgressView("Summoning your quests…")
-                        .padding()
-                }
-            }
-            .alert("Couldn't load quests", isPresented: $showError) {
-                Button("Retry") {
-                    showError = false
-                    Task { await viewModel?.load() }
-                }
-            } message: {
-                if let error = viewModel?.loadError {
-                    Text(error)
-                }
-            }
-            .onChange(of: viewModel?.loadError) { _, newValue in
-                if newValue != nil {
-                    showError = true
-                }
             }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
@@ -251,7 +229,7 @@ struct HeroDashboardView: View {
                     }
                 }
             } else {
-                if vm.weekQuests.isEmpty, !vm.isLoading {
+                if vm.weekQuests.isEmpty {
                     emptyState(text: "No quests assigned for this week")
                 } else {
                     VStack(alignment: .leading, spacing: 16) {

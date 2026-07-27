@@ -18,6 +18,7 @@ final class QuestCompletionCache {
     var completedDate: Date
     var weekOf: Date
     var verificationStatus: String
+    var approvalMode: String
     var verifiedByRecordName: String?
     var verifiedDate: Date?
 
@@ -28,6 +29,7 @@ final class QuestCompletionCache {
          completedDate: Date,
          weekOf: Date,
          verificationStatus: String,
+         approvalMode: String,
          verifiedByRecordName: String?,
          verifiedDate: Date?)
     {
@@ -38,12 +40,15 @@ final class QuestCompletionCache {
         self.completedDate = completedDate
         self.weekOf = weekOf
         self.verificationStatus = verificationStatus
+        self.approvalMode = approvalMode
         self.verifiedByRecordName = verifiedByRecordName
         self.verifiedDate = verifiedDate
     }
 
-    /// Creates a cache entry from a CloudKit `QuestCompletion` model.
     convenience init(from completion: QuestCompletion) {
+        let derivedApprovalMode: ApprovalMode = (completion.verificationStatus == .autoApproved)
+            ? .autoApprove
+            : .parentVerify
         self.init(
             recordName: completion.id.recordName,
             questRecordName: completion.quest.recordID.recordName,
@@ -52,6 +57,7 @@ final class QuestCompletionCache {
             completedDate: completion.completedDate,
             weekOf: completion.weekOf,
             verificationStatus: completion.verificationStatus.rawValue,
+            approvalMode: derivedApprovalMode.rawValue,
             verifiedByRecordName: completion.verifiedBy?.recordID.recordName,
             verifiedDate: completion.verifiedDate
         )

@@ -36,25 +36,6 @@ final class TrophyRoomViewModel {
         Set(earned.map(\.achievementRecordName))
     }
 
-    func refresh() async {
-        guard let profile = appState.currentProfile,
-              let family = appState.family
-        else {
-            earned = []
-            allAchievements = []
-            avatarCard = nil
-            return
-        }
-
-        if let cache = appState.cacheService {
-            let familyName = family.id.recordName
-            let profileName = profile.id.recordName
-            let allDefs = cache.fetchAchievements(family: familyName)
-            let earnedRows = cache.fetchProfileAchievements(profileRecordName: profileName)
-            rebuildLists(earned: earnedRows, allAchievements: allDefs)
-        }
-    }
-
     func rebuildLists(earned: [ProfileAchievementCache], allAchievements: [AchievementCache]) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName

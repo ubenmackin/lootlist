@@ -51,7 +51,6 @@ final class ProfileCache {
         self.payoutPolicy = payoutPolicy
     }
 
-    /// Creates a cache entry from a CloudKit `Profile` model.
     convenience init(from profile: Profile) {
         self.init(
             recordName: profile.id.recordName,

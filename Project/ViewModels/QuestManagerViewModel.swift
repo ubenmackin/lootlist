@@ -45,21 +45,12 @@ final class QuestManagerViewModel {
     }
 
     func load() async {
-        guard let family = appState.family else {
+        guard appState.family != nil else {
             templates = []
             activeAssignments = []
             return
         }
-
-        isLoading = true
-        defer { isLoading = false }
-
-        let familyName = family.id.recordName
-        if let cache = appState.cacheService {
-            let templates = cache.fetchQuestTemplates(family: familyName)
-            let quests = cache.fetchQuests(family: familyName).filter(\.isActive)
-            rebuildLists(templates: templates, assignments: quests)
-        }
+        // Non-nil family: rely on `.onChange(of: cached*)` → `rebuildLists`.
     }
 
     func rebuildLists(templates: [QuestTemplateCache], assignments: [QuestCache]) {
@@ -260,14 +251,13 @@ final class QuestManagerViewModel {
         guard syncSubscriptionID == nil else { return }
         let (stream, id) = coordinator.subscribe()
         syncSubscriptionID = id
-        syncTask = Task { [weak self] in
-            for await event in stream {
-                guard let self else { return }
-                switch event {
-                case .recordChanged, .shareAccepted, .zoneReset:
-                    await load()
-                    await loadHeroes()
-                }
+        syncTask = Task {
+            for await _ in stream {
+                // D3: `SyncEngine` mutates SwiftData on `.recordChanged`; the
+                // view's `@Query *.Cache` re-fires `.onChange` → `rebuildLists`
+                // / `rebuildHeroes`. No explicit `load()`/`loadHeroes()` here —
+                // those duplicated the `.onChange` path (and `loadHeroes` was a
+                // duplicate of the view's `@Query cachedProfiles`).
             }
         }
     }
@@ -278,17 +268,6 @@ final class QuestManagerViewModel {
         if let id = syncSubscriptionID {
             coordinator.unsubscribe(id: id)
             syncSubscriptionID = nil
-        }
-    }
-
-    func loadHeroes() async {
-        guard let family = appState.family else {
-            heroes = []
-            return
-        }
-
-        if let cache = appState.cacheService {
-            heroes = cache.fetchProfiles(family: family.id.recordName).filter { $0.role == UserRole.hero.rawValue }
         }
     }
 }

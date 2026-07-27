@@ -56,8 +56,9 @@ CloudKit is the source of truth. A local SwiftData cache mirrors CloudKit record
 - **`CacheService`** — `@MainActor` local store wrapping a SwiftData `ModelContainer`. Uses OS logger logging and centralized `saveContext()` / `withBatch` error-handling.
 - **`BackgroundCacheActor`** — `@ModelActor` executing on a dedicated background actor with `autosaveEnabled = false`. Performs batch upserts and missing-record purges off the main looper thread so full-sync operations never cause frame drops or UI jank.
 - **`SyncEngine`** — orchestrates pulling CloudKit changes into the cache. Supports cold launch full sync (`syncAll`) as well as token-based incremental sync (`incrementalSync`) powered by `CKFetchRecordZoneChangesOperation` and `CKServerChangeToken` stored in `UserDefaults` (`ck_server_change_token`). Emits `.syncDidComplete` notifications for background launch coordination.
-- **`AppSyncCoordinator`** — registers `CKSubscription`s per zone and fans `CKNotification`s out to subscribers via `AsyncStream<SyncEvent>` (`recordChanged(recordTypeID)`, `shareAccepted(shareID)`, `zoneReset`).
+- **`AppSyncCoordinator`** — registers `CKSubscription`s per zone and fans `CKNotification`s out to subscribers via `AsyncStream<SyncEvent>` (`recordChanged(subscriptionID)`, `shareAccepted(shareID)`, `zoneReset`).
 - **`CacheConversions.swift`** — free functions and extension getters bridging CloudKit domain models, SwiftData `*Cache` entities, and SwiftUI presentation enums.
+- **`CachedRecordType` (typed delete path)** — a `String, CaseIterable, Sendable` enum with one case per local SwiftData cache type. `BackgroundCacheActor.deleteRecord(recordName:type:)` takes the typed enum rather than a raw `CKRecord.RecordType` string, and raw CKRecordType strings are resolved through `CachedRecordType.recordType(for:) -> CachedRecordType?`. This eliminates the Swift class-name ↔ CKRecordType mismatch class of bugs — the only entity whose Swift class name diverges from its CKRecordType is `QuestCompletion` (`recordType == "QuestLog"`), and the resolver captures that divergence in exactly one place (each model's `Type.recordType` constant). Unknown recordTypes return `nil` so `SyncEngine.incrementalSync` logs a warning and skips rather than crashing.
 
 **Option C View/ViewModel Pipeline (Zero-Latency Rendering):**
 - **SwiftUI Views** declare `@Query` macros targeting `*Cache` models.
@@ -116,6 +117,7 @@ enum PayoutPolicy: String, Codable {
 - Lives on **`Family`** (family-wide default) **and** on **`Profile`** (per-hero override).
 - `FamilyService` exposes `updatePayoutPolicy` (family) and `updateProfilePayoutPolicy` (per-hero).
 - `allOrNothing` means the hero earns the week's gold **only if** 100% of assigned quests are completed; otherwise the period pays nothing.
+- **(Half-open `[start, end)` week ranges)** Every "this week" boundary is routed through `WeekMath.weekRange(starting:) -> Range<Date>`, which produces a HALF-OPEN range whose upper bound is *exclusive* (`end == start + secondsInWeek`). `QuestService`, `TreasuryService`, `CacheService.fetchQuests(family:weekInRange:)`, and `FamilyDashboardViewModel` all share this single definition via `WeekMath` (which also owns `mondayOfWeek(for:)` / `weekOf(date:)`, consolidated from the prior QuestService ↔ TreasuryService duplication). This removes the prior divergence where `TreasuryService` used a CLOSED `DateInterval` (`end = start + secondsInWeek - 1`) while `QuestService` used a half-open range — a divergence that could disagree by exactly one quest on edge weeks (a completion timestamped Sunday 23:59 → Monday 00:00 falling on the seam). With `end` EXCLUSIVE, a `Date` equal to `end` belongs to the *following* week on both sides.
 
 ### 6. Quest Rarity
 
@@ -199,6 +201,8 @@ Every notification type is individually toggleable per user (stored as `Notifica
 | Spending Logged | OFF | OFF |
 | Trophy Earned | ON | ON |
 | Streak Milestone | ON | ON |
+
+**Cross-device source of truth:** `NotificationPreferenceCache` (SwiftData) is the per-device render cache backing `NotificationPreference` (CloudKit, system of record). `NotificationService.isNotificationEnabled(for:)` reads cache-first (filtered by `profileRecordName + familyRecordName + eventType`); `UserDefaults.standard.bool(for:)` is a **first-launch-only** fallback used solely when the SwiftData cache is cold (brand-new install before the first `syncAll` populates it). `NotificationSettingsView` toggles write-through optimistically via `NotificationService.updatePreference(event:enabled:)` (optimistic upsert → CK save → re-upsert → catch-invalidate / snapshot-rollback) and keeps a `UserDefaults` mirror write for backward-compat. Bulk-write paths on `BackgroundCacheActor` — `batchUpsertNotificationPreferences` and `purgeMissingNotificationPreferences` — handle full-sync hydration and stale-row purge; `SyncEngine.processSecondaryRecord` routes incoming `NotificationPreference` records to `batchUpsertNotificationPreferences`. Cross-device propagation flows through the existing `CKSubscription` → `SyncEngine.incrementalSync` → SwiftData mutation → view's `.onChange(of: cachedNotificationPreferences)`.
 
 ### 11. Versioned Data Migrations
 
@@ -476,6 +480,23 @@ CKRecordType: "NotificationPreference"
 
 ### Data Migrations
 - Schema/data backfills register a `MigrationStep` on `DataMigrationsCoordinator` (versioned via UserDefaults). Do not patch records ad-hoc inside services.
+
+### Code Commenting Guidelines
+Code should be self-documenting through clear naming, clean structure, and descriptive method signatures. Avoid obvious, redundant, or multi-paragraph comments on self-explanatory code.
+
+**Rules for comments:**
+1. **New File Headers:** Every new file must include a standard Xcode header:
+   ```swift
+   //
+   //  <FILE_NAME>.swift
+   //  LootList
+   //
+   //  Created by Ben Mackin on <SYSDATE>
+   //
+   ```
+2. **Edge Cases & Non-Obvious Functions:** Add comments when documenting edge cases, complex non-obvious functions, or OS/concurrency workarounds.
+3. **Unique Context:** Add a comment only if there is something truly unique that a future developer must know about that specific line or block of code.
+4. **No Planning Artifact References:** Never reference blueprint plan session IDs, task IDs, PRs, or planning items (e.g. `D1`, `D3`, `Task 123`, blueprint IDs) in comments. Describe code behavior or domain rules directly without referring to historical planning metadata.
 
 ### SwiftUI Best Practices (iOS 26)
 - Use `@Observable` macro (not `ObservableObject` / `@Published`).

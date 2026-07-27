@@ -10,8 +10,6 @@ import Foundation
 import Observation
 import os
 
-/// Centralized sync coordinator that populates and updates the local SwiftData
-/// cache (`BackgroundCacheActor` / `CacheService`) from CloudKit on cold launch and in response to push notifications.
 @MainActor
 @Observable
 final class SyncEngine {
@@ -45,8 +43,6 @@ final class SyncEngine {
         listenToPushNotifications()
     }
 
-    /// Primary launch sync entry point. Queries CloudKit for all family entity types
-    /// in parallel and populates SwiftData off the main thread so all views can render instantly from local cache.
     func syncAll(familyRecordName: String? = nil) async {
         if isSyncing {
             needsResync = true
@@ -166,7 +162,6 @@ final class SyncEngine {
         logger.info("syncAll completed successfully.")
     }
 
-    /// Performs incremental sync using CloudKit change tokens for fast delta updates.
     func incrementalSync() async {
         if isSyncing {
             needsResync = true
@@ -210,7 +205,18 @@ final class SyncEngine {
             }
 
             for (deletedID, recordType) in result.deletedRecordIDs {
-                await backgroundCache.deleteRecord(recordName: deletedID.recordName, recordType: recordType)
+                // Resolve the raw CloudKit `CKRecordType` string to a typed
+                // `CachedRecordType` before delegating to the cache actor. This
+                // hardens the delete path against Swift class-name /
+                // CKRecordType divergence — e.g. `QuestCompletion`
+                // (`recordType == "QuestLog"`) whose previous string-literal
+                // switch in `BackgroundCacheActor` never matched, silently
+                // leaking stale `QuestCompletionCache` rows.
+                guard let cachedType = CachedRecordType.recordType(for: recordType) else {
+                    logger.warning("Skipping delete of unknown recordType '\(recordType, privacy: .public)' for record \(deletedID.recordName, privacy: .private)")
+                    continue
+                }
+                await backgroundCache.deleteRecord(recordName: deletedID.recordName, type: cachedType)
             }
 
             if let newToken = result.newToken {

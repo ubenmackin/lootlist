@@ -27,7 +27,7 @@ extension QuestCompletionCache {
         var completion = QuestCompletion(
             quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: questRecordName, zoneID: zoneID), action: .none),
             completedBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: completerRecordName, zoneID: zoneID), action: .none),
-            approvalMode: .autoApprove,
+            approvalMode: approvalModeEnum,
             weekOf: weekOf,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
@@ -183,6 +183,10 @@ extension QuestCache {
 extension QuestCompletionCache {
     var verificationStatusEnum: VerificationStatus {
         VerificationStatus(rawValue: verificationStatus) ?? .pending
+    }
+
+    var approvalModeEnum: ApprovalMode {
+        ApprovalMode(rawValue: approvalMode) ?? .autoApprove
     }
 }
 

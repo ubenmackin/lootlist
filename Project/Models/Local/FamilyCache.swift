@@ -10,7 +10,10 @@ import SwiftData
 
 @Model
 final class FamilyCache {
-    #Index<FamilyCache>([\.recordName])
+    // The `#Index<FamilyCache>([\.recordName])` macro was removed: it
+    // duplicated the implicit unique index already provided by
+    // `@Attribute(.unique) var recordName` below. Query predicates on
+    // `recordName` continue to use the unique attribute's implicit index.
 
     @Attribute(.unique) var recordName: String
     var name: String

@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct PayoutHistoryView: View {
@@ -14,6 +15,11 @@ struct PayoutHistoryView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
+
+    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
+    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
+    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var filter: PayoutFilter = .all
@@ -47,16 +53,38 @@ struct PayoutHistoryView: View {
                     )
                 }
 
-                await viewModel?.refresh()
-                await viewModel?.loadPastPayouts(includeActive: true)
+                // D3: synchronous render from the current `@Query` cache
+                // snapshot. `pastPayouts` is derived inside `rebuildLists`
+                // from `cachedAllowancePeriods` (replaces the deleted
+                // `loadPastPayouts()` cache-fetch path). `heroes` is populated
+                // from `cachedProfiles` so `heroName(for:)` resolves.
+                Task { await viewModel?.refresh() }
+                rebuildFromCache()
             }
             .refreshable {
-                await viewModel?.loadPastPayouts(includeActive: true)
+                rebuildFromCache()
             }
+            .onChange(of: cachedAllowancePeriods) { _, _ in rebuildFromCache() }
+            .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
+            .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
+            .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
             .sheet(item: $selectedPeriod) { period in
                 PayoutDetailSheet(period: period, heroName: heroName(for: period))
             }
         }
+    }
+
+    private func rebuildFromCache() {
+        guard let familyName = appState.family?.id.recordName else { return }
+        viewModel?.rebuildLists(
+            profiles: cachedProfiles.filter { $0.familyRecordName == familyName },
+            quests: [],
+            logs: [],
+            ledgers: [],
+            allowancePeriods: cachedAllowancePeriods.filter { $0.familyRecordName == familyName },
+            profileAchievements: cachedProfileAchievements.filter { $0.familyRecordName == familyName },
+            achievements: cachedAchievements.filter { $0.familyRecordName == familyName }
+        )
     }
 
     private var filterPicker: some View {

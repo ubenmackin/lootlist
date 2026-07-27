@@ -64,9 +64,8 @@ struct QuestLogView: View {
             if let initialHero, viewModel?.selectedHero == nil {
                 viewModel?.selectedHero = initialHero
             }
-            if let family = appState.family {
-                await viewModel?.load(family: family)
-            }
+            // D3: synchronous initial render from the current `@Query` cache
+            // snapshot. Subsequent mutations re-fire `.onChange`.
             rebuildViewModel()
         }
         .onDisappear {

@@ -9,13 +9,6 @@ import Foundation
 import os
 import SwiftData
 
-/// Local SwiftData cache layered in front of CloudKit.
-///
-/// **Read path:** check cache first → return immediately if present → refresh
-/// from CloudKit in the background and update both cache + published state.
-///
-/// **Write path:** every successful CloudKit save/query also upserts into
-/// SwiftData so subsequent reads are instant.
 @MainActor
 @Observable
 final class CacheService {
@@ -124,6 +117,9 @@ final class CacheService {
             existing.completedDate = completion.completedDate
             existing.weekOf = completion.weekOf
             existing.verificationStatus = completion.verificationStatus.rawValue
+            existing.approvalMode = (completion.verificationStatus == .autoApproved)
+                ? ApprovalMode.autoApprove.rawValue
+                : ApprovalMode.parentVerify.rawValue
             existing.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
             existing.verifiedDate = completion.verifiedDate
         } else {
@@ -341,6 +337,9 @@ final class CacheService {
                 cached.completedDate = completion.completedDate
                 cached.weekOf = completion.weekOf
                 cached.verificationStatus = completion.verificationStatus.rawValue
+                cached.approvalMode = (completion.verificationStatus == .autoApproved)
+                    ? ApprovalMode.autoApprove.rawValue
+                    : ApprovalMode.parentVerify.rawValue
                 cached.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
                 cached.verifiedDate = completion.verifiedDate
             } else {
@@ -485,7 +484,7 @@ final class CacheService {
 
     // MARK: - Fetches
 
-    func fetchQuests(family: String?, weekInRange: ClosedRange<Date>? = nil) -> [QuestCache] {
+    func fetchQuests(family: String?, weekInRange: Range<Date>? = nil) -> [QuestCache] {
         let context = container.mainContext
         var descriptor = FetchDescriptor<QuestCache>(
             predicate: #Predicate { item in
@@ -581,9 +580,6 @@ final class CacheService {
         return (try? context.fetch(descriptor)) ?? []
     }
 
-    /// Family-scoped read of cached allowance periods (sorted newest-first),
-    /// mirroring `fetchProfiles(family:)`. Used by the cache-first read path
-    /// so callers can render past payouts synchronously while CloudKit lags.
     func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache] {
         let context = container.mainContext
         let descriptor = FetchDescriptor<AllowancePeriodCache>(
@@ -732,80 +728,6 @@ final class CacheService {
             context.delete(object)
             saveContext()
         }
-    }
-
-    // MARK: - Deletion Purge (SyncEngine)
-
-    func purgeMissingQuests(validRecordNames: Set<String>, family: String? = nil) {
-        let context = container.mainContext
-        let all = fetchQuests(family: family)
-        for cached in all where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        saveContext()
-    }
-
-    func purgeMissingProfiles(validRecordNames: Set<String>, family: String? = nil) {
-        let context = container.mainContext
-        let all = fetchProfiles(family: family)
-        for cached in all where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        saveContext()
-    }
-
-    func purgeMissingQuestCompletions(validRecordNames: Set<String>, family: String? = nil) {
-        let context = container.mainContext
-        let all = fetchQuestCompletions(family: family)
-        for cached in all where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        saveContext()
-    }
-
-    func purgeMissingQuestTemplates(validRecordNames: Set<String>, family: String? = nil) {
-        let context = container.mainContext
-        let all = fetchQuestTemplates(family: family)
-        for cached in all where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        saveContext()
-    }
-
-    func purgeMissingLedgerEntries(validRecordNames: Set<String>, family: String? = nil) {
-        let context = container.mainContext
-        let all = fetchLedgerEntries(family: family)
-        for cached in all where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        saveContext()
-    }
-
-    func purgeMissingAllowancePeriods(validRecordNames: Set<String>, family: String? = nil) {
-        let context = container.mainContext
-        let all = fetchAllowancePeriods(family: family)
-        for cached in all where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        saveContext()
-    }
-
-    func purgeMissingAchievements(validRecordNames: Set<String>, family: String? = nil) {
-        let context = container.mainContext
-        let all = fetchAchievements(family: family)
-        for cached in all where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        saveContext()
-    }
-
-    func purgeMissingProfileAchievements(validRecordNames: Set<String>) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
-        for cached in existing where !validRecordNames.contains(cached.recordName) {
-            context.delete(cached)
-        }
-        try? context.save()
     }
 
     // MARK: - Bulk Clear

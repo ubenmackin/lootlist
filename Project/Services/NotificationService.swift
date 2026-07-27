@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import SwiftData
 import UIKit
 import UserNotifications
 
@@ -23,13 +24,22 @@ final class NotificationService {
     static let verificationRejectActionID = "questLog.verification.reject"
 
     private let cloudKit: CloudKitService
+    private let appState: AppState
+
+    var cacheService: CacheService?
+
     private(set) var deviceToken: Data?
     private(set) var verificationCategoryRegistered = false
 
     var weeklySummaryProvider: (@Sendable (Profile, Family, Date) async -> String?)?
 
-    init(cloudKit: CloudKitService) {
+    init(cloudKit: CloudKitService,
+         appState: AppState,
+         cacheService: CacheService? = nil)
+    {
         self.cloudKit = cloudKit
+        self.appState = appState
+        self.cacheService = cacheService
     }
 
     @discardableResult
@@ -56,8 +66,33 @@ final class NotificationService {
     }
 
     func isNotificationEnabled(for eventType: NotificationEventType) -> Bool {
+        if let cached = cachedPreference(for: eventType) {
+            return cached.enabled
+        }
+        return userDefaultsFallback(for: eventType)
+    }
+
+    private func cachedPreference(for eventType: NotificationEventType) -> NotificationPreferenceCache? {
+        guard let cacheService,
+              let profile = appState.currentProfile,
+              let family = appState.family
+        else { return nil }
+        let profileName = profile.id.recordName
+        let familyName = family.id.recordName
+        let eventTypeRaw = eventType.rawValue
+        let descriptor = FetchDescriptor<NotificationPreferenceCache>(
+            predicate: #Predicate {
+                $0.profileRecordName == profileName
+                    && $0.familyRecordName == familyName
+                    && $0.eventType == eventTypeRaw
+            }
+        )
+        return try? cacheService.container.mainContext.fetch(descriptor).first
+    }
+
+    private func userDefaultsFallback(for eventType: NotificationEventType) -> Bool {
         let defaults = UserDefaults.standard
-        let master = defaults.object(forKey: "masterNotificationsEnabled") as? Bool ?? true
+        let master = defaults.object(forKey: Self.masterDefaultsKey) as? Bool ?? true
         guard master else { return false }
 
         switch eventType {
@@ -75,6 +110,67 @@ final class NotificationService {
             return true
         }
     }
+
+    private func mirrorToUserDefaults(event: NotificationEventType, enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: event.userDefaultsKey)
+    }
+
+    @discardableResult
+    func updatePreference(event: NotificationEventType, enabled: Bool) async throws -> NotificationPreference {
+        guard let profile = appState.currentProfile, let family = appState.family else {
+            throw NotificationServiceError.persistenceFailed("No active profile/family for notification preference update")
+        }
+
+        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let zoneID = family.id.zoneID
+
+        // Resolve the existing cached row once — used both to reuse the CK
+        // record name (so CloudKit treats this as an update, not a create) and
+        // as the pre-mutation snapshot for D2 rollback. A brand-new preference
+        // (no prior cached row) gets a fresh UUID and falls back to
+        // invalidate-on-failure.
+        let snapshot = cachedPreference(for: event)
+        let recordID = if let existingName = snapshot?.recordName {
+            CKRecord.ID(recordName: existingName, zoneID: zoneID)
+        } else {
+            CKRecord.ID(recordName: UUID().uuidString, zoneID: zoneID)
+        }
+
+        let preference = NotificationPreference(
+            profile: profileRef,
+            eventType: event,
+            enabled: enabled,
+            pushEnabled: enabled,
+            family: familyRef,
+            id: recordID
+        )
+
+        // Optimistic local write + UserDefaults mirror for fallback continuity.
+        cacheService?.upsertNotificationPreference(preference)
+        mirrorToUserDefaults(event: event, enabled: enabled)
+
+        do {
+            let saved = try await cloudKit.save(preference)
+            cacheService?.upsertNotificationPreference(saved)
+            return saved
+        } catch {
+            if let snapshot {
+                // D2: UPDATE path — restore the pre-mutation cached value.
+                cacheService?.upsertNotificationPreference(
+                    snapshot.toNotificationPreference(zoneID: zoneID)
+                )
+            } else {
+                // Brand-new preference with no prior cached row — invalidate.
+                cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
+            }
+            throw error
+        }
+    }
+
+    // MARK: - UserDefaults Keys
+
+    static let masterDefaultsKey = "masterNotificationsEnabled"
 
     func send(_ eventType: NotificationEventType,
               to profile: Profile,
@@ -208,4 +304,20 @@ enum VerificationAction: Sendable, Equatable {
     case reject(questLogID: CKRecord.ID)
 
     case view(questLogID: CKRecord.ID)
+}
+
+extension NotificationEventType {
+    var userDefaultsKey: String {
+        switch self {
+        case .questAssigned: "questAssignedNotificationsEnabled"
+        case .questNeedsReview: "questNeedsReviewNotificationsEnabled"
+        case .questCompleted: "questVerifiedNotificationsEnabled"
+        case .levelUp: "levelUpNotificationsEnabled"
+        case .goldEarned: "weeklySummaryNotificationsEnabled"
+        case .questMissed: "questMissedNotificationsEnabled"
+        case .spendingLogged: "spendingLoggedNotificationsEnabled"
+        case .trophyEarned: "trophyEarnedNotificationsEnabled"
+        case .streakMilestone: "streakMilestoneNotificationsEnabled"
+        }
+    }
 }

@@ -24,14 +24,13 @@ struct ProfileView: View {
 
     @Environment(QuestService.self) private var questService
 
-    @Environment(TreasuryService.self) private var treasuryService
-
     @Environment(AchievementService.self) private var achievementService
 
     @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
     @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
     @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
+    @Query(sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
 
     @State private var showingEditName: Bool = false
 
@@ -41,11 +40,7 @@ struct ProfileView: View {
 
     @State private var showingSignOutConfirm: Bool = false
 
-    @State private var streak: Int?
-
-    @State private var goldBalance: Double?
-
-    @State private var earnedAchievements: [Achievement] = []
+    @State private var viewModel = ProfileViewModel()
 
     init(avatarService: AvatarService,
          xpService: XPService,
@@ -91,44 +86,36 @@ struct ProfileView: View {
                 }
             }
             .task {
-                await loadCharacterData()
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot, then a single one-shot background freshness
+                // touch (achievementService) that upserts into SwiftData — the
+                // resulting mutation re-fires `.onChange` → recompute. No
+                // per-appear / per-cache-change CK re-fetch.
+                recomputeCharacterFromCache()
+                viewModel.refreshFreshness(
+                    profile: appState.currentProfile,
+                    family: appState.family,
+                    achievementService: achievementService
+                )
             }
-            .onChange(of: cachedProfileAchievements) { _, _ in
-                Task { await loadCharacterData() }
-            }
-            .onChange(of: cachedCompletions) { _, _ in
-                Task { await loadCharacterData() }
-            }
-            .onChange(of: cachedLedgers) { _, _ in
-                Task { await loadCharacterData() }
-            }
+            .onChange(of: cachedProfileAchievements) { _, _ in recomputeCharacterFromCache() }
+            .onChange(of: cachedCompletions) { _, _ in recomputeCharacterFromCache() }
+            .onChange(of: cachedLedgers) { _, _ in recomputeCharacterFromCache() }
+            .onChange(of: cachedAchievements) { _, _ in recomputeCharacterFromCache() }
+            .onChange(of: cachedQuests) { _, _ in recomputeCharacterFromCache() }
         }
     }
 
-    private func loadCharacterData() async {
-        guard let profile = appState.currentProfile else {
-            streak = nil
-            goldBalance = nil
-            earnedAchievements = []
-            return
-        }
-
-        async let fetchedStreak: Int? = try? await questService.fetchStreak(for: profile)
-        async let fetchedGold: Double? = try? await treasuryService.currentBalance(for: profile)
-        async let fetchedEarned: [ProfileAchievement]? = try? await achievementService.fetchEarned(profile: profile)
-
-        var fetchedDefs: [Achievement]?
-        if let family = appState.family {
-            fetchedDefs = try? await achievementService.fetchAllDefinitions(family: family)
-        }
-
-        let earnedRows = await fetchedEarned ?? []
-        let defs = fetchedDefs ?? []
-        let earnedIDs = Set(earnedRows.map(\.achievement.recordID))
-
-        streak = await fetchedStreak
-        goldBalance = await fetchedGold
-        earnedAchievements = defs.filter { earnedIDs.contains($0.id) }
+    private func recomputeCharacterFromCache() {
+        viewModel.recomputeCharacterFromCache(
+            profile: appState.currentProfile,
+            completions: cachedCompletions,
+            ledgers: cachedLedgers,
+            quests: cachedQuests,
+            profileAchievements: cachedProfileAchievements,
+            achievements: cachedAchievements,
+            zoneID: questService.cloudKitReference.resolvedZoneID
+        )
     }
 
     @ViewBuilder
@@ -273,9 +260,9 @@ struct ProfileView: View {
                     profile: profile,
                     avatarService: avatarService,
                     xpService: xpService,
-                    streak: streak,
-                    goldBalance: goldBalance,
-                    earnedAchievements: earnedAchievements,
+                    streak: viewModel.streak,
+                    goldBalance: viewModel.goldBalance,
+                    earnedAchievements: viewModel.earnedAchievements,
                     onSaveDisplayName: { newName in
                         guard profile.role == .hero,
                               var updated = appState.currentProfile else { return }
@@ -467,6 +454,78 @@ struct ProfileView: View {
             }
         }
         .presentationDetents([.medium])
+    }
+}
+
+@MainActor
+@Observable
+final class ProfileViewModel {
+    var streak: Int?
+    var goldBalance: Double?
+    var earnedAchievements: [Achievement] = []
+
+    func reset() {
+        streak = nil
+        goldBalance = nil
+        earnedAchievements = []
+    }
+
+    func recomputeCharacterFromCache(
+        profile: Profile?,
+        completions: [QuestCompletionCache],
+        ledgers: [LedgerEntryCache],
+        quests: [QuestCache],
+        profileAchievements: [ProfileAchievementCache],
+        achievements: [AchievementCache],
+        zoneID: CKRecordZone.ID
+    ) {
+        guard let profile else {
+            reset()
+            return
+        }
+        let profileName = profile.id.recordName
+
+        let heroCompletions = completions.filter { $0.completerRecordName == profileName }
+        streak = HeroDashboardViewModel.computeStreak(from: heroCompletions)
+
+        let slainLogs = heroCompletions.filter {
+            $0.verificationStatus == VerificationStatus.autoApproved.rawValue
+                || $0.verificationStatus == VerificationStatus.verified.rawValue
+        }
+        let questByName = Dictionary(
+            quests.map { ($0.recordName, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        let goldFromQuests = slainLogs.reduce(into: 0.0) { acc, log in
+            if let quest = questByName[log.questRecordName] {
+                acc += quest.goldReward
+            }
+        }
+        let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
+        let bonusGold = profileLedgers.filter { $0.amount > 0 }.reduce(into: 0.0) { $0 += $1.amount }
+        let spending = profileLedgers.filter { $0.amount < 0 }.reduce(into: 0.0) { $0 += $1.amount }
+        goldBalance = goldFromQuests + bonusGold + spending
+
+        let earnedNames = Set(
+            profileAchievements
+                .filter { $0.profileRecordName == profileName }
+                .map(\.achievementRecordName)
+        )
+        earnedAchievements = achievements
+            .filter { earnedNames.contains($0.recordName) }
+            .map { $0.toAchievement(zoneID: zoneID) }
+    }
+
+    func refreshFreshness(
+        profile: Profile?,
+        family: Family?,
+        achievementService: AchievementService
+    ) {
+        guard let profile else { return }
+        Task { _ = try? await achievementService.fetchEarned(profile: profile) }
+        if let family {
+            Task { _ = try? await achievementService.fetchAllDefinitions(family: family) }
+        }
     }
 }
 

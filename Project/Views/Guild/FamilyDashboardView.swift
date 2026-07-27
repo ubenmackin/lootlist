@@ -26,6 +26,8 @@ struct FamilyDashboardView: View {
     @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
     @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
     @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
+    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
 
     var body: some View {
         NavigationStack {
@@ -54,7 +56,13 @@ struct FamilyDashboardView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                await viewModel?.refresh()
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot. Subsequent mutations re-fire `.onChange`.
+                rebuild()
+                // Background freshness touch (share URL + zone setup) — does
+                // NOT call `rebuildLists`; the SwiftData cache + `.onChange`
+                // remain the single source of truth for lists.
+                Task { await viewModel?.refresh() }
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
@@ -65,6 +73,9 @@ struct FamilyDashboardView: View {
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
+            .onChange(of: cachedAchievements) { _, _ in rebuild() }
+            .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
             .onDisappear {
                 viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
@@ -81,12 +92,18 @@ struct FamilyDashboardView: View {
         let filteredQuests = cachedQuests.filter { $0.familyRecordName == familyName }
         let filteredLogs = cachedCompletions.filter { $0.familyRecordName == familyName }
         let filteredLedgers = cachedLedgers.filter { $0.familyRecordName == familyName }
+        let filteredAllowancePeriods = cachedAllowancePeriods.filter { $0.familyRecordName == familyName }
+        let filteredProfileAchievements = cachedProfileAchievements.filter { $0.familyRecordName == familyName }
+        let filteredAchievements = cachedAchievements.filter { $0.familyRecordName == familyName }
 
         viewModel?.rebuildLists(
             profiles: filteredProfiles,
             quests: filteredQuests,
             logs: filteredLogs,
-            ledgers: filteredLedgers
+            ledgers: filteredLedgers,
+            allowancePeriods: filteredAllowancePeriods,
+            profileAchievements: filteredProfileAchievements,
+            achievements: filteredAchievements
         )
     }
 

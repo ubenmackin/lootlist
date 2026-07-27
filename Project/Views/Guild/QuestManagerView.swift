@@ -61,18 +61,18 @@ struct QuestManagerView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                await viewModel?.load()
-                await viewModel?.loadHeroes()
+                // D3: synchronous initial render from the current `@Query`
+                // cache snapshot. Subsequent mutations re-fire `.onChange`.
+                rebuildViewModel()
             }
             .refreshable {
-                await viewModel?.load()
+                // D3: re-derive from the current cache snapshot. Background
+                // CloudKit freshness is driven by `SyncEngine`.
+                rebuildViewModel()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
-                    Task {
-                        await viewModel?.load()
-                        await viewModel?.loadHeroes()
-                    }
+                    rebuildViewModel()
                 }
             }
             .onDisappear {
@@ -82,6 +82,11 @@ struct QuestManagerView: View {
                 rebuildViewModel()
             }
             .onChange(of: cachedAssignments) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedProfiles) { _, _ in
+                // D3: heroes list is derived from `@Query cachedProfiles`
+                // (replaces the deleted `loadHeroes()` cache-fetch path).
                 rebuildViewModel()
             }
             .toolbar {

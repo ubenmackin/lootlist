@@ -34,16 +34,12 @@ final class QuestLogViewModel {
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
 
-    /// All profiles (active + inactive) for name resolution
     private var allProfiles: [ProfileCache] = []
-    /// Quick lookup by record Name
     private var profileByName: [String: ProfileCache] = [:]
 
-    /// In-memory cache of raw SwiftData cache objects for instant filter switching
     private var rawQuests: [QuestCache] = []
     private var rawCompletionsByQuest: [String: [QuestCompletionCache]] = [:]
 
-    /// Heroes available for filtering (active profiles with role == .hero).
     var availableHeroes: [ProfileCache] {
         allProfiles.filter { $0.roleEnum == .hero }
     }
@@ -58,11 +54,12 @@ final class QuestLogViewModel {
         guard syncSubscriptionID == nil else { return }
         let (stream, id) = coordinator.subscribe()
         syncSubscriptionID = id
-        syncTask = Task { [weak self] in
+        syncTask = Task {
             for await _ in stream {
-                guard let self else { return }
-                guard let family = appState.family else { return }
-                await load(family: family)
+                // D3: `SyncEngine` mutates SwiftData on `.recordChanged`; the
+                // view's `@Query *.Cache` re-fires `.onChange` → `rebuildLists`.
+                // No explicit `load(family:)` here — that would duplicate the
+                // `.onChange` path and could diverge on edge rows.
             }
         }
     }
@@ -143,16 +140,6 @@ final class QuestLogViewModel {
     }
 
     // MARK: - Load & Filter
-
-    func load(family: Family) async {
-        let familyName = family.id.recordName
-        if let cache = appState.cacheService {
-            let profiles = cache.fetchProfiles(family: familyName)
-            let quests = cache.fetchQuests(family: familyName)
-            let completions = cache.fetchQuestCompletions(family: familyName)
-            rebuildLists(profiles: profiles, quests: quests, logs: completions)
-        }
-    }
 
     func rebuildLists(profiles: [ProfileCache] = [], quests: [QuestCache], logs: [QuestCompletionCache]) {
         if !profiles.isEmpty {

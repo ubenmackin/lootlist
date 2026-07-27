@@ -15,7 +15,6 @@ struct QuestAssignmentView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(QuestService.self) private var questService
 
-    /// --- Mode enum ---
     enum Mode: Equatable, Identifiable {
         case fromTemplate
         case quickCreate
@@ -77,7 +76,6 @@ struct QuestAssignmentView: View {
     @State private var isSubmitting: Bool = false
     @State private var userEditedQuestName: Bool = false
 
-    /// --- Creation-mode picker (for create modes only) ---
     enum CreationPickerOption: String, CaseIterable, Identifiable {
         case fromTemplate = "From Template"
         case quickCreate = "Quick Create (One-Off)"

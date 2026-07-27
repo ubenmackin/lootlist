@@ -54,7 +54,6 @@ final class QuestTemplateCache {
         self.createdByRecordName = createdByRecordName
     }
 
-    /// Creates a cache entry from a CloudKit `QuestTemplate` model.
     convenience init(from template: QuestTemplate) {
         self.init(
             recordName: template.id.recordName,

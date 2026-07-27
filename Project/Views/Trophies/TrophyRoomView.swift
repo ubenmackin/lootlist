@@ -37,7 +37,9 @@ struct TrophyRoomView: View {
                 }
             }
             .refreshable {
-                await viewModel?.refresh()
+                // D3: re-derive from the current cache snapshot. Background
+                // CloudKit freshness is driven by `SyncEngine`.
+                rebuild()
             }
         }
         .task {
@@ -48,7 +50,18 @@ struct TrophyRoomView: View {
                     appState: appState
                 )
             }
-            await viewModel?.refresh()
+            // D3: synchronous initial render from the current `@Query` cache
+            // snapshot. Subsequent mutations re-fire `.onChange`.
+            rebuild()
+            // One-shot background freshness touch: warm the achievement caches
+            // from CK. The services upsert into SwiftData (cache-first), which
+            // re-fires `.onChange` → `rebuild`. Does NOT block the cache render.
+            if let profile = appState.currentProfile {
+                Task { _ = try? await achievementService.fetchEarned(profile: profile) }
+                if let family = appState.family {
+                    Task { _ = try? await achievementService.fetchAllDefinitions(family: family) }
+                }
+            }
         }
         .onChange(of: cachedAchievements) { _, _ in rebuild() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
