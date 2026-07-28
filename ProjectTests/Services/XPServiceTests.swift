@@ -122,7 +122,7 @@ struct XPServiceTests {
         #expect(service.unlockedAccessories(profile: level10Hero) == ["accessory.level.5", "accessory.level.10"])
     }
 
-    // MARK: - addXP snapshot-rollback (D2 invariant)
+    // MARK: - addXP snapshot-rollback
 
     private enum MockError: Error, Equatable {
         case saveFailed
@@ -133,6 +133,13 @@ struct XPServiceTests {
         func save<T: CloudKitRecord>(_: T,
                                      in _: CKRecordZone.ID?,
                                      using _: CKDatabase?) async throws -> T
+        {
+            throw MockError.saveFailed
+        }
+
+        func fetch<T: CloudKitRecord>(_: T.Type,
+                                      id _: CKRecord.ID,
+                                      using _: CKDatabase?) async throws -> T
         {
             throw MockError.saveFailed
         }

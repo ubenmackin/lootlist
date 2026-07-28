@@ -22,6 +22,7 @@ final class AllowancePeriodCache {
     var questsTotal: Int
     var paidDate: Date?
     var paidAmount: Double?
+    var changeTag: String?
 
     init(recordName: String,
          profileRecordName: String,
@@ -32,7 +33,8 @@ final class AllowancePeriodCache {
          questsCompleted: Int,
          questsTotal: Int,
          paidDate: Date? = nil,
-         paidAmount: Double? = nil)
+         paidAmount: Double? = nil,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.profileRecordName = profileRecordName
@@ -44,6 +46,7 @@ final class AllowancePeriodCache {
         self.questsTotal = questsTotal
         self.paidDate = paidDate
         self.paidAmount = paidAmount
+        self.changeTag = changeTag
     }
 
     convenience init(from period: AllowancePeriod) {
@@ -57,7 +60,8 @@ final class AllowancePeriodCache {
             questsCompleted: period.questsCompleted,
             questsTotal: period.questsTotal,
             paidDate: period.paidDate,
-            paidAmount: period.paidAmount
+            paidAmount: period.paidAmount,
+            changeTag: period.changeTag
         )
     }
 }

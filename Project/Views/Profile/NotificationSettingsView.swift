@@ -103,7 +103,7 @@ struct NotificationSettingsView: View {
             //
             // Per-event toggles write-through optimistically to the
             // `NotificationPreferenceCache` + CloudKit via
-            // `NotificationService.updatePreference(event:enabled:)` (D5).
+            // `NotificationService.updatePreference(event:enabled:)`.
             // The `UserDefaults` mirror write inside the setter preserves the
             // first-launch fallback. The master toggle above remains a
             // device-level authorization gate (not a synced preference).

@@ -60,7 +60,7 @@ CloudKit is the source of truth. A local SwiftData cache mirrors CloudKit record
 - **`CacheConversions.swift`** — free functions and extension getters bridging CloudKit domain models, SwiftData `*Cache` entities, and SwiftUI presentation enums.
 - **`CachedRecordType` (typed delete path)** — a `String, CaseIterable, Sendable` enum with one case per local SwiftData cache type. `BackgroundCacheActor.deleteRecord(recordName:type:)` takes the typed enum rather than a raw `CKRecord.RecordType` string, and raw CKRecordType strings are resolved through `CachedRecordType.recordType(for:) -> CachedRecordType?`. This eliminates the Swift class-name ↔ CKRecordType mismatch class of bugs — the only entity whose Swift class name diverges from its CKRecordType is `QuestCompletion` (`recordType == "QuestLog"`), and the resolver captures that divergence in exactly one place (each model's `Type.recordType` constant). Unknown recordTypes return `nil` so `SyncEngine.incrementalSync` logs a warning and skips rather than crashing.
 
-**Option C View/ViewModel Pipeline (Zero-Latency Rendering):**
+**View/ViewModel Pipeline (Zero-Latency Rendering):**
 - **SwiftUI Views** declare `@Query` macros targeting `*Cache` models.
 - On launch or model change, `.onChange(of: cachedItems)` passes `*Cache` arrays directly to `viewModel.rebuildLists(...)`.
 - **ViewModels operate directly on `*Cache` models** to calculate derived state (`HeroSummary`, active/missed quests, streaks, balances, payouts) without converting to wire types (`Quest`, `Profile`, `LedgerEntry`). ViewModels avoid executing duplicate network fetches inside `load()` / `refresh()`.
@@ -449,12 +449,68 @@ CKRecordType: "NotificationPreference"
 
 ## Sync & Conflict Resolution
 
+### General Policy
+
 - **CloudKit = source of truth.** Last-write-wins for most fields is handled automatically by CloudKit.
-- **QuestCompletions are append-only** — no conflicts possible.
-- **Profile XP/Level is derived** from QuestCompletions, not directly edited.
-- **Family settings are Guild-Master-only** (role-gated in app logic).
+- **QuestCompletions are append-only** — no conflicts possible. Each `QuestCompletion` row is created with a fresh `UUID().uuidString` record ID (see `Project/Models/CloudKit/QuestCompletion.swift` initializer), and the quest service exposes an insert path only — there is no update path, so completion records are append-only by convention as well as structurally.
+- **Profile XP/Level is derived** from QuestCompletions, not directly edited. `level` is computed from `xp` via `XPService.level(forXP:)`, and `xp` is updated through `XPService.addXP` on the QuestCompletion save path; views read these derived values rather than storing them independently.
+- **Family settings are Guild-Master-only** (role-gated in `FamilyService`, where the settings-update methods short-circuit for non-owner roles).
 - **Local SwiftData cache is derived, not authoritative.** It is hydrated by `SyncEngine.syncAll` and kept current by the service write-through pattern (§2). `CacheService.clearAll()` may be used to force a full re-hydrate.
 - **Offline launch fallback:** if `restoreSession` cannot reach CloudKit, it reconstructs `Family`/`Profile` from the cache and authenticates in offline mode; the next successful sync reconciles.
+
+### Conflict Resolution Strategy
+
+- **Field-level policy:** **last-write-wins** for the majority of fields. CloudKit resolves concurrent edits to the same record by accepting the most recent change and propagating it to all participants.
+- **Per-record version tracking is provided by CloudKit**, not by the app. CloudKit maintains an internal per-record version (surfaced via the `serverRecordChanged` error path on `CKModifyRecordsOperation`) that the runtime consults when a save would clobber a newer server copy. The app does **not** consult a per-record version on every read — only CloudKit does, and only on the save path.
+- **`*Cache` rows carry a `changeTag: String?` mirroring CloudKit's `recordChangeTag`.** This field is used by the `detectConcurrentEdit` guard in the service layer to detect concurrent edits before rolling back an optimistic write. The cache itself does not *resolve* write conflicts — CloudKit remains the sole conflict-resolution authority through its `serverRecordChanged` mechanism.
+- **Append-only record types sidestep field conflicts.** `QuestCompletion` rows are never updated, so concurrent edits are not a concern for that type (see General Policy above).
+
+### Optimistic Write & Rollback
+
+Every mutating service writes through to the cache **optimistically** — it upserts the new state into the SwiftData cache *before* awaiting the CloudKit save, so the UI reflects the change instantly (0ms) and remains usable offline. On CloudKit save failure the service rolls the cache back so the UI does not hold a state that the source of truth rejected. This snapshot/rollback pattern is practiced uniformly across the mutation services and is covered by tests in `ProjectTests/Services/XPServiceTests.swift`.
+
+- **Snapshot is captured BEFORE the optimistic write.** The service fetches the current cached row, converts it back to its CloudKit domain type, and holds that value as the pre-mutation snapshot. It then performs the optimistic upsert and awaits `cloudKit.save`. (`XPService.addXP`, `FamilyService.updateFamilyName` / `updateProfile*`, `QuestService.updateQuestTemplate` / quest-completion updates, `TreasuryService`, `SpendingService`, and `NotificationService` all follow this order.)
+- **On save failure, the snapshot is restored.** The pre-mutation snapshot is upserted back over the optimistically-written row, so the cache returns to its prior value and the UI reverts.
+- **Brand-new records have no prior snapshot.** When the mutation creates a record that did not exist in the cache, there is nothing to restore; the service instead **invalidates** (removes) the optimistically-inserted cache row so the UI does not display a phantom record that CloudKit never accepted.
+- **What this protects against.** The snapshot-restore keeps the cache consistent with CloudKit in the common failure modes: network/refusal errors, exhausted retry budget (`CloudKitService.retrying()` → `retryable` / `exhaustedBudget`), and per-save `serverRecordChanged` rejections. In all these cases the snapshot-restore gives the user a coherent, CloudKit-backed view rather than a stranded optimistic value.
+
+### Concurrency Limitation & Future Hardening
+
+The optimistic write-through pattern keeps a tiny window open: between the local `cacheService?.upsertX(updated)` (optimistic) and the `await cloudKit.save(...)` returning, another device may have written to the same record. If our save fails outright on a non-conflict reason (network, transient), we restore the pre-mutation `value` snapshot from the cache. If our save fails because the server has a newer record (the canonical optimistic-concurrency signal), `detectConcurrentEdit` discards our optimistic value and re-fetches the authoritative server record instead.
+
+#### Version-Tag Guard (implemented)
+
+All 10 `*Cache` SwiftData `@Model` classes carry a `changeTag: String?` mirror of CloudKit's `recordChangeTag`. The 10 CloudKit typed structs likewise carry `changeTag` populated in `init(record:)` from `record.recordChangeTag`. This changeTag is propagated through `SyncEngine.batchUpsert*`, `BackgroundCacheActor.batchUpsert*`, and the per-record `CacheService.upsertX` paths.
+
+Four services (`QuestService`, `TreasuryService`, `FamilyService`, `XPService`) gate the snapshot rollback with a per-call static helper:
+
+```swift
+static func detectConcurrentEdit(
+    preMutationChangeTag: String?,
+    fetchCurrent: () -> String?,
+    error: Error
+) -> Bool
+```
+
+The helper consults two independent signals — either is sufficient:
+
+- **Signal 1 — CloudKit `serverRecordChanged`.** The `CloudKitService` wraps raw `CKError.serverRecordChanged` into `CloudKitServiceError.notFound("serverRecordChanged")` (see `CloudKitService.swift`). When `cloudKit.save(X)` raises this, the server has a newer record and `detectConcurrentEdit` returns true.
+- **Signal 2 — changeTag divergence.** The caller captures `snapshot?.changeTag` from the cache row BEFORE the optimistic `upsertX(updated)` and passes a closure that re-fetches the row's `changeTag` AFTER the throw. If both values are non-nil and unequal, `detectConcurrentEdit` returns true.
+
+On a concurrent edit, the service:
+
+1. emits the `.warning` toast *"Data was modified by another device. Refresh to see the latest."*;
+2. re-fetches the authoritative server record via `cloudKit.fetch(X.self, id: ...)` and writes it to the cache via `cacheService?.upsertX(fresh)` — replacing the rejected optimistic value with the truth;
+3. falls back to the pre-mutation snapshot restore via `upsertX(snapshot.toX(...))` if the re-fetch also fails (the snapshot is stale; `SyncEngine.syncAll` will reconcile on the next successful sync);
+4. for `QuestService`/`TreasuryService`/`FamilyService`: still throws the original error so the caller's ViewModel observes a save failure. For `XPService.addXP`: returns the freshly-fetched Profile (or, on fallback, the pre-mutation `snapshotProfile`).
+
+#### Remaining Limitations
+
+These remain tracked as hardening items:
+
+- The pre-`save` window (between the optimistic `upsertX(updated)` and `await cloudKit.save(...)` completing) is short enough that the only reliable concurrent-edit signal during it is Signal 1 — CloudKit's synchronous `serverRecordChanged`. Signal 2 catches divergence that arrived via a background `SyncEngine.incrementalSync` push during the `await`; with the `CacheService.upsertX` changeTag-preservation fix, the cache row's `changeTag` is no longer overwritten with `nil` when the incoming struct carries `nil`, making Signal 2 effective for that path.
+- In the rare case where the concurrent-edit re-fetch also fails (network unavailable, server returns no fresher record), the fallback restores the pre-mutation `value` snapshot. The snapshot is a stale value, not truth; the next successful `SyncEngine.syncAll` reconciles.
+- `AchievementService` and `SpendingService` use the same optimistic-rollback pattern but do not yet wrap their rollback with `detectConcurrentEdit`; their rollback semantics are unaffected (snapshot restore on non-concurrent failures).
 
 ---
 

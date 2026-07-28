@@ -120,8 +120,6 @@ struct FamilyDashboardViewModelTests {
         sut.vm.unsubscribeFromSyncEvents(sut.coordinator)
     }
 
-    // MARK: - D3: rebuildLists derives streak/trophies from cache (no CloudKit fetch)
-
     @Test
     func `rebuildLists derives streak and trophies from cache arrays`() throws {
         let sut = makeSUT()

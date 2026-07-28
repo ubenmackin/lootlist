@@ -12,6 +12,7 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationService.self) private var notificationService
     @Environment(FamilyService.self) private var familyService
+    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
 
     @AppStorage("preferredAppearance") private var preferredAppearance: String = "system"
 
@@ -38,7 +39,27 @@ struct SettingsView: View {
                     }
                 }
 
-                // Section 2: Preferences
+                // Section 2: iCloud Sync
+                Section("iCloud Sync") {
+                    NavigationLink {
+                        iCloudStatusView()
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("iCloud Sync")
+                                    .font(.body.weight(.semibold))
+                                Text(syncStatusText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "cloud.fill")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+
+                // Section 3: Preferences
                 Section("Preferences") {
                     // Appearance (Dark / Light / System)
                     Picker(selection: $preferredAppearance) {
@@ -65,7 +86,7 @@ struct SettingsView: View {
                     }
                 }
 
-                // Section 3: App Information
+                // Section 4: App Information
                 Section("About") {
                     HStack {
                         Label("Version", systemImage: "info.circle.fill")
@@ -96,6 +117,20 @@ struct SettingsView: View {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
         return "\(version) (\(build))"
+    }
+
+    private var syncStatusText: String {
+        if syncEngine?.syncError != nil {
+            "Sync failed — tap to retry"
+        } else if syncEngine?.isSyncing == true {
+            "Syncing…"
+        } else if let last = syncEngine?.lastSyncedAt {
+            "Last synced \(last.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))"
+        } else if syncEngine == nil {
+            "Unavailable"
+        } else {
+            "Not yet synced"
+        }
     }
 
     private var colorScheme: ColorScheme? {

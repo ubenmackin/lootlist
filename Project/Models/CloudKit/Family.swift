@@ -13,6 +13,10 @@ struct Family: Identifiable, Equatable, Sendable {
 
     let id: CKRecord.ID
 
+    /// Server-owned CloudKit change tag captured on read for cache-staleness
+    /// checks. Not authored locally — `toRecord()` does not stamp this field.
+    var changeTag: String?
+
     var name: String
 
     var createdBy: CKRecord.ID
@@ -27,6 +31,7 @@ struct Family: Identifiable, Equatable, Sendable {
                                                        actual: record.recordType)
         }
         id = record.recordID
+        changeTag = record.recordChangeTag
 
         guard let name = record["name"] as? String else {
             throw CKDecodingError.missingField("name")

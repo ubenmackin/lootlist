@@ -29,6 +29,7 @@ struct LootListApp: App {
     @State private var dataMigrationsCoordinator: DataMigrationsCoordinator
     @State private var cacheService: CacheService?
     @State private var syncEngine: SyncEngine?
+    @State private var toastManager: ToastManager
 
     init() {
         let app = AppState()
@@ -60,6 +61,13 @@ struct LootListApp: App {
         achievement.cacheService = cache
         app.cacheService = cache
         xp.cacheService = cache
+
+        // Initialize `toastManager` explicitly here (rather than via a default
+        // value on the @State declaration) so the wrappedValue storage is set
+        // before any wrapped-value access. Default-initialized @State is lazy
+        // and would otherwise trigger a "used before being initialized"
+        // diagnostic under Swift 6 strict member-initialization.
+        _toastManager = State(initialValue: ToastManager())
 
         if let cache {
             let bgActor = BackgroundCacheActor(modelContainer: cache.container)
@@ -110,6 +118,17 @@ struct LootListApp: App {
         _appSyncCoordinator = State(initialValue: appSync)
         _dataMigrationsCoordinator = State(initialValue: migrations)
         _cacheService = State(initialValue: cache)
+
+        // Wire the universal toast presenter into each service so it can
+        // surface CloudKit-save-failure banners on top of any inline error
+        // presentation the caller already owns. ManualSpendingService is
+        // constructed later in RootView's `.task` block (see RootView below),
+        // so it is wired via the `@Environment`-injected `toastManager` there.
+        quest.toastManager = toastManager
+        family.toastManager = toastManager
+        treasury.toastManager = toastManager
+        achievement.toastManager = toastManager
+        xp.toastManager = toastManager
     }
 
     var body: some Scene {
@@ -133,6 +152,7 @@ struct LootListApp: App {
             .environment(appSyncCoordinator)
             .environment(cacheService)
             .environment(syncEngine)
+            .environment(toastManager)
             .task {
                 if !TestEnvironment.isRunningUnitOrUITests {
                     await checkCloudKitAvailability()
@@ -155,6 +175,10 @@ struct LootListApp: App {
             .onOpenURL { url in
                 handleIncomingShareURL(url)
             }
+            // Toast banner overlay sits above all RootView states (splash,
+            // onboarding, authenticated) so services can surface errors
+            // universally. Hung on `baseRoot` so both branch consumers inherit it.
+            .overlay(alignment: .top) { ToastView(toastManager: toastManager) }
 
         if appState.cacheInitError != nil {
             // Cache init failed at launch (schema-migration error, etc.). The cache is
@@ -216,6 +240,7 @@ private struct RootView: View {
     @Environment(CloudKitService.self) private var cloudKitService
     @Environment(FamilyService.self) private var familyService
     @Environment(CacheService.self) private var cacheService: CacheService?
+    @Environment(ToastManager.self) private var toastManager
 
     @State private var onboardingVM: OnboardingViewModel?
     @State private var spendingService: ManualSpendingService?
@@ -268,7 +293,9 @@ private struct RootView: View {
                 spendingService = nil
             case .authenticated:
                 onboardingVM = nil
-                spendingService = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService)
+                let spending = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService)
+                spending.toastManager = toastManager
+                spendingService = spending
             case .restoringSession, .checkingCloudData, .detectedPreviousFamily:
                 onboardingVM = nil
             }

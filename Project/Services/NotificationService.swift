@@ -125,11 +125,6 @@ final class NotificationService {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let zoneID = family.id.zoneID
 
-        // Resolve the existing cached row once — used both to reuse the CK
-        // record name (so CloudKit treats this as an update, not a create) and
-        // as the pre-mutation snapshot for D2 rollback. A brand-new preference
-        // (no prior cached row) gets a fresh UUID and falls back to
-        // invalidate-on-failure.
         let snapshot = cachedPreference(for: event)
         let recordID = if let existingName = snapshot?.recordName {
             CKRecord.ID(recordName: existingName, zoneID: zoneID)
@@ -156,7 +151,7 @@ final class NotificationService {
             return saved
         } catch {
             if let snapshot {
-                // D2: UPDATE path — restore the pre-mutation cached value.
+                // Update path — restore the pre-mutation cached value.
                 cacheService?.upsertNotificationPreference(
                     snapshot.toNotificationPreference(zoneID: zoneID)
                 )

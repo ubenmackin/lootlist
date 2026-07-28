@@ -142,7 +142,7 @@ struct CacheConversionsTests {
         #expect(cache.approvalModeEnum == .autoApprove)
     }
 
-    // MARK: - Dedup identity (D6 + L5)
+    // MARK: - Dedup identity
 
     @Test
     func `questCache toQuest produces expected domain fields`() {

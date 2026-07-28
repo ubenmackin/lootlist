@@ -86,7 +86,7 @@ struct ProfileView: View {
                 }
             }
             .task {
-                // D3: synchronous initial render from the current `@Query`
+                // synchronous initial render from the current `@Query`
                 // cache snapshot, then a single one-shot background freshness
                 // touch (achievementService) that upserts into SwiftData — the
                 // resulting mutation re-fires `.onChange` → recompute. No

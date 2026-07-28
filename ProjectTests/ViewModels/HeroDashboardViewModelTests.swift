@@ -54,8 +54,6 @@ struct HeroDashboardViewModelTests {
         #expect(weekDays.contains(where: { $0.isToday }))
     }
 
-    // MARK: - D3: earnedThisWeek + streak derived from cache arrays
-
     private struct TestHarness {
         let appState: AppState
         let zoneID: CKRecordZone.ID

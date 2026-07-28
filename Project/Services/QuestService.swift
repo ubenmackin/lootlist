@@ -28,6 +28,8 @@ final class QuestService {
 
     var cacheService: CacheService?
 
+    var toastManager: ToastManager?
+
     var cloudKitReference: CloudKitService {
         cloudKit
     }
@@ -81,16 +83,50 @@ final class QuestService {
         let name = template.id.recordName
         let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
 
+        // Capture the last-seen server changeTag BEFORE the optimistic write so
+        // we can detect a concurrent edit from another device (or background
+        // sync) while the save is in flight.
+        let preMutationChangeTag = snapshot?.changeTag
+
         cacheService?.upsertQuestTemplate(template)
         do {
             let saved = try await cloudKit.save(template)
             cacheService?.upsertQuestTemplate(saved)
             return saved
         } catch {
-            if let snapshot {
-                cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+            let concurrentEditDetected = QuestService.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                // Concurrent edit: the server has a newer record. Discard our optimistic
+                // write by re-fetching the authoritative server record, OR fall back to
+                // the pre-mutation snapshot if the re-fetch also fails.
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+
+                if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
+                    cacheService?.upsertQuestTemplate(fresh)
+                } else if let snapshot {
+                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestTemplate(recordName: name)
+                }
             } else {
-                cacheService?.invalidateQuestTemplate(recordName: name)
+                if let snapshot {
+                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestTemplate(recordName: name)
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
             throw error
         }
@@ -104,14 +140,50 @@ final class QuestService {
         let name = template.id.recordName
         let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
 
+        // Capture the last-seen server changeTag BEFORE the optimistic write so
+        // we can detect a concurrent edit from another device (or background
+        // sync) while the save is in flight.
+        let preMutationChangeTag = snapshot?.changeTag
+
         cacheService?.upsertQuestTemplate(deactivated)
         do {
             let saved = try await cloudKit.save(deactivated)
             cacheService?.upsertQuestTemplate(saved)
             return saved
         } catch {
-            if let snapshot {
-                cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+            let concurrentEditDetected = QuestService.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                // Concurrent edit: the server has a newer record. Discard our optimistic
+                // write by re-fetching the authoritative server record, OR fall back to
+                // the pre-mutation snapshot if the re-fetch also fails.
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+
+                if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
+                    cacheService?.upsertQuestTemplate(fresh)
+                } else if let snapshot {
+                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestTemplate(recordName: name)
+                }
+            } else {
+                if let snapshot {
+                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestTemplate(recordName: name)
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
             throw error
         }
@@ -388,6 +460,11 @@ final class QuestService {
         let name = questLog.id.recordName
         let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
 
+        // Capture the last-seen server changeTag BEFORE the optimistic write so
+        // we can detect a concurrent edit from another device (or background
+        // sync) while the save is in flight.
+        let preMutationChangeTag = snapshot?.changeTag
+
         cacheService?.upsertQuestCompletion(updated)
         do {
             let saved = try await cloudKit.save(updated)
@@ -410,10 +487,39 @@ final class QuestService {
 
             return saved
         } catch {
-            if let snapshot {
-                cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+            let concurrentEditDetected = QuestService.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                // Concurrent edit: the server has a newer record. Discard our optimistic
+                // write by re-fetching the authoritative server record, OR fall back to
+                // the pre-mutation snapshot if the re-fetch also fails.
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+
+                if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: questLog.id) {
+                    cacheService?.upsertQuestCompletion(fresh)
+                } else if let snapshot {
+                    cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestCompletion(recordName: name)
+                }
             } else {
-                cacheService?.invalidateQuestCompletion(recordName: name)
+                if let snapshot {
+                    cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestCompletion(recordName: name)
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
             throw error
         }
@@ -433,19 +539,97 @@ final class QuestService {
         let name = questLog.id.recordName
         let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
 
+        // Capture the last-seen server changeTag BEFORE the optimistic write so
+        // we can detect a concurrent edit from another device (or background
+        // sync) while the save is in flight.
+        let preMutationChangeTag = snapshot?.changeTag
+
         cacheService?.upsertQuestCompletion(updated)
         do {
             let saved = try await cloudKit.save(updated)
             cacheService?.upsertQuestCompletion(saved)
             return saved
         } catch {
-            if let snapshot {
-                cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+            let concurrentEditDetected = QuestService.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                // Concurrent edit: the server has a newer record. Discard our optimistic
+                // write by re-fetching the authoritative server record, OR fall back to
+                // the pre-mutation snapshot if the re-fetch also fails.
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+
+                if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: questLog.id) {
+                    cacheService?.upsertQuestCompletion(fresh)
+                } else if let snapshot {
+                    cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestCompletion(recordName: name)
+                }
             } else {
-                cacheService?.invalidateQuestCompletion(recordName: name)
+                if let snapshot {
+                    cacheService?.upsertQuestCompletion(snapshot.toQuestCompletion(zoneID: cloudKit.resolvedZoneID))
+                } else {
+                    cacheService?.invalidateQuestCompletion(recordName: name)
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
             throw error
         }
+    }
+
+    /// Detects whether another device (or this device's background sync) has
+    /// applied a conflicting mutation while the in-flight save was failing.
+    ///
+    /// Two independent signals are checked; either one is sufficient evidence of
+    /// a concurrent edit:
+    ///   1) CloudKit raised a `serverRecordChanged` error during `cloudKit.save`.
+    ///      CloudKitService wraps raw `CKError` instances into
+    ///      `CloudKitServiceError` before throwing, so we pattern-match the
+    ///      wrapped form — `CloudKitServiceError.notFound("serverRecordChanged")`
+    ///      — rather than `CKError` itself, which the service layer never sees.
+    ///   2) The cache row's current `changeTag` differs from the
+    ///      `preMutationChangeTag` we captured before the optimistic write. A
+    ///      background sync may have pulled Mutation B's update into the cache
+    ///      during the `await cloudKit.save(...)` call, mutating the cached row's
+    ///      changeTag. When both sides are present and unequal, we conclude a
+    ///      concurrent edit landed.
+    ///
+    /// When neither signal is present (the common case — including, by design,
+    /// brand-new records, where `preMutationChangeTag == nil` because there was
+    /// no prior cache row to snapshot), this returns `false` and the caller
+    /// proceeds with the standard rollback.
+    static func detectConcurrentEdit(
+        preMutationChangeTag: String?,
+        fetchCurrent: () -> String?,
+        error: Error
+    ) -> Bool {
+        // Signal 1: CloudKit's canonical optimistic-concurrency conflict.
+        if case let .notFound(details) = error as? CloudKitServiceError,
+           details == "serverRecordChanged"
+        {
+            return true
+        }
+
+        // Signal 2: changeTag divergence detected via a cache re-fetch.
+        let currentChangeTag = fetchCurrent()
+        return {
+            guard let pre = preMutationChangeTag,
+                  let cur = currentChangeTag,
+                  !cur.isEmpty
+            else { return false }
+            return pre != cur
+        }()
     }
 
     func generateWeeklyQuests(family: Family,

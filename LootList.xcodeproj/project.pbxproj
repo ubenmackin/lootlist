@@ -23,6 +23,7 @@
 		1FA25F4E06D8E49631CF8F9B /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA257916025679E0AA31706 /* ProgressBar.swift */; };
 		1FAA4DB4ADD5C7F7B2A84527 /* XPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A029B21BB9CA3C965490F84 /* XPServiceTests.swift */; };
 		20B709BE101F5846C617809D /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F98296EAA473AB324F18004 /* ShareSheet.swift */; };
+		21198597FF7A7473784031A3 /* ToastManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */; };
 		214CE8D6A7157C8F10E073FE /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */; };
 		2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */; };
 		292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F750555385910A36899A9BE /* ApprovalMode.swift */; };
@@ -104,6 +105,7 @@
 		B69F5345E5386A7FB6295403 /* ColorExtensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB150B0804B13E1B541126C /* ColorExtensions.swift */; };
 		B7BABBF14D694CFA9AE05C17 /* GuildSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94FB9A652DA4D837BED9282F /* GuildSettingsView.swift */; };
 		B9BDDBEF3E58F0D6A3860731 /* NotificationPreferenceCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E71AC4B9376BAC604D6141A1 /* NotificationPreferenceCache.swift */; };
+		B9F8BA2484D5ABF19D74DFB1 /* iCloudStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55D9B190E857B276A4369A5D /* iCloudStatusView.swift */; };
 		C1918099647CCE0351E916E4 /* NotificationEventType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11F43417D2F508F010B5411F /* NotificationEventType.swift */; };
 		C631317D746E8FA61D9FFD57 /* SpendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */; };
 		C858F8205B3AADAE18F68327 /* Achievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB74BA7516355BF020EC5048 /* Achievement.swift */; };
@@ -111,6 +113,7 @@
 		C9755D15F13609830FD24E6E /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D0BDA960AB6ACFCFD2CC92F /* SettingsView.swift */; };
 		C9D797F2CCCC2985649768DB /* AchievementServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FBEC41B0AE56DCBA885072 /* AchievementServiceTests.swift */; };
 		C9E264505C385A58F4EDA4C2 /* QuestSchedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBA7C096148F8E1833CF1123 /* QuestSchedule.swift */; };
+		CCDDCA3B0C69344A4BEC71D4 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5DFE9263D114B8E70D29C8 /* ToastView.swift */; };
 		CD95D50EB2893EE79312C6DA /* XPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ACB50C5AFC8745DF880FC82 /* XPService.swift */; };
 		D09F1FB036C47CA6702C67BB /* BackgroundCacheActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DFF66AC8F6E1EA894180119 /* BackgroundCacheActor.swift */; };
 		D0E34176AF5E13005EFE218E /* BalanceCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC969A154514821895033EF1 /* BalanceCardView.swift */; };
@@ -198,6 +201,7 @@
 		50FD66FD0B8DE29E37DCA5DF /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		5340AFA0EE98F0109EF27FE6 /* TreasuryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryServiceTests.swift; sourceTree = "<group>"; };
 		545576473F44072E1C3C7301 /* AvatarServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarServiceTests.swift; sourceTree = "<group>"; };
+		55D9B190E857B276A4369A5D /* iCloudStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iCloudStatusView.swift; sourceTree = "<group>"; };
 		5C3ABA1D09005EC293F24135 /* CloudKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitService.swift; sourceTree = "<group>"; };
 		5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardViewModel.swift; sourceTree = "<group>"; };
 		5E333212CD54B711A588DF82 /* LedgerEntryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerEntryCache.swift; sourceTree = "<group>"; };
@@ -216,6 +220,7 @@
 		73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingService.swift; sourceTree = "<group>"; };
 		7532FFBC8B1222F10FB45792 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		793AE042C54685940F7C3EF1 /* QuestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestService.swift; sourceTree = "<group>"; };
+		7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastManager.swift; sourceTree = "<group>"; };
 		7B3C3019E643E8C293E764E6 /* AllowancePeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllowancePeriod.swift; sourceTree = "<group>"; };
 		7EA257916025679E0AA31706 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
 		8489EFF3404096B84A6A50E9 /* QuestManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerView.swift; sourceTree = "<group>"; };
@@ -258,6 +263,7 @@
 		CD7309A7921898E5B1910AA9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutPolicy.swift; sourceTree = "<group>"; };
 		CEED66C9830A57FFB23082CE /* LogSpendingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogSpendingView.swift; sourceTree = "<group>"; };
+		CF5DFE9263D114B8E70D29C8 /* ToastView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastView.swift; sourceTree = "<group>"; };
 		CF9C9A669EA50B98696C391D /* TestEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestEnvironment.swift; sourceTree = "<group>"; };
 		D64BE7B9FE409A629B17A1B0 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
 		D64CDD4E3D55127858D95F0E /* AppLaunchSplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchSplashScreen.swift; sourceTree = "<group>"; };
@@ -361,6 +367,7 @@
 				793AE042C54685940F7C3EF1 /* QuestService.swift */,
 				73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */,
 				8854F3922611CBEF5DE578FE /* SyncEngine.swift */,
+				7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */,
 				E6AAB59C9EA231BA29647A45 /* TreasuryService.swift */,
 				1ACB50C5AFC8745DF880FC82 /* XPService.swift */,
 			);
@@ -530,6 +537,7 @@
 				9FB150B0804B13E1B541126C /* ColorExtensions.swift */,
 				3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */,
 				728481C95C3C2C620C57038C /* GoldBadge.swift */,
+				55D9B190E857B276A4369A5D /* iCloudStatusView.swift */,
 				08094113B37485BF0C2D698A /* NotificationToggleRow.swift */,
 				F1FB498C2B1F81977F3C8815 /* NumberFormatter+Gold.swift */,
 				9F48CBADCF880C81E40964C2 /* PresetPill.swift */,
@@ -538,6 +546,7 @@
 				2F98296EAA473AB324F18004 /* ShareSheet.swift */,
 				6C212892FE74417041671730 /* StreakBadge.swift */,
 				3B02119865F6610D00BD4F2A /* TabBarView.swift */,
+				CF5DFE9263D114B8E70D29C8 /* ToastView.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -852,6 +861,8 @@
 				55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */,
 				5D0377D38CABC77D7BA8F6F7 /* TemplateManagerView.swift in Sources */,
 				52FE085830E8699E665FCC4A /* TestEnvironment.swift in Sources */,
+				21198597FF7A7473784031A3 /* ToastManager.swift in Sources */,
+				CCDDCA3B0C69344A4BEC71D4 /* ToastView.swift in Sources */,
 				B08A23CAFB867A2750ED0BB5 /* TreasuryService.swift in Sources */,
 				48D5AF22A208D1D904393F6E /* TreasuryView.swift in Sources */,
 				A5EDA6D44BE252D8ACAE9A05 /* TreasuryViewModel.swift in Sources */,
@@ -863,6 +874,7 @@
 				B00DDA31664D934C04E1EBF0 /* WeekMath.swift in Sources */,
 				8FD5277E5128A3A4B53EEE71 /* WelcomeView.swift in Sources */,
 				CD95D50EB2893EE79312C6DA /* XPService.swift in Sources */,
+				B9F8BA2484D5ABF19D74DFB1 /* iCloudStatusView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
