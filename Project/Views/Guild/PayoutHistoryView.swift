@@ -53,7 +53,7 @@ struct PayoutHistoryView: View {
                     )
                 }
 
-                // D3: synchronous render from the current `@Query` cache
+                // synchronous render from the current `@Query` cache
                 // snapshot. `pastPayouts` is derived inside `rebuildLists`
                 // from `cachedAllowancePeriods` (replaces the deleted
                 // `loadPastPayouts()` cache-fetch path). `heroes` is populated

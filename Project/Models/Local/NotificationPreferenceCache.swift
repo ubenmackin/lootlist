@@ -16,13 +16,15 @@ final class NotificationPreferenceCache {
     var eventType: String
     var enabled: Bool
     var pushEnabled: Bool
+    var changeTag: String?
 
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,
          eventType: String,
          enabled: Bool,
-         pushEnabled: Bool)
+         pushEnabled: Bool,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.profileRecordName = profileRecordName
@@ -30,6 +32,7 @@ final class NotificationPreferenceCache {
         self.eventType = eventType
         self.enabled = enabled
         self.pushEnabled = pushEnabled
+        self.changeTag = changeTag
     }
 
     convenience init(from preference: NotificationPreference) {
@@ -39,7 +42,8 @@ final class NotificationPreferenceCache {
             familyRecordName: preference.family.recordID.recordName,
             eventType: preference.eventType.rawValue,
             enabled: preference.enabled,
-            pushEnabled: preference.pushEnabled
+            pushEnabled: preference.pushEnabled,
+            changeTag: preference.changeTag
         )
     }
 }

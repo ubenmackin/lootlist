@@ -97,8 +97,6 @@ struct QuestServiceTests {
         #expect(QuestServiceError.missingRecord("r1") == QuestServiceError.missingRecord("r1"))
     }
 
-    // MARK: - D4: half-open [start, end) boundary semantics
-
     @Test
     func `weekRange is half-open and agrees with WeekMath and TreasuryService`() {
         let monday = WeekMath.mondayOfWeek(for: Date())

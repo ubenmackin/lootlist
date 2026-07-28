@@ -130,7 +130,7 @@ final class HeroDashboardViewModel {
         missedQuests = missed
         availableTemplatesCount = templatesByID.values.filter(\.isActive).count
 
-        // D3: derive `earnedThisWeek` and `streak` synchronously from the
+        // derive `earnedThisWeek` and `streak` synchronously from the
         // passed `@Query *Cache` arrays (mirrors
         // `TreasuryViewModel.rebuildLists` + `ProfileViewModel.recomputeCharacterFromCache`).
         // No async `QuestService` fetch — background CloudKit freshness is

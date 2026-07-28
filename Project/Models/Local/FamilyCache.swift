@@ -20,18 +20,21 @@ final class FamilyCache {
     var createdByRecordName: String
     var createdAt: Date
     var payoutPolicy: String
+    var changeTag: String?
 
     init(recordName: String,
          name: String,
          createdByRecordName: String,
          createdAt: Date,
-         payoutPolicy: String)
+         payoutPolicy: String,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.name = name
         self.createdByRecordName = createdByRecordName
         self.createdAt = createdAt
         self.payoutPolicy = payoutPolicy
+        self.changeTag = changeTag
     }
 
     convenience init(from family: Family) {
@@ -40,7 +43,8 @@ final class FamilyCache {
             name: family.name,
             createdByRecordName: family.createdBy.recordName,
             createdAt: family.createdAt,
-            payoutPolicy: family.payoutPolicy.rawValue
+            payoutPolicy: family.payoutPolicy.rawValue,
+            changeTag: family.changeTag
         )
     }
 }

@@ -13,6 +13,10 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
 
     let id: CKRecord.ID
 
+    /// Server-owned CloudKit change tag captured on read for cache-staleness
+    /// checks. Not authored locally — `toRecord()` does not stamp this field.
+    var changeTag: String?
+
     var quest: CKRecord.Reference
 
     var completedBy: CKRecord.Reference
@@ -35,6 +39,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
                                                        actual: record.recordType)
         }
         id = record.recordID
+        changeTag = record.recordChangeTag
 
         guard let quest = record["quest"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("quest")

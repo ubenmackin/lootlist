@@ -13,6 +13,10 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
 
     let id: CKRecord.ID
 
+    /// Server-owned CloudKit change tag captured on read for cache-staleness
+    /// checks. Not authored locally — `toRecord()` does not stamp this field.
+    var changeTag: String?
+
     var profile: CKRecord.Reference
 
     var amount: Double
@@ -30,6 +34,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
                                                        actual: record.recordType)
         }
         id = record.recordID
+        changeTag = record.recordChangeTag
 
         guard let profile = record["profile"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("profile")

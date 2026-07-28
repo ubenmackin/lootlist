@@ -39,8 +39,6 @@ struct TreasuryServiceTests {
         #expect(durationSeconds == Double(AppConstants.Time.secondsInWeek))
     }
 
-    // MARK: - D4: half-open [start, end) boundary semantics
-
     @Test
     func `weekRange is half-open and agrees with WeekMath`() {
         let monday = WeekMath.mondayOfWeek(for: Date())

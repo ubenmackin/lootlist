@@ -253,7 +253,7 @@ final class QuestManagerViewModel {
         syncSubscriptionID = id
         syncTask = Task {
             for await _ in stream {
-                // D3: `SyncEngine` mutates SwiftData on `.recordChanged`; the
+                // `SyncEngine` mutates SwiftData on `.recordChanged`; the
                 // view's `@Query *.Cache` re-fires `.onChange` → `rebuildLists`
                 // / `rebuildHeroes`. No explicit `load()`/`loadHeroes()` here —
                 // those duplicated the `.onChange` path (and `loadHeroes` was a

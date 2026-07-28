@@ -21,6 +21,7 @@ final class QuestCompletionCache {
     var approvalMode: String
     var verifiedByRecordName: String?
     var verifiedDate: Date?
+    var changeTag: String?
 
     init(recordName: String,
          questRecordName: String,
@@ -31,7 +32,8 @@ final class QuestCompletionCache {
          verificationStatus: String,
          approvalMode: String,
          verifiedByRecordName: String?,
-         verifiedDate: Date?)
+         verifiedDate: Date?,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.questRecordName = questRecordName
@@ -43,6 +45,7 @@ final class QuestCompletionCache {
         self.approvalMode = approvalMode
         self.verifiedByRecordName = verifiedByRecordName
         self.verifiedDate = verifiedDate
+        self.changeTag = changeTag
     }
 
     convenience init(from completion: QuestCompletion) {
@@ -59,7 +62,8 @@ final class QuestCompletionCache {
             verificationStatus: completion.verificationStatus.rawValue,
             approvalMode: derivedApprovalMode.rawValue,
             verifiedByRecordName: completion.verifiedBy?.recordID.recordName,
-            verifiedDate: completion.verifiedDate
+            verifiedDate: completion.verifiedDate,
+            changeTag: completion.changeTag
         )
     }
 }

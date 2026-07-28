@@ -133,7 +133,7 @@ final class FamilyDashboardViewModel {
                 .reduce(0.0) { $0 + $1.amount }
             let earned = goldFromQuests + bonusGold
 
-            // D3: derive `streak` and `trophiesEarned` synchronously from the
+            // derive `streak` and `trophiesEarned` synchronously from the
             // cache arrays passed into `rebuildLists` (NO CloudKit fetch). The
             // prior implementation reused the stale `weekSummary` from the
             // previous render (itself built from `existing ?? 0`), so the
@@ -164,7 +164,7 @@ final class FamilyDashboardViewModel {
             heroSummaries: heroSummaries
         )
 
-        // D3: `pastPayouts` is a computed property of the `@Query
+        // `pastPayouts` is a computed property of the `@Query
         // cachedAllowancePeriods` passed in by `FamilyDashboardView` (replaces
         // the deleted `loadPastPayouts()` cache-fetch path). A silent push
         // that mutates an `AllowancePeriodCache` row re-fires
@@ -203,7 +203,7 @@ final class FamilyDashboardViewModel {
     }
 
     private func handleRecordChangedSync() {
-        // D3: the cache + `.onChange` already refresh the dashboard on
+        // the cache + `.onChange` already refresh the dashboard on
         // `.recordChanged`. The display-name-stale heuristic and the
         // `scheduleLatePropagationRetry` 1.5s retry loop were removed (they
         // fired on every silent push and only papered over a stale-CK-read

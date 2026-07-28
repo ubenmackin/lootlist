@@ -13,6 +13,10 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
 
     let id: CKRecord.ID
 
+    /// Server-owned CloudKit change tag captured on read for cache-staleness
+    /// checks. Not authored locally — `toRecord()` does not stamp this field.
+    var changeTag: String?
+
     var achievement: CKRecord.Reference
 
     var profile: CKRecord.Reference
@@ -35,6 +39,7 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
                                                        actual: record.recordType)
         }
         id = record.recordID
+        changeTag = record.recordChangeTag
 
         guard let achievement = record["achievement"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("achievement")

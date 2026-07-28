@@ -61,12 +61,12 @@ struct QuestManagerView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                // D3: synchronous initial render from the current `@Query`
+                // synchronous initial render from the current `@Query`
                 // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuildViewModel()
             }
             .refreshable {
-                // D3: re-derive from the current cache snapshot. Background
+                // re-derive from the current cache snapshot. Background
                 // CloudKit freshness is driven by `SyncEngine`.
                 rebuildViewModel()
             }
@@ -85,7 +85,7 @@ struct QuestManagerView: View {
                 rebuildViewModel()
             }
             .onChange(of: cachedProfiles) { _, _ in
-                // D3: heroes list is derived from `@Query cachedProfiles`
+                // heroes list is derived from `@Query cachedProfiles`
                 // (replaces the deleted `loadHeroes()` cache-fetch path).
                 rebuildViewModel()
             }

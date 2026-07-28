@@ -13,6 +13,10 @@ struct Quest: Identifiable, Equatable, Sendable {
 
     let id: CKRecord.ID
 
+    /// Server-owned CloudKit change tag captured on read for cache-staleness
+    /// checks. Not authored locally — `toRecord()` does not stamp this field.
+    var changeTag: String?
+
     var template: CKRecord.Reference
 
     var assignee: CKRecord.Reference
@@ -63,6 +67,7 @@ struct Quest: Identifiable, Equatable, Sendable {
                                                        actual: record.recordType)
         }
         id = record.recordID
+        changeTag = record.recordChangeTag
 
         guard let template = record["template"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("template")

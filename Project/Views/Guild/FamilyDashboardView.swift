@@ -56,7 +56,7 @@ struct FamilyDashboardView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                // D3: synchronous initial render from the current `@Query`
+                // synchronous initial render from the current `@Query`
                 // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuild()
                 // Background freshness touch (share URL + zone setup) — does

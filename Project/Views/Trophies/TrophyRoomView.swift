@@ -37,7 +37,7 @@ struct TrophyRoomView: View {
                 }
             }
             .refreshable {
-                // D3: re-derive from the current cache snapshot. Background
+                // re-derive from the current cache snapshot. Background
                 // CloudKit freshness is driven by `SyncEngine`.
                 rebuild()
             }
@@ -50,7 +50,7 @@ struct TrophyRoomView: View {
                     appState: appState
                 )
             }
-            // D3: synchronous initial render from the current `@Query` cache
+            // synchronous initial render from the current `@Query` cache
             // snapshot. Subsequent mutations re-fire `.onChange`.
             rebuild()
             // One-shot background freshness touch: warm the achievement caches

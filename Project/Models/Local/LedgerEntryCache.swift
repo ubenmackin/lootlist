@@ -19,6 +19,7 @@ final class LedgerEntryCache {
     var entryDescription: String
     var date: Date
     var source: String
+    var changeTag: String?
 
     init(recordName: String,
          profileRecordName: String,
@@ -26,7 +27,8 @@ final class LedgerEntryCache {
          amount: Double,
          entryDescription: String,
          date: Date,
-         source: String)
+         source: String,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.profileRecordName = profileRecordName
@@ -35,6 +37,7 @@ final class LedgerEntryCache {
         self.entryDescription = entryDescription
         self.date = date
         self.source = source
+        self.changeTag = changeTag
     }
 
     convenience init(from entry: LedgerEntry) {
@@ -45,7 +48,8 @@ final class LedgerEntryCache {
             amount: entry.amount,
             entryDescription: entry.description,
             date: entry.date,
-            source: entry.source
+            source: entry.source,
+            changeTag: entry.changeTag
         )
     }
 }

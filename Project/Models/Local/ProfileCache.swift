@@ -23,6 +23,7 @@ final class ProfileCache {
     var iCloudUserRecordName: String
     var avatarClass: String?
     var payoutPolicy: String
+    var changeTag: String?
 
     init(recordName: String,
          familyRecordName: String,
@@ -35,7 +36,8 @@ final class ProfileCache {
          level: Int,
          iCloudUserRecordName: String,
          avatarClass: String?,
-         payoutPolicy: String)
+         payoutPolicy: String,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.familyRecordName = familyRecordName
@@ -49,6 +51,7 @@ final class ProfileCache {
         self.iCloudUserRecordName = iCloudUserRecordName
         self.avatarClass = avatarClass
         self.payoutPolicy = payoutPolicy
+        self.changeTag = changeTag
     }
 
     convenience init(from profile: Profile) {
@@ -64,7 +67,8 @@ final class ProfileCache {
             level: profile.level,
             iCloudUserRecordName: profile.iCloudUserID.recordName,
             avatarClass: profile.avatarClass?.rawValue,
-            payoutPolicy: profile.payoutPolicy.rawValue
+            payoutPolicy: profile.payoutPolicy.rawValue,
+            changeTag: profile.changeTag
         )
     }
 }

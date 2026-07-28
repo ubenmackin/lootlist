@@ -51,6 +51,8 @@ struct ProfileStats: Sendable {
 final class AchievementService {
     var cacheService: CacheService?
 
+    var toastManager: ToastManager?
+
     init(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -294,6 +296,9 @@ final class AchievementService {
             return saved
         } catch {
             cacheService?.invalidateProfileAchievement(recordName: row.id.recordName)
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+            toastManager?.show(message: message, type: .error)
             throw error
         }
     }

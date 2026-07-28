@@ -64,7 +64,7 @@ struct QuestLogView: View {
             if let initialHero, viewModel?.selectedHero == nil {
                 viewModel?.selectedHero = initialHero
             }
-            // D3: synchronous initial render from the current `@Query` cache
+            // synchronous initial render from the current `@Query` cache
             // snapshot. Subsequent mutations re-fire `.onChange`.
             rebuildViewModel()
         }

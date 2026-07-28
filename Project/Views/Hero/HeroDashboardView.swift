@@ -44,7 +44,7 @@ struct HeroDashboardView: View {
                 if viewModel == nil {
                     viewModel = HeroDashboardViewModel(appState: appState)
                 }
-                // D3: synchronous initial render from the current `@Query`
+                // synchronous initial render from the current `@Query`
                 // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuildViewModel()
             }

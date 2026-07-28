@@ -33,6 +33,9 @@ actor BackgroundCacheActor {
                 target.approvalMode = quest.approvalMode.rawValue
                 target.descriptionText = quest.descriptionText
                 target.createdByRecordName = quest.createdBy.recordID.recordName
+                if let tag = quest.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(QuestCache(from: quest))
             }
@@ -58,6 +61,9 @@ actor BackgroundCacheActor {
                 target.iCloudUserRecordName = profile.iCloudUserID.recordName
                 target.avatarClass = profile.avatarClass?.rawValue
                 target.payoutPolicy = profile.payoutPolicy.rawValue
+                if let tag = profile.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(ProfileCache(from: profile))
             }
@@ -83,6 +89,9 @@ actor BackgroundCacheActor {
                     : ApprovalMode.parentVerify.rawValue
                 target.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
                 target.verifiedDate = completion.verifiedDate
+                if let tag = completion.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(QuestCompletionCache(from: completion))
             }
@@ -109,6 +118,9 @@ actor BackgroundCacheActor {
                 target.isAllOrNothing = template.isAllOrNothing
                 target.approvalMode = template.approvalMode.rawValue
                 target.createdByRecordName = template.createdBy.recordID.recordName
+                if let tag = template.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(QuestTemplateCache(from: template))
             }
@@ -129,6 +141,9 @@ actor BackgroundCacheActor {
                 target.entryDescription = entry.description
                 target.date = entry.date
                 target.source = entry.source
+                if let tag = entry.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(LedgerEntryCache(from: entry))
             }
@@ -152,6 +167,9 @@ actor BackgroundCacheActor {
                 target.questsTotal = period.questsTotal
                 target.paidDate = period.paidDate
                 target.paidAmount = period.paidAmount
+                if let tag = period.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(AllowancePeriodCache(from: period))
             }
@@ -173,6 +191,9 @@ actor BackgroundCacheActor {
                 target.category = achievement.category.rawValue
                 target.requirementType = achievement.requirementType.rawValue
                 target.requirementValue = achievement.requirementValue
+                if let tag = achievement.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(AchievementCache(from: achievement))
             }
@@ -191,6 +212,9 @@ actor BackgroundCacheActor {
                 target.profileRecordName = pa.profile.recordID.recordName
                 target.familyRecordName = pa.family.recordID.recordName
                 target.earnedDate = pa.earnedDate
+                if let tag = pa.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(ProfileAchievementCache(from: pa))
             }
@@ -209,6 +233,9 @@ actor BackgroundCacheActor {
                 target.createdByRecordName = family.createdBy.recordName
                 target.createdAt = family.createdAt
                 target.payoutPolicy = family.payoutPolicy.rawValue
+                if let tag = family.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(FamilyCache(from: family))
             }
@@ -228,6 +255,9 @@ actor BackgroundCacheActor {
                 target.eventType = pref.eventType.rawValue
                 target.enabled = pref.enabled
                 target.pushEnabled = pref.pushEnabled
+                if let tag = pref.changeTag {
+                    target.changeTag = tag
+                }
             } else {
                 modelContext.insert(NotificationPreferenceCache(from: pref))
             }
