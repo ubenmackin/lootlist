@@ -52,6 +52,8 @@ final class ManualSpendingService: SpendingService {
     private let cloudKit: CloudKitService
     var cacheService: CacheService?
 
+    var toastManager: ToastManager?
+
     init(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -136,6 +138,9 @@ final class ManualSpendingService: SpendingService {
             return saved
         } catch {
             cacheService?.invalidateLedgerEntry(recordName: entry.id.recordName)
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+            toastManager?.show(message: message, type: .error)
             throw error
         }
     }
@@ -158,6 +163,9 @@ final class ManualSpendingService: SpendingService {
                     id: CKRecord.ID(recordName: snapshot.recordName)
                 ))
             }
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+            toastManager?.show(message: message, type: .error)
             throw error
         }
     }

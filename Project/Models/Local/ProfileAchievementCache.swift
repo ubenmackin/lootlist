@@ -17,18 +17,21 @@ final class ProfileAchievementCache {
     var profileRecordName: String
     var familyRecordName: String
     var earnedDate: Date
+    var changeTag: String?
 
     init(recordName: String,
          achievementRecordName: String,
          profileRecordName: String,
          familyRecordName: String,
-         earnedDate: Date)
+         earnedDate: Date,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.achievementRecordName = achievementRecordName
         self.profileRecordName = profileRecordName
         self.familyRecordName = familyRecordName
         self.earnedDate = earnedDate
+        self.changeTag = changeTag
     }
 
     convenience init(from pa: ProfileAchievement) {
@@ -37,7 +40,8 @@ final class ProfileAchievementCache {
             achievementRecordName: pa.achievement.recordID.recordName,
             profileRecordName: pa.profile.recordID.recordName,
             familyRecordName: pa.family.recordID.recordName,
-            earnedDate: pa.earnedDate
+            earnedDate: pa.earnedDate,
+            changeTag: pa.changeTag
         )
     }
 }

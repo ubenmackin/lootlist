@@ -192,7 +192,7 @@ final class TreasuryViewModel {
                 date: date
             )
             errorMessage = nil
-            // D3: `spending.logManual` refreshes the SwiftData cache; the
+            // `spending.logManual` refreshes the SwiftData cache; the
             // resulting mutation re-fires `.onChange` → `rebuildLists`. No
             // explicit `refresh()` needed here.
             return true

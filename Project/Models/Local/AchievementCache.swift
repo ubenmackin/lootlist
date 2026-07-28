@@ -20,6 +20,7 @@ final class AchievementCache {
     var category: String
     var requirementType: String
     var requirementValue: Int
+    var changeTag: String?
 
     init(recordName: String,
          familyRecordName: String,
@@ -28,7 +29,8 @@ final class AchievementCache {
          iconSystemName: String,
          category: String,
          requirementType: String,
-         requirementValue: Int)
+         requirementValue: Int,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.familyRecordName = familyRecordName
@@ -38,6 +40,7 @@ final class AchievementCache {
         self.category = category
         self.requirementType = requirementType
         self.requirementValue = requirementValue
+        self.changeTag = changeTag
     }
 
     convenience init(from achievement: Achievement) {
@@ -49,7 +52,8 @@ final class AchievementCache {
             iconSystemName: achievement.iconSystemName,
             category: achievement.category.rawValue,
             requirementType: achievement.requirementType.rawValue,
-            requirementValue: achievement.requirementValue
+            requirementValue: achievement.requirementValue,
+            changeTag: achievement.changeTag
         )
     }
 }

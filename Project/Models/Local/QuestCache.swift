@@ -26,6 +26,7 @@ final class QuestCache {
     var approvalMode: String
     var descriptionText: String?
     var createdByRecordName: String
+    var changeTag: String?
 
     init(recordName: String,
          familyRecordName: String,
@@ -41,7 +42,8 @@ final class QuestCache {
          isAllOrNothing: Bool,
          approvalMode: String,
          descriptionText: String?,
-         createdByRecordName: String)
+         createdByRecordName: String,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.familyRecordName = familyRecordName
@@ -58,6 +60,7 @@ final class QuestCache {
         self.approvalMode = approvalMode
         self.descriptionText = descriptionText
         self.createdByRecordName = createdByRecordName
+        self.changeTag = changeTag
     }
 
     convenience init(from quest: Quest) {
@@ -76,7 +79,8 @@ final class QuestCache {
             isAllOrNothing: quest.isAllOrNothing,
             approvalMode: quest.approvalMode.rawValue,
             descriptionText: quest.descriptionText,
-            createdByRecordName: quest.createdBy.recordID.recordName
+            createdByRecordName: quest.createdBy.recordID.recordName,
+            changeTag: quest.changeTag
         )
     }
 }

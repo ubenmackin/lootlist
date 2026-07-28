@@ -164,7 +164,7 @@ extension NotificationPreferenceCache {
     }
 }
 
-// MARK: - Direct Enum Getters for SwiftUI Views (Option C Architecture)
+// MARK: - Direct Enum Getters for SwiftUI Views
 
 extension QuestCache {
     var approvalModeEnum: ApprovalMode {

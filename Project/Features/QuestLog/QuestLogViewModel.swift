@@ -56,7 +56,7 @@ final class QuestLogViewModel {
         syncSubscriptionID = id
         syncTask = Task {
             for await _ in stream {
-                // D3: `SyncEngine` mutates SwiftData on `.recordChanged`; the
+                // `SyncEngine` mutates SwiftData on `.recordChanged`; the
                 // view's `@Query *.Cache` re-fires `.onChange` → `rebuildLists`.
                 // No explicit `load(family:)` here — that would duplicate the
                 // `.onChange` path and could diverge on edge rows.

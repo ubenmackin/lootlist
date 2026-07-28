@@ -24,6 +24,7 @@ final class QuestTemplateCache {
     var isAllOrNothing: Bool
     var approvalMode: String
     var createdByRecordName: String
+    var changeTag: String?
 
     init(recordName: String,
          familyRecordName: String,
@@ -37,7 +38,8 @@ final class QuestTemplateCache {
          scheduleType: String,
          isAllOrNothing: Bool,
          approvalMode: String,
-         createdByRecordName: String)
+         createdByRecordName: String,
+         changeTag: String? = nil)
     {
         self.recordName = recordName
         self.familyRecordName = familyRecordName
@@ -52,6 +54,7 @@ final class QuestTemplateCache {
         self.isAllOrNothing = isAllOrNothing
         self.approvalMode = approvalMode
         self.createdByRecordName = createdByRecordName
+        self.changeTag = changeTag
     }
 
     convenience init(from template: QuestTemplate) {
@@ -68,7 +71,8 @@ final class QuestTemplateCache {
             scheduleType: template.scheduleType.rawValue,
             isAllOrNothing: template.isAllOrNothing,
             approvalMode: template.approvalMode.rawValue,
-            createdByRecordName: template.createdBy.recordID.recordName
+            createdByRecordName: template.createdBy.recordID.recordName,
+            changeTag: template.changeTag
         )
     }
 }

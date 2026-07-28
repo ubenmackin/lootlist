@@ -15,6 +15,8 @@ final class TreasuryService {
     let notificationService: NotificationService?
     var cacheService: CacheService?
 
+    var toastManager: ToastManager?
+
     init(cloudKit: CloudKitService, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
@@ -116,12 +118,44 @@ final class TreasuryService {
         )
 
         cacheService?.upsertAllowancePeriod(period)
+        // Brand-new record: there is no prior cache snapshot, so
+        // `preMutationChangeTag` is `nil` and the changeTag-divergence check
+        // below is effectively a no-op (returns `false`). The guard is
+        // applied for consistency with the other TreasuryService update paths.
+        let preMutationChangeTag: String? = nil
         do {
             let saved = try await cloudKit.save(period)
             cacheService?.upsertAllowancePeriod(saved)
             return saved
         } catch {
-            cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName)
+            let concurrentEditDetected = TreasuryService.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
+                    .first(where: { $0.recordName == period.id.recordName })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                // Concurrent edit: the server has a newer record. Discard our optimistic
+                // write by re-fetching the authoritative server record, OR invalidate
+                // if the re-fetch also fails (no snapshot to restore for new records).
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+
+                if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
+                    cacheService?.upsertAllowancePeriod(fresh)
+                } else {
+                    cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName)
+                }
+            } else {
+                cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName)
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
+            }
             throw error
         }
     }
@@ -153,14 +187,46 @@ final class TreasuryService {
         let name = period.id.recordName
         let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
 
+        // Capture the last-seen server changeTag BEFORE the optimistic write so
+        // we can detect a concurrent edit from another device (or background
+        // sync) while the save is in flight.
+        let preMutationChangeTag = snapshot?.changeTag
+
         cacheService?.upsertAllowancePeriod(updated)
         do {
             let saved = try await cloudKit.save(updated)
             cacheService?.upsertAllowancePeriod(saved)
             return saved
         } catch {
-            if let snapshot {
-                cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+            let concurrentEditDetected = TreasuryService.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                // Concurrent edit: the server has a newer record. Discard our optimistic
+                // write by re-fetching the authoritative server record, OR fall back to
+                // the pre-mutation snapshot if the re-fetch also fails.
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+
+                if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
+                    cacheService?.upsertAllowancePeriod(fresh)
+                } else if let snapshot {
+                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                }
+            } else {
+                if let snapshot {
+                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
             throw error
         }
@@ -174,6 +240,11 @@ final class TreasuryService {
 
         let name = period.id.recordName
         let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
+
+        // Capture the last-seen server changeTag BEFORE the optimistic write so
+        // we can detect a concurrent edit from another device (or background
+        // sync) while the save is in flight.
+        let preMutationChangeTag = snapshot?.changeTag
 
         // Optimistic write first
         cacheService?.upsertAllowancePeriod(updated)
@@ -192,8 +263,35 @@ final class TreasuryService {
                 }
             }
         } catch {
-            if let snapshot {
-                cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+            let concurrentEditDetected = TreasuryService.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                // Concurrent edit: the server has a newer record. Discard our optimistic
+                // write by re-fetching the authoritative server record, OR fall back to
+                // the pre-mutation snapshot if the re-fetch also fails.
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+
+                if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
+                    cacheService?.upsertAllowancePeriod(fresh)
+                } else if let snapshot {
+                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                }
+            } else {
+                if let snapshot {
+                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
             throw error
         }
@@ -466,6 +564,50 @@ final class TreasuryService {
     private static func isSlain(_ log: QuestCompletion) -> Bool {
         log.verificationStatus == .verified
             || log.verificationStatus == .autoApproved
+    }
+
+    /// Detects whether another device (or this device's background sync) has
+    /// applied a conflicting mutation while the in-flight save was failing.
+    ///
+    /// Two independent signals are checked; either one is sufficient evidence of
+    /// a concurrent edit:
+    ///   1) CloudKit raised a `serverRecordChanged` error during `cloudKit.save`.
+    ///      CloudKitService wraps raw `CKError` instances into
+    ///      `CloudKitServiceError` before throwing, so we pattern-match the
+    ///      wrapped form — `CloudKitServiceError.notFound("serverRecordChanged")`
+    ///      — rather than `CKError` itself, which the service layer never sees.
+    ///   2) The cache row's current `changeTag` differs from the
+    ///      `preMutationChangeTag` we captured before the optimistic write. A
+    ///      background sync may have pulled Mutation B's update into the cache
+    ///      during the `await cloudKit.save(...)` call, mutating the cached row's
+    ///      changeTag. When both sides are present and unequal, we conclude a
+    ///      concurrent edit landed.
+    ///
+    /// When neither signal is present (the common case — including, by design,
+    /// brand-new records, where `preMutationChangeTag == nil` because there was
+    /// no prior cache row to snapshot), this returns `false` and the caller
+    /// proceeds with the standard rollback.
+    static func detectConcurrentEdit(
+        preMutationChangeTag: String?,
+        fetchCurrent: () -> String?,
+        error: Error
+    ) -> Bool {
+        // Signal 1: CloudKit's canonical optimistic-concurrency conflict.
+        if case let .notFound(details) = error as? CloudKitServiceError,
+           details == "serverRecordChanged"
+        {
+            return true
+        }
+
+        // Signal 2: changeTag divergence detected via a cache re-fetch.
+        let currentChangeTag = fetchCurrent()
+        return {
+            guard let pre = preMutationChangeTag,
+                  let cur = currentChangeTag,
+                  !cur.isEmpty
+            else { return false }
+            return pre != cur
+        }()
     }
 
     static func weekRange(starting monday: Date) -> Range<Date> {

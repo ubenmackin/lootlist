@@ -6,6 +6,10 @@ disabled_rules:
   - inclusive_language
   - opening_brace
 
+type_name:
+  excluded:
+    - iCloudStatusView
+
 identifier_name:
   min_length:
     warning: 2

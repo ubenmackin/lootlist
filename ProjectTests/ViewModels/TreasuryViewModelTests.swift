@@ -79,8 +79,6 @@ struct TreasuryViewModelTests {
         #expect(viewModel.errorMessage == "Enter a positive gold amount.")
     }
 
-    // MARK: - D3: AllowancePeriodCache drives Treasury refresh (no CloudKit fetch)
-
     private struct TestAppState {
         let appState: AppState
         let zoneID: CKRecordZone.ID
