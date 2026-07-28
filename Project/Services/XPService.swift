@@ -22,6 +22,7 @@ extension CloudKitServicing {
     func save<T: CloudKitRecord>(_ model: T) async throws -> T {
         try await save(model, in: nil, using: nil)
     }
+
     func fetch<T: CloudKitRecord>(_ type: T.Type, id: CKRecord.ID) async throws -> T {
         try await fetch(type, id: id, using: nil)
     }

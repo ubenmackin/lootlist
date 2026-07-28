@@ -136,9 +136,10 @@ struct XPServiceTests {
         {
             throw MockError.saveFailed
         }
+
         func fetch<T: CloudKitRecord>(_: T.Type,
-                                     id: CKRecord.ID,
-                                     using _: CKDatabase?) async throws -> T
+                                      id _: CKRecord.ID,
+                                      using _: CKDatabase?) async throws -> T
         {
             throw MockError.saveFailed
         }
