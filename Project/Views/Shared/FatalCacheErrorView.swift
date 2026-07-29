@@ -66,9 +66,7 @@ struct FatalCacheErrorView: View {
                 .frame(maxHeight: 180)
 
                 Button {
-                    // The app cannot recover from a cache-init failure in-process.
                     // Offer a relaunch affordance; terminating is the only way back
-                    // to a clean schema state.
                     exit(1)
                 } label: {
                     Label("Relaunch", systemImage: "arrow.clockwise")

@@ -16,9 +16,9 @@ struct QuestManagerView: View {
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(\.scenePhase) private var scenePhase
 
-    @Query(filter: #Predicate<QuestTemplateCache> { $0.isActive == true }, sort: \QuestTemplateCache.name) private var cachedTemplates: [QuestTemplateCache]
-    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedAssignments: [QuestCache]
-    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var cachedAssignments: [QuestCache]
+    @Query private var cachedProfiles: [ProfileCache]
 
     @State private var viewModel: QuestManagerViewModel?
     @State private var selectedTab: ManagerTab = .assignments
@@ -28,12 +28,48 @@ struct QuestManagerView: View {
     @State private var editingTemplate: QuestTemplate?
     @State private var editingQuest: Quest?
 
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
     enum ManagerTab: String, CaseIterable, Identifiable {
         case assignments = "Assignments"
         case templates = "Templates"
         var id: String {
             rawValue
         }
+    }
+
+    init(familyRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let templateFilter: Predicate<QuestTemplateCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name && $0.isActive == true }
+        }
+        let assignmentFilter: Predicate<QuestCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name && $0.isActive == true }
+        }
+        let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedTemplates = Query(
+            filter: templateFilter,
+            sort: \QuestTemplateCache.name
+        )
+        _cachedAssignments = Query(
+            filter: assignmentFilter,
+            sort: \QuestCache.weekOf,
+            order: .reverse
+        )
+        _cachedProfiles = Query(
+            filter: profileFilter,
+            sort: \ProfileCache.displayName
+        )
     }
 
     var body: some View {
@@ -61,13 +97,11 @@ struct QuestManagerView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                // synchronous initial render from the current `@Query`
                 // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuildViewModel()
             }
             .refreshable {
                 // re-derive from the current cache snapshot. Background
-                // CloudKit freshness is driven by `SyncEngine`.
                 rebuildViewModel()
             }
             .onChange(of: scenePhase) { _, newPhase in
@@ -92,7 +126,7 @@ struct QuestManagerView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink {
-                        QuestLogView()
+                        QuestLogView(familyRecordName: familyRecordName)
                             .environment(questService)
                             .environment(familyService)
                             .environment(appState)
@@ -138,13 +172,13 @@ struct QuestManagerView: View {
 
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
-        guard let familyName = appState.family?.id.recordName else { return }
 
-        let templates = cachedTemplates.filter { $0.familyRecordName == familyName }
-        let assignments = cachedAssignments.filter { $0.familyRecordName == familyName && $0.isActive }
-
-        vm.rebuildLists(templates: templates, assignments: assignments)
-        vm.rebuildHeroes(profiles: cachedProfiles.filter { $0.familyRecordName == familyName })
+        // The `@Query` declarations above already filter by
+        // `familyRecordName` (and the active flag where appropriate) at the
+        // SwiftData/SQLite layer, so we no longer post-filter the cached
+        // rows in Swift. Pass them straight through.
+        vm.rebuildLists(templates: cachedTemplates, assignments: cachedAssignments)
+        vm.rebuildHeroes(profiles: cachedProfiles)
     }
 
     private var tabPicker: some View {

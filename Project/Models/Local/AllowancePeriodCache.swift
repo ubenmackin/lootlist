@@ -2,14 +2,14 @@
 //  AllowancePeriodCache.swift
 //  LootList
 //
-//  Created for Local-First SwiftData Architecture.
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation
 import SwiftData
 
 @Model
-final class AllowancePeriodCache {
+final class AllowancePeriodCache: FamilyScopedCache {
     #Index<AllowancePeriodCache>([\.familyRecordName], [\.profileRecordName], [\.weekOf])
 
     @Attribute(.unique) var recordName: String

@@ -13,6 +13,11 @@ struct iCloudStatusView: View {
     @Environment(AppState.self) private var appState
     @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
 
+    // iCloudStatusView intentionally omits familyRecordName filters on all @Query
+    // declarations. This view is the diagnostic panel that surfaces ALL cached
+    // rows across every family — including abandoned ones — for iCloud
+    // troubleshooting. DO NOT add family predicates here.
+
     @Query(sort: \ProfileCache.displayName) private var allProfiles: [ProfileCache]
     @Query(sort: \QuestCache.weekOf) private var allQuests: [QuestCache]
     @Query(sort: \QuestTemplateCache.name) private var allTemplates: [QuestTemplateCache]
@@ -250,7 +255,11 @@ struct iCloudStatusView: View {
     private var actionsSection: some View {
         Section {
             Button {
-                Task { await syncEngine?.syncAll() }
+                // Bootstrap-style unscoped full sync: explicit manual "Force Sync"
+                // user action in iCloud settings — documented intent is a
+                // generic full refresh across all families, not a single-family
+                // push-response refresh.
+                Task { await syncEngine?.syncAllFamiliesUnscoped() }
             } label: {
                 HStack {
                     Label("Force Sync", systemImage: "arrow.triangle.2.circlepath")

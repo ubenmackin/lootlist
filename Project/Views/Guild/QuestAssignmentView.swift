@@ -48,7 +48,6 @@ struct QuestAssignmentView: View {
     @State private var approvalOverride: ApprovalModeSelection = .useTemplate
     @State private var weekOf: Date = defaultWeekOf()
 
-    // --- Quick Create state ---
     @State private var quickName: String = ""
     @State private var quickDescription: String = ""
     @State private var quickGoldText: String = "1.00"
@@ -57,7 +56,6 @@ struct QuestAssignmentView: View {
     @State private var quickSpecificDays: Set<String> = []
     @State private var quickApproval: ApprovalMode = .autoApprove
 
-    // --- Edit state ---
     @State private var editQuestName: String = ""
     @State private var editQuestDescription: String = ""
     @State private var editGoldText: String = ""
@@ -183,8 +181,6 @@ struct QuestAssignmentView: View {
     private enum DisplayMode {
         case fromTemplate, quickCreate, edit
     }
-
-    // --- Navigation title / button ---
 
     private var navigationTitle: String {
         switch mode {
@@ -532,7 +528,6 @@ struct QuestAssignmentView: View {
             if selectedHero == nil {
                 selectedHero = viewModel.heroes.first
             }
-            // Allow template selection to auto-sync name until user types
             userEditedQuestName = false
             // Pre-fill template name
             editQuestName = selectedTemplate?.name ?? ""

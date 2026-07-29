@@ -16,7 +16,8 @@ struct FamilyServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let appState = AppState()
-        let questService = QuestService(cloudKit: cloudKit)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: questService)
         return (familyService, cloudKit, appState, questService)
     }

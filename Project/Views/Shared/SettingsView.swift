@@ -39,7 +39,6 @@ struct SettingsView: View {
                     }
                 }
 
-                // Section 2: iCloud Sync
                 Section("iCloud Sync") {
                     NavigationLink {
                         iCloudStatusView()

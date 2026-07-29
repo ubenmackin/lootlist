@@ -65,19 +65,21 @@ struct TabBarView: View {
 
     @ViewBuilder
     private var parentTabs: some View {
-        FamilyDashboardView()
+        let familyName = appState.family?.id.recordName
+
+        FamilyDashboardView(familyRecordName: familyName)
             .tabItem {
                 Label("Family", systemImage: "house.fill")
             }
             .tag(RootTab.family)
 
-        QuestManagerView()
+        QuestManagerView(familyRecordName: familyName)
             .tabItem {
                 Label("Manage", systemImage: "rectangle.stack.fill")
             }
             .tag(RootTab.manage)
 
-        PayoutHistoryView()
+        PayoutHistoryView(familyRecordName: familyName)
             .tabItem {
                 Label("Payouts", systemImage: "calendar.badge.checkmark")
             }
@@ -92,19 +94,21 @@ struct TabBarView: View {
 
     @ViewBuilder
     private var heroTabs: some View {
-        HeroDashboardView()
+        let familyName = appState.family?.id.recordName
+
+        HeroDashboardView(familyRecordName: familyName)
             .tabItem {
                 Label("Quests", systemImage: "list.bullet.clipboard")
             }
             .tag(RootTab.quests)
 
-        TreasuryView(spending: spending)
+        TreasuryView(spending: spending, familyRecordName: familyName)
             .tabItem {
                 Label("Gold", systemImage: "circle.hexagongrid.fill")
             }
             .tag(RootTab.gold)
 
-        TrophyRoomView()
+        TrophyRoomView(familyRecordName: familyName)
             .tabItem {
                 Label("Trophies", systemImage: "trophy.fill")
             }
@@ -112,7 +116,8 @@ struct TabBarView: View {
 
         ProfileView(avatarService: avatarService,
                     xpService: xpService,
-                    notificationService: notificationService)
+                    notificationService: notificationService,
+                    familyRecordName: familyName)
             .tabItem {
                 Label("Profile", systemImage: "person.crop.circle.fill")
             }

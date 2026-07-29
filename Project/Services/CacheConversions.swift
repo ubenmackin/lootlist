@@ -1,3 +1,10 @@
+//
+//  CacheConversions.swift
+//  LootList
+//
+//  Created by Ben Mackin on 7/21/26.
+//
+
 import CloudKit
 import Foundation
 import SwiftData

@@ -2,7 +2,7 @@
 //  SyncEngine.swift
 //  LootList
 //
-//  Created for Local-First SwiftData Architecture & Sync Engine.
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import CloudKit
@@ -43,7 +43,30 @@ final class SyncEngine {
         listenToPushNotifications()
     }
 
-    func syncAll(familyRecordName: String? = nil) async {
+    /// Full sync scoped to a single family zone. **Required parameter** —
+    /// every runtime sync path must identify the family it is syncing for.
+    /// This eliminates the recurring defect of unscoped `syncAll()` calls that
+    /// silently cross-pollinate multi-family environments.
+    ///
+    /// For the bootstrap case (first-launch, no family context available),
+    /// use `syncAllFamiliesUnscoped()` instead.
+    func syncAll(familyRecordName: String) async {
+        await _syncAll(familyRecordName: familyRecordName)
+    }
+
+    /// Bootstrap-only full sync — use when no family context is available
+    /// (e.g. first-launch after session restoration, or a manual "Force
+    /// Sync" from iCloud settings).  All runtime sync paths (push handlers,
+    /// `.zoneReset`, `.shareAccepted`, no-token fallbacks) must use
+    /// `syncAll(familyRecordName:)` instead.
+    func syncAllFamiliesUnscoped() async {
+        await _syncAll(familyRecordName: nil)
+    }
+
+    /// Shared implementation invoked by both `syncAll(familyRecordName:)`
+    /// and `syncAllFamiliesUnscoped()`.  `familyRecordName` is `nil` only
+    /// for the unscoped bootstrap path.
+    private func _syncAll(familyRecordName: String?) async {
         if isSyncing {
             needsResync = true
             return
@@ -52,15 +75,21 @@ final class SyncEngine {
         isSyncing = true
         needsResync = false
         syncError = nil
+        var syncErrors: [String] = []
 
         defer {
             isSyncing = false
             lastSyncedAt = Date()
-            NotificationCenter.default.post(name: .syncDidComplete, object: nil)
+            let userInfo: [String: Any]? = syncErrors.isEmpty ? nil : ["errors": syncErrors]
+            NotificationCenter.default.post(name: .syncDidComplete, object: self, userInfo: userInfo)
 
             if needsResync {
                 Task {
-                    await syncAll(familyRecordName: familyRecordName)
+                    if let familyRecordName {
+                        await syncAll(familyRecordName: familyRecordName)
+                    } else {
+                        await syncAllFamiliesUnscoped()
+                    }
                 }
             }
         }
@@ -84,85 +113,106 @@ final class SyncEngine {
         do {
             let families = try await familyTask
             await backgroundCache.batchUpsertFamilies(families)
+            await backgroundCache.purgeMissingFamilies(validRecordNames: Set(families.map(\.id.recordName)))
         } catch {
             logger.error("Failed to sync family: \(error)")
+            syncErrors.append("Family: \(error.localizedDescription)")
         }
 
         do {
             let notifPrefs = try await notifPrefsTask
-            await backgroundCache.batchUpsertNotificationPreferences(notifPrefs)
+            await backgroundCache.batchUpsertNotificationPreferences(notifPrefs, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingNotificationPreferences(validRecordNames: Set(notifPrefs.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync notification preferences: \(error)")
+            syncErrors.append("NotificationPreferences: \(error.localizedDescription)")
         }
 
         do {
             let profiles = try await profilesTask
-            await backgroundCache.batchUpsertProfiles(profiles)
-            await backgroundCache.purgeMissingProfiles(validRecordNames: Set(profiles.map(\.id.recordName)))
+            await backgroundCache.batchUpsertProfiles(profiles, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingProfiles(validRecordNames: Set(profiles.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync profiles: \(error)")
+            syncErrors.append("Profiles: \(error.localizedDescription)")
         }
 
         do {
             let quests = try await questsTask
-            await backgroundCache.batchUpsertQuests(quests)
-            await backgroundCache.purgeMissingQuests(validRecordNames: Set(quests.map(\.id.recordName)))
+            await backgroundCache.batchUpsertQuests(quests, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingQuests(validRecordNames: Set(quests.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync quests: \(error)")
+            syncErrors.append("Quests: \(error.localizedDescription)")
         }
 
         do {
             let templates = try await templatesTask
-            await backgroundCache.batchUpsertQuestTemplates(templates)
-            await backgroundCache.purgeMissingQuestTemplates(validRecordNames: Set(templates.map(\.id.recordName)))
+            await backgroundCache.batchUpsertQuestTemplates(templates, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingQuestTemplates(validRecordNames: Set(templates.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync quest templates: \(error)")
+            syncErrors.append("QuestTemplates: \(error.localizedDescription)")
         }
 
         do {
             let completions = try await completionsTask
-            await backgroundCache.batchUpsertQuestCompletions(completions)
-            await backgroundCache.purgeMissingQuestCompletions(validRecordNames: Set(completions.map(\.id.recordName)))
+            await backgroundCache.batchUpsertQuestCompletions(completions, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingQuestCompletions(validRecordNames: Set(completions.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync quest completions: \(error)")
+            syncErrors.append("QuestCompletions: \(error.localizedDescription)")
         }
 
         do {
             let ledgerEntries = try await ledgerTask
-            await backgroundCache.batchUpsertLedgerEntries(ledgerEntries)
-            await backgroundCache.purgeMissingLedgerEntries(validRecordNames: Set(ledgerEntries.map(\.id.recordName)))
+            await backgroundCache.batchUpsertLedgerEntries(ledgerEntries, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingLedgerEntries(validRecordNames: Set(ledgerEntries.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync ledger entries: \(error)")
+            syncErrors.append("LedgerEntries: \(error.localizedDescription)")
         }
 
         do {
             let allowancePeriods = try await allowanceTask
-            await backgroundCache.batchUpsertAllowancePeriods(allowancePeriods)
-            await backgroundCache.purgeMissingAllowancePeriods(validRecordNames: Set(allowancePeriods.map(\.id.recordName)))
+            await backgroundCache.batchUpsertAllowancePeriods(allowancePeriods, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingAllowancePeriods(validRecordNames: Set(allowancePeriods.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync allowance periods: \(error)")
+            syncErrors.append("AllowancePeriods: \(error.localizedDescription)")
         }
 
         do {
             let achievements = try await achievementsTask
-            await backgroundCache.batchUpsertAchievements(achievements)
-            await backgroundCache.purgeMissingAchievements(validRecordNames: Set(achievements.map(\.id.recordName)))
+            await backgroundCache.batchUpsertAchievements(achievements, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingAchievements(validRecordNames: Set(achievements.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync achievements: \(error)")
+            syncErrors.append("Achievements: \(error.localizedDescription)")
         }
 
         do {
             let profileAchievements = try await profileAchievementsTask
-            await backgroundCache.batchUpsertProfileAchievements(profileAchievements)
-            await backgroundCache.purgeMissingProfileAchievements(validRecordNames: Set(profileAchievements.map(\.id.recordName)))
+            await backgroundCache.batchUpsertProfileAchievements(profileAchievements, familyRecordName: familyRecordName)
+            await backgroundCache.purgeMissingProfileAchievements(validRecordNames: Set(profileAchievements.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
             logger.error("Failed to sync profile achievements: \(error)")
+            syncErrors.append("ProfileAchievements: \(error.localizedDescription)")
         }
 
         logger.info("syncAll completed successfully.")
     }
 
-    func incrementalSync() async {
+    /// - Parameter familyRecordName: The CloudKit record name of the family
+    ///   zone this incremental sync is scoped to. Push notifications are
+    ///   zone-scoped to a single family; passing that family's record name
+    ///   ensures the no-token fallback (`syncAll(familyRecordName:)`) scopes
+    ///   its full pull to the same family rather than querying every family
+    ///   known to the active database (which would trigger a cross-family full
+    ///   sync in multi-family environments). `nil` indicates a generic,
+    ///   unscoped full sync is intended — the fallback calls
+    ///   `syncAllFamiliesUnscoped()` in this case.
+    func incrementalSync(familyRecordName: String? = nil) async {
         if isSyncing {
             needsResync = true
             return
@@ -175,24 +225,32 @@ final class SyncEngine {
         defer {
             isSyncing = false
             lastSyncedAt = Date()
-            NotificationCenter.default.post(name: .syncDidComplete, object: nil)
+            NotificationCenter.default.post(name: .syncDidComplete, object: self)
 
             if needsResync {
                 Task {
-                    await incrementalSync()
+                    await incrementalSync(familyRecordName: familyRecordName)
                 }
             }
         }
 
-        let tokenKey = "ck_server_change_token"
+        let zoneID = cloudKit.resolvedZoneID
+        let db = cloudKit.activeFamilyDatabase
+        let tokenKey = tokenKey(for: zoneID, db: db)
+
         var cachedToken: CKServerChangeToken?
         if let data = UserDefaults.standard.data(forKey: tokenKey) {
             cachedToken = try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
         }
 
         guard let token = cachedToken else {
-            logger.info("No server change token found, executing syncAll()")
-            await syncAll()
+            logger.info("No server change token found, executing syncAll(familyRecordName: \(familyRecordName ?? "all", privacy: .private))")
+            isSyncing = false
+            if let familyRecordName {
+                await syncAll(familyRecordName: familyRecordName)
+            } else {
+                await syncAllFamiliesUnscoped()
+            }
             return
         }
 
@@ -226,17 +284,32 @@ final class SyncEngine {
             }
 
             if result.moreComing {
-                Task {
-                    await incrementalSync()
-                }
+                needsResync = true
             }
 
             logger.info("incrementalSync completed successfully.")
         } catch {
-            logger.error("incrementalSync failed: \(error, privacy: .private), falling back to syncAll()")
+            logger.error("incrementalSync failed: \(error, privacy: .private), falling back to syncAll(familyRecordName: \(familyRecordName ?? "all", privacy: .private))")
             UserDefaults.standard.removeObject(forKey: tokenKey)
-            await syncAll()
+            isSyncing = false
+            if let familyRecordName {
+                await syncAll(familyRecordName: familyRecordName)
+            } else {
+                await syncAllFamiliesUnscoped()
+            }
         }
+    }
+
+    /// Returns a UserDefaults key scoped to a specific record zone and database
+    /// scope, so that change tokens from the private DB are never conflated with
+    /// those from a shared family DB (and vice-versa).
+    ///
+    /// `internal` (rather than `private`) so the test target can verify the
+    /// a distinct, non-conflated change-token key — via `@testable import`.
+    func tokenKey(for zoneID: CKRecordZone.ID, db: CKDatabase?) -> String {
+        let dbLabel: CKDatabase.Scope = db?.databaseScope ?? .private
+        let scopeLabel = dbLabel == .shared ? "shared" : "private"
+        return "ck_change_token.\(zoneID.zoneName).\(scopeLabel)"
     }
 
     private func processChangedRecord(_ record: CKRecord) async {
@@ -255,22 +328,22 @@ final class SyncEngine {
             return true
         case Profile.recordType:
             if let profile = try? Profile(record: record) {
-                await backgroundCache.batchUpsertProfiles([profile])
+                await backgroundCache.batchUpsertProfiles([profile], familyRecordName: profile.family.recordID.recordName)
             }
             return true
         case Quest.recordType:
             if let quest = try? Quest(record: record) {
-                await backgroundCache.batchUpsertQuests([quest])
+                await backgroundCache.batchUpsertQuests([quest], familyRecordName: quest.family.recordID.recordName)
             }
             return true
         case QuestTemplate.recordType:
             if let template = try? QuestTemplate(record: record) {
-                await backgroundCache.batchUpsertQuestTemplates([template])
+                await backgroundCache.batchUpsertQuestTemplates([template], familyRecordName: template.family.recordID.recordName)
             }
             return true
         case QuestCompletion.recordType:
             if let completion = try? QuestCompletion(record: record) {
-                await backgroundCache.batchUpsertQuestCompletions([completion])
+                await backgroundCache.batchUpsertQuestCompletions([completion], familyRecordName: completion.family.recordID.recordName)
             }
             return true
         default:
@@ -282,23 +355,23 @@ final class SyncEngine {
         switch record.recordType {
         case LedgerEntry.recordType:
             if let entry = try? LedgerEntry(record: record) {
-                await backgroundCache.batchUpsertLedgerEntries([entry])
+                await backgroundCache.batchUpsertLedgerEntries([entry], familyRecordName: entry.family.recordID.recordName)
             }
         case AllowancePeriod.recordType:
             if let period = try? AllowancePeriod(record: record) {
-                await backgroundCache.batchUpsertAllowancePeriods([period])
+                await backgroundCache.batchUpsertAllowancePeriods([period], familyRecordName: period.family.recordID.recordName)
             }
         case Achievement.recordType:
             if let achievement = try? Achievement(record: record) {
-                await backgroundCache.batchUpsertAchievements([achievement])
+                await backgroundCache.batchUpsertAchievements([achievement], familyRecordName: achievement.family.recordID.recordName)
             }
         case ProfileAchievement.recordType:
             if let pa = try? ProfileAchievement(record: record) {
-                await backgroundCache.batchUpsertProfileAchievements([pa])
+                await backgroundCache.batchUpsertProfileAchievements([pa], familyRecordName: pa.family.recordID.recordName)
             }
         case NotificationPreference.recordType:
             if let pref = try? NotificationPreference(record: record) {
-                await backgroundCache.batchUpsertNotificationPreferences([pref])
+                await backgroundCache.batchUpsertNotificationPreferences([pref], familyRecordName: pref.family.recordID.recordName)
             }
         default:
             break
@@ -312,10 +385,52 @@ final class SyncEngine {
                 guard let self else { return }
                 switch event {
                 case .recordChanged:
-                    await incrementalSync()
-                case .zoneReset, .shareAccepted:
-                    UserDefaults.standard.removeObject(forKey: "ck_server_change_token")
-                    await syncAll()
+                    // Push notifications are zone-scoped to a single family.
+                    // Resolve the active family's record name from the
+                    // resolved zone ID — by invariant (see FamilyService.createFamily
+                    // & AppState family hydration) the family's CKRecord recordName
+                    // is identical to its zone's zoneName. Passing it through to
+                    // incrementalSync scopes the no-token fallback's syncAll to this
+                    // family, preventing a cross-family full sync in multi-family
+                    // environments. `nil` is used when resolvedZoneID falls back to
+                    // the default zone (no family context available). This mirrors
+                    // how the `.zoneReset` handler resolves family context from
+                    // `cloudKit.resolvedZoneID`.
+                    let familyRecordName: String? = cloudKit.activeFamilyZoneID?.zoneName
+                    await incrementalSync(familyRecordName: familyRecordName)
+                case let .shareAccepted(shareID):
+                    // Use the zoneID from the accepted share directly —
+                    // cloudKit.activeFamilyZoneID may not yet reflect the
+                    // just-accepted share, causing a stale zone lookup.
+                    let acceptedZoneID = shareID.zoneID
+                    UserDefaults.standard.removeObject(forKey: tokenKey(for: acceptedZoneID, db: cloudKit.sharedDatabase))
+                    cacheService.clearAll()
+                    cloudKit.activeFamilyZoneID = acceptedZoneID
+                    cloudKit.activeIsOwner = false
+                    // Scope the post-acceptance full sync to the just-accepted
+                    // family zone. `acceptedZoneID` is the ground-truth zone
+                    // identity at share-acceptance time — by invariant (see
+                    // FamilyService.createFamily & AppState family hydration)
+                    // the family's CKRecord recordName == its zone's zoneName.
+                    // Prefer resolved `acceptedZoneID.zoneName` over
+                    // `cloudKit.activeFamilyZoneID?.zoneName` even though we
+                    // just assigned the latter one statement above: pinning to
+                    // the local `acceptedZoneID` guarantees the synced scope
+                    // matches the accepted share's zone exactly, with no
+                    // dependency on the assignment order above. Mirrors the
+                    // family-scoping already applied by the `.recordChanged`
+                    // (line ~363) and `.zoneReset` (line ~392) handlers.
+                    await syncAll(familyRecordName: acceptedZoneID.zoneName)
+                case .zoneReset:
+                    UserDefaults.standard.removeObject(forKey: tokenKey(for: cloudKit.resolvedZoneID, db: cloudKit.activeFamilyDatabase))
+                    cacheService.clearAll()
+                    if let familyRecordName = cloudKit.activeFamilyZoneID?.zoneName {
+                        await syncAll(familyRecordName: familyRecordName)
+                    } else {
+                        // No active family zone available — fall back to
+                        // unscoped bootstrap path.
+                        await syncAllFamiliesUnscoped()
+                    }
                 }
             }
         }

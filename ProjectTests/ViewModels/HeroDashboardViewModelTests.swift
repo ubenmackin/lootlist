@@ -64,8 +64,6 @@ struct HeroDashboardViewModelTests {
     private func makeHarness() -> TestHarness {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let appState = AppState()
-        // Mirror `FamilyDashboardViewModelTests.makeSUT`'s `appState.family`
-        // assignment so `HeroDashboardViewModel.rebuildLists`'s
         // `appState.family != nil` guard (lines 51-53) doesn't early-return.
         // Route the family's `CKRecord.ID` through the same `zoneID`/`"fam1"`
         // recordName the harness already uses for the profile's `family`
@@ -174,7 +172,6 @@ struct HeroDashboardViewModelTests {
         )
         // A second quest with an APPROVED completion must be counted — proves
         // the harness exercises the real approved-status filter path (the
-        // pending-exclusion assertions below passed false-positively before
         // the harness `appState.family` fix, because `rebuildLists` early
         // returned at its `appState.family != nil` guard). Seeding an approved
         // completion that IS counted rules out any future early-return

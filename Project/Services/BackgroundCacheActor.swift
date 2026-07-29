@@ -2,6 +2,8 @@
 //  BackgroundCacheActor.swift
 //  LootList
 //
+//  Created by Ben Mackin on 7/21/26.
+//
 
 import CloudKit
 import Foundation
@@ -12,9 +14,26 @@ import SwiftData
 actor BackgroundCacheActor {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
 
-    func batchUpsertQuests(_ quests: [Quest]) {
+    /// Custom initializer that disables SwiftData autosave on the backing
+    /// `modelContext`. Uses a parameter label (`container:`) distinct from the
+    /// `@ModelActor`-synthesized `init(modelContainer:)` to avoid an ambiguous
+    /// overload diagnostic. This is the single source of truth for autosave
+    /// disposition — method bodies no longer toggle `autosaveEnabled`.
+    init(container: ModelContainer) {
+        modelContainer = container
+        let modelContext = ModelContext(container)
         modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+        modelExecutor = DefaultSerialModelExecutor(modelContext: modelContext)
+    }
+
+    func batchUpsertQuests(_ quests: [Quest], familyRecordName: String? = nil) {
+        let existing: [QuestCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<QuestCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for quest in quests {
             let name = quest.id.recordName
@@ -43,9 +62,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertProfiles(_ profiles: [Profile]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<ProfileCache>())) ?? []
+    func batchUpsertProfiles(_ profiles: [Profile], familyRecordName: String? = nil) {
+        let existing: [ProfileCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<ProfileCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<ProfileCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for profile in profiles {
             let name = profile.id.recordName
@@ -71,9 +95,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertQuestCompletions(_ completions: [QuestCompletion]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<QuestCompletionCache>())) ?? []
+    func batchUpsertQuestCompletions(_ completions: [QuestCompletion], familyRecordName: String? = nil) {
+        let existing: [QuestCompletionCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<QuestCompletionCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<QuestCompletionCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for completion in completions {
             let name = completion.id.recordName
@@ -99,9 +128,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertQuestTemplates(_ templates: [QuestTemplate]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+    func batchUpsertQuestTemplates(_ templates: [QuestTemplate], familyRecordName: String? = nil) {
+        let existing: [QuestTemplateCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for template in templates {
             let name = template.id.recordName
@@ -128,9 +162,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertLedgerEntries(_ entries: [LedgerEntry]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<LedgerEntryCache>())) ?? []
+    func batchUpsertLedgerEntries(_ entries: [LedgerEntry], familyRecordName: String? = nil) {
+        let existing: [LedgerEntryCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<LedgerEntryCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<LedgerEntryCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for entry in entries {
             let name = entry.id.recordName
@@ -151,9 +190,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertAllowancePeriods(_ periods: [AllowancePeriod]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<AllowancePeriodCache>())) ?? []
+    func batchUpsertAllowancePeriods(_ periods: [AllowancePeriod], familyRecordName: String? = nil) {
+        let existing: [AllowancePeriodCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<AllowancePeriodCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<AllowancePeriodCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for period in periods {
             let name = period.id.recordName
@@ -177,9 +221,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertAchievements(_ achievements: [Achievement]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<AchievementCache>())) ?? []
+    func batchUpsertAchievements(_ achievements: [Achievement], familyRecordName: String? = nil) {
+        let existing: [AchievementCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<AchievementCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<AchievementCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for achievement in achievements {
             let name = achievement.id.recordName
@@ -201,9 +250,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertProfileAchievements(_ pas: [ProfileAchievement]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
+    func batchUpsertProfileAchievements(_ pas: [ProfileAchievement], familyRecordName: String? = nil) {
+        let existing: [ProfileAchievementCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<ProfileAchievementCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for pa in pas {
             let name = pa.id.recordName
@@ -223,7 +277,6 @@ actor BackgroundCacheActor {
     }
 
     func batchUpsertFamilies(_ families: [Family]) {
-        modelContext.autosaveEnabled = false
         let existing = (try? modelContext.fetch(FetchDescriptor<FamilyCache>())) ?? []
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for family in families {
@@ -243,9 +296,14 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func batchUpsertNotificationPreferences(_ prefs: [NotificationPreference]) {
-        modelContext.autosaveEnabled = false
-        let existing = (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
+    func batchUpsertNotificationPreferences(_ prefs: [NotificationPreference], familyRecordName: String? = nil) {
+        let existing: [NotificationPreferenceCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for pref in prefs {
             let name = pref.id.recordName
@@ -265,72 +323,134 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    func purgeMissingQuests(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+    func purgeMissingQuests(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [QuestCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<QuestCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingProfiles(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<ProfileCache>())) ?? []
+    func purgeMissingProfiles(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [ProfileCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<ProfileCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<ProfileCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingQuestCompletions(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<QuestCompletionCache>())) ?? []
+    func purgeMissingQuestCompletions(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [QuestCompletionCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<QuestCompletionCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<QuestCompletionCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingQuestTemplates(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+    func purgeMissingQuestTemplates(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [QuestTemplateCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingLedgerEntries(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<LedgerEntryCache>())) ?? []
+    func purgeMissingLedgerEntries(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [LedgerEntryCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<LedgerEntryCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<LedgerEntryCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingAllowancePeriods(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<AllowancePeriodCache>())) ?? []
+    func purgeMissingAllowancePeriods(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [AllowancePeriodCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<AllowancePeriodCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<AllowancePeriodCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingAchievements(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<AchievementCache>())) ?? []
+    func purgeMissingAchievements(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [AchievementCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<AchievementCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<AchievementCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingProfileAchievements(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
+    func purgeMissingProfileAchievements(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [ProfileAchievementCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<ProfileAchievementCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
     }
 
-    func purgeMissingNotificationPreferences(validRecordNames: Set<String>) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
+    func purgeMissingFamilies(validRecordNames: Set<String>) {
+        let existing = (try? modelContext.fetch(FetchDescriptor<FamilyCache>())) ?? []
+        for cached in existing where !validRecordNames.contains(cached.recordName) {
+            modelContext.delete(cached)
+        }
+        saveContext()
+    }
+
+    func purgeMissingNotificationPreferences(validRecordNames: Set<String>, familyRecordName: String? = nil) {
+        let existing: [NotificationPreferenceCache] = if let family = familyRecordName {
+            (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? modelContext.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
@@ -408,7 +528,6 @@ actor BackgroundCacheActor {
             }
             return
         case .profile, .quest, .questCompletion, .questTemplate, .ledgerEntry:
-            // Core record types — handled by `deleteCoreRecord`. Nothing to do.
             return
         }
     }

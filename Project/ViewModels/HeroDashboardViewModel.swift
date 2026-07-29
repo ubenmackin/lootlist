@@ -130,11 +130,7 @@ final class HeroDashboardViewModel {
         missedQuests = missed
         availableTemplatesCount = templatesByID.values.filter(\.isActive).count
 
-        // derive `earnedThisWeek` and `streak` synchronously from the
         // passed `@Query *Cache` arrays (mirrors
-        // `TreasuryViewModel.rebuildLists` + `ProfileViewModel.recomputeCharacterFromCache`).
-        // No async `QuestService` fetch — background CloudKit freshness is
-        // driven by `SyncEngine` silent pushes that re-fire `.onChange`.
         let heroLogs = logs.filter { $0.completerRecordName == profileName }
         streak = Self.computeStreak(from: heroLogs)
         earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests)

@@ -15,8 +15,37 @@ struct TrophyRoomView: View {
     @Environment(XPService.self) private var xpService
     @Environment(AppState.self) private var appState
 
-    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
-    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedAchievements: [AchievementCache]
+    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
+    init(familyRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let profileAchievementFilter: Predicate<ProfileAchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedAchievements = Query(
+            filter: achievementFilter,
+            sort: \AchievementCache.name
+        )
+        _cachedProfileAchievements = Query(
+            filter: profileAchievementFilter,
+            sort: \ProfileAchievementCache.earnedDate,
+            order: .reverse
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -38,7 +67,6 @@ struct TrophyRoomView: View {
             }
             .refreshable {
                 // re-derive from the current cache snapshot. Background
-                // CloudKit freshness is driven by `SyncEngine`.
                 rebuild()
             }
         }
@@ -50,7 +78,6 @@ struct TrophyRoomView: View {
                     appState: appState
                 )
             }
-            // synchronous initial render from the current `@Query` cache
             // snapshot. Subsequent mutations re-fire `.onChange`.
             rebuild()
             // One-shot background freshness touch: warm the achievement caches
@@ -68,13 +95,16 @@ struct TrophyRoomView: View {
     }
 
     private func rebuild() {
-        guard let familyName = appState.family?.id.recordName else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        let achievements = cachedAchievements.filter { $0.familyRecordName == familyName }
+        // The `@Query` declarations above already filter by
+        // `familyRecordName` at the SwiftData/SQLite layer. The per-hero
+        // filter on `cachedProfileAchievements` stays in Swift because the
+        // viewed hero varies per viewer and can't be pushed into a static
+        // `Query` predicate.
         let earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
 
-        viewModel?.rebuildLists(earned: earned, allAchievements: achievements)
+        viewModel?.rebuildLists(earned: earned, allAchievements: cachedAchievements)
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {

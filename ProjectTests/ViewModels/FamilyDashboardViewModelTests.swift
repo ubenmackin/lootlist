@@ -43,7 +43,8 @@ struct FamilyDashboardViewModelTests {
     ) -> SUT {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
-        let questService = QuestService(cloudKit: cloudKit)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let achievementService = AchievementService(cloudKit: cloudKit)
         let appState = AppState()
@@ -112,8 +113,6 @@ struct FamilyDashboardViewModelTests {
         sut.coordinator.notifyZoneReset()
 
         await Task.yield()
-        // zoneReset calls refresh() (share URL path), NOT handleRecordChangedSync.
-        // The mock fetcher is only invoked via handleRecordChangedSync; refresh()
         // does not touch it, so fetchCallCount stays at 0.
         #expect(sut.fetcher.fetchCallCount == 0)
 
