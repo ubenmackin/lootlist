@@ -2,10 +2,7 @@
 //  BackgroundCacheActorTests.swift
 //  LootList
 //
-//  Unit tests for the typed `CachedRecordType` delete path in
-//  `BackgroundCacheActor`. Guards against the Swift class-name /
-//  CloudKit `CKRecordType` divergence bug (notably `QuestCompletion`
-//  whose `recordType == "QuestLog"`).
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import CloudKit
@@ -136,7 +133,7 @@ struct BackgroundCacheActorTests {
 
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 1)
 
-        let actor = BackgroundCacheActor(modelContainer: container)
+        let actor = BackgroundCacheActor(container: container)
         await actor.deleteRecord(recordName: recordName, type: .questCompletion)
 
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 0)
@@ -159,7 +156,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(ProfileAchievementCache.self, in: container) == 1)
         #expect(try remainingCount(NotificationPreferenceCache.self, in: container) == 1)
 
-        let actor = BackgroundCacheActor(modelContainer: container)
+        let actor = BackgroundCacheActor(container: container)
 
         await actor.deleteRecord(recordName: "seed_profile", type: .profile)
         await actor.deleteRecord(recordName: "seed_family", type: .family)
@@ -195,9 +192,469 @@ struct BackgroundCacheActorTests {
         // Deleting a nonexistent record name with a valid type must not throw
         // and must leave the store untouched.
         let container = try makeContainer()
-        let actor = BackgroundCacheActor(modelContainer: container)
+        let actor = BackgroundCacheActor(container: container)
         await actor.deleteRecord(recordName: "does_not_exist", type: .quest)
 
         #expect(try remainingCount(QuestCache.self, in: container) == 0)
+    }
+
+    // MARK: - Batch Upsert & Purge Tests
+
+    private func ref(_ name: String) -> CKRecord.Reference {
+        CKRecord.Reference(recordID: CKRecord.ID(recordName: name), action: .none)
+    }
+
+    private func fetchAll<T: PersistentModel>(_: T.Type, in container: ModelContainer) throws -> [T] {
+        try ModelContext(container).fetch(FetchDescriptor<T>())
+    }
+
+    // MARK: Families
+
+    @Test
+    func `batch upsert families inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let family1 = Family(
+            name: "Dragons",
+            createdBy: CKRecord.ID(recordName: "user1"),
+            id: CKRecord.ID(recordName: "fam1")
+        )
+        let family2 = Family(
+            name: "Unicorns",
+            createdBy: CKRecord.ID(recordName: "user2"),
+            id: CKRecord.ID(recordName: "fam2")
+        )
+
+        await actor.batchUpsertFamilies([family1, family2])
+
+        #expect(try remainingCount(FamilyCache.self, in: container) == 2)
+    }
+
+    @Test
+    func `batch upsert families updates existing records`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "existing_")
+        #expect(try remainingCount(FamilyCache.self, in: container) == 1)
+
+        let actor = BackgroundCacheActor(container: container)
+        let updated = Family(
+            name: "Updated Name",
+            createdBy: CKRecord.ID(recordName: "user1"),
+            id: CKRecord.ID(recordName: "existing_family")
+        )
+
+        await actor.batchUpsertFamilies([updated])
+
+        #expect(try remainingCount(FamilyCache.self, in: container) == 1)
+        let families = try fetchAll(FamilyCache.self, in: container)
+        #expect(families.first?.name == "Updated Name")
+    }
+
+    @Test
+    func `purge missing families removes records not in set`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "a_")
+        try seedAllCaches(container, prefix: "b_")
+        #expect(try remainingCount(FamilyCache.self, in: container) == 2)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.purgeMissingFamilies(validRecordNames: ["a_family"])
+
+        #expect(try remainingCount(FamilyCache.self, in: container) == 1)
+        let families = try fetchAll(FamilyCache.self, in: container)
+        #expect(families.first?.recordName == "a_family")
+    }
+
+    @Test
+    func `purge missing families keeps records in set`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "x_")
+        try seedAllCaches(container, prefix: "y_")
+        #expect(try remainingCount(FamilyCache.self, in: container) == 2)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.purgeMissingFamilies(validRecordNames: ["x_family", "y_family"])
+
+        #expect(try remainingCount(FamilyCache.self, in: container) == 2)
+    }
+
+    @Test
+    func `batch upsert families empty array clears nothing`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "seed_")
+        #expect(try remainingCount(FamilyCache.self, in: container) == 1)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.batchUpsertFamilies([])
+
+        #expect(try remainingCount(FamilyCache.self, in: container) == 1)
+    }
+
+    @Test
+    func `purge missing families empty set removes all`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "seed_")
+        #expect(try remainingCount(FamilyCache.self, in: container) == 1)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.purgeMissingFamilies(validRecordNames: [])
+
+        #expect(try remainingCount(FamilyCache.self, in: container) == 0)
+    }
+
+    // MARK: Quests
+
+    @Test
+    func `batch upsert quests inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let quest1 = Quest(
+            template: ref("tpl"),
+            assignee: ref("hero"),
+            goldReward: 5.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            approvalMode: .autoApprove,
+            weekOf: Date(),
+            createdBy: ref("user1"),
+            family: ref("fam"),
+            name: "Clean Room",
+            id: CKRecord.ID(recordName: "quest1")
+        )
+        let quest2 = Quest(
+            template: ref("tpl"),
+            assignee: ref("hero"),
+            goldReward: 10.0,
+            xpReward: 100,
+            scheduleType: .weeklyFlexible,
+            approvalMode: .autoApprove,
+            weekOf: Date(),
+            createdBy: ref("user1"),
+            family: ref("fam"),
+            name: "Do Dishes",
+            id: CKRecord.ID(recordName: "quest2")
+        )
+
+        await actor.batchUpsertQuests([quest1, quest2])
+
+        #expect(try remainingCount(QuestCache.self, in: container) == 2)
+    }
+
+    @Test
+    func `batch upsert quests updates existing records`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "existing_")
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+
+        let actor = BackgroundCacheActor(container: container)
+        let updated = Quest(
+            template: ref("tpl"),
+            assignee: ref("hero"),
+            goldReward: 99.0,
+            xpReward: 999,
+            scheduleType: .weeklyFlexible,
+            approvalMode: .autoApprove,
+            weekOf: Date(),
+            createdBy: ref("user1"),
+            family: ref("fam"),
+            name: "Updated Quest",
+            id: CKRecord.ID(recordName: "existing_quest")
+        )
+
+        await actor.batchUpsertQuests([updated])
+
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+        let quests = try fetchAll(QuestCache.self, in: container)
+        #expect(quests.first?.questName == "Updated Quest")
+        #expect(quests.first?.goldReward == 99.0)
+    }
+
+    @Test
+    func `purge missing quests removes records not in set`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "a_")
+        try seedAllCaches(container, prefix: "b_")
+        #expect(try remainingCount(QuestCache.self, in: container) == 2)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.purgeMissingQuests(validRecordNames: ["a_quest"])
+
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+    }
+
+    // MARK: Quest Templates
+
+    @Test
+    func `batch upsert quest templates inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let template1 = QuestTemplate(
+            name: "Clean Room",
+            description: "Tidy up",
+            defaultGold: 5.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            approvalMode: .autoApprove,
+            createdBy: ref("user1"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "tpl1")
+        )
+        let template2 = QuestTemplate(
+            name: "Walk Dog",
+            description: "Take the dog for a walk",
+            defaultGold: 10.0,
+            xpReward: 100,
+            scheduleType: .weeklyFlexible,
+            approvalMode: .parentVerify,
+            createdBy: ref("user1"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "tpl2")
+        )
+
+        await actor.batchUpsertQuestTemplates([template1, template2])
+
+        #expect(try remainingCount(QuestTemplateCache.self, in: container) == 2)
+    }
+
+    @Test
+    func `purge missing quest templates removes records not in set`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "a_")
+        try seedAllCaches(container, prefix: "b_")
+        #expect(try remainingCount(QuestTemplateCache.self, in: container) == 2)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.purgeMissingQuestTemplates(validRecordNames: ["a_questTemplate"])
+
+        #expect(try remainingCount(QuestTemplateCache.self, in: container) == 1)
+    }
+
+    // MARK: Quest Completions
+
+    @Test
+    func `batch upsert quest completions inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let now = Date()
+        let comp1 = QuestCompletion(
+            quest: ref("quest"),
+            completedBy: ref("hero"),
+            approvalMode: .parentVerify,
+            completedDate: now,
+            weekOf: now,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "comp1")
+        )
+        let comp2 = QuestCompletion(
+            quest: ref("quest"),
+            completedBy: ref("hero"),
+            approvalMode: .autoApprove,
+            completedDate: now,
+            weekOf: now,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "comp2")
+        )
+
+        await actor.batchUpsertQuestCompletions([comp1, comp2])
+
+        #expect(try remainingCount(QuestCompletionCache.self, in: container) == 2)
+    }
+
+    @Test
+    func `purge missing quest completions removes records not in set`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "a_")
+        try seedAllCaches(container, prefix: "b_")
+        #expect(try remainingCount(QuestCompletionCache.self, in: container) == 2)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.purgeMissingQuestCompletions(validRecordNames: ["a_questCompletion"])
+
+        #expect(try remainingCount(QuestCompletionCache.self, in: container) == 1)
+    }
+
+    // MARK: Profiles
+
+    @Test
+    func `batch upsert profiles inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let profile1 = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "icloud1"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "profile1")
+        )
+        let profile2 = Profile(
+            displayName: "Parent",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "icloud2"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "profile2")
+        )
+
+        await actor.batchUpsertProfiles([profile1, profile2])
+
+        #expect(try remainingCount(ProfileCache.self, in: container) == 2)
+    }
+
+    @Test
+    func `purge missing profiles removes records not in set`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "a_")
+        try seedAllCaches(container, prefix: "b_")
+        #expect(try remainingCount(ProfileCache.self, in: container) == 2)
+
+        let actor = BackgroundCacheActor(container: container)
+        await actor.purgeMissingProfiles(validRecordNames: ["a_profile"])
+
+        #expect(try remainingCount(ProfileCache.self, in: container) == 1)
+    }
+
+    // MARK: Ledger Entries
+
+    @Test
+    func `batch upsert ledger entries inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let entry1 = LedgerEntry(
+            profile: ref("hero"),
+            amount: 5.0,
+            description: "Bonus",
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "entry1")
+        )
+        let entry2 = LedgerEntry(
+            profile: ref("hero"),
+            amount: 10.0,
+            description: "Reward",
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "entry2")
+        )
+
+        await actor.batchUpsertLedgerEntries([entry1, entry2])
+
+        #expect(try remainingCount(LedgerEntryCache.self, in: container) == 2)
+    }
+
+    // MARK: Allowance Periods
+
+    @Test
+    func `batch upsert allowance periods inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let period1 = AllowancePeriod(
+            weekOf: Date(),
+            profile: ref("hero"),
+            questsTotal: 5,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "period1")
+        )
+        let period2 = AllowancePeriod(
+            weekOf: Date(),
+            profile: ref("hero"),
+            questsTotal: 10,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "period2")
+        )
+
+        await actor.batchUpsertAllowancePeriods([period1, period2])
+
+        #expect(try remainingCount(AllowancePeriodCache.self, in: container) == 2)
+    }
+
+    // MARK: Achievements
+
+    @Test
+    func `batch upsert achievements inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let ach1 = Achievement(
+            name: "First Quest",
+            description: "Complete your first quest",
+            iconSystemName: "star.fill",
+            category: .quest,
+            requirementType: .firstQuest,
+            requirementValue: 1,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "ach1")
+        )
+        let ach2 = Achievement(
+            name: "Quest Master",
+            description: "Complete 10 quests",
+            iconSystemName: "star.circle.fill",
+            category: .quest,
+            requirementType: .questCount10,
+            requirementValue: 10,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "ach2")
+        )
+
+        await actor.batchUpsertAchievements([ach1, ach2])
+
+        #expect(try remainingCount(AchievementCache.self, in: container) == 2)
+    }
+
+    // MARK: Profile Achievements
+
+    @Test
+    func `batch upsert profile achievements inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let pa1 = ProfileAchievement(
+            achievement: ref("ach"),
+            profile: ref("hero"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "pa1")
+        )
+        let pa2 = ProfileAchievement(
+            achievement: ref("ach"),
+            profile: ref("hero"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "pa2")
+        )
+
+        await actor.batchUpsertProfileAchievements([pa1, pa2])
+
+        #expect(try remainingCount(ProfileAchievementCache.self, in: container) == 2)
+    }
+
+    // MARK: Notification Preferences
+
+    @Test
+    func `batch upsert notification preferences inserts new records`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let pref1 = NotificationPreference(
+            profile: ref("hero"),
+            eventType: .questCompleted,
+            enabled: true,
+            pushEnabled: true,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "pref1")
+        )
+        let pref2 = NotificationPreference(
+            profile: ref("hero"),
+            eventType: .levelUp,
+            enabled: false,
+            pushEnabled: false,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "pref2")
+        )
+
+        await actor.batchUpsertNotificationPreferences([pref1, pref2])
+
+        #expect(try remainingCount(NotificationPreferenceCache.self, in: container) == 2)
     }
 }

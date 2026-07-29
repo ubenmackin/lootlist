@@ -137,4 +137,13 @@ final class AppSyncCoordinator {
             continuation.yield(.zoneReset)
         }
     }
+
+    /// Test-only helper that injects a `.shareAccepted` event directly
+    /// through the coordinator stream without requiring a real
+    /// `CKShare.Metadata` object.  Mirrors `notifyZoneReset()`.
+    func notifyShareAccepted(shareID: CKRecord.ID) {
+        for (_, continuation) in continuations {
+            continuation.yield(.shareAccepted(shareID: shareID))
+        }
+    }
 }

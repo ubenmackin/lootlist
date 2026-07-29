@@ -19,13 +19,56 @@ struct TreasuryView: View {
 
     @State private var isShowingLogSpending: Bool = false
 
-    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
-    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
-    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
-    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
 
-    init(spending: any SpendingService) {
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
+    init(spending: any SpendingService, familyRecordName: String? = nil) {
         self.spending = spending
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let ledgerFilter: Predicate<LedgerEntryCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name && $0.isActive == true }
+        }
+        let allowanceFilter: Predicate<AllowancePeriodCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: \QuestCompletionCache.completedDate,
+            order: .reverse
+        )
+        _cachedLedgers = Query(
+            filter: ledgerFilter,
+            sort: \LedgerEntryCache.date,
+            order: .reverse
+        )
+        _cachedQuests = Query(
+            filter: questFilter,
+            sort: \QuestCache.weekOf,
+            order: .reverse
+        )
+        _cachedAllowancePeriods = Query(
+            filter: allowanceFilter,
+            sort: \AllowancePeriodCache.weekOf,
+            order: .reverse
+        )
     }
 
     var body: some View {
@@ -67,7 +110,6 @@ struct TreasuryView: View {
                         appState: appState
                     )
                 }
-                // synchronous initial render from the current `@Query`
                 // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuild()
             }
@@ -77,22 +119,23 @@ struct TreasuryView: View {
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
             .refreshable {
                 // Pull-to-refresh re-derives from the current cache snapshot.
-                // Background CloudKit freshness is driven by `SyncEngine`.
                 rebuild()
             }
         }
     }
 
     private func rebuild() {
-        guard let familyName = appState.family?.id.recordName else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        let logs = cachedCompletions.filter { $0.familyRecordName == familyName && $0.completerRecordName == profileName }
-        let ledgers = cachedLedgers.filter { $0.familyRecordName == familyName && $0.profileRecordName == profileName }
-        let quests = cachedQuests.filter { $0.familyRecordName == familyName && $0.assigneeRecordName == profileName }
-        let allowancePeriods = cachedAllowancePeriods.filter {
-            $0.familyRecordName == familyName && $0.profileRecordName == profileName
-        }
+        // The `@Query` declarations above already filter by
+        // `familyRecordName` (and the active flag where appropriate) at the
+        // SwiftData/SQLite layer. The per-hero filters below stay in Swift
+        // because the viewed hero varies per viewer and can't be pushed into
+        // a static `Query` predicate.
+        let logs = cachedCompletions.filter { $0.completerRecordName == profileName }
+        let ledgers = cachedLedgers.filter { $0.profileRecordName == profileName }
+        let quests = cachedQuests.filter { $0.assigneeRecordName == profileName }
+        let allowancePeriods = cachedAllowancePeriods.filter { $0.profileRecordName == profileName }
 
         viewModel?.rebuildLists(
             logs: logs,

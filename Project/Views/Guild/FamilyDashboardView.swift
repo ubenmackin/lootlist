@@ -21,13 +21,81 @@ struct FamilyDashboardView: View {
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showShareSheet: Bool = false
 
-    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
-    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
-    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
-    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
-    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
-    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
-    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedAchievements: [AchievementCache]
+    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
+    init(familyRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name && $0.isActive == true }
+        }
+        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let ledgerFilter: Predicate<LedgerEntryCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let allowanceFilter: Predicate<AllowancePeriodCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let profileAchievementFilter: Predicate<ProfileAchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedProfiles = Query(
+            filter: profileFilter,
+            sort: \ProfileCache.displayName
+        )
+        _cachedQuests = Query(
+            filter: questFilter,
+            sort: \QuestCache.weekOf,
+            order: .reverse
+        )
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: \QuestCompletionCache.completedDate,
+            order: .reverse
+        )
+        _cachedLedgers = Query(
+            filter: ledgerFilter,
+            sort: \LedgerEntryCache.date,
+            order: .reverse
+        )
+        _cachedAllowancePeriods = Query(
+            filter: allowanceFilter,
+            sort: \AllowancePeriodCache.weekOf,
+            order: .reverse
+        )
+        _cachedAchievements = Query(
+            filter: achievementFilter,
+            sort: \AchievementCache.name
+        )
+        _cachedProfileAchievements = Query(
+            filter: profileAchievementFilter,
+            sort: \ProfileAchievementCache.earnedDate,
+            order: .reverse
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -56,10 +124,8 @@ struct FamilyDashboardView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                // synchronous initial render from the current `@Query`
                 // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuild()
-                // Background freshness touch (share URL + zone setup) — does
                 // NOT call `rebuildLists`; the SwiftData cache + `.onChange`
                 // remain the single source of truth for lists.
                 Task { await viewModel?.refresh() }
@@ -86,24 +152,17 @@ struct FamilyDashboardView: View {
     }
 
     private func rebuild() {
-        guard let familyName = appState.family?.id.recordName else { return }
-
-        let filteredProfiles = cachedProfiles.filter { $0.familyRecordName == familyName }
-        let filteredQuests = cachedQuests.filter { $0.familyRecordName == familyName }
-        let filteredLogs = cachedCompletions.filter { $0.familyRecordName == familyName }
-        let filteredLedgers = cachedLedgers.filter { $0.familyRecordName == familyName }
-        let filteredAllowancePeriods = cachedAllowancePeriods.filter { $0.familyRecordName == familyName }
-        let filteredProfileAchievements = cachedProfileAchievements.filter { $0.familyRecordName == familyName }
-        let filteredAchievements = cachedAchievements.filter { $0.familyRecordName == familyName }
-
+        // The `@Query` declarations above already filter by
+        // `familyRecordName` at the SwiftData/SQLite layer, so we no longer
+        // post-filter the cached rows in Swift. Pass them straight through.
         viewModel?.rebuildLists(
-            profiles: filteredProfiles,
-            quests: filteredQuests,
-            logs: filteredLogs,
-            ledgers: filteredLedgers,
-            allowancePeriods: filteredAllowancePeriods,
-            profileAchievements: filteredProfileAchievements,
-            achievements: filteredAchievements
+            profiles: cachedProfiles,
+            quests: cachedQuests,
+            logs: cachedCompletions,
+            ledgers: cachedLedgers,
+            allowancePeriods: cachedAllowancePeriods,
+            profileAchievements: cachedProfileAchievements,
+            achievements: cachedAchievements
         )
     }
 
@@ -316,7 +375,7 @@ struct FamilyDashboardView: View {
                 VStack(spacing: 12) {
                     ForEach(vm.weekSummary?.heroSummaries ?? []) { summary in
                         NavigationLink {
-                            QuestLogView(initialHero: summary.profile)
+                            QuestLogView(initialHero: summary.profile, familyRecordName: familyRecordName)
                                 .environment(questService)
                                 .environment(familyService)
                                 .environment(appState)

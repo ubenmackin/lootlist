@@ -16,14 +16,19 @@ struct PayoutHistoryView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
 
-    @Query(sort: \AllowancePeriodCache.weekOf, order: .reverse) private var cachedAllowancePeriods: [AllowancePeriodCache]
-    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
-    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
-    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedAchievements: [AchievementCache]
+    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var filter: PayoutFilter = .all
     @State private var selectedPeriod: AllowancePeriodCache?
+
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
 
     enum PayoutFilter: String, CaseIterable, Identifiable {
         case all = "All"
@@ -31,6 +36,45 @@ struct PayoutHistoryView: View {
         var id: String {
             rawValue
         }
+    }
+
+    init(familyRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let allowanceFilter: Predicate<AllowancePeriodCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let profileAchievementFilter: Predicate<ProfileAchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedAllowancePeriods = Query(
+            filter: allowanceFilter,
+            sort: \AllowancePeriodCache.weekOf,
+            order: .reverse
+        )
+        _cachedProfiles = Query(
+            filter: profileFilter,
+            sort: \ProfileCache.displayName
+        )
+        _cachedAchievements = Query(
+            filter: achievementFilter,
+            sort: \AchievementCache.name
+        )
+        _cachedProfileAchievements = Query(
+            filter: profileAchievementFilter,
+            sort: \ProfileAchievementCache.earnedDate,
+            order: .reverse
+        )
     }
 
     var body: some View {
@@ -53,7 +97,6 @@ struct PayoutHistoryView: View {
                     )
                 }
 
-                // synchronous render from the current `@Query` cache
                 // snapshot. `pastPayouts` is derived inside `rebuildLists`
                 // from `cachedAllowancePeriods` (replaces the deleted
                 // `loadPastPayouts()` cache-fetch path). `heroes` is populated
@@ -75,15 +118,17 @@ struct PayoutHistoryView: View {
     }
 
     private func rebuildFromCache() {
-        guard let familyName = appState.family?.id.recordName else { return }
+        // The `@Query` declarations above already filter by
+        // `familyRecordName` at the SwiftData/SQLite layer, so we no longer
+        // post-filter the cached rows in Swift. Pass them straight through.
         viewModel?.rebuildLists(
-            profiles: cachedProfiles.filter { $0.familyRecordName == familyName },
+            profiles: cachedProfiles,
             quests: [],
             logs: [],
             ledgers: [],
-            allowancePeriods: cachedAllowancePeriods.filter { $0.familyRecordName == familyName },
-            profileAchievements: cachedProfileAchievements.filter { $0.familyRecordName == familyName },
-            achievements: cachedAchievements.filter { $0.familyRecordName == familyName }
+            allowancePeriods: cachedAllowancePeriods,
+            profileAchievements: cachedProfileAchievements,
+            achievements: cachedAchievements
         )
     }
 

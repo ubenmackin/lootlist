@@ -2,7 +2,7 @@
 //  ToastView.swift
 //  LootList
 //
-//  Created for Universal Toast Banner System.
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import SwiftUI
@@ -69,10 +69,6 @@ struct ToastView: View {
             if let dismissAction = toast.dismissAction {
                 dismissAction()
             }
-            // Tapping the body dismisses once the action has been invoked. If no
-            // action is provided the body tap is effectively a no-op (only the
-            // X button closes the toast) per the spec, but dismissing after the
-            // action keeps the surface uncluttered.
             if toast.dismissAction != nil {
                 toastManager.dismiss(id: toast.id)
             }

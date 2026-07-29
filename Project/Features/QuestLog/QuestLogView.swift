@@ -15,16 +15,50 @@ struct QuestLogView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
 
-    @Query(sort: \ProfileCache.displayName) private var cachedProfiles: [ProfileCache]
-    @Query(sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
-    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
 
     @State private var viewModel: QuestLogViewModel?
 
     let initialHero: ProfileCache?
 
-    init(initialHero: ProfileCache? = nil) {
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
+    init(initialHero: ProfileCache? = nil, familyRecordName: String? = nil) {
         self.initialHero = initialHero
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedProfiles = Query(
+            filter: profileFilter,
+            sort: \ProfileCache.displayName
+        )
+        _cachedQuests = Query(
+            filter: questFilter,
+            sort: \QuestCache.weekOf,
+            order: .reverse
+        )
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: \QuestCompletionCache.completedDate,
+            order: .reverse
+        )
     }
 
     var body: some View {
@@ -64,7 +98,6 @@ struct QuestLogView: View {
             if let initialHero, viewModel?.selectedHero == nil {
                 viewModel?.selectedHero = initialHero
             }
-            // synchronous initial render from the current `@Query` cache
             // snapshot. Subsequent mutations re-fire `.onChange`.
             rebuildViewModel()
         }
@@ -84,13 +117,11 @@ struct QuestLogView: View {
 
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
-        guard let familyName = appState.family?.id.recordName else { return }
 
-        let profiles = cachedProfiles.filter { $0.familyRecordName == familyName }
-        let quests = cachedQuests.filter { $0.familyRecordName == familyName }
-        let logs = cachedCompletions.filter { $0.familyRecordName == familyName }
-
-        vm.rebuildLists(profiles: profiles, quests: quests, logs: logs)
+        // The `@Query` declarations above already filter by
+        // `familyRecordName` at the SwiftData/SQLite layer, so we no longer
+        // post-filter the cached rows in Swift. Pass them straight through.
+        vm.rebuildLists(profiles: cachedProfiles, quests: cachedQuests, logs: cachedCompletions)
     }
 
     // MARK: - Toolbar Menus

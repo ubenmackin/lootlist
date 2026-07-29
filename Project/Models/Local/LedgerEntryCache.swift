@@ -2,14 +2,14 @@
 //  LedgerEntryCache.swift
 //  LootList
 //
-//  Created for Local-First SwiftData Architecture.
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation
 import SwiftData
 
 @Model
-final class LedgerEntryCache {
+final class LedgerEntryCache: FamilyScopedCache {
     #Index<LedgerEntryCache>([\.familyRecordName], [\.profileRecordName], [\.date])
 
     @Attribute(.unique) var recordName: String

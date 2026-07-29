@@ -106,7 +106,6 @@ struct NotificationSettingsView: View {
             // `NotificationService.updatePreference(event:enabled:)`.
             // The `UserDefaults` mirror write inside the setter preserves the
             // first-launch fallback. The master toggle above remains a
-            // device-level authorization gate (not a synced preference).
 
             Section {
                 Toggle(isOn: toggleBinding(for: .questAssigned)) {

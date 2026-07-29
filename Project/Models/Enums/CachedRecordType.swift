@@ -2,11 +2,7 @@
 //  CachedRecordType.swift
 //  LootList
 //
-//  Typed representation of every CloudKit entity that has a local SwiftData
-//  cache row. Resolving a raw `CKRecord.RecordType` string through this enum
-//  (rather than switching on string literals) hardens the delete path against
-//  Swift class-name / CKRecordType divergence — e.g. `QuestCompletion`
-//  (`recordType == "QuestLog"` while the Swift type is named `QuestCompletion`).
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import CloudKit

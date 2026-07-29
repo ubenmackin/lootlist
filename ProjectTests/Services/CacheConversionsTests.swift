@@ -2,6 +2,7 @@
 //  CacheConversionsTests.swift
 //  LootList
 //
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import CloudKit
@@ -43,7 +44,6 @@ struct CacheConversionsTests {
             family: ref("fam_1"),
             id: id("log_1")
         )
-        // Sanity: parentVerify initial state is `.pending` (the invariant the
         // cache derivation reverses).
         #expect(completion.verificationStatus == .pending)
 
@@ -84,7 +84,6 @@ struct CacheConversionsTests {
             family: ref("fam_2"),
             id: id("log_2")
         )
-        // Sanity: autoApprove initial state is `.autoApproved`.
         #expect(completion.verificationStatus == .autoApproved)
 
         let cache = QuestCompletionCache(from: completion)
@@ -101,8 +100,6 @@ struct CacheConversionsTests {
         let verifiedDate = Date(timeIntervalSince1970: 1_750_050_000)
         let weekOf = Date(timeIntervalSince1970: 1_749_950_000)
 
-        // A parentVerify completion that has since been verified. The derived
-        // approvalMode must remain `.parentVerify` (only parentVerify quests
         // pass through `.verified`).
         var completion = QuestCompletion(
             quest: ref("quest_3"),
