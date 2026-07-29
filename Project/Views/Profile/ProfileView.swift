@@ -26,11 +26,11 @@ struct ProfileView: View {
 
     @Environment(AchievementService.self) private var achievementService
 
-    @Query(sort: \AchievementCache.name) private var cachedAchievements: [AchievementCache]
-    @Query(sort: \ProfileAchievementCache.earnedDate, order: .reverse) private var cachedProfileAchievements: [ProfileAchievementCache]
-    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
-    @Query(sort: \LedgerEntryCache.date, order: .reverse) private var cachedLedgers: [LedgerEntryCache]
-    @Query(sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
+    @Query private var cachedAchievements: [AchievementCache]
+    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var cachedQuests: [QuestCache]
 
     @State private var showingEditName: Bool = false
 
@@ -42,13 +42,64 @@ struct ProfileView: View {
 
     @State private var viewModel = ProfileViewModel()
 
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
     init(avatarService: AvatarService,
          xpService: XPService,
-         notificationService: NotificationService)
+         notificationService: NotificationService,
+         familyRecordName: String? = nil)
     {
         self.avatarService = avatarService
         self.xpService = xpService
         self.notificationService = notificationService
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let profileAchievementFilter: Predicate<ProfileAchievementCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let ledgerFilter: Predicate<LedgerEntryCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedAchievements = Query(
+            filter: achievementFilter,
+            sort: \AchievementCache.name
+        )
+        _cachedProfileAchievements = Query(
+            filter: profileAchievementFilter,
+            sort: \ProfileAchievementCache.earnedDate,
+            order: .reverse
+        )
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: \QuestCompletionCache.completedDate,
+            order: .reverse
+        )
+        _cachedLedgers = Query(
+            filter: ledgerFilter,
+            sort: \LedgerEntryCache.date,
+            order: .reverse
+        )
+        _cachedQuests = Query(
+            filter: questFilter,
+            sort: \QuestCache.weekOf,
+            order: .reverse
+        )
     }
 
     var body: some View {
@@ -86,7 +137,6 @@ struct ProfileView: View {
                 }
             }
             .task {
-                // synchronous initial render from the current `@Query`
                 // cache snapshot, then a single one-shot background freshness
                 // touch (achievementService) that upserts into SwiftData — the
                 // resulting mutation re-fires `.onChange` → recompute. No

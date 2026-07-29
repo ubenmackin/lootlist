@@ -2,6 +2,7 @@
 //  CacheService.swift
 //  LootList
 //
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import CloudKit
@@ -16,19 +17,18 @@ final class CacheService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var isBatching = false
 
+    /// Shorthand for `container.mainContext`. Used by every read/write on this
+    /// service so the underlying access path lives in one place.
+    var context: ModelContext {
+        container.mainContext
+    }
+
     init(inMemory: Bool = false) throws {
-        let config = ModelConfiguration(isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
+        let schema = Schema(LootListSchemaV1.models)
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         container = try ModelContainer(
-            for: QuestCache.self,
-            QuestTemplateCache.self,
-            ProfileCache.self,
-            QuestCompletionCache.self,
-            FamilyCache.self,
-            LedgerEntryCache.self,
-            AllowancePeriodCache.self,
-            AchievementCache.self,
-            ProfileAchievementCache.self,
-            NotificationPreferenceCache.self,
+            for: schema,
+            migrationPlan: LootListMigrationPlan.self,
             configurations: config
         )
     }
@@ -51,10 +51,29 @@ final class CacheService {
         }
     }
 
+    // MARK: - Private Helpers
+
+    /// Deletes every record matching `predicate` from the given context.
+    /// Internal so the `CacheService+Invalidation` extension can cascade-delete
+    /// from `purgeFamily(recordName:)`.
+    func deleteAll<T: PersistentModel>(
+        from context: ModelContext,
+        where predicate: Predicate<T>
+    ) {
+        if let items = try? context.fetch(FetchDescriptor<T>(predicate: predicate)) {
+            for item in items {
+                context.delete(item)
+            }
+        }
+    }
+
     // MARK: - Upserts (single)
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertQuests` instead.
+    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
     func upsertQuest(_ quest: Quest, family _: String? = nil) {
-        let context = container.mainContext
         let name = quest.id.recordName
         let descriptor = FetchDescriptor<QuestCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -83,8 +102,11 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertProfiles` instead.
+    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
     func upsertProfile(_ profile: Profile, family _: String? = nil) {
-        let context = container.mainContext
         let name = profile.id.recordName
         let descriptor = FetchDescriptor<ProfileCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -110,8 +132,11 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertQuestCompletions` instead.
+    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
     func upsertQuestCompletion(_ completion: QuestCompletion, family _: String? = nil) {
-        let context = container.mainContext
         let name = completion.id.recordName
         let descriptor = FetchDescriptor<QuestCompletionCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -137,8 +162,11 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertQuestTemplates` instead.
+    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
     func upsertQuestTemplate(_ template: QuestTemplate, family _: String? = nil) {
-        let context = container.mainContext
         let name = template.id.recordName
         let descriptor = FetchDescriptor<QuestTemplateCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -165,8 +193,10 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertFamilies` instead.
     func upsertFamily(_ family: Family) {
-        let context = container.mainContext
         let name = family.id.recordName
         let descriptor = FetchDescriptor<FamilyCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -185,8 +215,10 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertLedgerEntries` instead.
     func upsertLedgerEntry(_ entry: LedgerEntry) {
-        let context = container.mainContext
         let name = entry.id.recordName
         let descriptor = FetchDescriptor<LedgerEntryCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -207,8 +239,10 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertAllowancePeriods` instead.
     func upsertAllowancePeriod(_ period: AllowancePeriod) {
-        let context = container.mainContext
         let name = period.id.recordName
         let descriptor = FetchDescriptor<AllowancePeriodCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -232,8 +266,10 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertAchievements` instead.
     func upsertAchievement(_ achievement: Achievement) {
-        let context = container.mainContext
         let name = achievement.id.recordName
         let descriptor = FetchDescriptor<AchievementCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -255,8 +291,10 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertNotificationPreferences` instead.
     func upsertNotificationPreference(_ pref: NotificationPreference) {
-        let context = container.mainContext
         let name = pref.id.recordName
         let descriptor = FetchDescriptor<NotificationPreferenceCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -276,8 +314,10 @@ final class CacheService {
         saveContext()
     }
 
+    /// Synchronous @MainActor path for optimistic UI writes.
+    /// Used by view models and services for immediate local updates.
+    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertProfileAchievements` instead.
     func upsertProfileAchievement(_ pa: ProfileAchievement) {
-        let context = container.mainContext
         let name = pa.id.recordName
         let descriptor = FetchDescriptor<ProfileAchievementCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -298,9 +338,14 @@ final class CacheService {
 
     // MARK: - Batch Upserts
 
-    func upsertQuests(_ quests: [Quest], family _: String? = nil) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<QuestCache>())) ?? []
+    func upsertQuests(_ quests: [Quest], family: String? = nil) {
+        let existing: [QuestCache] = if let family {
+            (try? context.fetch(FetchDescriptor<QuestCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<QuestCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for quest in quests {
@@ -330,9 +375,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertProfiles(_ profiles: [Profile], family _: String? = nil) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<ProfileCache>())) ?? []
+    func upsertProfiles(_ profiles: [Profile], family: String? = nil) {
+        let existing: [ProfileCache] = if let family {
+            (try? context.fetch(FetchDescriptor<ProfileCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<ProfileCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for profile in profiles {
@@ -359,9 +409,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertQuestCompletions(_ completions: [QuestCompletion], family _: String? = nil) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<QuestCompletionCache>())) ?? []
+    func upsertQuestCompletions(_ completions: [QuestCompletion], family: String? = nil) {
+        let existing: [QuestCompletionCache] = if let family {
+            (try? context.fetch(FetchDescriptor<QuestCompletionCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<QuestCompletionCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for completion in completions {
@@ -388,9 +443,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertQuestTemplates(_ templates: [QuestTemplate], family _: String? = nil) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+    func upsertQuestTemplates(_ templates: [QuestTemplate], family: String? = nil) {
+        let existing: [QuestTemplateCache] = if let family {
+            (try? context.fetch(FetchDescriptor<QuestTemplateCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for template in templates {
@@ -418,9 +478,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertLedgerEntries(_ entries: [LedgerEntry]) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<LedgerEntryCache>())) ?? []
+    func upsertLedgerEntries(_ entries: [LedgerEntry], family: String? = nil) {
+        let existing: [LedgerEntryCache] = if let family {
+            (try? context.fetch(FetchDescriptor<LedgerEntryCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<LedgerEntryCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for entry in entries {
@@ -442,9 +507,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertAllowancePeriods(_ periods: [AllowancePeriod]) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<AllowancePeriodCache>())) ?? []
+    func upsertAllowancePeriods(_ periods: [AllowancePeriod], family: String? = nil) {
+        let existing: [AllowancePeriodCache] = if let family {
+            (try? context.fetch(FetchDescriptor<AllowancePeriodCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<AllowancePeriodCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for period in periods {
@@ -469,9 +539,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertAchievements(_ achievements: [Achievement]) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<AchievementCache>())) ?? []
+    func upsertAchievements(_ achievements: [Achievement], family: String? = nil) {
+        let existing: [AchievementCache] = if let family {
+            (try? context.fetch(FetchDescriptor<AchievementCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<AchievementCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for achievement in achievements {
@@ -494,9 +569,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertProfileAchievements(_ pas: [ProfileAchievement]) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
+    func upsertProfileAchievements(_ pas: [ProfileAchievement], family: String? = nil) {
+        let existing: [ProfileAchievementCache] = if let family {
+            (try? context.fetch(FetchDescriptor<ProfileAchievementCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for pa in pas {
@@ -516,9 +596,14 @@ final class CacheService {
         saveContext()
     }
 
-    func upsertNotificationPreferences(_ prefs: [NotificationPreference]) {
-        let context = container.mainContext
-        let existing = (try? context.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
+    func upsertNotificationPreferences(_ prefs: [NotificationPreference], family: String? = nil) {
+        let existing: [NotificationPreferenceCache] = if let family {
+            (try? context.fetch(FetchDescriptor<NotificationPreferenceCache>(
+                predicate: #Predicate { $0.familyRecordName == family }
+            ))) ?? []
+        } else {
+            (try? context.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
+        }
         let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
 
         for pref in prefs {
@@ -537,270 +622,5 @@ final class CacheService {
             }
         }
         saveContext()
-    }
-
-    // MARK: - Fetches
-
-    func fetchQuests(family: String?, weekInRange: Range<Date>? = nil) -> [QuestCache] {
-        let context = container.mainContext
-        var descriptor = FetchDescriptor<QuestCache>(
-            predicate: #Predicate { item in
-                family == nil || item.familyRecordName == (family ?? "")
-            }
-        )
-        if let range = weekInRange {
-            let start = range.lowerBound
-            let end = range.upperBound
-            descriptor = FetchDescriptor<QuestCache>(
-                predicate: #Predicate { item in
-                    (family == nil || item.familyRecordName == (family ?? ""))
-                        && item.weekOf >= start
-                        && item.weekOf < end
-                }
-            )
-        }
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchQuestCompletions(family: String?) -> [QuestCompletionCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<QuestCompletionCache>(
-            predicate: #Predicate { item in
-                family == nil || item.familyRecordName == (family ?? "")
-            }
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchProfile(recordName: String) -> ProfileCache? {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<ProfileCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        return try? context.fetch(descriptor).first
-    }
-
-    func fetchProfiles(family: String?) -> [ProfileCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<ProfileCache>(
-            predicate: #Predicate { item in
-                family == nil || item.familyRecordName == (family ?? "")
-            }
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchQuestTemplates(family: String?) -> [QuestTemplateCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<QuestTemplateCache>(
-            predicate: #Predicate { item in
-                family == nil || item.familyRecordName == (family ?? "")
-            }
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchFamily(recordName: String) -> FamilyCache? {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<FamilyCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        return try? context.fetch(descriptor).first
-    }
-
-    func fetchLedgerEntries(profileRecordName: String) -> [LedgerEntryCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<LedgerEntryCache>(
-            predicate: #Predicate { $0.profileRecordName == profileRecordName },
-            sortBy: [SortDescriptor(\.date, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchLedgerEntries(family: String?) -> [LedgerEntryCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<LedgerEntryCache>(
-            predicate: #Predicate { item in
-                family == nil || item.familyRecordName == (family ?? "")
-            },
-            sortBy: [SortDescriptor(\.date, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchAllowancePeriods(profileRecordName: String) -> [AllowancePeriodCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<AllowancePeriodCache>(
-            predicate: #Predicate { $0.profileRecordName == profileRecordName },
-            sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<AllowancePeriodCache>(
-            predicate: #Predicate { item in
-                family == nil || item.familyRecordName == (family ?? "")
-            },
-            sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchAchievements(family: String?) -> [AchievementCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<AchievementCache>(
-            predicate: #Predicate { item in
-                family == nil || item.familyRecordName == (family ?? "")
-            }
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchProfileAchievements(profileRecordName: String) -> [ProfileAchievementCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<ProfileAchievementCache>(
-            predicate: #Predicate { $0.profileRecordName == profileRecordName },
-            sortBy: [SortDescriptor(\.earnedDate, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    func fetchNotificationPreferences(profileRecordName: String) -> [NotificationPreferenceCache] {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<NotificationPreferenceCache>(
-            predicate: #Predicate { $0.profileRecordName == profileRecordName }
-        )
-        return (try? context.fetch(descriptor)) ?? []
-    }
-
-    // MARK: - Invalidation
-
-    func invalidateQuest(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<QuestCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateQuestCompletion(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<QuestCompletionCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateProfile(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<ProfileCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateQuestTemplate(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<QuestTemplateCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateLedgerEntry(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<LedgerEntryCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateAllowancePeriod(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<AllowancePeriodCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateAchievement(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<AchievementCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateProfileAchievement(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<ProfileAchievementCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateFamily(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<FamilyCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    func invalidateNotificationPreference(recordName: String) {
-        let context = container.mainContext
-        let descriptor = FetchDescriptor<NotificationPreferenceCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
-        }
-    }
-
-    // MARK: - Bulk Clear
-
-    func clearAll() {
-        let context = container.mainContext
-        try? context.delete(model: QuestCache.self)
-        try? context.delete(model: QuestTemplateCache.self)
-        try? context.delete(model: ProfileCache.self)
-        try? context.delete(model: QuestCompletionCache.self)
-        try? context.delete(model: FamilyCache.self)
-        try? context.delete(model: LedgerEntryCache.self)
-        try? context.delete(model: AllowancePeriodCache.self)
-        try? context.delete(model: AchievementCache.self)
-        try? context.delete(model: ProfileAchievementCache.self)
-        try? context.delete(model: NotificationPreferenceCache.self)
-        try? context.save()
     }
 }

@@ -13,11 +13,47 @@ struct HeroDashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
 
-    @Query(filter: #Predicate<QuestCache> { $0.isActive == true }, sort: \QuestCache.weekOf, order: .reverse) private var cachedQuests: [QuestCache]
-    @Query(sort: \QuestCompletionCache.completedDate, order: .reverse) private var cachedCompletions: [QuestCompletionCache]
-    @Query(filter: #Predicate<QuestTemplateCache> { $0.isActive == true }) private var cachedTemplates: [QuestTemplateCache]
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var viewModel: HeroDashboardViewModel?
+
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the queries return zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
+    init(familyRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+
+        // so we don't fetch every family's rows and post-filter in Swift.
+        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
+        // means "no filter", non-nil means "filter by family". We do NOT use
+        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name && $0.isActive == true }
+        }
+        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        let templateFilter: Predicate<QuestTemplateCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name && $0.isActive == true }
+        }
+        _cachedQuests = Query(
+            filter: questFilter,
+            sort: \QuestCache.weekOf,
+            order: .reverse
+        )
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: \QuestCompletionCache.completedDate,
+            order: .reverse
+        )
+        _cachedTemplates = Query(
+            filter: templateFilter
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -37,14 +73,12 @@ struct HeroDashboardView: View {
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
                 // Pull-to-refresh re-derives from the current cache snapshot.
-                // Background CloudKit freshness is driven by `SyncEngine`.
                 rebuildViewModel()
             }
             .task {
                 if viewModel == nil {
                     viewModel = HeroDashboardViewModel(appState: appState)
                 }
-                // synchronous initial render from the current `@Query`
                 // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuildViewModel()
             }
@@ -63,16 +97,19 @@ struct HeroDashboardView: View {
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
-        guard let familyName = appState.family?.id.recordName else { return }
 
+        // The `@Query` declarations above already filter by
+        // `familyRecordName` (and the active flag where appropriate) at the
+        // SwiftData/SQLite layer. The remaining per-hero filters stay in
+        // Swift because the assigned-hero identity varies per viewer and
+        // can't be pushed into a static `Query` predicate.
         let quests = cachedQuests
-            .filter { $0.familyRecordName == familyName && $0.assigneeRecordName == profileName && $0.isActive }
+            .filter { $0.assigneeRecordName == profileName && $0.isActive }
 
         let logs = cachedCompletions
-            .filter { $0.familyRecordName == familyName && $0.completerRecordName == profileName }
+            .filter { $0.completerRecordName == profileName }
 
         let templates = cachedTemplates
-            .filter { $0.familyRecordName == familyName }
 
         vm.rebuildLists(quests: quests, logs: logs, templates: templates)
     }

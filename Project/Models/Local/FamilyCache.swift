@@ -2,7 +2,7 @@
 //  FamilyCache.swift
 //  LootList
 //
-//  Created for Local-First SwiftData Architecture.
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation

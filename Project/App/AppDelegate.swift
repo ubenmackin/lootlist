@@ -29,8 +29,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 object: notification
             )
         }
-        // Give the sync engine time to process before telling iOS we're done.
-        // The SyncEngine listens for the notification and kicks off syncAll().
         Task {
             _ = await withTaskGroup(of: Void.self) { group in
                 group.addTask {

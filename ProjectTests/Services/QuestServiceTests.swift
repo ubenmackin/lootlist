@@ -48,14 +48,16 @@ struct QuestServiceTests {
     @Test
     func `quest service initialization`() {
         let (cloudKit, _, _, _) = makeTestData()
-        let questService = QuestService(cloudKit: cloudKit)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         #expect(questService.cloudKitReference === cloudKit)
     }
 
     @Test
     func `create quest template model instantiation`() async throws {
         let (cloudKit, parent, _, family) = makeTestData()
-        let questService = QuestService(cloudKit: cloudKit)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
 
         let template = try await questService.createTemplate(
             name: "Clean Room",
@@ -156,7 +158,8 @@ struct QuestServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let questService = QuestService(cloudKit: cloudKit)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         questService.cacheService = cache
 
         let familyRef = CKRecord.Reference(
@@ -206,7 +209,6 @@ struct QuestServiceTests {
             family: familyRef
         )
 
-        // Seed cache only — no CloudKit mock records.
         cache.upsertQuest(quest)
         cache.upsertQuestCompletions([completion])
 
@@ -222,7 +224,8 @@ struct QuestServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let questService = QuestService(cloudKit: cloudKit)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         questService.cacheService = cache
 
         let familyRef = CKRecord.Reference(
@@ -296,7 +299,7 @@ struct QuestServiceTests {
             zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
             cloudKit = CloudKitService(zoneID: zoneID)
             cache = try CacheService(inMemory: true)
-            questService = QuestService(cloudKit: cloudKit)
+            questService = QuestService(cloudKit: cloudKit, xpService: XPService(cloudKit: cloudKit))
             questService.cacheService = cache
 
             familyRef = CKRecord.Reference(
@@ -402,7 +405,8 @@ struct QuestServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let questService = QuestService(cloudKit: cloudKit)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         questService.cacheService = cache
 
         cloudKit.activeFamilyZoneID = zoneID
@@ -413,7 +417,6 @@ struct QuestServiceTests {
         let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         // Use `id: profileID` so profile.id.recordName == "hero1" — fetchActiveQuests
         // issues the CK query `assignee == <profile.id>`; the seeded Quest.assignee
-        // references `profileID`. They must match or the mock predicate returns empty.
         let profile = Profile(
             displayName: "Hero",
             avatarClass: .knight,
@@ -467,7 +470,6 @@ struct QuestServiceTests {
         let results = try await questService.fetchActiveQuests(profile: profile, weekOf: monday)
         #expect(!results.isEmpty, "Should return the quest from CK")
 
-        // Assert: re-fetch from CK — the mock record must still have nil name.
         // If stampNameIfNeeded called cloudKit.save, the name would be stamped.
         let after = try await cloudKit.fetch(Quest.self, id: questID)
         #expect(after.name == nil,
@@ -524,7 +526,6 @@ struct QuestServiceTests {
         let step = DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit)
         try await step.run()
 
-        // Assert: quest now has the template name in CK.
         let saved = try await cloudKit.fetch(Quest.self, id: questID)
         #expect(saved.name == "Clean Room",
                 "Migration must backfill nil quest names from the template")
@@ -579,7 +580,6 @@ struct QuestServiceTests {
         let step = DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit)
         try await step.run()
 
-        // Assert: name unchanged (migration skipped this quest).
         let fetched = try await cloudKit.fetch(Quest.self, id: questID)
         #expect(fetched.name == "Already Named",
                 "Migration must not overwrite existing names")

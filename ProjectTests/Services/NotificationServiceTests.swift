@@ -108,8 +108,7 @@ struct NotificationServiceTests {
         #expect(service.isNotificationEnabled(for: .levelUp) == true)
 
         // Another device writes a `NotificationPreference` (enabled=false) and
-        // the change arrives via the incremental sync route.
-        let backgroundCache = BackgroundCacheActor(modelContainer: cache.container)
+        let backgroundCache = BackgroundCacheActor(container: cache.container)
         let remote = NotificationPreference(
             profile: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID),

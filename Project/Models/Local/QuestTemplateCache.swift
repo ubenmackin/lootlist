@@ -2,13 +2,14 @@
 //  QuestTemplateCache.swift
 //  LootList
 //
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation
 import SwiftData
 
 @Model
-final class QuestTemplateCache {
+final class QuestTemplateCache: FamilyScopedCache {
     #Index<QuestTemplateCache>([\.familyRecordName])
 
     @Attribute(.unique) var recordName: String

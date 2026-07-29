@@ -2,7 +2,7 @@
 //  ToastManager.swift
 //  LootList
 //
-//  Created for Universal Toast Banner System.
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation
@@ -88,7 +88,6 @@ final class ToastManager {
     init() {}
 
     /// Presents a new toast of the given type and schedules auto-dismissal after
-    /// 7 seconds. Returns the new toast's id so callers can dismiss it early.
     @discardableResult
     func show(message: String,
               type: ToastType = .info,
@@ -129,7 +128,6 @@ final class ToastManager {
         let task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: ToastManager.autoDismissDuration)
             // Hop back to MainActor before mutating `toasts`. If the toast was
-            // already dismissed, `dismiss(id:)` is a no-op.
             await MainActor.run { [weak self] in
                 self?.dismiss(id: id)
             }

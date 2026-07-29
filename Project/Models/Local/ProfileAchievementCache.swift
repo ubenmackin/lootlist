@@ -2,14 +2,14 @@
 //  ProfileAchievementCache.swift
 //  LootList
 //
-//  Created for Local-First SwiftData Architecture.
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation
 import SwiftData
 
 @Model
-final class ProfileAchievementCache {
+final class ProfileAchievementCache: FamilyScopedCache {
     #Index<ProfileAchievementCache>([\.familyRecordName], [\.profileRecordName])
 
     @Attribute(.unique) var recordName: String

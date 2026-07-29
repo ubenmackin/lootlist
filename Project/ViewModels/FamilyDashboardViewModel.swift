@@ -133,7 +133,6 @@ final class FamilyDashboardViewModel {
                 .reduce(0.0) { $0 + $1.amount }
             let earned = goldFromQuests + bonusGold
 
-            // derive `streak` and `trophiesEarned` synchronously from the
             // cache arrays passed into `rebuildLists` (NO CloudKit fetch). The
             // prior implementation reused the stale `weekSummary` from the
             // previous render (itself built from `existing ?? 0`), so the
@@ -164,7 +163,6 @@ final class FamilyDashboardViewModel {
             heroSummaries: heroSummaries
         )
 
-        // `pastPayouts` is a computed property of the `@Query
         // cachedAllowancePeriods` passed in by `FamilyDashboardView` (replaces
         // the deleted `loadPastPayouts()` cache-fetch path). A silent push
         // that mutates an `AllowancePeriodCache` row re-fires

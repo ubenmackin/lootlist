@@ -218,8 +218,14 @@ final class FamilyService: FamilyProfileFetching {
 
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
-        // sync) while the save is in flight.
         let preMutationChangeTag = snapshot?.changeTag
+
+        // Capture an immutable value-type copy of the snapshot BEFORE the
+        // optimistic write. The cache-managed `snapshot` will be mutated in
+        // place by `upsertFamily`, so reading `snapshot.toFamily(...)` later
+        // would yield the *post*-mutation values. The value-type copy
+        // (`Family` struct) is unaffected by later mutations.
+        let snapshotFamily: Family? = snapshot?.toFamily(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertFamily(updated)
         appState.family = updated
@@ -231,7 +237,7 @@ final class FamilyService: FamilyProfileFetching {
             appState.family = saved
             return saved
         } catch {
-            let concurrentEditDetected = FamilyService.detectConcurrentEdit(
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
                 fetchCurrent: { cacheService?.fetchFamily(recordName: name)?.changeTag },
                 error: error
@@ -249,14 +255,14 @@ final class FamilyService: FamilyProfileFetching {
                 if let fresh = try? await cloudKit.fetch(Family.self, id: family.id, using: db) {
                     cacheService?.upsertFamily(fresh)
                     appState.family = fresh
-                } else if let snapshot {
-                    cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
-                    appState.family = snapshot.toFamily(zoneID: zoneID)
+                } else if let snapshotFamily {
+                    cacheService?.upsertFamily(snapshotFamily)
+                    appState.family = snapshotFamily
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
-                    appState.family = snapshot.toFamily(zoneID: zoneID)
+                if let snapshotFamily {
+                    cacheService?.upsertFamily(snapshotFamily)
+                    appState.family = snapshotFamily
                 }
                 let message = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription
@@ -278,7 +284,6 @@ final class FamilyService: FamilyProfileFetching {
 
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
-        // sync) while the save is in flight.
         let preMutationChangeTag = snapshot?.changeTag
 
         cacheService?.upsertFamily(updated)
@@ -291,7 +296,7 @@ final class FamilyService: FamilyProfileFetching {
             appState.family = saved
             return saved
         } catch {
-            let concurrentEditDetected = FamilyService.detectConcurrentEdit(
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
                 fetchCurrent: { cacheService?.fetchFamily(recordName: name)?.changeTag },
                 error: error
@@ -338,7 +343,6 @@ final class FamilyService: FamilyProfileFetching {
 
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
-        // sync) while the save is in flight.
         let preMutationChangeTag = snapshot?.changeTag
 
         cacheService?.upsertProfile(updated)
@@ -355,7 +359,7 @@ final class FamilyService: FamilyProfileFetching {
             }
             return saved
         } catch {
-            let concurrentEditDetected = FamilyService.detectConcurrentEdit(
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
                 fetchCurrent: { cacheService?.fetchProfile(recordName: name)?.changeTag },
                 error: error
@@ -413,7 +417,6 @@ final class FamilyService: FamilyProfileFetching {
 
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
-        // sync) while the save is in flight.
         let preMutationChangeTag = snapshot?.changeTag
 
         cacheService?.upsertProfile(updated)
@@ -430,7 +433,7 @@ final class FamilyService: FamilyProfileFetching {
             }
             return saved
         } catch {
-            let concurrentEditDetected = FamilyService.detectConcurrentEdit(
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
                 fetchCurrent: { cacheService?.fetchProfile(recordName: name)?.changeTag },
                 error: error
@@ -609,48 +612,6 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    /// Detects whether a concurrent edit from another device (or background sync)
-    /// landed while a CloudKit save was failing. Two independent signals are
-    /// checked; either one is sufficient evidence of a concurrent edit:
-    ///   1) CloudKit raised a `serverRecordChanged` error during `cloudKit.save`.
-    ///      CloudKitService wraps raw `CKError` instances into
-    ///      `CloudKitServiceError` before throwing, so we pattern-match the
-    ///      wrapped form — `CloudKitServiceError.notFound("serverRecordChanged")`
-    ///      — rather than `CKError` itself, which the service layer never sees.
-    ///   2) The cache row's current `changeTag` differs from the
-    ///      `preMutationChangeTag` we captured before the optimistic write. A
-    ///      background sync may have pulled Mutation B's update into the cache
-    ///      during the `await cloudKit.save(...)` call, mutating the cached row's
-    ///      changeTag. When both sides are present and unequal, we conclude a
-    ///      concurrent edit landed.
-    ///
-    /// When neither signal is present (the common case — including, by design,
-    /// brand-new records, where `preMutationChangeTag == nil` because there was
-    /// no prior cache row to snapshot), this returns `false` and the caller
-    /// proceeds with the standard rollback.
-    static func detectConcurrentEdit(
-        preMutationChangeTag: String?,
-        fetchCurrent: () -> String?,
-        error: Error
-    ) -> Bool {
-        // Signal 1: CloudKit's canonical optimistic-concurrency conflict.
-        if case let .notFound(details) = error as? CloudKitServiceError,
-           details == "serverRecordChanged"
-        {
-            return true
-        }
-
-        // Signal 2: changeTag divergence detected via a cache re-fetch.
-        let currentChangeTag = fetchCurrent()
-        return {
-            guard let pre = preMutationChangeTag,
-                  let cur = currentChangeTag,
-                  !cur.isEmpty
-            else { return false }
-            return pre != cur
-        }()
-    }
-
     private func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase) {
         let zoneID = cloudKit.resolvedZoneID // already set with correct ownerName
         let db = cloudKit.database(isOwner: appState.isZoneOwner)
@@ -670,7 +631,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    func deleteFamilyAndReset(family _: Family) async throws {
+    func deleteFamilyAndReset(family: Family) async throws {
         // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
         if appState.isZoneOwner, let zoneID = appState.familyZoneID {
             do {
@@ -685,10 +646,15 @@ final class FamilyService: FamilyProfileFetching {
         cloudKit.activeFamilyZoneID = nil
         cloudKit.activeIsOwner = true
 
-        // 3. Clear local SwiftData cache
-        cacheService?.clearAll()
+        // 3. Purge this family's local SwiftData cache.  Fall back to a
+        //    global clearAll() only if the family recordName is unavailable.
+        let familyRecordName = family.id.recordName
+        if !familyRecordName.isEmpty {
+            cacheService?.purgeFamily(recordName: familyRecordName)
+        } else {
+            cacheService?.clearAll()
+        }
 
-        // 4. Clear persisted session and reset app state to onboarding.
         appState.clearSession()
     }
 }

@@ -143,7 +143,6 @@ final class TreasuryViewModel {
             return
         }
         let weekRange = WeekMath.weekRange(starting: WeekMath.weekOf(date: Date()))
-        // SpendingService.fetchTransactions takes a closed DateInterval; preserve
         // the prior inclusive [start, start+secondsInWeek-1] window for that query
         // (display path only — gold/quest totals route through the half-open Range).
         let range: DateInterval = showAllTime

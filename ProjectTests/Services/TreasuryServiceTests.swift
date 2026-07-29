@@ -164,7 +164,6 @@ struct TreasuryServiceTests {
             family: familyRef
         )
 
-        // Seed cache only — no CloudKit mock records.
         cache.upsertQuest(quest)
         cache.upsertQuestCompletions([completion])
 

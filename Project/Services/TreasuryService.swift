@@ -128,7 +128,7 @@ final class TreasuryService {
             cacheService?.upsertAllowancePeriod(saved)
             return saved
         } catch {
-            let concurrentEditDetected = TreasuryService.detectConcurrentEdit(
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
                 fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
                     .first(where: { $0.recordName == period.id.recordName })?.changeTag
@@ -189,8 +189,15 @@ final class TreasuryService {
 
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
-        // sync) while the save is in flight.
         let preMutationChangeTag = snapshot?.changeTag
+
+        // Capture an immutable value-type copy of the snapshot BEFORE the
+        // optimistic write. The cache-managed `snapshot` will be mutated in
+        // place by `upsertAllowancePeriod`, so reading
+        // `snapshot.toAllowancePeriod(...)` later would yield the
+        // *post*-mutation values. The value-type copy
+        // (`AllowancePeriod` struct) is unaffected by later mutations.
+        let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertAllowancePeriod(updated)
         do {
@@ -198,7 +205,7 @@ final class TreasuryService {
             cacheService?.upsertAllowancePeriod(saved)
             return saved
         } catch {
-            let concurrentEditDetected = TreasuryService.detectConcurrentEdit(
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
                 fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
@@ -217,12 +224,12 @@ final class TreasuryService {
 
                 if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
                     cacheService?.upsertAllowancePeriod(fresh)
-                } else if let snapshot {
-                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                } else if let snapshotPeriod {
+                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                if let snapshotPeriod {
+                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
                 }
                 let message = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription
@@ -243,7 +250,6 @@ final class TreasuryService {
 
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
-        // sync) while the save is in flight.
         let preMutationChangeTag = snapshot?.changeTag
 
         // Optimistic write first
@@ -263,7 +269,7 @@ final class TreasuryService {
                 }
             }
         } catch {
-            let concurrentEditDetected = TreasuryService.detectConcurrentEdit(
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
                 fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
@@ -297,6 +303,7 @@ final class TreasuryService {
         }
     }
 
+    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     private func goldFromQuests(profile: Profile) async throws -> Double {
         if let cache = cacheService {
             let profileName = profile.id.recordName
@@ -305,13 +312,6 @@ final class TreasuryService {
             if !cachedCompletions.isEmpty {
                 let zoneID = cloudKit.resolvedZoneID
                 let logs = cachedCompletions.map { $0.toQuestCompletion(zoneID: zoneID) }
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
-                    if let fresh = try? await cloudKit.query(QuestCompletion.self, predicate: predicate) {
-                        cacheService?.upsertQuestCompletions(fresh)
-                    }
-                }
                 return try await sumGold(for: logs)
             }
         }
@@ -323,19 +323,12 @@ final class TreasuryService {
         return try await sumGold(for: logs)
     }
 
+    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     private func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         // Cache-first
         if let cache = cacheService {
             let cached = cache.fetchLedgerEntries(profileRecordName: profile.id.recordName)
             if !cached.isEmpty {
-                // Background refresh
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-                    if let fresh = try? await cloudKit.query(LedgerEntry.self, predicate: predicate) {
-                        cacheService?.upsertLedgerEntries(fresh)
-                    }
-                }
                 return cached.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
             }
         }
@@ -348,6 +341,7 @@ final class TreasuryService {
         return entries
     }
 
+    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
@@ -356,16 +350,6 @@ final class TreasuryService {
             let familyName = family.id.recordName
             let cached = cache.fetchAllowancePeriods(family: familyName)
             if !cached.isEmpty {
-                // Background refresh keeps the cache honest across silent pushes.
-                Task { [cloudKit, cacheService] in
-                    if let fresh = try? await cloudKit.query(
-                        AllowancePeriod.self,
-                        predicate: predicate,
-                        sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
-                    ) {
-                        cacheService?.upsertAllowancePeriods(fresh)
-                    }
-                }
                 let zoneID = cloudKit.resolvedZoneID
                 return cached.map { $0.toAllowancePeriod(zoneID: zoneID) }
             }
@@ -381,6 +365,7 @@ final class TreasuryService {
         return all
     }
 
+    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     private func fetchLedgerEntries(profile: Profile,
                                     in dateRange: Range<Date>) async throws -> [LedgerEntry]
     {
@@ -388,18 +373,6 @@ final class TreasuryService {
             let cached = cache.fetchLedgerEntries(profileRecordName: profile.id.recordName)
             let filtered = cached.filter { dateRange.contains($0.date) }
             if !filtered.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(
-                        format: "profile == %@ AND date >= %@ AND date < %@",
-                        profileRef as CVarArg,
-                        dateRange.lowerBound as CVarArg,
-                        dateRange.upperBound as CVarArg
-                    )
-                    if let fresh = try? await cloudKit.query(LedgerEntry.self, predicate: predicate) {
-                        cacheService?.upsertLedgerEntries(fresh)
-                    }
-                }
                 return filtered.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
             }
         }
@@ -416,6 +389,7 @@ final class TreasuryService {
         return entries
     }
 
+    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     private func fetchQuestLogs(profile: Profile,
                                 weekStarting: Date,
                                 weekEnding: Date) async throws -> [QuestCompletion]
@@ -425,13 +399,6 @@ final class TreasuryService {
             let cached = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
                 .filter { $0.completerRecordName == profileName && $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
             if !cached.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
-                    if let fresh = try? await cloudKit.query(QuestCompletion.self, predicate: predicate) {
-                        cacheService?.upsertQuestCompletions(fresh)
-                    }
-                }
                 let zoneID = cloudKit.resolvedZoneID
                 return cached.map { $0.toQuestCompletion(zoneID: zoneID) }
             }
@@ -444,6 +411,7 @@ final class TreasuryService {
         return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
     }
 
+    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     private func fetchAssignedQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
         let range = TreasuryService.weekRange(starting: TreasuryService.mondayOfWeek(for: weekOf))
 
@@ -452,13 +420,6 @@ final class TreasuryService {
             let cached = cache.fetchQuests(family: profile.family.recordID.recordName)
                 .filter { $0.assigneeRecordName == profileName && range.contains($0.weekOf) }
             if !cached.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(format: "assignee == %@", profileRef as CVarArg)
-                    if let fresh = try? await cloudKit.query(Quest.self, predicate: predicate) {
-                        cacheService?.upsertQuests(fresh)
-                    }
-                }
                 let zoneID = cloudKit.resolvedZoneID
                 return cached.map { $0.toQuest(zoneID: zoneID) }
             }
@@ -471,6 +432,7 @@ final class TreasuryService {
         return all.filter { range.contains($0.weekOf) }
     }
 
+    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     private func fetchAllowancePeriod(profile: Profile,
                                       weekOf: Date) async throws -> AllowancePeriod?
     {
@@ -479,17 +441,6 @@ final class TreasuryService {
             let cached = cache.fetchAllowancePeriods(profileRecordName: profileName)
                 .first { Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf) }
             if let cached {
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(
-                        format: "profile == %@ AND weekOf == %@",
-                        profileRef as CVarArg,
-                        weekOf as CVarArg
-                    )
-                    if let fresh = try? await cloudKit.query(AllowancePeriod.self, predicate: predicate).first {
-                        cacheService?.upsertAllowancePeriod(fresh)
-                    }
-                }
                 return cached.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
             }
         }
@@ -520,7 +471,6 @@ final class TreasuryService {
         // Cache-first: build a lookup dictionary from the family's cached
         // quests.  Only quest IDs absent from the cache fall through to the
         // chunked CloudKit fetch below (genuine cache miss — e.g. very first
-        // launch before syncAll completes).
         if let cache = cacheService,
            let familyName = slainLogs.first?.family.recordID.recordName
         {
@@ -564,50 +514,6 @@ final class TreasuryService {
     private static func isSlain(_ log: QuestCompletion) -> Bool {
         log.verificationStatus == .verified
             || log.verificationStatus == .autoApproved
-    }
-
-    /// Detects whether another device (or this device's background sync) has
-    /// applied a conflicting mutation while the in-flight save was failing.
-    ///
-    /// Two independent signals are checked; either one is sufficient evidence of
-    /// a concurrent edit:
-    ///   1) CloudKit raised a `serverRecordChanged` error during `cloudKit.save`.
-    ///      CloudKitService wraps raw `CKError` instances into
-    ///      `CloudKitServiceError` before throwing, so we pattern-match the
-    ///      wrapped form — `CloudKitServiceError.notFound("serverRecordChanged")`
-    ///      — rather than `CKError` itself, which the service layer never sees.
-    ///   2) The cache row's current `changeTag` differs from the
-    ///      `preMutationChangeTag` we captured before the optimistic write. A
-    ///      background sync may have pulled Mutation B's update into the cache
-    ///      during the `await cloudKit.save(...)` call, mutating the cached row's
-    ///      changeTag. When both sides are present and unequal, we conclude a
-    ///      concurrent edit landed.
-    ///
-    /// When neither signal is present (the common case — including, by design,
-    /// brand-new records, where `preMutationChangeTag == nil` because there was
-    /// no prior cache row to snapshot), this returns `false` and the caller
-    /// proceeds with the standard rollback.
-    static func detectConcurrentEdit(
-        preMutationChangeTag: String?,
-        fetchCurrent: () -> String?,
-        error: Error
-    ) -> Bool {
-        // Signal 1: CloudKit's canonical optimistic-concurrency conflict.
-        if case let .notFound(details) = error as? CloudKitServiceError,
-           details == "serverRecordChanged"
-        {
-            return true
-        }
-
-        // Signal 2: changeTag divergence detected via a cache re-fetch.
-        let currentChangeTag = fetchCurrent()
-        return {
-            guard let pre = preMutationChangeTag,
-                  let cur = currentChangeTag,
-                  !cur.isEmpty
-            else { return false }
-            return pre != cur
-        }()
     }
 
     static func weekRange(starting monday: Date) -> Range<Date> {

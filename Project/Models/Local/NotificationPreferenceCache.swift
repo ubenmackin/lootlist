@@ -2,13 +2,15 @@
 //  NotificationPreferenceCache.swift
 //  LootList
 //
+//  Created by Ben Mackin on 7/21/26.
+//
 
 import Foundation
 import SwiftData
 
 @Model
-final class NotificationPreferenceCache {
-    #Index<NotificationPreferenceCache>([\.profileRecordName])
+final class NotificationPreferenceCache: FamilyScopedCache {
+    #Index<NotificationPreferenceCache>([\.familyRecordName, \.profileRecordName, \.eventType])
 
     @Attribute(.unique) var recordName: String
     var profileRecordName: String

@@ -2,13 +2,14 @@
 //  QuestCache.swift
 //  LootList
 //
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation
 import SwiftData
 
 @Model
-final class QuestCache {
+final class QuestCache: FamilyScopedCache {
     #Index<QuestCache>([\.familyRecordName], [\.assigneeRecordName], [\.weekOf])
 
     @Attribute(.unique) var recordName: String

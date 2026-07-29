@@ -178,7 +178,6 @@ final class QuestManagerViewModel {
         if !allowLockedFieldsOverride {
             let logs = try await questService.fetchQuestLogs(forQuest: quest)
             if !logs.isEmpty {
-                // Verify only name/description are changing
                 let fieldsChanged = quest.goldReward != goldReward
                     || quest.xpReward != xpReward
                     || quest.scheduleType != scheduleType
@@ -253,7 +252,6 @@ final class QuestManagerViewModel {
         syncSubscriptionID = id
         syncTask = Task {
             for await _ in stream {
-                // `SyncEngine` mutates SwiftData on `.recordChanged`; the
                 // view's `@Query *.Cache` re-fires `.onChange` → `rebuildLists`
                 // / `rebuildHeroes`. No explicit `load()`/`loadHeroes()` here —
                 // those duplicated the `.onChange` path (and `loadHeroes` was a

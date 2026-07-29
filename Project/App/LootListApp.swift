@@ -62,15 +62,11 @@ struct LootListApp: App {
         app.cacheService = cache
         xp.cacheService = cache
 
-        // Initialize `toastManager` explicitly here (rather than via a default
         // value on the @State declaration) so the wrappedValue storage is set
-        // before any wrapped-value access. Default-initialized @State is lazy
-        // and would otherwise trigger a "used before being initialized"
-        // diagnostic under Swift 6 strict member-initialization.
         _toastManager = State(initialValue: ToastManager())
 
         if let cache {
-            let bgActor = BackgroundCacheActor(modelContainer: cache.container)
+            let bgActor = BackgroundCacheActor(container: cache.container)
             _syncEngine = State(initialValue: SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync))
         } else {
             _syncEngine = State(initialValue: nil)
@@ -159,10 +155,15 @@ struct LootListApp: App {
                     await cloudKitService.processAbandonedZonesQueue(appState: appState)
                     await appState.restoreSession(cloudKit: cloudKitService)
 
-                    // Sync all CloudKit data into local SwiftData cache
-                    await syncEngine?.syncAll()
+                    // Bootstrap full sync: initial app launch after session
+                    // restoration. At this point we have no single-family
+                    // context to scope against — the purpose is a first-run
+                    // pull of all data visible to this user across all
+                    // families. Use syncAllFamiliesUnscoped() to make the
+                    // unscoped intent explicit and prevent accidental
+                    // omission of a familyRecordName in future edits.
+                    await syncEngine?.syncAllFamiliesUnscoped()
 
-                    // Register CloudKit subscriptions for live sync
                     if let zoneID = appState.familyZoneID {
                         let db = cloudKitService.database(isOwner: appState.isZoneOwner)
                         await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
@@ -181,7 +182,6 @@ struct LootListApp: App {
             .overlay(alignment: .top) { ToastView(toastManager: toastManager) }
 
         if appState.cacheInitError != nil {
-            // Cache init failed at launch (schema-migration error, etc.). The cache is
             // a required layer; surface the error as a controlled launch failure rather
             // than rendering blank `@Query *.Cache` views forever.
             FatalCacheErrorView(message: appState.cacheInitError ?? "Unknown cache initialization failure.")
@@ -239,7 +239,7 @@ private struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(CloudKitService.self) private var cloudKitService
     @Environment(FamilyService.self) private var familyService
-    @Environment(CacheService.self) private var cacheService: CacheService?
+    @Environment(CacheService.self) private var cacheService: CacheService
     @Environment(ToastManager.self) private var toastManager
 
     @State private var onboardingVM: OnboardingViewModel?

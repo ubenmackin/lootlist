@@ -30,6 +30,11 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
 
     case shareFailed(String)
 
+    /// Cursor pagination exceeded a sane page budget without CloudKit signaling
+    /// completion (`cursor == nil`). Defensive guard against pathological infinite
+    /// loops where CloudKit returns a non-nil cursor alongside an empty page.
+    case paginationExhausted(pageBudget: Int)
+
     var errorDescription: String? {
         switch self {
         case .accountUnavailable:
@@ -52,6 +57,8 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
             "iCloud share operation failed: \(msg)"
         case let .underlying(msg):
             "CloudKit error: \(msg)"
+        case let .paginationExhausted(pageBudget):
+            "CloudKit query pagination exceeded \(pageBudget) pages without a termination signal."
         }
     }
 }
@@ -106,7 +113,7 @@ actor SubscriptionManager {
 
 @MainActor
 @Observable
-final class CloudKitService {
+class CloudKitService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CloudKitService")
 
     private var containerStorage: CKContainer?
@@ -341,13 +348,38 @@ final class CloudKitService {
         let query = CKQuery(recordType: type.recordType, predicate: predicate)
         query.sortDescriptors = sortDescriptors
 
-        let (matchResults, _) = try await retrying {
+        var allMatchResults: [(CKRecord.ID, Result<CKRecord, Error>)] = []
+        let maximumResults = CKQueryOperation.maximumResults
+
+        let (firstPageResults, firstCursor) = try await retrying {
             try await targetDB.records(matching: query,
                                        inZoneWith: zone,
-                                       resultsLimit: CKQueryOperation.maximumResults)
+                                       resultsLimit: maximumResults)
         }
+        allMatchResults.append(contentsOf: firstPageResults)
+        var cursor: CKQueryOperation.Cursor? = firstCursor
+
+        var pageCount = 1
+        while let nextCursor = cursor {
+            guard pageCount < Self.maxFetchPages else {
+                throw CloudKitServiceError.paginationExhausted(pageBudget: Self.maxFetchPages)
+            }
+            let (pageResults, nextPageCursor) = try await retrying {
+                try await targetDB.records(continuingMatchFrom: nextCursor,
+                                           resultsLimit: maximumResults)
+            }
+            allMatchResults.append(contentsOf: pageResults)
+            // CloudKit returns a non-nil cursor iff more pages exist; a nil
+            // cursor terminates the loop here automatically. Do NOT gate this on
+            // the page size heuristic — a short final page still carries a nil
+            // cursor, while a non-nil cursor on a sub-`maximumResults` page
+            // (server-side limits, filtered retries) means data would be lost.
+            cursor = nextPageCursor
+            pageCount += 1
+        }
+
         var records: [CKRecord] = []
-        for match in matchResults {
+        for match in allMatchResults {
             switch match.1 {
             case let .success(record):
                 records.append(record)
@@ -768,7 +800,6 @@ final class CloudKitService {
         let consumerID = UUID()
         let manager = subscriptionManager
 
-        // Await registration synchronously so the continuation is visible
         // to broadcastChange before the stream is returned to the caller.
         await manager.registerContinuation(continuation, for: recordType, consumerID: consumerID)
 
@@ -826,6 +857,12 @@ final class CloudKitService {
     }
 
     private static let maxRetries = 3
+
+    /// Defensive upper bound on cursor pagination. CloudKit's contract is that a
+    /// non-nil cursor always means more results exist, but if the server ever
+    /// returns a non-nil cursor alongside an empty page we abort here rather
+    /// than loop indefinitely.
+    private static let maxFetchPages = 10000
 
     private static let backoffSchedule: [UInt64] = [
         500_000_000,

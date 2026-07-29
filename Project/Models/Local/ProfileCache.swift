@@ -2,13 +2,14 @@
 //  ProfileCache.swift
 //  LootList
 //
+//  Created by Ben Mackin on 7/21/26.
 //
 
 import Foundation
 import SwiftData
 
 @Model
-final class ProfileCache {
+final class ProfileCache: FamilyScopedCache {
     #Index<ProfileCache>([\.familyRecordName], [\.iCloudUserRecordName])
 
     @Attribute(.unique) var recordName: String
