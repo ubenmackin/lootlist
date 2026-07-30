@@ -24,16 +24,20 @@ struct DayInfo: Identifiable, Hashable {
 @Observable
 final class HeroDashboardViewModel {
     private(set) var todaysQuests: [QuestCache] = []
+    private(set) var overdueQuests: [QuestCache] = []
     private(set) var weeklyFlexibleQuests: [QuestCache] = []
-    private(set) var completedQuests: [QuestCache] = []
     private(set) var upcomingQuests: [QuestCache] = []
-    private(set) var missedQuests: [QuestCache] = []
     private(set) var weekQuests: [QuestCache] = []
 
     private(set) var streak: Int = 0
     private(set) var earnedThisWeek: Double = 0
     private(set) var availableTemplatesCount: Int = 0
     private(set) var logsByQuestRecordName: [String: QuestCompletionCache] = [:]
+    private(set) var allLogsByQuestRecordName: [String: [QuestCompletionCache]] = [:]
+    /// Precomputed count of `weekQuests` whose approved-log count meets or
+    /// exceeds `targetCount`. Avoids an O(quests × logs) recomputation in
+    /// the view body on every render.
+    private(set) var completedQuestCount: Int = 0
 
     private(set) var weekDays: [DayInfo] = []
     var selectedDayCode: String?
@@ -61,28 +65,23 @@ final class HeroDashboardViewModel {
             )
         }
 
+        var multiLogs: [String: [QuestCompletionCache]] = [:]
+        for log in logs {
+            multiLogs[log.questRecordName, default: []].append(log)
+        }
+        allLogsByQuestRecordName = multiLogs
+
         logsByQuestRecordName = Dictionary(
             logs.map { ($0.questRecordName, $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
-        let completedQuestNames = Set(
-            logs.filter { $0.verificationStatus != VerificationStatus.rejected.rawValue }
-                .map(\.questRecordName)
-        )
-
-        var completed: [QuestCache] = []
         var todayList: [QuestCache] = []
+        var overdueList: [QuestCache] = []
         var flexibleList: [QuestCache] = []
         var upcoming: [QuestCache] = []
-        var missed: [QuestCache] = []
 
         for quest in quests {
-            if completedQuestNames.contains(quest.recordName) {
-                completed.append(quest)
-                continue
-            }
-
             let specDays: [String] = {
                 if let template = templatesByID[quest.templateRecordName] {
                     return template.specificDays ?? []
@@ -95,11 +94,6 @@ final class HeroDashboardViewModel {
                 flexibleList.append(quest)
 
             case .specificDays:
-                if specDays.contains(todayCode) {
-                    todayList.append(quest)
-                }
-
-                // Check if days are strictly in the past
                 let isPastOnly = !specDays.isEmpty && specDays.allSatisfy { code in
                     if let day = weekDays.first(where: { $0.weekdayCode == code }) {
                         return day.isPast
@@ -114,26 +108,52 @@ final class HeroDashboardViewModel {
                     return false
                 }
 
-                if isPastOnly {
-                    missed.append(quest)
-                } else if hasFutureDay, !specDays.contains(todayCode) {
+                let isToday = specDays.contains(todayCode)
+                let isCompleted = isFullyCompleted(for: quest)
+
+                if isPastOnly, !isCompleted {
+                    overdueList.append(quest)
+                } else if isToday || (isPastOnly && isCompleted) {
+                    todayList.append(quest)
+                } else if hasFutureDay {
                     upcoming.append(quest)
+                } else {
+                    todayList.append(quest)
                 }
             }
         }
 
         weekQuests = quests
-        completedQuests = completed
+        overdueQuests = overdueList
         todaysQuests = todayList
         weeklyFlexibleQuests = flexibleList
         upcomingQuests = upcoming
-        missedQuests = missed
         availableTemplatesCount = templatesByID.values.filter(\.isActive).count
 
-        // passed `@Query *Cache` arrays (mirrors
         let heroLogs = logs.filter { $0.completerRecordName == profileName }
         streak = Self.computeStreak(from: heroLogs)
         earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests)
+
+        // Precompute the number of fully-completed quests once, so the view
+        // body can read a plain Int instead of re-filtering logs per quest.
+        completedQuestCount = quests.reduce(0) { count, quest in
+            count + (isFullyCompleted(for: quest) ? 1 : 0)
+        }
+    }
+
+    func logs(for quest: QuestCache) -> [QuestCompletionCache] {
+        allLogsByQuestRecordName[quest.recordName] ?? []
+    }
+
+    func approvedCount(for quest: QuestCache) -> Int {
+        logs(for: quest).filter {
+            $0.verificationStatus == VerificationStatus.verified.rawValue || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
+        }.count
+    }
+
+    func isFullyCompleted(for quest: QuestCache) -> Bool {
+        let target = max(1, quest.targetCount)
+        return approvedCount(for: quest) >= target
     }
 
     /// Half-open-week, approved-completions, quest-gold join — the same
@@ -152,11 +172,21 @@ final class HeroDashboardViewModel {
             quests.map { ($0.recordName, $0) },
             uniquingKeysWith: { current, _ in current }
         )
-        return approvedWeekLogs.reduce(into: 0.0) { acc, log in
-            if let quest = questByName[log.questRecordName] {
-                acc += quest.goldReward
-            }
+
+        var logsByQuest: [String: [QuestCompletionCache]] = [:]
+        for log in approvedWeekLogs {
+            logsByQuest[log.questRecordName, default: []].append(log)
         }
+
+        var totalEarned = 0.0
+        for (qName, qLogs) in logsByQuest {
+            guard let quest = questByName[qName] else { continue }
+            totalEarned += GoldCalculation.creditAsDouble(
+                for: quest,
+                approvedCount: qLogs.count
+            )
+        }
+        return totalEarned
     }
 
     static func computeStreak(from logs: [QuestCompletionCache]) -> Int {

@@ -23,6 +23,7 @@ final class QuestCache: FamilyScopedCache {
     var xpReward: Int
     var rarity: String
     var scheduleType: String
+    var targetCount: Int = 1
     var isAllOrNothing: Bool
     var approvalMode: String
     var descriptionText: String?
@@ -40,6 +41,7 @@ final class QuestCache: FamilyScopedCache {
          xpReward: Int,
          rarity: String,
          scheduleType: String,
+         targetCount: Int = 1,
          isAllOrNothing: Bool,
          approvalMode: String,
          descriptionText: String?,
@@ -57,6 +59,7 @@ final class QuestCache: FamilyScopedCache {
         self.xpReward = xpReward
         self.rarity = rarity
         self.scheduleType = scheduleType
+        self.targetCount = targetCount
         self.isAllOrNothing = isAllOrNothing
         self.approvalMode = approvalMode
         self.descriptionText = descriptionText
@@ -77,6 +80,7 @@ final class QuestCache: FamilyScopedCache {
             xpReward: quest.xpReward,
             rarity: quest.rarity.rawValue,
             scheduleType: quest.scheduleType.rawValue,
+            targetCount: quest.targetCount,
             isAllOrNothing: quest.isAllOrNothing,
             approvalMode: quest.approvalMode.rawValue,
             descriptionText: quest.descriptionText,

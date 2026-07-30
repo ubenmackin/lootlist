@@ -134,7 +134,7 @@ Each rarity maps to an XP reward (`AppConstants.Rarity.*XP`), a color, and an SF
 | Concept | User-Facing Term |
 |---|---|
 | Chores | Quests |
-| Completed | Slain ⚔️ |
+| Completed | Completed |
 | Allowance | Gold |
 | Ledger | Scroll of Spending |
 | Streak | Combo Streak 🔥 |
@@ -194,7 +194,7 @@ Every notification type is individually toggleable per user (stored as `Notifica
 | Event | Default (Hero) | Default (Parent) |
 |---|---|---|
 | Quest Assigned | ON | OFF |
-| Quest Slain | OFF | ON |
+| Quest Completed | OFF | ON |
 | Quest Needs Review | OFF | ON |
 | Quest Missed | ON | ON |
 | Gold Earned (Loot Day) | ON | ON |

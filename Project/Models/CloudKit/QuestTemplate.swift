@@ -29,6 +29,8 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
 
     var specificDays: [String]
 
+    var targetCount: Int
+
     var isAllOrNothing: Bool
 
     var approvalMode: ApprovalMode
@@ -72,6 +74,8 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
 
         specificDays = (record["specificDays"] as? [String]) ?? []
 
+        targetCount = (record["targetCount"] as? Int) ?? 1
+
         isAllOrNothing = (record["isAllOrNothing"] as? Bool) ?? false
 
         guard let approvalRaw = record["approvalMode"] as? String,
@@ -102,6 +106,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         record["xpReward"] = xpReward as CKRecordValue
         record["scheduleType"] = scheduleType.rawValue as CKRecordValue
         record["specificDays"] = specificDays as CKRecordValue
+        record["targetCount"] = targetCount as CKRecordValue
         record["isAllOrNothing"] = isAllOrNothing as CKRecordValue
         record["approvalMode"] = approvalMode.rawValue as CKRecordValue
         record["createdBy"] = createdBy as CKRecordValue
@@ -116,6 +121,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
          xpReward: Int,
          scheduleType: QuestSchedule,
          specificDays: [String] = [],
+         targetCount: Int = 1,
          isAllOrNothing: Bool = false,
          approvalMode: ApprovalMode = .autoApprove,
          createdBy: CKRecord.Reference,
@@ -130,6 +136,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         self.xpReward = xpReward
         self.scheduleType = scheduleType
         self.specificDays = specificDays
+        self.targetCount = targetCount
         self.isAllOrNothing = isAllOrNothing
         self.approvalMode = approvalMode
         self.createdBy = createdBy

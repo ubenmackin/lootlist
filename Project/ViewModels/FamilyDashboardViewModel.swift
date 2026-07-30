@@ -106,11 +106,11 @@ final class FamilyDashboardViewModel {
             let weekLogs = logs.filter {
                 $0.completerRecordName == hero.recordName && weekRange.contains($0.weekOf)
             }
-            let slainLogs = weekLogs.filter {
+            let completedLogs = weekLogs.filter {
                 $0.verificationStatus == VerificationStatus.verified.rawValue
                     || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
             }
-            var goldFromQuests = slainLogs.reduce(into: 0.0) { acc, log in
+            var goldFromQuests = completedLogs.reduce(into: 0.0) { acc, log in
                 if let quest = questByName[log.questRecordName] {
                     acc += quest.goldReward
                 }
@@ -120,7 +120,7 @@ final class FamilyDashboardViewModel {
             }
             if hero.payoutPolicyEnum == .allOrNothing,
                !assignedQuests.isEmpty,
-               slainLogs.count < assignedQuests.count
+               completedLogs.count < assignedQuests.count
             {
                 goldFromQuests = 0
             }

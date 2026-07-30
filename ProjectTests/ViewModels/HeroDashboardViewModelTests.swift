@@ -105,7 +105,7 @@ struct HeroDashboardViewModelTests {
             assigneeRecordName: test.profileName,
             templateRecordName: "t1",
             weekOf: currentWeek,
-            questName: "Slay Dragon",
+            questName: "Complete Dragon",
             isActive: true,
             goldReward: 15.0,
             xpReward: 10,
@@ -132,7 +132,7 @@ struct HeroDashboardViewModelTests {
         viewModel.rebuildLists(quests: [quest], logs: [log], templates: [])
 
         #expect(viewModel.earnedThisWeek == 15.0)
-        #expect(viewModel.completedQuests.count == 1)
+        #expect(viewModel.isFullyCompleted(for: quest))
     }
 
     @Test
@@ -147,7 +147,7 @@ struct HeroDashboardViewModelTests {
             assigneeRecordName: test.profileName,
             templateRecordName: "t1",
             weekOf: currentWeek,
-            questName: "Slay Goblin",
+            questName: "Complete Goblin",
             isActive: true,
             goldReward: 20.0,
             xpReward: 5,
@@ -182,7 +182,7 @@ struct HeroDashboardViewModelTests {
             assigneeRecordName: test.profileName,
             templateRecordName: "t2",
             weekOf: currentWeek,
-            questName: "Slay Dragon",
+            questName: "Complete Dragon",
             isActive: true,
             goldReward: 15.0,
             xpReward: 10,
@@ -215,21 +215,10 @@ struct HeroDashboardViewModelTests {
         // `earnedThisWeek` derives gold via the STRICT approved-status join
         // (`autoApproved` || `verified`) inside `Self.earnedThisWeek`, so the
         // pending `q1` completion (20.0 gold) is excluded and only the
-        // autoApproved `q2` completion (15.0 gold) is counted. This proves the
-        // harness exercises the real gold filter path — before the harness
-        // `appState.family` fix, `rebuildLists` early-returned and
-        // `earnedThisWeek` stayed at its `0` default for the WRONG reason.
+        // autoApproved `q2` completion (15.0 gold) is counted.
         #expect(viewModel.earnedThisWeek == 15.0)
-        // `completedQuests` uses the BROAD `!= rejected` filter in
-        // `rebuildLists`, so BOTH the pending `q1` and the autoApproved `q2`
-        // land in the completed list. (The pending completion is not rejected,
-        // so it remains visible in the completed list even though it does not
-        // earn gold.) This positively exercises the gold/completed filter paths
-        // — neither value would be `0`/empty if the early-return still masked
-        // the test, so this rules out any future false-positive regression.
-        #expect(viewModel.completedQuests.count == 2)
-        #expect(viewModel.completedQuests.contains { $0.recordName == "q1" })
-        #expect(viewModel.completedQuests.contains { $0.recordName == "q2" })
+        #expect(viewModel.isFullyCompleted(for: approvedQuest))
+        #expect(!viewModel.isFullyCompleted(for: quest))
     }
 
     @Test

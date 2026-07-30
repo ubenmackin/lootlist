@@ -29,6 +29,8 @@ struct Quest: Identifiable, Equatable, Sendable {
 
     var scheduleType: QuestSchedule
 
+    var targetCount: Int
+
     var isAllOrNothing: Bool
 
     var approvalMode: ApprovalMode
@@ -92,6 +94,8 @@ struct Quest: Identifiable, Equatable, Sendable {
         let scheduleRaw = (record["scheduleType"] as? String) ?? QuestSchedule.weeklyFlexible.rawValue
         scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
 
+        targetCount = (record["targetCount"] as? Int) ?? 1
+
         isAllOrNothing = (record["isAllOrNothing"] as? NSNumber)?.boolValue ?? (record["isAllOrNothing"] as? Bool) ?? false
 
         guard let approvalRaw = record["approvalMode"] as? String,
@@ -129,6 +133,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         record["goldReward"] = goldReward as CKRecordValue
         record["xpReward"] = xpReward as CKRecordValue
         record["scheduleType"] = scheduleType.rawValue as CKRecordValue
+        record["targetCount"] = targetCount as CKRecordValue
         record["isAllOrNothing"] = isAllOrNothing as CKRecordValue
         record["approvalMode"] = approvalMode.rawValue as CKRecordValue
         record["active"] = active as CKRecordValue
@@ -149,6 +154,7 @@ struct Quest: Identifiable, Equatable, Sendable {
          goldReward: Double,
          xpReward: Int,
          scheduleType: QuestSchedule,
+         targetCount: Int = 1,
          isAllOrNothing: Bool = false,
          approvalMode: ApprovalMode = .autoApprove,
          weekOf: Date,
@@ -164,6 +170,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         self.goldReward = goldReward
         self.xpReward = xpReward
         self.scheduleType = scheduleType
+        self.targetCount = targetCount
         self.isAllOrNothing = isAllOrNothing
         self.approvalMode = approvalMode
         active = true

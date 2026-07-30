@@ -297,7 +297,7 @@ struct FamilyDashboardView: View {
             statBlock(
                 icon: "checkmark.seal.fill",
                 value: "\(summary.totalQuestsCompleted)",
-                label: "Quests Slain",
+                label: "Quests Completed",
                 tint: .green
             )
             Divider()

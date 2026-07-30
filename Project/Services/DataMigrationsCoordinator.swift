@@ -80,4 +80,16 @@ extension DataMigrationsCoordinator {
             }
         }
     }
+
+    static func questTargetCountBackfillV2(backgroundCache: BackgroundCacheActor) -> MigrationStep {
+        MigrationStep(id: "QuestTargetCountBackfillV2", version: 2) {
+            // Backfill `targetCount` to 1 for any QuestCache or QuestTemplateCache
+            // rows persisted before the field existed. Iterates globally by
+            // `@Attribute(.unique) recordName` (not per-family) so pre-feature
+            // installs across every family zone are repaired in one pass. The
+            // backfill is idempotent — rows already carrying a positive value
+            // are never clobbered. Safe to run on BackgroundCacheActor.
+            await backgroundCache.backfillTargetCountGlobally()
+        }
+    }
 }

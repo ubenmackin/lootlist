@@ -50,11 +50,23 @@ final class TreasuryViewModel {
             $0.verificationStatus == VerificationStatus.autoApproved.rawValue || $0.verificationStatus == VerificationStatus.verified.rawValue
         }
 
-        var goldFromQuests = 0.0
+        let questByName = Dictionary(
+            quests.map { ($0.recordName, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+
+        var allLogsByQuest: [String: [QuestCompletionCache]] = [:]
         for log in approvedLogs {
-            if let quest = quests.first(where: { $0.recordName == log.questRecordName }) {
-                goldFromQuests += quest.goldReward
-            }
+            allLogsByQuest[log.questRecordName, default: []].append(log)
+        }
+
+        var goldFromQuests = 0.0
+        for (qName, qLogs) in allLogsByQuest {
+            guard let quest = questByName[qName] else { continue }
+            goldFromQuests += GoldCalculation.creditAsDouble(
+                for: quest,
+                approvedCount: qLogs.count
+            )
         }
 
         let bonusGold = profileLedgers.filter { $0.amount > 0 }.reduce(into: 0.0) { $0 += $1.amount }
@@ -77,11 +89,18 @@ final class TreasuryViewModel {
         }
 
         let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) }
-        var weekQuestsGold = 0.0
+        var weekLogsByQuest: [String: [QuestCompletionCache]] = [:]
         for log in weekLogs {
-            if let quest = quests.first(where: { $0.recordName == log.questRecordName }) {
-                weekQuestsGold += quest.goldReward
-            }
+            weekLogsByQuest[log.questRecordName, default: []].append(log)
+        }
+
+        var weekQuestsGold = 0.0
+        for (qName, qLogs) in weekLogsByQuest {
+            guard let quest = questByName[qName] else { continue }
+            weekQuestsGold += GoldCalculation.creditAsDouble(
+                for: quest,
+                approvedCount: qLogs.count
+            )
         }
 
         let assignedQuests = quests.filter {

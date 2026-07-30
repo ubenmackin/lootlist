@@ -76,6 +76,12 @@ struct LootListApp: App {
         migrations.register(
             DataMigrationsCoordinator.questNameBackfillV1(cloudKit: ck)
         )
+        if let cache {
+            let bgActor = BackgroundCacheActor(container: cache.container)
+            migrations.register(
+                DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: bgActor)
+            )
+        }
 
         if TestEnvironment.isRunningUnitOrUITests {
             logger.info("Tests detected — seeding mock data and setting test auth state")
