@@ -62,12 +62,12 @@ final class TreasuryService {
                                             weekStarting: monday,
                                             weekEnding: weekRange.upperBound)
         var goldFromQuests = try await sumGold(for: logs)
-        let slainCount = logs.filter { TreasuryService.isSlain($0) }.count
+        let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         // Check if hero has strict All-or-Nothing payout policy enabled.
         if profile.payoutPolicy == .allOrNothing {
             let assigned = try await fetchAssignedQuests(profile: profile, weekOf: monday)
-            if !assigned.isEmpty, slainCount < assigned.count {
+            if !assigned.isEmpty, completedCount < assigned.count {
                 goldFromQuests = 0.0
             }
         }
@@ -84,7 +84,7 @@ final class TreasuryService {
 
         let totalEarned = goldFromQuests + bonusGold
         return WeeklyBreakdown(
-            questsCount: slainCount,
+            questsCount: completedCount,
             goldFromQuests: goldFromQuests,
             bonusGold: bonusGold,
             totalEarned: totalEarned,
@@ -108,12 +108,12 @@ final class TreasuryService {
                                             weekStarting: monday,
                                             weekEnding: TreasuryService
                                                 .weekRange(starting: monday).upperBound)
-        let slainCount = logs.filter { TreasuryService.isSlain($0) }.count
+        let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         let period = AllowancePeriod(
             weekOf: monday,
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            questsTotal: slainCount,
+            questsTotal: completedCount,
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
 
@@ -458,21 +458,21 @@ final class TreasuryService {
     }
 
     private func sumGold(for logs: [QuestCompletion]) async throws -> Double {
-        var slainLogs: [QuestCompletion] = []
-        slainLogs.reserveCapacity(logs.count)
-        for log in logs where TreasuryService.isSlain(log) {
-            slainLogs.append(log)
+        var completedLogs: [QuestCompletion] = []
+        completedLogs.reserveCapacity(logs.count)
+        for log in logs where TreasuryService.isCompleted(log) {
+            completedLogs.append(log)
         }
-        guard !slainLogs.isEmpty else { return 0 }
+        guard !completedLogs.isEmpty else { return 0 }
 
-        let uniqueQuestIDs = Array(Set(slainLogs.map(\.quest.recordID)))
+        let uniqueQuestIDs = Array(Set(completedLogs.map(\.quest.recordID)))
         var questCache: [CKRecord.ID: Quest] = [:]
 
         // Cache-first: build a lookup dictionary from the family's cached
         // quests.  Only quest IDs absent from the cache fall through to the
         // chunked CloudKit fetch below (genuine cache miss — e.g. very first
         if let cache = cacheService,
-           let familyName = slainLogs.first?.family.recordID.recordName
+           let familyName = completedLogs.first?.family.recordID.recordName
         {
             let zoneID = cloudKit.resolvedZoneID
             for row in cache.fetchQuests(family: familyName) {
@@ -502,16 +502,26 @@ final class TreasuryService {
             }
         }
 
+        // Group approved logs by quest so the shared proration helper is
+        // invoked once per quest with the full approved count — paying the
+        // prorated bounty (all-or-nothing or per-unit) rather than the full
+        // goldReward on every single log.
+        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
+        for log in completedLogs {
+            approvedCountByQuest[log.quest.recordID, default: 0] += 1
+        }
+
         var totalGold: Double = 0
-        for log in slainLogs {
-            if let quest = questCache[log.quest.recordID] {
-                totalGold += quest.goldReward
+        for (questID, approvedCount) in approvedCountByQuest {
+            if let quest = questCache[questID] {
+                totalGold += GoldCalculation.creditAsDouble(for: quest,
+                                                            approvedCount: approvedCount)
             }
         }
         return totalGold
     }
 
-    private static func isSlain(_ log: QuestCompletion) -> Bool {
+    private static func isCompleted(_ log: QuestCompletion) -> Bool {
         log.verificationStatus == .verified
             || log.verificationStatus == .autoApproved
     }

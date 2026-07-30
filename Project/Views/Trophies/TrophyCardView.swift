@@ -119,15 +119,15 @@ struct TrophyCardView: View {
     private var requirementHint: String {
         switch achievement.requirementTypeEnum {
         case AchievementRequirement.firstQuest:
-            "Slain your first quest"
+            "Completed your first quest"
         case AchievementRequirement.questCount10:
-            "\(achievement.requirementValue) quests slain"
+            "\(achievement.requirementValue) quests completed"
         case AchievementRequirement.questCount50:
-            "\(achievement.requirementValue) quests slain"
+            "\(achievement.requirementValue) quests completed"
         case AchievementRequirement.questCount100:
-            "\(achievement.requirementValue) quests slain"
+            "\(achievement.requirementValue) quests completed"
         case AchievementRequirement.weekly100:
-            "100% of a week slain"
+            "100% of a week completed"
         case AchievementRequirement.streak7:
             "\(achievement.requirementValue)-day combo streak"
         case AchievementRequirement.streak30:
@@ -141,7 +141,7 @@ struct TrophyCardView: View {
         case AchievementRequirement.ledgerWeeks4:
             "\(achievement.requirementValue) weeks of spending"
         case AchievementRequirement.earlyBird9am:
-            "Slay a quest before 9 AM"
+            "Complete a quest before 9 AM"
         }
     }
 }

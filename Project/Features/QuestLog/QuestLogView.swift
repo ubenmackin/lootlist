@@ -229,6 +229,10 @@ struct QuestLogView: View {
             Text("⏳ Pending")
                 .font(.caption)
                 .foregroundStyle(.orange)
+        case let .inProgress(completed, target):
+            Text("⏳ In Progress (\(completed)/\(target))")
+                .font(.caption)
+                .foregroundStyle(.orange)
         case .completed:
             Text("✓ Completed")
                 .font(.caption)

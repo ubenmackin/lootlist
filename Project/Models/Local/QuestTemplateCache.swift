@@ -20,6 +20,7 @@ final class QuestTemplateCache: FamilyScopedCache {
     var xpReward: Int
     var rarity: String
     var specificDays: [String]?
+    var targetCount: Int = 1
     var templateDescription: String
     var scheduleType: String
     var isAllOrNothing: Bool
@@ -35,6 +36,7 @@ final class QuestTemplateCache: FamilyScopedCache {
          xpReward: Int,
          rarity: String,
          specificDays: [String]?,
+         targetCount: Int = 1,
          templateDescription: String,
          scheduleType: String,
          isAllOrNothing: Bool,
@@ -50,6 +52,7 @@ final class QuestTemplateCache: FamilyScopedCache {
         self.xpReward = xpReward
         self.rarity = rarity
         self.specificDays = specificDays
+        self.targetCount = targetCount
         self.templateDescription = templateDescription
         self.scheduleType = scheduleType
         self.isAllOrNothing = isAllOrNothing
@@ -68,6 +71,7 @@ final class QuestTemplateCache: FamilyScopedCache {
             xpReward: template.xpReward,
             rarity: template.rarity.rawValue,
             specificDays: template.specificDays.isEmpty ? nil : template.specificDays,
+            targetCount: template.targetCount,
             templateDescription: template.description,
             scheduleType: template.scheduleType.rawValue,
             isAllOrNothing: template.isAllOrNothing,

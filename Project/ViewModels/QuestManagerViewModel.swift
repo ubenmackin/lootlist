@@ -64,6 +64,7 @@ final class QuestManagerViewModel {
                         xpReward: Int,
                         schedule: QuestSchedule,
                         specificDays: [String],
+                        targetCount: Int = 1,
                         isAllOrNothing: Bool = false,
                         approvalMode: ApprovalMode) async throws
     {
@@ -79,6 +80,7 @@ final class QuestManagerViewModel {
             xpReward: xpReward,
             schedule: schedule,
             specificDays: specificDays,
+            targetCount: targetCount,
             isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             createdBy: parent,
@@ -135,6 +137,7 @@ final class QuestManagerViewModel {
                           xpReward: Int,
                           scheduleType: QuestSchedule,
                           specificDays: [String],
+                          targetCount: Int = 1,
                           approvalMode: ApprovalMode,
                           weekOf: Date) async throws
     {
@@ -151,6 +154,7 @@ final class QuestManagerViewModel {
             xpReward: xpReward,
             scheduleType: scheduleType,
             specificDays: specificDays,
+            targetCount: targetCount,
             approvalMode: approvalMode,
             weekOf: weekOf,
             createdBy: parent,
@@ -165,6 +169,7 @@ final class QuestManagerViewModel {
                      goldReward: Double,
                      xpReward: Int,
                      scheduleType: QuestSchedule,
+                     targetCount: Int = 1,
                      isAllOrNothing: Bool,
                      approvalMode: ApprovalMode,
                      assignee: Profile,
@@ -181,6 +186,7 @@ final class QuestManagerViewModel {
                 let fieldsChanged = quest.goldReward != goldReward
                     || quest.xpReward != xpReward
                     || quest.scheduleType != scheduleType
+                    || quest.targetCount != targetCount
                     || quest.assignee.recordID != assignee.id
                 if fieldsChanged {
                     throw QuestEditLockedError.lockedFields
@@ -194,6 +200,7 @@ final class QuestManagerViewModel {
         updated.goldReward = goldReward
         updated.xpReward = xpReward
         updated.scheduleType = scheduleType
+        updated.targetCount = targetCount
         updated.isAllOrNothing = isAllOrNothing
         updated.approvalMode = approvalMode
         updated.assignee = CKRecord.Reference(recordID: assignee.id, action: .none)

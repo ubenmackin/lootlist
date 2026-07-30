@@ -61,8 +61,7 @@ struct HeroDashboardView: View {
                 VStack(spacing: 16) {
                     goldBalanceCard
                     streakBanner
-                    weekStrip
-                    weeklyQuestsBreakdown
+                    questBoard
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -132,7 +131,7 @@ struct HeroDashboardView: View {
                 Text("Quests")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("\(viewModel?.completedQuests.count ?? 0)/\(viewModel?.weekQuests.count ?? 0)")
+                Text("\(viewModel?.completedQuestCount ?? 0)/\(viewModel?.weekQuests.count ?? 0)")
                     .font(.title3.bold())
                     .monospacedDigit()
             }
@@ -163,153 +162,152 @@ struct HeroDashboardView: View {
         }
     }
 
-    private var weekStrip: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(viewModel?.selectedDayCode != nil ? "Filter: \(selectedDayTitle)" : "Full Week Overview")
-                    .font(.caption.bold())
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if viewModel?.selectedDayCode != nil {
-                    Button("Show Full Week") {
-                        viewModel?.selectedDayCode = nil
-                    }
-                    .font(.caption.bold())
-                }
-            }
-
-            if let vm = viewModel {
-                HStack(spacing: 6) {
-                    ForEach(vm.weekDays) { day in
-                        let isSelected = vm.selectedDayCode == day.weekdayCode
-                        let hasQuests = vm.hasQuests(on: day)
-                        let isCompleted = vm.isDayCompleted(day: day)
-
-                        Button {
-                            if isSelected {
-                                vm.selectedDayCode = nil
-                            } else {
-                                vm.selectedDayCode = day.weekdayCode
-                            }
-                        } label: {
-                            VStack(spacing: 4) {
-                                Text(day.shortName)
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(isSelected ? Color.white : (day.isToday ? Color.accentColor : .secondary))
-
-                                Text("\(day.dayNumber)")
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(isSelected ? Color.white : (day.isToday ? Color.accentColor : Color.primary))
-
-                                if hasQuests {
-                                    Circle()
-                                        .fill(isCompleted ? Color.gray.opacity(0.5) : Color.green)
-                                        .frame(width: 4, height: 4)
-                                } else {
-                                    Spacer().frame(height: 4)
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(isSelected ? Color.accentColor : Color(.secondarySystemGroupedBackground))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(day.isToday && !isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-    }
-
-    private var selectedDayTitle: String {
-        guard let code = viewModel?.selectedDayCode,
-              let day = viewModel?.weekDays.first(where: { $0.weekdayCode == code })
-        else {
-            return "Selected Day"
-        }
-        return "\(day.shortName) (\(day.dayNumber))"
-    }
+    // MARK: - Quest Board (Hybrid Option 3)
 
     @ViewBuilder
-    private var weeklyQuestsBreakdown: some View {
+    private var questBoard: some View {
         if let vm = viewModel {
-            if let selectedDay = vm.selectedDayCode {
-                let dayQuests = vm.questsForSelectedDay()
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("\(selectedDay.capitalized)'s Scheduled Quests")
-                            .font(.headline)
-                        if dayQuests.isEmpty {
-                            emptyState(text: "No scheduled quests for \(selectedDay.capitalized)")
-                        } else {
-                            ForEach(dayQuests) { quest in
-                                let zoneID = questService.cloudKitReference.resolvedZoneID
-                                let logCache = vm.logsByQuestRecordName[quest.recordName]
-                                NavigationLink {
-                                    QuestDetailView(quest: quest.toQuest(zoneID: zoneID), initialLog: logCache?.toQuestCompletion(zoneID: zoneID))
-                                } label: {
-                                    QuestCardView(quest: quest)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    if !vm.weeklyFlexibleQuests.isEmpty {
-                        questSection(title: "Weekly Quests (Do Anytime) 🎯", quests: vm.weeklyFlexibleQuests)
-                    }
-                }
+            if vm.weekQuests.isEmpty {
+                emptyState(text: "No quests assigned for this week")
             } else {
-                if vm.weekQuests.isEmpty {
-                    emptyState(text: "No quests assigned for this week")
-                } else {
-                    VStack(alignment: .leading, spacing: 16) {
-                        if !vm.todaysQuests.isEmpty {
-                            questSection(title: "Today's Quests ⚔️", quests: vm.todaysQuests)
-                        }
+                VStack(alignment: .leading, spacing: 20) {
+                    // 1. Overdue quests — top priority with amber warning
+                    if !vm.overdueQuests.isEmpty {
+                        overdueSection(quests: vm.overdueQuests, vm: vm)
+                    }
 
-                        if !vm.weeklyFlexibleQuests.isEmpty {
-                            questSection(title: "Weekly Quests (Do Anytime) 🎯", quests: vm.weeklyFlexibleQuests)
-                        }
+                    // 2. Today's Daily Routines
+                    if !vm.todaysQuests.isEmpty {
+                        dailyRoutinesSection(quests: vm.todaysQuests, vm: vm)
+                    }
 
-                        if !vm.upcomingQuests.isEmpty {
-                            questSection(title: "Coming Up 📅", quests: vm.upcomingQuests)
-                        }
+                    // 3. Weekly Bounties (flexible anytime quests)
+                    if !vm.weeklyFlexibleQuests.isEmpty {
+                        weeklyBountiesSection(quests: vm.weeklyFlexibleQuests, vm: vm)
+                    }
 
-                        if !vm.completedQuests.isEmpty {
-                            questSection(title: "Completed 🟢", quests: vm.completedQuests)
-                        }
+                    // 4. Collapsible Upcoming Agenda
+                    if !vm.upcomingQuests.isEmpty {
+                        upcomingSection(quests: vm.upcomingQuests, vm: vm)
+                    }
 
-                        if !vm.missedQuests.isEmpty {
-                            questSection(title: "Missed ❌", quests: vm.missedQuests)
-                        }
+                    // If nothing in any section but we do have quests, they're all completed
+                    if vm.overdueQuests.isEmpty, vm.todaysQuests.isEmpty,
+                       vm.weeklyFlexibleQuests.isEmpty, vm.upcomingQuests.isEmpty
+                    {
+                        allDoneBanner
                     }
                 }
             }
         }
     }
 
-    private func questSection(title: String, quests: [QuestCache]) -> some View {
+    // MARK: - Overdue Section
+
+    private func overdueSection(quests: [QuestCache], vm: HeroDashboardViewModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
+            Label("Overdue", systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
+                .foregroundStyle(.orange)
             ForEach(quests) { quest in
-                let zoneID = questService.cloudKitReference.resolvedZoneID
-                let logCache = viewModel?.logsByQuestRecordName[quest.recordName]
-                NavigationLink {
-                    QuestDetailView(quest: quest.toQuest(zoneID: zoneID), initialLog: logCache?.toQuestCompletion(zoneID: zoneID))
-                } label: {
-                    QuestCardView(quest: quest)
-                }
-                .buttonStyle(.plain)
+                questCard(quest: quest, vm: vm, isOverdue: true)
             }
         }
+    }
+
+    // MARK: - Daily Routines Section
+
+    private func dailyRoutinesSection(quests: [QuestCache], vm: HeroDashboardViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Today's Quests ⚔️", systemImage: "sun.max.fill")
+                .font(.headline)
+            ForEach(quests) { quest in
+                questCard(quest: quest, vm: vm)
+            }
+        }
+    }
+
+    // MARK: - Weekly Bounties Section
+
+    private func weeklyBountiesSection(quests: [QuestCache], vm: HeroDashboardViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Weekly Bounties 🎯", systemImage: "target")
+                .font(.headline)
+            ForEach(quests) { quest in
+                questCard(quest: quest, vm: vm)
+            }
+        }
+    }
+
+    // MARK: - Upcoming Section (Collapsible)
+
+    @State private var isUpcomingExpanded: Bool = false
+
+    private func upcomingSection(quests: [QuestCache], vm: HeroDashboardViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.snappy) { isUpcomingExpanded.toggle() }
+            } label: {
+                HStack {
+                    Label("Upcoming Later This Week", systemImage: "calendar.badge.clock")
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: isUpcomingExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if isUpcomingExpanded {
+                ForEach(quests) { quest in
+                    questCard(quest: quest, vm: vm)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+        }
+    }
+
+    // MARK: - Quest Card Builder
+
+    private func questCard(quest: QuestCache, vm: HeroDashboardViewModel, isOverdue: Bool = false) -> some View {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let questLogs = vm.logs(for: quest)
+        let logCache = vm.logsByQuestRecordName[quest.recordName]
+
+        return NavigationLink {
+            QuestDetailView(quest: quest.toQuest(zoneID: zoneID), initialLog: logCache?.toQuestCompletion(zoneID: zoneID))
+        } label: {
+            QuestCardView(
+                quest: quest,
+                logs: questLogs,
+                isOverdue: isOverdue,
+                onComplete: {
+                    Task {
+                        guard let profile = appState.currentProfile else { return }
+                        _ = try? await questService.markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile)
+                    }
+                }
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - All Done Banner
+
+    private var allDoneBanner: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(.green)
+            Text("All Quests Complete! 🎉")
+                .font(.title3.bold())
+            Text("Great work, adventurer!")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
     }
 
     private func emptyState(text: String = "No quests today") -> some View {

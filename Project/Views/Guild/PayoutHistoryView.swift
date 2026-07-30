@@ -261,7 +261,7 @@ private struct PayoutDetailSheet: View {
                     LabeledContent("Hero", value: heroName)
                     LabeledContent("Week Of", value: period.weekOf.formatted(.dateTime.month().day().year()))
                     LabeledContent("Status", value: period.statusEnum.displayName)
-                    LabeledContent("Quests Slain", value: "\(period.questsCompleted) of \(period.questsTotal)")
+                    LabeledContent("Quests Completed", value: "\(period.questsCompleted) of \(period.questsTotal)")
                     LabeledContent("Total Gold Earned", value: String(format: "%.2f", period.totalEarned))
                     if let paidDate = period.paidDate {
                         LabeledContent("Paid Date", value: paidDate.formatted(.dateTime.month().day().year()))

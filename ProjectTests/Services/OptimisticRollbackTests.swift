@@ -251,7 +251,7 @@ struct OptimisticRollbackTests {
             weekOf: monday,
             createdBy: familyRef,
             family: familyRef,
-            name: "Slay Dragon",
+            name: "Complete Dragon",
             id: questID
         )
 

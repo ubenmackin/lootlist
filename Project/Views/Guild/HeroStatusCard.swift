@@ -135,7 +135,7 @@ struct HeroStatusCard: View {
             DisclosureGroup(isExpanded: $isExpanded) {
                 VStack(alignment: .leading, spacing: 6) {
                     if logs.isEmpty {
-                        Text("No recent slayings")
+                        Text("No recent completions")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     } else {
@@ -146,7 +146,7 @@ struct HeroStatusCard: View {
                 }
                 .padding(.top, 6)
             } label: {
-                Label(logs.isEmpty ? "No Recent Slayings" : "Recent Slayings",
+                Label(logs.isEmpty ? "No Recent Completions" : "Recent Completions",
                       systemImage: "list.bullet.clipboard")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tint)
@@ -190,7 +190,7 @@ struct HeroStatusCard: View {
     private func statusLabel(_ status: VerificationStatus) -> String {
         switch status {
         case .verified: "Verified"
-        case .autoApproved: "Auto-Slain"
+        case .autoApproved: "Auto-Completed"
         case .pending: "Awaiting Review"
         case .rejected: "Rejected"
         }
@@ -198,7 +198,7 @@ struct HeroStatusCard: View {
 
     private var accessibilityLabel: String {
         let name = summary.profile.displayName
-        let ratio = "\(summary.weeklyQuestsCompleted) of \(summary.weeklyQuestsTotal) quests slain"
+        let ratio = "\(summary.weeklyQuestsCompleted) of \(summary.weeklyQuestsTotal) quests completed"
         let gold = String(format: "%.2f gold", summary.weeklyGoldEarned)
         let streak = "Streak \(summary.currentStreak) days"
         let trophies = "\(summary.trophiesEarned) trophies"

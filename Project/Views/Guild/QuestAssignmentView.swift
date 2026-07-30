@@ -54,6 +54,7 @@ struct QuestAssignmentView: View {
     @State private var quickRarity: QuestRarity = .common
     @State private var quickSchedule: QuestSchedule = .weeklyFlexible
     @State private var quickSpecificDays: Set<String> = []
+    @State private var quickTargetCount: Int = 1
     @State private var quickApproval: ApprovalMode = .autoApprove
 
     @State private var editQuestName: String = ""
@@ -61,6 +62,7 @@ struct QuestAssignmentView: View {
     @State private var editGoldText: String = ""
     @State private var editXpText: String = ""
     @State private var editSchedule: QuestSchedule = .weeklyFlexible
+    @State private var editTargetCount: Int = 1
     @State private var editIsAllOrNothing: Bool = false
     @State private var editApproval: ApprovalMode = .autoApprove
     @State private var editAssignee: ProfileCache?
@@ -351,6 +353,10 @@ struct QuestAssignmentView: View {
                 }
             }
 
+            if quickSchedule == .weeklyFlexible {
+                Stepper("Required Times Per Week: \(quickTargetCount)", value: $quickTargetCount, in: 1 ... 7)
+            }
+
             if quickSchedule == .specificDays {
                 VStack(alignment: .leading) {
                     Text("Repeat On")
@@ -450,6 +456,11 @@ struct QuestAssignmentView: View {
                 }
             }
             .disabled(editHasLogs)
+
+            if editSchedule == .weeklyFlexible {
+                Stepper("Required Times Per Week: \(editTargetCount)", value: $editTargetCount, in: 1 ... 7)
+                    .disabled(editHasLogs)
+            }
 
             Picker("Approval", selection: $editApproval) {
                 ForEach(ApprovalMode.allCases, id: \.self) { approval in
@@ -551,6 +562,7 @@ struct QuestAssignmentView: View {
         editGoldText = String(format: "%.2f", quest.goldReward)
         editXpText = "\(quest.xpReward)"
         editSchedule = quest.scheduleTypeEnum
+        editTargetCount = quest.targetCount
         editIsAllOrNothing = quest.isAllOrNothing
         editApproval = quest.approvalModeEnum
 
@@ -658,6 +670,7 @@ struct QuestAssignmentView: View {
                     xpReward: xp,
                     scheduleType: quickSchedule,
                     specificDays: Array(quickSpecificDays),
+                    targetCount: quickSchedule == .weeklyFlexible ? max(1, quickTargetCount) : 1,
                     approvalMode: quickApproval,
                     weekOf: weekOf
                 )
@@ -703,6 +716,7 @@ struct QuestAssignmentView: View {
                     goldReward: gold,
                     xpReward: xp,
                     scheduleType: editSchedule,
+                    targetCount: editSchedule == .weeklyFlexible ? max(1, editTargetCount) : 1,
                     isAllOrNothing: editIsAllOrNothing,
                     approvalMode: editApproval,
                     assignee: hero.toProfile(zoneID: zoneID),

@@ -457,6 +457,29 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
+    /// Backfills `targetCount` to `1` for any `QuestCache` or `QuestTemplateCache`
+    /// rows where the value is nil/zero/unset. Runs globally across all families
+    /// by `@Attribute(.unique) recordName` — this is a one-time migration for
+    /// pre-`targetCount` installs whose cache was persisted before the field
+    /// existed. New rows always carry the `targetCount = 1` default from their
+    /// `init`, so they are left untouched. Idempotent: rows already carrying a
+    /// positive `targetCount` are never clobbered.
+    func backfillTargetCountGlobally() {
+        // QuestCache — iterate by recordName (global, not per-family).
+        let quests = (try? modelContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+        for quest in quests where quest.targetCount <= 0 {
+            quest.targetCount = 1
+        }
+
+        // QuestTemplateCache — same global-by-recordName iteration.
+        let templates = (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+        for template in templates where template.targetCount <= 0 {
+            template.targetCount = 1
+        }
+
+        saveContext()
+    }
+
     func deleteRecord(recordName: String, type: CachedRecordType) {
         if !deleteCoreRecord(recordName: recordName, type: type) {
             deleteSecondaryRecord(recordName: recordName, type: type)
