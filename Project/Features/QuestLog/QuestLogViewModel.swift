@@ -113,7 +113,7 @@ final class QuestLogViewModel {
 
     enum CompletionFilter: String, CaseIterable, Identifiable {
         case all = "All Quests"
-        case completed = "Slain Only"
+        case completed = "Completed Only"
         case incomplete = "Unfinished"
         var id: String {
             rawValue
@@ -129,11 +129,15 @@ final class QuestLogViewModel {
         let heroName: String
         let heroIsActive: Bool
         let completionStatus: CompletionStatus
+        let approvedCount: Int
+        let targetCount: Int
+        let logs: [QuestCompletionCache]
     }
 
     enum CompletionStatus: Equatable {
         case notStarted
         case pending
+        case inProgress(completedCount: Int, targetCount: Int)
         case completed
         case rejected
     }
@@ -180,14 +184,23 @@ final class QuestLogViewModel {
             let heroIsActive = hero?.isActive ?? false
 
             let logs = rawCompletionsByQuest[quest.recordName] ?? []
+            let approvedLogs = logs.filter {
+                $0.verificationStatus == VerificationStatus.verified.rawValue || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
+            }
+            let target = max(1, quest.targetCount)
+
+            let hasRejectedLog = logs.contains {
+                $0.verificationStatus == VerificationStatus.rejected.rawValue
+            }
+
             let status: CompletionStatus = if logs.isEmpty {
                 .notStarted
-            } else if logs.contains(where: {
-                $0.verificationStatus == VerificationStatus.verified.rawValue || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
-            }) {
+            } else if approvedLogs.count >= target {
                 .completed
-            } else if logs.contains(where: { $0.verificationStatus == VerificationStatus.rejected.rawValue }) {
+            } else if hasRejectedLog {
                 .rejected
+            } else if approvedLogs.count > 0 {
+                .inProgress(completedCount: approvedLogs.count, targetCount: target)
             } else {
                 .pending
             }
@@ -211,7 +224,10 @@ final class QuestLogViewModel {
                 quest: quest,
                 heroName: heroName,
                 heroIsActive: heroIsActive,
-                completionStatus: status
+                completionStatus: status,
+                approvedCount: approvedLogs.count,
+                targetCount: target,
+                logs: logs
             ))
         }
 

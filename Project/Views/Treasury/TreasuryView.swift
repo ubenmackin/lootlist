@@ -215,7 +215,7 @@ struct WeeklyBreakdownCard: View {
             }
 
             if let breakdown {
-                BreakdownRow(label: "Quests Slain",
+                BreakdownRow(label: "Quests Completed",
                              value: "\(breakdown.questsCount)",
                              icon: "checkmark.seal.fill",
                              tint: .green)

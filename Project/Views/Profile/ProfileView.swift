@@ -538,7 +538,7 @@ final class ProfileViewModel {
         let heroCompletions = completions.filter { $0.completerRecordName == profileName }
         streak = HeroDashboardViewModel.computeStreak(from: heroCompletions)
 
-        let slainLogs = heroCompletions.filter {
+        let completedLogs = heroCompletions.filter {
             $0.verificationStatus == VerificationStatus.autoApproved.rawValue
                 || $0.verificationStatus == VerificationStatus.verified.rawValue
         }
@@ -546,7 +546,7 @@ final class ProfileViewModel {
             quests.map { ($0.recordName, $0) },
             uniquingKeysWith: { current, _ in current }
         )
-        let goldFromQuests = slainLogs.reduce(into: 0.0) { acc, log in
+        let goldFromQuests = completedLogs.reduce(into: 0.0) { acc, log in
             if let quest = questByName[log.questRecordName] {
                 acc += quest.goldReward
             }

@@ -21,7 +21,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .questAssigned: "Quest Assigned"
-        case .questCompleted: "Quest Slain"
+        case .questCompleted: "Quest Completed"
         case .questNeedsReview: "Quest Needs Review"
         case .questMissed: "Quest Missed"
         case .levelUp: "Level Up"

@@ -15,6 +15,7 @@ struct QuestDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
 
+    @State private var allLogs: [QuestCompletion] = []
     @State private var latestLog: QuestCompletion?
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
@@ -22,10 +23,29 @@ struct QuestDetailView: View {
     @State private var error: String?
     @State private var isErrorPresented: Bool = false
 
+    private var targetCount: Int {
+        max(1, quest.targetCount)
+    }
+
+    private var approvedLogs: [QuestCompletion] {
+        allLogs.filter { $0.verificationStatus == .autoApproved || $0.verificationStatus == .verified }
+    }
+
+    private var approvedCount: Int {
+        approvedLogs.count
+    }
+
+    private var isFullyCompleted: Bool {
+        approvedCount >= targetCount
+    }
+
     init(quest: Quest, initialLog: QuestCompletion? = nil) {
         self.quest = quest
         self.initialLog = initialLog
         _latestLog = State(initialValue: initialLog)
+        if let initialLog {
+            _allLogs = State(initialValue: [initialLog])
+        }
     }
 
     var body: some View {
@@ -34,8 +54,11 @@ struct QuestDetailView: View {
                 header
                 rewardsCard
                 approvalCard
-                if let log = latestLog {
-                    statusCard(log: log)
+                if targetCount > 1 {
+                    progressCard
+                }
+                if !allLogs.isEmpty {
+                    logsSection
                 }
                 completeButton
             }
@@ -127,12 +150,53 @@ struct QuestDetailView: View {
         )
     }
 
+    // MARK: - Multi-Completion Progress Card
+
+    private var progressCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Progress: \(approvedCount)/\(targetCount) completed")
+                .font(.headline)
+
+            ProgressView(value: Double(approvedCount), total: Double(targetCount))
+                .tint(isFullyCompleted ? .green : .accentColor)
+
+            if isFullyCompleted {
+                Label("All completions logged!", systemImage: "checkmark.seal.fill")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.green)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    // MARK: - Logs Section
+
+    private var logsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(targetCount > 1 ? "Completion Logs" : "Status")
+                .font(.headline)
+
+            ForEach(allLogs.sorted(by: { $0.completedDate < $1.completedDate }), id: \.id) { log in
+                statusCard(log: log)
+            }
+        }
+    }
+
     private func statusCard(log: QuestCompletion) -> some View {
         HStack(spacing: 8) {
             Image(systemName: statusIcon(log.verificationStatus))
                 .foregroundStyle(statusColor(log.verificationStatus))
-            Text(statusLabel(log.verificationStatus))
-                .font(.subheadline.bold())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(statusLabel(log.verificationStatus))
+                    .font(.subheadline.bold())
+                Text(log.completedDate, style: .date)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
         }
         .padding(14)
@@ -161,6 +225,16 @@ struct QuestDetailView: View {
     }
 
     private var completeButtonLabel: String {
+        if isFullyCompleted {
+            return "Completed"
+        }
+        if targetCount > 1 {
+            let pending = allLogs.filter { $0.verificationStatus == .pending }.count
+            if pending > 0 {
+                return "Awaiting Verification (\(approvedCount)/\(targetCount))"
+            }
+            return "Log Completion (\(approvedCount + 1)/\(targetCount))"
+        }
         if let log = latestLog {
             switch log.verificationStatus {
             case .autoApproved, .verified: return "Completed"
@@ -172,6 +246,13 @@ struct QuestDetailView: View {
     }
 
     private var completeButtonDisabled: Bool {
+        if isFullyCompleted {
+            return true
+        }
+        if targetCount > 1 {
+            let nonRejected = allLogs.filter { $0.verificationStatus != .rejected }.count
+            return isCompleting || nonRejected >= targetCount
+        }
         if let log = latestLog {
             switch log.verificationStatus {
             case .autoApproved, .verified, .pending: return true
@@ -221,7 +302,13 @@ struct QuestDetailView: View {
         }
 
         do {
-            let logs = try await questService.fetchQuestLogs(forQuest: quest)
+            // Bypass the SwiftData cache so the local state is reconciled against
+            // CloudKit's authoritative log set. Another device may have logged a
+            // slot in the interim; a cache-first read could mask that and allow a
+            // duplicate completion on the next tap. Mirrors the `useCache: false`
+            // gate inside `QuestService.markComplete`.
+            let logs = try await questService.fetchQuestLogs(forQuest: quest, useCache: false)
+            allLogs = logs
             if let fetched = logs.first {
                 latestLog = fetched
             }
@@ -239,7 +326,13 @@ struct QuestDetailView: View {
         isCompleting = true
         defer { isCompleting = false }
         do {
-            latestLog = try await questService.markComplete(quest: quest, by: profile)
+            let newLog = try await questService.markComplete(quest: quest, by: profile)
+            latestLog = newLog
+            allLogs.append(newLog)
+            // Reconcile local state against CloudKit's authoritative log set before
+            // the user can tap the next slot. Awaits so the multi-completion disable
+            // check reads the freshly-loaded `allLogs` and cannot desync by one tap.
+            await load()
         } catch let questError as QuestServiceError {
             self.error = questError.localizedDescription
             self.isErrorPresented = true

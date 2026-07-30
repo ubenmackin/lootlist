@@ -52,6 +52,7 @@ final class QuestService {
                         xpReward: Int,
                         schedule: QuestSchedule,
                         specificDays: [String] = [],
+                        targetCount: Int = 1,
                         isAllOrNothing: Bool = false,
                         approvalMode: ApprovalMode = .autoApprove,
                         createdBy: Profile,
@@ -64,6 +65,7 @@ final class QuestService {
             xpReward: xpReward,
             scheduleType: schedule,
             specificDays: schedule.requiresSpecificDays ? specificDays : [],
+            targetCount: max(1, targetCount),
             isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
@@ -89,23 +91,14 @@ final class QuestService {
             cacheService?.upsertQuestTemplate(saved)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
+                // Concurrent edit: re-fetch authoritative record, fall back to snapshot, else invalidate.
                 if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
                     cacheService?.upsertQuestTemplate(fresh)
                 } else if let snapshot {
@@ -119,9 +112,7 @@ final class QuestService {
                 } else {
                     cacheService?.invalidateQuestTemplate(recordName: name)
                 }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -145,23 +136,13 @@ final class QuestService {
             cacheService?.upsertQuestTemplate(saved)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
                 if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
                     cacheService?.upsertQuestTemplate(fresh)
                 } else if let snapshot {
@@ -175,9 +156,7 @@ final class QuestService {
                 } else {
                     cacheService?.invalidateQuestTemplate(recordName: name)
                 }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -222,6 +201,7 @@ final class QuestService {
             goldReward: goldOverride ?? template.defaultGold,
             xpReward: xpOverride ?? template.xpReward,
             scheduleType: template.scheduleType,
+            targetCount: template.targetCount,
             isAllOrNothing: template.isAllOrNothing,
             approvalMode: approvalOverride ?? template.approvalMode,
             weekOf: normalizedWeek,
@@ -249,23 +229,13 @@ final class QuestService {
             }
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: nil,
-                fetchCurrent: { cacheService?.fetchQuests(family: family.id.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuests(family: family.id.recordName)
                     .first(where: { $0.recordName == quest.id.recordName })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR invalidate
-                // if the re-fetch also fails (no snapshot to restore for new records).
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
                 if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
                     cacheService?.upsertQuest(fresh)
                 } else {
@@ -273,9 +243,7 @@ final class QuestService {
                 }
             } else {
                 cacheService?.invalidateQuest(recordName: quest.id.recordName)
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -304,23 +272,13 @@ final class QuestService {
             cacheService?.upsertQuest(saved)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchQuests(family: quest.family.recordID.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
                 if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
                     cacheService?.upsertQuest(fresh)
                 } else if let snapshotQuest {
@@ -334,9 +292,7 @@ final class QuestService {
                 } else {
                     cacheService?.invalidateQuest(recordName: name)
                 }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -350,6 +306,7 @@ final class QuestService {
                           xpReward: Int,
                           scheduleType: QuestSchedule = .weeklyFlexible,
                           specificDays: [String] = [],
+                          targetCount: Int = 1,
                           approvalMode: ApprovalMode = .autoApprove,
                           weekOf: Date,
                           createdBy: Profile,
@@ -363,6 +320,7 @@ final class QuestService {
             xpReward: xpReward,
             schedule: scheduleType,
             specificDays: specificDays,
+            targetCount: targetCount,
             approvalMode: approvalMode,
             createdBy: createdBy,
             family: family
@@ -376,6 +334,7 @@ final class QuestService {
             goldReward: goldReward,
             xpReward: xpReward,
             scheduleType: scheduleType,
+            targetCount: max(1, targetCount),
             isAllOrNothing: false,
             approvalMode: approvalMode,
             weekOf: normalizedWeek,
@@ -403,41 +362,25 @@ final class QuestService {
             }
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: nil,
-                fetchCurrent: { cacheService?.fetchQuests(family: family.id.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuests(family: family.id.recordName)
                     .first(where: { $0.recordName == quest.id.recordName })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR invalidate
-                // if the re-fetch also fails (no snapshot to restore for new records).
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
                 if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
                     cacheService?.upsertQuest(fresh)
                 } else {
                     cacheService?.invalidateQuest(recordName: quest.id.recordName)
                 }
                 // The deactivated ad-hoc template was already persisted before
-                // the quest save. Invalidate it from the cache too so it does
-                // not linger as an orphan (matches the rollback branch below).
+                // the quest save; invalidate it too so it doesn't orphan.
                 cacheService?.invalidateQuestTemplate(recordName: adhocTemplate.id.recordName)
             } else {
-                // Roll back: the quest save failed but the deactivated template
-                // was already persisted. Invalidate both the quest and the
-                // orphaned template so they don't linger in the cache.
                 cacheService?.invalidateQuest(recordName: quest.id.recordName)
                 cacheService?.invalidateQuestTemplate(recordName: adhocTemplate.id.recordName)
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -499,7 +442,11 @@ final class QuestService {
             .filter { $0.active && range.contains($0.weekOf) }
             .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
     }
+}
 
+// MARK: - Quest Completions & Verification
+
+extension QuestService {
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
         // Correctness gate: must read from CloudKit (not stale cache) to prevent
@@ -507,7 +454,9 @@ final class QuestService {
         // log could falsely throw alreadyCompleted, and a stale cached empty set
         // could allow a duplicate completion. See `fetchQuestLogs(forQuest:useCache:)` docs.
         let existingLogs = await (try? fetchQuestLogs(forQuest: quest, useCache: false)) ?? []
-        if existingLogs.contains(where: { $0.verificationStatus != .rejected }) {
+        let nonRejectedCount = existingLogs.filter { $0.verificationStatus != .rejected }.count
+        let target = max(1, quest.targetCount)
+        if nonRejectedCount >= target {
             throw QuestServiceError.alreadyCompleted
         }
 
@@ -544,23 +493,13 @@ final class QuestService {
 
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: nil,
-                fetchCurrent: { cacheService?.fetchQuestCompletions(family: quest.family.recordID.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuestCompletions(family: quest.family.recordID.recordName)
                     .first(where: { $0.recordName == editable.id.recordName })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR invalidate
-                // if the re-fetch also fails (no snapshot to restore for new records).
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
                 if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: editable.id) {
                     cacheService?.upsertQuestCompletion(fresh)
                 } else {
@@ -568,9 +507,7 @@ final class QuestService {
                 }
             } else {
                 cacheService?.invalidateQuestCompletion(recordName: editable.id.recordName)
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -608,38 +545,30 @@ final class QuestService {
 
             let quest = try await cloudKit.fetch(Quest.self, id: questLog.quest.recordID)
             let hero = try await cloudKit.fetch(Profile.self, id: questLog.completedBy.recordID)
-            try await applyReward(for: quest, to: hero)
+            let creditedGold = try await applyReward(for: quest, to: hero)
 
             if let notificationService {
                 Task { @Sendable in
+                    let goldText = NumberFormatter.goldFormatter
+                        .string(from: NSNumber(value: creditedGold)) ?? "\(creditedGold)"
                     try? await notificationService.send(
                         .questCompleted,
                         to: hero,
                         title: "🏆 Quest Verified!",
-                        body: "Your quest was verified! You earned \(quest.goldReward) gold."
+                        body: "Your quest was verified! You earned \(goldText) gold."
                     )
                 }
             }
 
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
                 if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: questLog.id) {
                     cacheService?.upsertQuestCompletion(fresh)
                 } else if let snapshotCompletion {
@@ -653,9 +582,7 @@ final class QuestService {
                 } else {
                     cacheService?.invalidateQuestCompletion(recordName: name)
                 }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -692,23 +619,13 @@ final class QuestService {
             cacheService?.upsertQuestCompletion(saved)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            if handleConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
+                fetchCurrent: { self.cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
                 error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
+            ) {
                 if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: questLog.id) {
                     cacheService?.upsertQuestCompletion(fresh)
                 } else if let snapshotCompletion {
@@ -722,9 +639,7 @@ final class QuestService {
                 } else {
                     cacheService?.invalidateQuestCompletion(recordName: name)
                 }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
+                showErrorToast(error)
             }
             throw error
         }
@@ -832,10 +747,23 @@ final class QuestService {
             }
         }
 
-        var total: Double = 0
+        // Group approved logs by quest and route gold credit through the
+        // shared `GoldCalculation` helper — the same one
+        // `TreasuryService.sumGold` uses — so this weekly total and the wallet
+        // never disagree on a partially completed quest. The proration is
+        // per-quest (approvedCount per quest * goldReward / targetCount,
+        // capped by `isAllOrNothing`), so the helper is invoked once per
+        // quest with the full approved count for that quest.
+        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
         for log in logs {
-            if let quest = questMap[log.quest.recordID] {
-                total += quest.goldReward
+            approvedCountByQuest[log.quest.recordID, default: 0] += 1
+        }
+
+        var total: Double = 0
+        for (questID, approvedCount) in approvedCountByQuest {
+            if let quest = questMap[questID] {
+                total += GoldCalculation.creditAsDouble(for: quest,
+                                                        approvedCount: approvedCount)
             }
         }
         return total
@@ -931,8 +859,50 @@ final class QuestService {
         return stamped
     }
 
-    private func applyReward(for quest: Quest, to hero: Profile) async throws {
+    /// Detects a concurrent edit and surfaces the canonical warning toast.
+    /// Returns `true` when a concurrent edit is found — callers then run
+    /// their per-type rollback (fresh re-fetch / snapshot restore / invalidate).
+    @discardableResult
+    private func handleConcurrentEdit(
+        preMutationChangeTag: String?,
+        fetchCurrent: @escaping () -> String?,
+        error: Error
+    ) -> Bool {
+        let detected = ConcurrentEditDetector.detectConcurrentEdit(
+            preMutationChangeTag: preMutationChangeTag,
+            fetchCurrent: fetchCurrent,
+            error: error
+        )
+        if detected {
+            toastManager?.show(
+                message: "Data was modified by another device. Refresh to see the latest.",
+                type: .warning
+            )
+        }
+        return detected
+    }
+
+    private func showErrorToast(_ error: Error) {
+        let message = (error as? LocalizedError)?.errorDescription
+            ?? error.localizedDescription
+        toastManager?.show(message: message, type: .error)
+    }
+
+    /// Gold credit routes through the shared `GoldCalculation` helper — the
+    /// same one `TreasuryService.sumGold` uses — so the reward step and the
+    /// wallet never disagree on a partially completed quest. The persisted
+    /// `QuestCompletion` record remains the credit TreasuryService sums; no
+    /// parallel wallet write happens here.
+    @discardableResult
+    private func applyReward(for quest: Quest, to hero: Profile) async throws -> Double {
         try await xpService.addXP(quest.xpReward, to: hero)
+
+        // Bypass cache the same way `markComplete` does so a stale local set
+        // can't under- or over-credit the proration.
+        let logs = await (try? fetchQuestLogs(forQuest: quest, useCache: false)) ?? []
+        let approvedCount = logs.filter { $0.verificationStatus != .rejected }.count
+
+        return GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
     }
 
     static func mondayOfWeek(for date: Date) -> Date {

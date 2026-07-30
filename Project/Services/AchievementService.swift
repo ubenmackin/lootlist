@@ -355,6 +355,15 @@ final class AchievementService {
         var weekCompletionCounts: [Date: Int] = [:]
         var earlyBird = false
 
+        // Track per-quest approved counts so the gold credit can be
+        // computed once per quest through the shared `GoldCalculation`
+        // helper — the same one `TreasuryService.sumGold` uses — instead of
+        // adding the full `goldReward` for every log. The proration is
+        // per-quest (approvedCount per quest * goldReward / targetCount,
+        // capped by `isAllOrNothing`), so the helper is invoked after the
+        // loop with the full approved count for each quest.
+        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
+
         for log in completedLogs {
             // Cache-first: fall back to CK only on genuine cache miss.
             if questCache[log.quest.recordID] == nil {
@@ -363,7 +372,7 @@ final class AchievementService {
                 }
             }
             guard let quest = questCache[log.quest.recordID] else { continue }
-            totalGold += quest.goldReward
+            approvedCountByQuest[quest.id, default: 0] += 1
 
             let day = calendar.dateComponents([.year, .month, .day], from: log.completedDate)
             dailyCompletionDates.insert(day)
@@ -373,6 +382,13 @@ final class AchievementService {
             let hour = calendar.component(.hour, from: log.completedDate)
             if hour < 9 {
                 earlyBird = true
+            }
+        }
+
+        for (questID, approvedCount) in approvedCountByQuest {
+            if let quest = questCache[questID] {
+                totalGold += GoldCalculation.creditAsDouble(for: quest,
+                                                            approvedCount: approvedCount)
             }
         }
 

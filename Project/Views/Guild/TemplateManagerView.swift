@@ -21,6 +21,7 @@ struct TemplateManagerView: View {
     @State private var selectedRarity: QuestRarity = .common
     @State private var schedule: QuestSchedule = .weeklyFlexible
     @State private var specificDays: Set<String> = []
+    @State private var targetCount: Int = 1
     @State private var isAllOrNothing: Bool = false
     @State private var approvalMode: ApprovalMode = .autoApprove
     @State private var validationError: String?
@@ -31,15 +32,17 @@ struct TemplateManagerView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Basic Info") {
-                    TextField("Quest Name", text: $name)
+                Section("Template Details") {
+                    TextField("Template Name", text: $name)
                     TextField("Description", text: $descriptionText, axis: .vertical)
                         .lineLimit(2 ... 4)
                 }
 
-                Section("Rewards") {
+                Section("Default Rewards") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Gold Reward")
+                        Text("Default Gold")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
@@ -52,7 +55,7 @@ struct TemplateManagerView: View {
                             }
                             .padding(.vertical, 2)
                         }
-                        TextField("0.00", text: $defaultGoldText)
+                        TextField("1.00", text: $defaultGoldText)
                             .keyboardType(.decimalPad)
                     }
 
@@ -88,6 +91,9 @@ struct TemplateManagerView: View {
                         ForEach(QuestSchedule.allCases, id: \.self) { questSchedule in
                             Text(questSchedule.displayName).tag(questSchedule)
                         }
+                    }
+                    if schedule == .weeklyFlexible {
+                        Stepper("Required Times Per Week: \(targetCount)", value: $targetCount, in: 1 ... 7)
                     }
                     if schedule == .specificDays {
                         VStack(alignment: .leading) {
@@ -161,6 +167,7 @@ struct TemplateManagerView: View {
         selectedRarity = editing.rarity
         schedule = editing.scheduleType
         specificDays = Set(editing.specificDays)
+        targetCount = editing.targetCount
         isAllOrNothing = editing.isAllOrNothing
         approvalMode = editing.approvalMode
     }
@@ -196,6 +203,7 @@ struct TemplateManagerView: View {
                     updated.specificDays = schedule.requiresSpecificDays
                         ? Array(specificDays)
                         : []
+                    updated.targetCount = schedule == .weeklyFlexible ? max(1, targetCount) : 1
                     updated.isAllOrNothing = isAllOrNothing
                     updated.approvalMode = approvalMode
                     try await viewModel.updateTemplate(updated)
@@ -209,6 +217,7 @@ struct TemplateManagerView: View {
                         specificDays: schedule.requiresSpecificDays
                             ? Array(specificDays)
                             : [],
+                        targetCount: schedule == .weeklyFlexible ? max(1, targetCount) : 1,
                         isAllOrNothing: isAllOrNothing,
                         approvalMode: approvalMode
                     )

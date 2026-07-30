@@ -33,11 +33,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3. Showcase Tab Filtering Data & Logic
   const showcaseData = {
     hero: {
-      title: "Hero Quests & Slain Chores",
+      title: "Hero Quests & Completed Chores",
       description: "Kids earn Gold for every quest completed. Configurable approval modes allow auto-payouts or parent verification for high-reward quests.",
       bullets: [
         "Interactive daily quest board with progress bars",
-        "Mark quests as Slain ⚔️ with satisfying haptics",
+        "Mark quests as Completed with satisfying haptics",
         "Combo streaks 🔥 double gold rewards for consistency"
       ],
       image: "assets/screenshots/hero_quests.png",

@@ -95,7 +95,7 @@ enum SampleData {
 
         // swiftlint:disable:next large_tuple
         let templatesData: [(name: String, desc: String, gold: Double, xp: Int, sched: QuestSchedule, approval: ApprovalMode)] = [
-            ("Slay the Homework Beast", "30 minutes of math and spellcraft reading", 7.50, 75, .weeklyFlexible, .autoApprove),
+            ("Complete the Homework Beast", "30 minutes of math and spellcraft reading", 7.50, 75, .weeklyFlexible, .autoApprove),
             ("Clean the Dragon's Lair", "Tidy bedroom floor and organize chest", 5.00, 50, .weeklyFlexible, .autoApprove),
             ("Empty the Treasure Chest", "Take out recycling and trash", 3.50, 35, .weeklyFlexible, .autoApprove),
             ("Polishing the Armor", "Fold and put away clean laundry", 6.00, 60, .weeklyFlexible, .parentVerify),
@@ -214,7 +214,7 @@ enum SampleData {
             LedgerEntry(
                 profile: hero1Ref,
                 amount: 5.00,
-                description: "Loot Drop: 10 Quests Slain Milestone! ⚔️",
+                description: "Loot Drop: 10 Quests Completed Milestone! ⚔️",
                 date: Date().addingTimeInterval(-86400 * 5),
                 source: "bonus",
                 family: familyRef,

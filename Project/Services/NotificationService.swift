@@ -222,7 +222,7 @@ final class NotificationService {
         await registerVerificationCategoryIfNeeded()
 
         let title = "⚔️ Quest Needs Review"
-        let body = "A hero has slain a quest — tap to verify."
+        let body = "A hero has completed a quest — tap to verify."
 
         let content = UNMutableNotificationContent()
         content.title = title
