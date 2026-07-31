@@ -69,10 +69,9 @@ final class CacheService {
 
     // MARK: - Upserts (single)
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertQuests` instead.
-    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
+    // Synchronous @MainActor paths for optimistic UI writes by view models and services.
+    // Background sync from CloudKit uses BackgroundCacheActor instead.
+
     func upsertQuest(_ quest: Quest, family _: String? = nil) {
         let name = quest.id.recordName
         let descriptor = FetchDescriptor<QuestCache>(
@@ -102,10 +101,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertProfiles` instead.
-    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
     func upsertProfile(_ profile: Profile, family _: String? = nil) {
         let name = profile.id.recordName
         let descriptor = FetchDescriptor<ProfileCache>(
@@ -132,10 +127,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertQuestCompletions` instead.
-    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
     func upsertQuestCompletion(_ completion: QuestCompletion, family _: String? = nil) {
         let name = completion.id.recordName
         let descriptor = FetchDescriptor<QuestCompletionCache>(
@@ -162,10 +153,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertQuestTemplates` instead.
-    /// - Note: `family` is unused in this single-record path; records are upserted by `recordName`, and family scoping is enforced by the `@Query` layer in views.
     func upsertQuestTemplate(_ template: QuestTemplate, family _: String? = nil) {
         let name = template.id.recordName
         let descriptor = FetchDescriptor<QuestTemplateCache>(
@@ -193,9 +180,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertFamilies` instead.
     func upsertFamily(_ family: Family) {
         let name = family.id.recordName
         let descriptor = FetchDescriptor<FamilyCache>(
@@ -215,9 +199,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertLedgerEntries` instead.
     func upsertLedgerEntry(_ entry: LedgerEntry) {
         let name = entry.id.recordName
         let descriptor = FetchDescriptor<LedgerEntryCache>(
@@ -239,9 +220,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertAllowancePeriods` instead.
     func upsertAllowancePeriod(_ period: AllowancePeriod) {
         let name = period.id.recordName
         let descriptor = FetchDescriptor<AllowancePeriodCache>(
@@ -266,9 +244,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertAchievements` instead.
     func upsertAchievement(_ achievement: Achievement) {
         let name = achievement.id.recordName
         let descriptor = FetchDescriptor<AchievementCache>(
@@ -291,9 +266,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertNotificationPreferences` instead.
     func upsertNotificationPreference(_ pref: NotificationPreference) {
         let name = pref.id.recordName
         let descriptor = FetchDescriptor<NotificationPreferenceCache>(
@@ -314,9 +286,6 @@ final class CacheService {
         saveContext()
     }
 
-    /// Synchronous @MainActor path for optimistic UI writes.
-    /// Used by view models and services for immediate local updates.
-    /// Background sync from CloudKit uses `BackgroundCacheActor.batchUpsertProfileAchievements` instead.
     func upsertProfileAchievement(_ pa: ProfileAchievement) {
         let name = pa.id.recordName
         let descriptor = FetchDescriptor<ProfileAchievementCache>(

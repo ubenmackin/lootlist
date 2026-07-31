@@ -41,10 +41,7 @@ struct PayoutHistoryView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let allowanceFilter: Predicate<AllowancePeriodCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name }
         }
@@ -97,10 +94,6 @@ struct PayoutHistoryView: View {
                     )
                 }
 
-                // snapshot. `pastPayouts` is derived inside `rebuildLists`
-                // from `cachedAllowancePeriods` (replaces the deleted
-                // `loadPastPayouts()` cache-fetch path). `heroes` is populated
-                // from `cachedProfiles` so `heroName(for:)` resolves.
                 Task { await viewModel?.refresh() }
                 rebuildFromCache()
             }
