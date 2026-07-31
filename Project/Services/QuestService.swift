@@ -456,15 +456,22 @@ final class QuestService {
 extension QuestService {
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        // Correctness gate: must read from CloudKit (not stale cache) to prevent
-        // duplicate completions / false "alreadyCompleted". A stale cached pending
-        // log could falsely throw alreadyCompleted, and a stale cached empty set
-        // could allow a duplicate completion. See `fetchQuestLogs(forQuest:useCache:)` docs.
-        let existingLogs = await (try? fetchQuestLogs(forQuest: quest, useCache: false)) ?? []
-        let nonRejectedCount = existingLogs.filter { $0.verificationStatus != .rejected }.count
+        // Fast-path: read existing logs cache-first for 0ms response.
+        let cachedLogs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
+        let cachedNonRejectedCount = cachedLogs.filter { $0.verificationStatus != .rejected }.count
         let target = max(1, quest.targetCount)
-        if nonRejectedCount >= target {
+        if cachedNonRejectedCount >= target {
             throw QuestServiceError.alreadyCompleted
+        }
+
+        // If local cache shows non-rejected count < target, check CloudKit to reconcile
+        // potential stale cache (e.g. completion from another device). If offline,
+        // the CloudKit query fails gracefully and we proceed with local completion.
+        if let ckLogs = try? await fetchQuestLogs(forQuest: quest, useCache: false) {
+            let ckNonRejectedCount = ckLogs.filter { $0.verificationStatus != .rejected }.count
+            if ckNonRejectedCount >= target {
+                throw QuestServiceError.alreadyCompleted
+            }
         }
 
         let log = QuestCompletion(
@@ -888,9 +895,8 @@ extension QuestService {
     private func applyReward(for quest: Quest, to hero: Profile) async throws -> Double {
         try await xpService.addXP(quest.xpReward, to: hero)
 
-        // Bypass cache the same way `markComplete` does so a stale local set
-        // can't under- or over-credit the proration.
-        let logs = await (try? fetchQuestLogs(forQuest: quest, useCache: false)) ?? []
+        // Read existing logs cache-first to compute approved count and prorated gold.
+        let logs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
         let approvedCount = logs.filter { $0.verificationStatus != .rejected }.count
 
         return GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)

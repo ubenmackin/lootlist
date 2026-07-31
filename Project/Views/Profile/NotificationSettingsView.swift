@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import SwiftData
 import SwiftUI
 import UserNotifications
 
@@ -13,6 +14,8 @@ struct NotificationSettingsView: View {
     private let notificationService: NotificationService
     private let profile: Profile
     private let family: Family
+
+    @Query private var cachedPreferences: [NotificationPreferenceCache]
 
     @AppStorage("masterNotificationsEnabled") private var masterNotificationsEnabled = true
 
@@ -26,6 +29,13 @@ struct NotificationSettingsView: View {
         self.notificationService = notificationService
         self.profile = profile
         self.family = family
+
+        let profileName = profile.id.recordName
+        let familyName = family.id.recordName
+        let filter = #Predicate<NotificationPreferenceCache> {
+            $0.profileRecordName == profileName && $0.familyRecordName == familyName
+        }
+        _cachedPreferences = Query(filter: filter)
     }
 
     var body: some View {
@@ -208,7 +218,12 @@ struct NotificationSettingsView: View {
 
     private func toggleBinding(for event: NotificationEventType) -> Binding<Bool> {
         Binding<Bool>(
-            get: { notificationService.isNotificationEnabled(for: event) },
+            get: {
+                if let cached = cachedPreferences.first(where: { $0.eventType == event.rawValue }) {
+                    return cached.enabled
+                }
+                return notificationService.isNotificationEnabled(for: event)
+            },
             set: { newValue in
                 // Mirror to UserDefaults for first-launch fallback continuity.
                 UserDefaults.standard.set(newValue, forKey: event.userDefaultsKey)

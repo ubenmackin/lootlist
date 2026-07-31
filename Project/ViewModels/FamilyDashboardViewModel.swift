@@ -207,23 +207,11 @@ final class FamilyDashboardViewModel {
     }
 
     private func handleRecordChangedSync() {
-        // the cache + `.onChange` already refresh the dashboard on
-        // `.recordChanged`. The display-name-stale heuristic and the
-        // `scheduleLatePropagationRetry` 1.5s retry loop were removed (they
-        // fired on every silent push and only papered over a stale-CK-read
-        // race). A single background `fetchAllProfilesForFamily` refreshes
-        // SwiftData for any data not yet in cache; the resulting mutation
-        // re-fires `.onChange` → `rebuildLists`. NO retry loop.
-        //
-        // Debounce: rapid `.recordChanged` bursts cancel the sleeping task
-        // before it reaches the fetch, so at most ONE fetch fires per burst.
+        // SyncEngine's incrementalSync handles writing incoming push changes to
+        // SwiftData, which automatically re-fires `.onChange` → `rebuildLists()`.
+        // No redundant manual CloudKit query needed.
         syncRefreshTask?.cancel()
-        guard let family = appState.family else { return }
-        syncRefreshTask = Task { [familyService] in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            _ = try? await familyService.fetchAllProfilesForFamily(family)
-        }
+        syncRefreshTask = nil
     }
 
     func unsubscribeFromSyncEvents(_ coordinator: AppSyncCoordinator) {
