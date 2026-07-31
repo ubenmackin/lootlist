@@ -252,6 +252,14 @@ final class TreasuryService {
         // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
 
+        // Capture an immutable value-type copy of the snapshot BEFORE the
+        // optimistic write. The cache-managed `snapshot` will be mutated in
+        // place by `upsertAllowancePeriod`, so reading
+        // `snapshot.toAllowancePeriod(...)` later would yield the
+        // *post*-mutation values. The value-type copy
+        // (`AllowancePeriod` struct) is unaffected by later mutations.
+        let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
+
         // Optimistic write first
         cacheService?.upsertAllowancePeriod(updated)
 
@@ -288,12 +296,12 @@ final class TreasuryService {
 
                 if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
                     cacheService?.upsertAllowancePeriod(fresh)
-                } else if let snapshot {
-                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                } else if let snapshotPeriod {
+                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertAllowancePeriod(snapshot.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID))
+                if let snapshotPeriod {
+                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
                 }
                 let message = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription

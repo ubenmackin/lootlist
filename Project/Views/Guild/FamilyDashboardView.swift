@@ -37,10 +37,7 @@ struct FamilyDashboardView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name }
         }
@@ -124,10 +121,7 @@ struct FamilyDashboardView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuild()
-                // NOT call `rebuildLists`; the SwiftData cache + `.onChange`
-                // remain the single source of truth for lists.
                 Task { await viewModel?.refresh() }
             }
             .onChange(of: scenePhase) { _, newPhase in
@@ -152,9 +146,7 @@ struct FamilyDashboardView: View {
     }
 
     private func rebuild() {
-        // The `@Query` declarations above already filter by
-        // `familyRecordName` at the SwiftData/SQLite layer, so we no longer
-        // post-filter the cached rows in Swift. Pass them straight through.
+        // Rebuild view model lists directly from cached SwiftData rows.
         viewModel?.rebuildLists(
             profiles: cachedProfiles,
             quests: cachedQuests,

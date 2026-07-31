@@ -81,9 +81,8 @@ final class QuestService {
         let name = template.id.recordName
         let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
 
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
+        let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestTemplate(template)
         do {
@@ -101,14 +100,14 @@ final class QuestService {
                 // Concurrent edit: re-fetch authoritative record, fall back to snapshot, else invalidate.
                 if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
                     cacheService?.upsertQuestTemplate(fresh)
-                } else if let snapshot {
-                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                } else if let snapshotTemplate {
+                    cacheService?.upsertQuestTemplate(snapshotTemplate)
                 } else {
                     cacheService?.invalidateQuestTemplate(recordName: name)
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                if let snapshotTemplate {
+                    cacheService?.upsertQuestTemplate(snapshotTemplate)
                 } else {
                     cacheService?.invalidateQuestTemplate(recordName: name)
                 }
@@ -126,9 +125,8 @@ final class QuestService {
         let name = template.id.recordName
         let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
 
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
+        let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestTemplate(deactivated)
         do {
@@ -145,14 +143,14 @@ final class QuestService {
             ) {
                 if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
                     cacheService?.upsertQuestTemplate(fresh)
-                } else if let snapshot {
-                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                } else if let snapshotTemplate {
+                    cacheService?.upsertQuestTemplate(snapshotTemplate)
                 } else {
                     cacheService?.invalidateQuestTemplate(recordName: name)
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertQuestTemplate(snapshot.toQuestTemplate(zoneID: cloudKit.resolvedZoneID))
+                if let snapshotTemplate {
+                    cacheService?.upsertQuestTemplate(snapshotTemplate)
                 } else {
                     cacheService?.invalidateQuestTemplate(recordName: name)
                 }
@@ -255,15 +253,7 @@ final class QuestService {
         let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
             .first(where: { $0.recordName == name })
 
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertQuest`, so reading `snapshot.toQuest(...)` later
-        // would yield the *post*-mutation values. The value-type copy
-        // (`Quest` struct) is unaffected by later mutations.
         let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuest(quest)
@@ -527,15 +517,7 @@ extension QuestService {
         let name = questLog.id.recordName
         let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
 
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertQuestCompletion`, so reading `snapshot.toQuestCompletion(...)`
-        // later would yield the *post*-mutation values. The value-type copy
-        // (`QuestCompletion` struct) is unaffected by later mutations.
         let snapshotCompletion: QuestCompletion? = snapshot?.toQuestCompletion(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestCompletion(updated)
@@ -602,15 +584,7 @@ extension QuestService {
         let name = questLog.id.recordName
         let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
 
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertQuestCompletion`, so reading `snapshot.toQuestCompletion(...)`
-        // later would yield the *post*-mutation values. The value-type copy
-        // (`QuestCompletion` struct) is unaffected by later mutations.
         let snapshotCompletion: QuestCompletion? = snapshot?.toQuestCompletion(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestCompletion(updated)

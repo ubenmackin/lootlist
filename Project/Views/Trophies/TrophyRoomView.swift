@@ -26,10 +26,7 @@ struct TrophyRoomView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name }
         }
@@ -66,7 +63,6 @@ struct TrophyRoomView: View {
                 }
             }
             .refreshable {
-                // re-derive from the current cache snapshot. Background
                 rebuild()
             }
         }
@@ -78,11 +74,7 @@ struct TrophyRoomView: View {
                     appState: appState
                 )
             }
-            // snapshot. Subsequent mutations re-fire `.onChange`.
             rebuild()
-            // One-shot background freshness touch: warm the achievement caches
-            // from CK. The services upsert into SwiftData (cache-first), which
-            // re-fires `.onChange` → `rebuild`. Does NOT block the cache render.
             if let profile = appState.currentProfile {
                 Task { _ = try? await achievementService.fetchEarned(profile: profile) }
                 if let family = appState.family {
@@ -97,11 +89,7 @@ struct TrophyRoomView: View {
     private func rebuild() {
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        // The `@Query` declarations above already filter by
-        // `familyRecordName` at the SwiftData/SQLite layer. The per-hero
-        // filter on `cachedProfileAchievements` stays in Swift because the
-        // viewed hero varies per viewer and can't be pushed into a static
-        // `Query` predicate.
+        // Filter family-scoped cached achievements for the active profile.
         let earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
 
         viewModel?.rebuildLists(earned: earned, allAchievements: cachedAchievements)

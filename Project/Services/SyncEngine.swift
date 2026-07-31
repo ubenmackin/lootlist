@@ -43,29 +43,17 @@ final class SyncEngine {
         listenToPushNotifications()
     }
 
-    /// Full sync scoped to a single family zone. **Required parameter** —
-    /// every runtime sync path must identify the family it is syncing for.
-    /// This eliminates the recurring defect of unscoped `syncAll()` calls that
-    /// silently cross-pollinate multi-family environments.
-    ///
-    /// For the bootstrap case (first-launch, no family context available),
-    /// use `syncAllFamiliesUnscoped()` instead.
+    /// Full sync scoped to a single family zone.
     func syncAll(familyRecordName: String) async {
         await _syncAll(familyRecordName: familyRecordName)
     }
 
-    /// Bootstrap-only full sync — use when no family context is available
-    /// (e.g. first-launch after session restoration, or a manual "Force
-    /// Sync" from iCloud settings).  All runtime sync paths (push handlers,
-    /// `.zoneReset`, `.shareAccepted`, no-token fallbacks) must use
-    /// `syncAll(familyRecordName:)` instead.
+    /// Bootstrap-only full sync used when no family context is available.
     func syncAllFamiliesUnscoped() async {
         await _syncAll(familyRecordName: nil)
     }
 
-    /// Shared implementation invoked by both `syncAll(familyRecordName:)`
-    /// and `syncAllFamiliesUnscoped()`.  `familyRecordName` is `nil` only
-    /// for the unscoped bootstrap path.
+    /// Shared implementation for scoped and unscoped full syncs.
     private func _syncAll(familyRecordName: String?) async {
         if isSyncing {
             needsResync = true
@@ -203,15 +191,7 @@ final class SyncEngine {
         logger.info("syncAll completed successfully.")
     }
 
-    /// - Parameter familyRecordName: The CloudKit record name of the family
-    ///   zone this incremental sync is scoped to. Push notifications are
-    ///   zone-scoped to a single family; passing that family's record name
-    ///   ensures the no-token fallback (`syncAll(familyRecordName:)`) scopes
-    ///   its full pull to the same family rather than querying every family
-    ///   known to the active database (which would trigger a cross-family full
-    ///   sync in multi-family environments). `nil` indicates a generic,
-    ///   unscoped full sync is intended — the fallback calls
-    ///   `syncAllFamiliesUnscoped()` in this case.
+    /// Incremental delta sync using CKServerChangeToken for a specific family.
     func incrementalSync(familyRecordName: String? = nil) async {
         if isSyncing {
             needsResync = true
@@ -263,13 +243,6 @@ final class SyncEngine {
             }
 
             for (deletedID, recordType) in result.deletedRecordIDs {
-                // Resolve the raw CloudKit `CKRecordType` string to a typed
-                // `CachedRecordType` before delegating to the cache actor. This
-                // hardens the delete path against Swift class-name /
-                // CKRecordType divergence — e.g. `QuestCompletion`
-                // (`recordType == "QuestLog"`) whose previous string-literal
-                // switch in `BackgroundCacheActor` never matched, silently
-                // leaking stale `QuestCompletionCache` rows.
                 guard let cachedType = CachedRecordType.recordType(for: recordType) else {
                     logger.warning("Skipping delete of unknown recordType '\(recordType, privacy: .public)' for record \(deletedID.recordName, privacy: .private)")
                     continue
@@ -300,12 +273,7 @@ final class SyncEngine {
         }
     }
 
-    /// Returns a UserDefaults key scoped to a specific record zone and database
-    /// scope, so that change tokens from the private DB are never conflated with
-    /// those from a shared family DB (and vice-versa).
-    ///
-    /// `internal` (rather than `private`) so the test target can verify the
-    /// a distinct, non-conflated change-token key — via `@testable import`.
+    /// Returns a UserDefaults key scoped to a specific record zone and database scope.
     func tokenKey(for zoneID: CKRecordZone.ID, db: CKDatabase?) -> String {
         let dbLabel: CKDatabase.Scope = db?.databaseScope ?? .private
         let scopeLabel = dbLabel == .shared ? "shared" : "private"
@@ -385,41 +353,14 @@ final class SyncEngine {
                 guard let self else { return }
                 switch event {
                 case .recordChanged:
-                    // Push notifications are zone-scoped to a single family.
-                    // Resolve the active family's record name from the
-                    // resolved zone ID — by invariant (see FamilyService.createFamily
-                    // & AppState family hydration) the family's CKRecord recordName
-                    // is identical to its zone's zoneName. Passing it through to
-                    // incrementalSync scopes the no-token fallback's syncAll to this
-                    // family, preventing a cross-family full sync in multi-family
-                    // environments. `nil` is used when resolvedZoneID falls back to
-                    // the default zone (no family context available). This mirrors
-                    // how the `.zoneReset` handler resolves family context from
-                    // `cloudKit.resolvedZoneID`.
                     let familyRecordName: String? = cloudKit.activeFamilyZoneID?.zoneName
                     await incrementalSync(familyRecordName: familyRecordName)
                 case let .shareAccepted(shareID):
-                    // Use the zoneID from the accepted share directly —
-                    // cloudKit.activeFamilyZoneID may not yet reflect the
-                    // just-accepted share, causing a stale zone lookup.
                     let acceptedZoneID = shareID.zoneID
                     UserDefaults.standard.removeObject(forKey: tokenKey(for: acceptedZoneID, db: cloudKit.sharedDatabase))
                     cacheService.clearAll()
                     cloudKit.activeFamilyZoneID = acceptedZoneID
                     cloudKit.activeIsOwner = false
-                    // Scope the post-acceptance full sync to the just-accepted
-                    // family zone. `acceptedZoneID` is the ground-truth zone
-                    // identity at share-acceptance time — by invariant (see
-                    // FamilyService.createFamily & AppState family hydration)
-                    // the family's CKRecord recordName == its zone's zoneName.
-                    // Prefer resolved `acceptedZoneID.zoneName` over
-                    // `cloudKit.activeFamilyZoneID?.zoneName` even though we
-                    // just assigned the latter one statement above: pinning to
-                    // the local `acceptedZoneID` guarantees the synced scope
-                    // matches the accepted share's zone exactly, with no
-                    // dependency on the assignment order above. Mirrors the
-                    // family-scoping already applied by the `.recordChanged`
-                    // (line ~363) and `.zoneReset` (line ~392) handlers.
                     await syncAll(familyRecordName: acceptedZoneID.zoneName)
                 case .zoneReset:
                     UserDefaults.standard.removeObject(forKey: tokenKey(for: cloudKit.resolvedZoneID, db: cloudKit.activeFamilyDatabase))
@@ -427,8 +368,6 @@ final class SyncEngine {
                     if let familyRecordName = cloudKit.activeFamilyZoneID?.zoneName {
                         await syncAll(familyRecordName: familyRecordName)
                     } else {
-                        // No active family zone available — fall back to
-                        // unscoped bootstrap path.
                         await syncAllFamiliesUnscoped()
                     }
                 }

@@ -33,10 +33,7 @@ struct TreasuryView: View {
         self.spending = spending
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name }
         }
@@ -110,7 +107,6 @@ struct TreasuryView: View {
                         appState: appState
                     )
                 }
-                // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuild()
             }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
@@ -118,7 +114,6 @@ struct TreasuryView: View {
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
             .refreshable {
-                // Pull-to-refresh re-derives from the current cache snapshot.
                 rebuild()
             }
         }
@@ -127,11 +122,7 @@ struct TreasuryView: View {
     private func rebuild() {
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        // The `@Query` declarations above already filter by
-        // `familyRecordName` (and the active flag where appropriate) at the
-        // SwiftData/SQLite layer. The per-hero filters below stay in Swift
-        // because the viewed hero varies per viewer and can't be pushed into
-        // a static `Query` predicate.
+        // Filter family-scoped cached records for the active hero profile.
         let logs = cachedCompletions.filter { $0.completerRecordName == profileName }
         let ledgers = cachedLedgers.filter { $0.profileRecordName == profileName }
         let quests = cachedQuests.filter { $0.assigneeRecordName == profileName }
