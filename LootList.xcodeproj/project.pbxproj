@@ -363,6 +363,7 @@
 				286FC47A1B54C6C06F6524FB /* HeroStatusCard.swift */,
 				A29AFF3513D151637BD6AD3B /* PayoutHistoryView.swift */,
 				D870526224A67A707B7E4A4D /* QuestAssignmentView.swift */,
+				894005BEE1BD37952EEE4E9C /* QuestLogView.swift */,
 				8489EFF3404096B84A6A50E9 /* QuestManagerView.swift */,
 				136948D3323E0410CAA49E77 /* TemplateManagerView.swift */,
 			);
@@ -487,14 +488,6 @@
 			path = ViewModels;
 			sourceTree = "<group>";
 		};
-		5F10A7D53B16480366447C63 /* Features */ = {
-			isa = PBXGroup;
-			children = (
-				CF47259C1585D0060CB11E5B /* QuestLog */,
-			);
-			path = Features;
-			sourceTree = "<group>";
-		};
 		6021BBB2DC939F9463BC8BF6 /* Treasury */ = {
 			isa = PBXGroup;
 			children = (
@@ -531,7 +524,6 @@
 			isa = PBXGroup;
 			children = (
 				4759BB84826190A2B07026FE /* App */,
-				5F10A7D53B16480366447C63 /* Features */,
 				E25D352E17EBAC0471945E4C /* Models */,
 				DC32B5AAC6936937408038A1 /* Resources */,
 				1F72D966F21E0D61EBC9B562 /* Services */,
@@ -590,20 +582,12 @@
 			children = (
 				0592C7CCBECA2855AC8E55B2 /* FamilyDashboardViewModel.swift */,
 				5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */,
+				BEBCD5ADA0FE8C785EE6A62A /* QuestLogViewModel.swift */,
 				EB8F932423BB04CC32F1B0A3 /* QuestManagerViewModel.swift */,
 				67019B9327EF0BF4251EBAF8 /* TreasuryViewModel.swift */,
 				02DD14675841D99B77530615 /* TrophyRoomViewModel.swift */,
 			);
 			path = ViewModels;
-			sourceTree = "<group>";
-		};
-		CF47259C1585D0060CB11E5B /* QuestLog */ = {
-			isa = PBXGroup;
-			children = (
-				894005BEE1BD37952EEE4E9C /* QuestLogView.swift */,
-				BEBCD5ADA0FE8C785EE6A62A /* QuestLogViewModel.swift */,
-			);
-			path = QuestLog;
 			sourceTree = "<group>";
 		};
 		DC32B5AAC6936937408038A1 /* Resources */ = {
