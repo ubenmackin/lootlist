@@ -62,7 +62,6 @@ struct LootListApp: App {
         app.cacheService = cache
         xp.cacheService = cache
 
-        // value on the @State declaration) so the wrappedValue storage is set
         _toastManager = State(initialValue: ToastManager())
 
         if let cache {
@@ -181,6 +180,14 @@ struct LootListApp: App {
             }
             .onOpenURL { url in
                 handleIncomingShareURL(url)
+            }
+            .onChange(of: appState.familyZoneID) { _, newZoneID in
+                guard let zoneID = newZoneID, !TestEnvironment.isRunningUnitOrUITests else { return }
+                Task {
+                    let db = cloudKitService.database(isOwner: appState.isZoneOwner)
+                    await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
+                    await dataMigrationsCoordinator.runPendingMigrations()
+                }
             }
             // Toast banner overlay sits above all RootView states (splash,
             // onboarding, authenticated) so services can surface errors

@@ -88,7 +88,7 @@ struct TreasuryView: View {
                 switch destination {
                 case "spendingLog" where viewModel != nil:
                     if let viewModel {
-                        SpendingLogView(viewModel: viewModel)
+                        SpendingLogView(viewModel: viewModel, familyRecordName: familyRecordName)
                     }
                 default:
                     EmptyView()

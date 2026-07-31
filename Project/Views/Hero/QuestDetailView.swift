@@ -14,6 +14,7 @@ struct QuestDetailView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
+    @Environment(CacheService.self) private var cacheService: CacheService?
 
     @State private var allLogs: [QuestCompletion] = []
     @State private var latestLog: QuestCompletion?
@@ -289,25 +290,33 @@ struct QuestDetailView: View {
         }
     }
 
-    private func load() async {
+    private func load(forceRefresh: Bool = false) async {
         isLoadingLog = true
         defer { isLoadingLog = false }
 
-        do {
-            template = try await questService.cloudKitReference.fetch(
-                QuestTemplate.self, id: quest.template.recordID
-            )
-        } catch {
-            template = nil
+        if !forceRefresh, let cacheService {
+            let familyName = quest.family.recordID.recordName
+            let templateName = quest.template.recordID.recordName
+            if let cached = cacheService.fetchQuestTemplates(family: familyName)
+                .first(where: { $0.recordName == templateName })
+            {
+                template = cached.toQuestTemplate(zoneID: questService.cloudKitReference.resolvedZoneID)
+            }
+        } else {
+            do {
+                template = try await questService.cloudKitReference.fetch(
+                    QuestTemplate.self, id: quest.template.recordID
+                )
+            } catch {
+                template = nil
+            }
         }
 
         do {
-            // Bypass the SwiftData cache so the local state is reconciled against
-            // CloudKit's authoritative log set. Another device may have logged a
-            // slot in the interim; a cache-first read could mask that and allow a
-            // duplicate completion on the next tap. Mirrors the `useCache: false`
-            // gate inside `QuestService.markComplete`.
-            let logs = try await questService.fetchQuestLogs(forQuest: quest, useCache: false)
+            // On forceRefresh (post-mutation), bypass SwiftData to reconcile
+            // against CloudKit's authoritative log set and prevent duplicate
+            // completions from another device.
+            let logs = try await questService.fetchQuestLogs(forQuest: quest, useCache: !forceRefresh)
             allLogs = logs
             if let fetched = logs.first {
                 latestLog = fetched
@@ -332,7 +341,7 @@ struct QuestDetailView: View {
             // Reconcile local state against CloudKit's authoritative log set before
             // the user can tap the next slot. Awaits so the multi-completion disable
             // check reads the freshly-loaded `allLogs` and cannot desync by one tap.
-            await load()
+            await load(forceRefresh: true)
         } catch let questError as QuestServiceError {
             self.error = questError.localizedDescription
             self.isErrorPresented = true

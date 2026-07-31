@@ -8,7 +8,7 @@ Loot List is a family chore and allowance tracker for iOS, themed as a fantasy R
 - **CloudKit is the only viable native sync mechanism for a family app on Apple's ecosystem.** It provides real-time push updates, offline queueing, and zero server cost. The Guild Master owns the family data in their private database and shares it with Heroes via `CKShare`; Heroes read/write through the shared database after accepting the invite.
 - **A local SwiftData cache sits in front of CloudKit for reads.** CloudKit fetches are async and network-bound; the cache lets the UI hydrate instantly and lets the app launch offline. CloudKit remains the source of truth; the cache is a derived, write-through read store.
 - **SwiftUI + MVVM** is the modern Apple standard. Combined with the iOS 26 SDK, we use the latest APIs and patterns (`@Observable`, `NavigationStack`, SF Symbols 6+).
-- **Protocol-based service layer** allows us to swap implementations (e.g., manual ledger → FinanceKit) without touching views or models.
+- **Protocol-based service layer** allows us to swap implementations (e.g., manual ledger → FinanceKit) without touching views or models. Today `CloudKitServicing` (a `@MainActor` protocol defined alongside `XPService`) abstracts `CloudKitService`'s save/fetch so `XPService` can be unit-tested against a mock CloudKit; the concrete `CloudKitService` is currently its sole conformer.
 - **RPG theming is not cosmetic — it's core.** Every user-facing term, every screen, every notification uses the game vocabulary. This drives engagement for the kids.
 
 ---
@@ -46,16 +46,11 @@ The family is a CloudKit **custom zone**. The database a participant reads from 
 
 CloudKit is the source of truth. A local SwiftData cache mirrors CloudKit records so the UI can read synchronously (0ms rendering) and the app operates seamlessly offline.
 
-**Components (all under `Project/Services/` and `Project/Models/Local/`):**
-
-- **`Models/Local/*Cache`** — 10 SwiftData `@Model` classes (`FamilyCache`, `ProfileCache`, `QuestCache`, `QuestTemplateCache`, `QuestCompletionCache`, `AllowancePeriodCache`, `LedgerEntryCache`, `AchievementCache`, `ProfileAchievementCache`, `NotificationPreferenceCache`). Each has:
-  - `@Attribute(.unique) var recordName: String` (the CloudKit record name)
-  - `var familyRecordName: String` (scopes every cached record to a family)
-  - `#Index` macro annotations on all high-frequency query parameters (`familyRecordName`, `profileRecordName`, `assigneeRecordName`, `weekOf`, `date`, `iCloudUserRecordName`, etc.) for sub-millisecond query lookups.
-  - Enum convenience getters (`approvalModeEnum`, `rarityEnum`, `scheduleTypeEnum`, `verificationStatusEnum`, `roleEnum`, `payoutPolicyEnum`, `avatarClassEnum`, `statusEnum`, `categoryEnum`, `requirementTypeEnum`) for direct, clean consumption by SwiftUI views and ViewModels.
-- **`CacheService`** — `@MainActor` local store wrapping a SwiftData `ModelContainer`. Uses OS logger logging and centralized `saveContext()` / `withBatch` error-handling.
-- **`BackgroundCacheActor`** — `@ModelActor` executing on a dedicated background actor with `autosaveEnabled = false`. Performs batch upserts and missing-record purges off the main looper thread so full-sync operations never cause frame drops or UI jank.
-- **`SyncEngine`** — orchestrates pulling CloudKit changes into the cache. Supports cold launch full sync (`syncAll`) as well as token-based incremental sync (`incrementalSync`) powered by `CKFetchRecordZoneChangesOperation` and `CKServerChangeToken` stored in `UserDefaults` (`ck_server_change_token`). Emits `.syncDidComplete` notifications for background launch coordination.
+**Layer responsibilities:**
+- **`Models/Local/*Cache`** — one SwiftData `@Model` class per CloudKit record type, each shaped by an invariant contract, not an ad-hoc table: `@Attribute(.unique) var recordName: String` (the CloudKit record name), `var familyRecordName: String` (scopes every cached record to a family), and `#Index` macro annotations on high-frequency query parameters (`familyRecordName`, `profileRecordName`, `assigneeRecordName`, `weekOf`, `date`, `iCloudUserRecordName`, …) for sub-millisecond lookups. Enum convenience getters (`approvalModeEnum`, `rarityEnum`, `scheduleTypeEnum`, `verificationStatusEnum`, `roleEnum`, `payoutPolicyEnum`, `avatarClassEnum`, `statusEnum`, `categoryEnum`, `requirementTypeEnum`) give views/ViewModels clean, typed access. The SwiftData `VersionedSchema` for the cache is `LootListSchemaV1` (1.0.0); its `LootListMigrationPlan` currently has no stages (V1 is initial). Non-schema data backfills are handled separately by `DataMigrationsCoordinator` (§11).
+- **`CacheService`** — `@MainActor` local store wrapping a SwiftData `ModelContainer`. Uses OS logger logging and centralized `saveContext()` / `withBatch` error-handling. Family-scoped fetches go through a generic `familyScopedFetch<T: FamilyScopedCache>` helper constrained to the `FamilyScopedCache` protocol (which mandates the `familyRecordName` field); per-record `invalidate*` helpers power the snapshot/rollback path that removes phantom optimistic rows.
+- **`BackgroundCacheActor`** — an `actor` executing on a dedicated background context with `autosaveEnabled = false`. Performs batch upserts and missing-record purges off the main thread so full-sync operations never cause frame drops or UI jank.
+- **`SyncEngine`** — orchestrates pulling CloudKit changes into the cache. Supports cold-launch full sync (`syncAll`) and token-based incremental sync (`incrementalSync`) via `CKFetchRecordZoneChangesOperation` using per-zone, per-database-scope `CKServerChangeToken`s persisted in UserDefaults. Emits `.syncDidComplete` notifications for background-launch coordination.
 - **`AppSyncCoordinator`** — registers `CKSubscription`s per zone and fans `CKNotification`s out to subscribers via `AsyncStream<SyncEvent>` (`recordChanged(subscriptionID)`, `shareAccepted(shareID)`, `zoneReset`).
 - **`CacheConversions.swift`** — free functions and extension getters bridging CloudKit domain models, SwiftData `*Cache` entities, and SwiftUI presentation enums.
 - **`CachedRecordType` (typed delete path)** — a `String, CaseIterable, Sendable` enum with one case per local SwiftData cache type. `BackgroundCacheActor.deleteRecord(recordName:type:)` takes the typed enum rather than a raw `CKRecord.RecordType` string, and raw CKRecordType strings are resolved through `CachedRecordType.recordType(for:) -> CachedRecordType?`. This eliminates the Swift class-name ↔ CKRecordType mismatch class of bugs — the only entity whose Swift class name diverges from its CKRecordType is `QuestCompletion` (`recordType == "QuestLog"`), and the resolver captures that divergence in exactly one place (each model's `Type.recordType` constant). Unknown recordTypes return `nil` so `SyncEngine.incrementalSync` logs a warning and skips rather than crashing.
@@ -67,8 +62,8 @@ CloudKit is the source of truth. A local SwiftData cache mirrors CloudKit record
 - When navigating to single-entity detail views (e.g. `QuestDetailView`), `quest.toQuest(zoneID:)` converts the model on-demand for full mutation support.
 
 **Optimistic Mutations with Snapshot Rollback:**
-- All mutation methods in `QuestService`, `TreasuryService`, `AchievementService`, `SpendingService`, and `FamilyService` write changes directly to SwiftData first for instant UI response (0ms delay).
-- A snapshot of the original local state is held prior to the CloudKit save operation. If the network call fails, the snapshot is restored immediately to local SwiftData, ensuring strict consistency.
+- All mutation methods in `QuestService`, `TreasuryService`, `AchievementService`, `ManualSpendingService`, and `FamilyService` write changes directly to SwiftData first for instant UI response (0ms delay).
+- A snapshot of the original local state is held prior to the CloudKit save operation. If the network call fails, the snapshot is restored immediately to local SwiftData, ensuring strict consistency. For brand-new records that have no prior snapshot, the optimistically-inserted row is **invalidated** rather than restored, so the UI never shows a phantom CloudKit never accepted.
 
 **At launch (`LootListApp` `.task`):**
 1. `checkCloudKitAvailability()` (account status)
@@ -82,7 +77,7 @@ CloudKit is the source of truth. A local SwiftData cache mirrors CloudKit record
 
 ### 3. SpendingService (Manual today; FinanceKit V2 planned)
 
-Today the only implementation is `ManualSpendingService` (a concrete class), used directly by `LootListApp` and `TabBarView`. The SpendingService **protocol** and a `FinanceKitSpendingService` (pulling from Apple Card via FinanceKit) are the planned V2 abstraction; views will eventually depend on the protocol so the manual → FinanceKit swap requires no UI changes. Until the protocol is extracted, treat `ManualSpendingService` as the implementation and keep its surface narrow.
+Today the only implementation is `ManualSpendingService`, a concrete `@MainActor @Observable` class used directly by `LootListApp` and `TabBarView`. The SpendingService **protocol** and a `FinanceKitSpendingService` (pulling from Apple Card via FinanceKit) are the planned V2 abstraction; views will eventually depend on the protocol so the manual → FinanceKit swap requires no UI changes. **No protocol exists today** — until it is extracted, treat `ManualSpendingService` as the implementation and keep its surface narrow.
 
 ### 4. Quest Approval (Configurable Per Quest)
 
@@ -127,7 +122,7 @@ enum QuestRarity: String, CaseIterable, Codable {
 }
 ```
 
-Each rarity maps to an XP reward (`AppConstants.Rarity.*XP`), a color, and an SF Symbol icon. `Quest.rarity` is set from the quest's XP via `QuestRarity.from(xp:)`. Rarity is RPG-thematic but also structural — it drives the reward/color/icon shown across the UI.
+Each rarity maps to an XP reward (`AppConstants.Rarity.*XP`), a color, and an SF Symbol icon. `Quest.rarity` is **derived**, not stored — it is computed from the quest's XP via `QuestRarity.from(xp:)`. Rarity is RPG-thematic but also structural — it drives the reward/color/icon shown across the UI.
 
 ### 7. RPG Terminology (User-Facing)
 
@@ -189,18 +184,7 @@ Incoming share URLs are captured in `LootListApp.handleIncomingShareURL` and pas
 
 ### 10. Notification System
 
-Every notification type is individually toggleable per user (stored as `NotificationPreference` records):
-
-| Event | Default (Hero) | Default (Parent) |
-|---|---|---|
-| Quest Assigned | ON | OFF |
-| Quest Completed | OFF | ON |
-| Quest Needs Review | OFF | ON |
-| Quest Missed | ON | ON |
-| Gold Earned (Loot Day) | ON | ON |
-| Spending Logged | OFF | OFF |
-| Trophy Earned | ON | ON |
-| Streak Milestone | ON | ON |
+Every notification type is individually toggleable per user, stored as `NotificationPreference` records (one row per `profile + eventType`). `NotificationEventType` enumerates the app's events (quest lifecycle, level-up, gold earned, spending logged, trophy earned, streak milestone) — the canonical list lives in `Project/Models/Enums/NotificationEventType.swift`, not here, since it changes as features ship.
 
 **Cross-device source of truth:** `NotificationPreferenceCache` (SwiftData) is the per-device render cache backing `NotificationPreference` (CloudKit, system of record). `NotificationService.isNotificationEnabled(for:)` reads cache-first (filtered by `profileRecordName + familyRecordName + eventType`); `UserDefaults.standard.bool(for:)` is a **first-launch-only** fallback used solely when the SwiftData cache is cold (brand-new install before the first `syncAll` populates it). `NotificationSettingsView` toggles write-through optimistically via `NotificationService.updatePreference(event:enabled:)` (optimistic upsert → CK save → re-upsert → catch-invalidate / snapshot-rollback) and keeps a `UserDefaults` mirror write for backward-compat. Bulk-write paths on `BackgroundCacheActor` — `batchUpsertNotificationPreferences` and `purgeMissingNotificationPreferences` — handle full-sync hydration and stale-row purge; `SyncEngine.processSecondaryRecord` routes incoming `NotificationPreference` records to `batchUpsertNotificationPreferences`. Cross-device propagation flows through the existing `CKSubscription` → `SyncEngine.incrementalSync` → SwiftData mutation → view's `.onChange(of: cachedNotificationPreferences)`.
 
@@ -214,221 +198,24 @@ Every notification type is individually toggleable per user (stored as `Notifica
 
 ## Project Structure
 
-Root source lives in `Project/` (the XcodeGen target sources `Project/`). Tests live in `ProjectTests/` (unit) and `ProjectUITests/` (UI + snapshot).
+The repo follows the MVVM/Services layout below. The exact file listing is intentionally omitted — it changes frequently and is trivially inspectable via `glob`/AST tools. What matters is the **shape**: each directory's role and the contracts it owes the rest of the app.
 
-```
-Project/
-├── App/
-│   ├── LootListApp.swift              # @main, DI wiring, launch task, share URL handling
-│   ├── AppState.swift                 # AuthStatus state machine, session persistence, discovery
-│   └── AppDelegate.swift
-│
-├── Models/
-│   ├── CloudKit/                      # CloudKit record models + CloudKitRecord protocol base
-│   │   ├── CloudKitRecord.swift        # CKRecord encode/decode protocol (lives HERE, not Utilities)
-│   │   ├── Family.swift
-│   │   ├── Profile.swift
-│   │   ├── Quest.swift
-│   │   ├── QuestTemplate.swift
-│   │   ├── QuestCompletion.swift       # CKRecordType "QuestLog"
-│   │   ├── AllowancePeriod.swift
-│   │   ├── LedgerEntry.swift
-│   │   ├── Achievement.swift
-│   │   ├── ProfileAchievement.swift
-│   │   └── NotificationPreference.swift
-│   │
-│   ├── Local/                         # SwiftData @Model cache classes (one per CloudKit model)
-│   │   ├── FamilyCache.swift … NotificationPreferenceCache.swift
-│   │   (each: @Attribute(.unique) recordName, familyRecordName, convenience init(from:))
-│   │
-│   ├── Enums/
-│   │   ├── UserRole.swift              # guildMaster, ranger, hero
-│   │   ├── AvatarClass.swift           # knight, mage, rogue, guardian, healer
-│   │   ├── QuestSchedule.swift         # specificDays, weeklyFlexible, allOrNothing
-│   │   ├── ApprovalMode.swift          # autoApprove, parentVerify
-│   │   ├── VerificationStatus.swift    # autoApproved, pending, verified, rejected
-│   │   ├── PayoutPolicy.swift          # perQuest, allOrNothing
-│   │   ├── PayoutStatus.swift          # active, payoutPending, paid
-│   │   ├── QuestRarity.swift          # common, rare, epic, legendary (+ XP/color/icon)
-│   │   └── NotificationEventType.swift
-│   │
-│   └── ViewModels/
-│       └── OnboardingViewModel.swift   # Onboarding VM lives with the models; others live in Project/ViewModels/
-│
-├── ViewModels/                        # Screen VMs (separate top-level dir from Models/)
-│   ├── HeroDashboardViewModel.swift
-│   ├── FamilyDashboardViewModel.swift
-│   ├── QuestManagerViewModel.swift
-│   ├── TreasuryViewModel.swift
-│   └── TrophyRoomViewModel.swift
-│
-├── Services/
-│   ├── CloudKitService.swift          # CRUD, subscriptions, retry, share, zone mgmt (owner/participant split)
-│   ├── FamilyService.swift            # Family creation, roles, payoutPolicy
-│   ├── QuestService.swift             # Quest lifecycle, completion, approval
-│   ├── TreasuryService.swift          # Gold tracking, payout calculations
-│   ├── SpendingService.swift          # ManualSpendingService (protocol + FinanceKit V2 planned)
-│   ├── AchievementService.swift       # Trophy unlock logic
-│   ├── NotificationService.swift      # Push + in-app notification management
-│   ├── AvatarService.swift            # Character presets, appearance
-│   ├── XPService.swift                # XP calculation, leveling
-│   ├── CacheService.swift             # SwiftData local cache (pure local, no CloudKit dep)
-│   ├── SyncEngine.swift               # CloudKit → cache pull orchestration
-│   ├── AppSyncCoordinator.swift       # CKSubscription registration + SyncEvent fan-out
-│   ├── CacheConversions.swift         # CloudKit ↔ *Cache conversion functions
-│   └── DataMigrationsCoordinator.swift # Versioned UserDefaults migrations
-│
-├── Features/
-│   └── QuestLog/                       # QuestLogView + QuestLogViewModel
-│
-├── Views/
-│   ├── Onboarding/                    # WelcomeView, family create/join, avatar selection, DetectedFamilyView
-│   ├── Hero/                          # HeroDashboard, quest detail, streaks
-│   ├── Treasury/                      # Treasury, spending log, log-spending
-│   ├── Trophies/                      # Trophy Room (Hall of Heroes)
-│   ├── Profile/                       # Character sheet, notification settings
-│   ├── Guild/                         # Family dashboard, quest manager, HeroSettingsView, guild settings
-│   └── Shared/                        # AppLaunchSplashScreen, SettingsView, ShareSheet, PresetPill,
-│                                      #   NumberFormatter+Gold, ColorExtensions, TabBarView, etc.
-│
-├── Utilities/
-│   ├── AppConstants.swift             # App-wide constants (incl. Rarity XP thresholds, Sync timing)
-│   ├── Calendar+ISO8601UTC.swift      # Week/payout date helpers (ISO8601 UTC)
-│   ├── SampleData.swift                # Test seed data (CloudKit + cache)
-│   └── TestEnvironment.swift          # isRunningUnitOrUITests detection
-│
-└── Resources/
-    ├── Assets.xcassets/               # AppIcon + avatar imagesets (knight/mage/rogue/guardian/healer × v1–v4)
-    ├── AvatarPresets/                 # (preset assets)
-    └── AchievementIcons/              # (trophy icons)
-```
-
-> Note: there is no `DateHelpers.swift`, `CurrencyFormatter.swift`, or `Haptics.swift`. Gold formatting lives in `Views/Shared/NumberFormatter+Gold.swift`; date helpers in `Calendar+ISO8601UTC.swift`; `CloudKitRecord` is a protocol in `Models/CloudKit/`.
-
----
-
-## Data Model (CloudKit Records)
-
-All records live in the family's CloudKit zone (owner: private DB; participants: shared DB via `CKShare`).
-
-### Family
-```
-CKRecordType: "Family"
-├── name: String                     # "The Pan Family"
-├── createdBy: CKRecord.ID          # Owner (Guild Master)
-├── createdAt: Date
-├── payoutPolicy: String             # "perQuest" | "allOrNothing"  (PayoutPolicy)
-└── inviteCode: String               # Short code for kids to join
-```
-
-### Profile (Character)
-```
-CKRecordType: "Profile"
-├── displayName: String              # "Sir Cleanup"
-├── avatarClass: String              # "knight" | "mage" | "rogue" | "guardian" | "healer"
-├── avatarPresetID: String           # Visual preset
-├── role: String                     # "guildMaster" | "ranger" | "hero"
-├── xp: Int                          # Total XP earned
-├── level: Int                       # Derived from XP
-├── payoutPolicy: String             # per-hero override (PayoutPolicy)
-├── iCloudUserID: CKRecord.ID       # Linked iCloud account
-├── family: CKReference → Family
-└── isActive: Bool
-```
-
-### QuestTemplate
-```
-CKRecordType: "QuestTemplate"
-├── name: String                     # "Take Out Trash"
-├── description: String
-├── goldReward: Double               # default gold (a.k.a. defaultGold in older docs)
-├── xpReward: Int                    # default XP
-├── scheduleType: String             # "specificDays" | "weeklyFlexible"
-├── specificDays: [String]           # weekday raw values, e.g. ["monday"]
-├── approvalMode: String             # "autoApprove" | "parentVerify"
-├── createdBy: CKReference → Profile
-├── family: CKReference → Family
-└── isActive: Bool
-```
-
-### Quest (Active Assignment)
-```
-CKRecordType: "Quest"
-├── template: CKReference → QuestTemplate
-├── assignee: CKReference → Profile
-├── goldReward: Double               # override from template if needed
-├── xpReward: Int                    # override from template if needed
-├── rarity: String                    # QuestRarity raw value ("Common"…"Legendary")
-├── scheduleType: String             # "specificDays" | "weeklyFlexible" | "allOrNothing"
-├── allOrNothingGroup: String?       # group ID for AON quests
-├── approvalMode: String             # "autoApprove" | "parentVerify"
-├── active: Bool
-├── weekOf: Date                     # starting Monday
-├── createdBy: CKReference → Profile
-└── family: CKReference → Family
-```
-
-### QuestCompletion (Completion Record)
-```
-CKRecordType: "QuestLog"
-├── quest: CKReference → Quest
-├── completedBy: CKReference → Profile
-├── completedDate: Date
-├── verificationStatus: String        # VerificationStatus: autoApproved | pending | verified | rejected
-├── verifiedBy: CKReference → Profile? # parent who verified (parentVerify only)
-├── verifiedDate: Date?
-├── weekOf: Date
-└── family: CKReference → Family
-```
-
-### AllowancePeriod (Weekly Cycle)
-```
-CKRecordType: "AllowancePeriod"
-├── weekOf: Date                     # starting Monday
-├── profile: CKReference → Profile
-├── status: String                    # PayoutStatus: active | payoutPending | paid
-├── totalEarned: Double               # gold earned this week
-├── questsCompleted: Int
-├── questsTotal: Int
-├── paidDate: Date?
-├── paidAmount: Double?
-└── family: CKReference → Family
-```
-
-### LedgerEntry (Spending Chronicle)
-```
-CKRecordType: "LedgerEntry"
-├── profile: CKReference → Profile
-├── amount: Double                    # negative = spending
-├── description: String               # "Coffee at Starbucks"
-├── date: Date
-├── source: String                    # "manual" | "financeKit" (V2)
-└── family: CKReference → Family
-```
-
-### Achievement / ProfileAchievement / NotificationPreference
-```
-CKRecordType: "Achievement"
-├── name, description, iconSystemName, category, requirementType, requirementValue
-└── family: CKReference → Family
-
-CKRecordType: "ProfileAchievement"
-├── achievement: CKReference → Achievement
-├── profile: CKReference → Profile
-├── earnedDate: Date
-└── family: CKReference → Family
-
-CKRecordType: "NotificationPreference"
-├── profile: CKReference → Profile
-├── eventType: String                  # NotificationEventType
-├── enabled: Bool                      # in-app toggle
-├── pushEnabled: Bool                  # push toggle
-└── family: CKReference → Family
-```
+- **`Project/App/`** — `@main` (`LootListApp`), root `AppState` (auth/session state machine + session persistence), `AppDelegate`.
+- **`Project/Models/CloudKit/`** — the source-of-truth record types (`Family`, `Profile`, `Quest`, `QuestTemplate`, `QuestCompletion` (CKRecordType `"QuestLog"`), `AllowancePeriod`, `LedgerEntry`, `Achievement`, `ProfileAchievement`, `NotificationPreference`) plus the `CloudKitRecord` encode/decode protocol and `CKDecodingError`. Every struct carries `changeTag: String?` mirroring CloudKit's `recordChangeTag` (see §Conflict). Where a field is a typed enum in code (`ApprovalMode`, `VerificationStatus`, `PayoutPolicy`, `PayoutStatus`, `QuestSchedule`, `QuestRarity`, `NotificationEventType`, `AvatarClass`, `AchievementCategory`, `AchievementRequirement`), it round-trips through that enum, not a raw `String`.
+- **`Project/Models/Local/`** — the SwiftData `@Model` cache classes (one per CloudKit type), the `FamilyScopedCache` protocol they conform to (mandates `familyRecordName`), and `LootListSchema.swift` (the `VersionedSchema` + `SchemaMigrationPlan`, see §2).
+- **`Project/Models/Enums/`** — the typed enums above, plus `CachedRecordType` (the typed delete-path enum, see §2).
+- **`Project/ViewModels/`** — screen ViewModels (`@Observable`): hero & family dashboards, quest manager, treasury, trophy room, onboarding, and quest log. ViewModels read `*Cache` models directly and never depend on CloudKit types.
+- **`Project/Services/`** — the protocol/concrete service layer: `CloudKitService` (owner/participant DB split, retry, share, zones, subscriptions), `FamilyService`, `QuestService`, `TreasuryService`, `SpendingService` (today: `ManualSpendingService`), `AchievementService`, `NotificationService`, `AvatarService`, `XPService` (declaration site of the `CloudKitServicing` protocol), `CacheService` (+ `CacheService+Fetches` / `CacheService+Invalidation` extensions), `BackgroundCacheActor`, `SyncEngine`, `AppSyncCoordinator`, `CacheConversions`, `ConcurrentEditDetector` (the `detectConcurrentEdit` guard — see §Conflict), `ToastManager` (shared in-app/toast surface), and `DataMigrationsCoordinator`.
+- **`Project/Views/`** — SwiftUI screens grouped by feature: `Onboarding/`, `Hero/`, `Treasury/`, `Trophies/`, `Profile/`, `Guild/`, `Shared/`. `Shared/` holds cross-cutting components (splash, settings, share sheet, presets, badges, progress bar, toast view, validation rows, etc.).
+- **`Project/Utilities/`** — app-wide constants, ISO8601-UTC calendar helpers, `WeekMath` (half-open week ranges — see §5), gold calculation, sample/seed data, and test-environment detection.
+- **`Project/Resources/`** — asset catalogs (AppIcon + avatar imagesets, AchievementIcons).
+- **`ProjectTests/`** — unit tests; **`ProjectUITests/`** — UI + snapshot tests (`SnapshotHelper`).
 
 ---
 
 ## Achievement List (V1)
+
+The 12 launch trophies and their unlock criteria. This is a **product spec**, not code detail — the enum that implements it (`AchievementService.AchievementRequirement`) must keep-to this list.
 
 | Name | Description | Requirement |
 |---|---|---|
@@ -452,7 +239,7 @@ CKRecordType: "NotificationPreference"
 ### General Policy
 
 - **CloudKit = source of truth.** Last-write-wins for most fields is handled automatically by CloudKit.
-- **QuestCompletions are append-only** — no conflicts possible. Each `QuestCompletion` row is created with a fresh `UUID().uuidString` record ID (see `Project/Models/CloudKit/QuestCompletion.swift` initializer), and the quest service exposes an insert path only — there is no update path, so completion records are append-only by convention as well as structurally.
+- **QuestCompletions are append-only** — no conflicts possible. Each `QuestCompletion` row is created with a fresh `UUID().uuidString` record ID, and the quest service exposes an insert path only — there is no update path, so completion records are append-only by convention as well as structurally.
 - **Profile XP/Level is derived** from QuestCompletions, not directly edited. `level` is computed from `xp` via `XPService.level(forXP:)`, and `xp` is updated through `XPService.addXP` on the QuestCompletion save path; views read these derived values rather than storing them independently.
 - **Family settings are Guild-Master-only** (role-gated in `FamilyService`, where the settings-update methods short-circuit for non-owner roles).
 - **Local SwiftData cache is derived, not authoritative.** It is hydrated by `SyncEngine.syncAll` and kept current by the service write-through pattern (§2). `CacheService.clearAll()` may be used to force a full re-hydrate.
@@ -467,39 +254,29 @@ CKRecordType: "NotificationPreference"
 
 ### Optimistic Write & Rollback
 
-Every mutating service writes through to the cache **optimistically** — it upserts the new state into the SwiftData cache *before* awaiting the CloudKit save, so the UI reflects the change instantly (0ms) and remains usable offline. On CloudKit save failure the service rolls the cache back so the UI does not hold a state that the source of truth rejected. This snapshot/rollback pattern is practiced uniformly across the mutation services and is covered by tests in `ProjectTests/Services/XPServiceTests.swift`.
+Every mutating service writes through to the cache **optimistically** — it upserts the new state into the SwiftData cache *before* awaiting the CloudKit save, so the UI reflects the change instantly (0ms) and remains usable offline. On CloudKit save failure the service rolls the cache back so the UI does not hold a state that the source of truth rejected. This snapshot/rollback pattern is practiced uniformly across the mutation services (`XPService`, `FamilyService`, `QuestService`, `TreasuryService`, `ManualSpendingService`, `AchievementService`, `NotificationService`) and is covered by tests in `ProjectTests/Services/`.
 
-- **Snapshot is captured BEFORE the optimistic write.** The service fetches the current cached row, converts it back to its CloudKit domain type, and holds that value as the pre-mutation snapshot. It then performs the optimistic upsert and awaits `cloudKit.save`. (`XPService.addXP`, `FamilyService.updateFamilyName` / `updateProfile*`, `QuestService.updateQuestTemplate` / quest-completion updates, `TreasuryService`, `SpendingService`, and `NotificationService` all follow this order.)
+- **Snapshot is captured BEFORE the optimistic write.** The service fetches the current cached row, converts it back to its CloudKit domain type, and holds that value as the pre-mutation snapshot. It then performs the optimistic upsert and awaits `cloudKit.save`.
 - **On save failure, the snapshot is restored.** The pre-mutation snapshot is upserted back over the optimistically-written row, so the cache returns to its prior value and the UI reverts.
 - **Brand-new records have no prior snapshot.** When the mutation creates a record that did not exist in the cache, there is nothing to restore; the service instead **invalidates** (removes) the optimistically-inserted cache row so the UI does not display a phantom record that CloudKit never accepted.
 - **What this protects against.** The snapshot-restore keeps the cache consistent with CloudKit in the common failure modes: network/refusal errors, exhausted retry budget (`CloudKitService.retrying()` → `retryable` / `exhaustedBudget`), and per-save `serverRecordChanged` rejections. In all these cases the snapshot-restore gives the user a coherent, CloudKit-backed view rather than a stranded optimistic value.
 
 ### Concurrency Limitation & Future Hardening
 
-The optimistic write-through pattern keeps a tiny window open: between the local `cacheService?.upsertX(updated)` (optimistic) and the `await cloudKit.save(...)` returning, another device may have written to the same record. If our save fails outright on a non-conflict reason (network, transient), we restore the pre-mutation `value` snapshot from the cache. If our save fails because the server has a newer record (the canonical optimistic-concurrency signal), `detectConcurrentEdit` discards our optimistic value and re-fetches the authoritative server record instead.
+The optimistic write-through pattern keeps a tiny window open: between the local `cacheService?.upsertX(updated)` (optimistic) and the `await cloudKit.save(...)` returning, another device may have written to the same record. If our save fails outright on a non-conflict reason (network, transient), we restore the pre-mutation snapshot. If our save fails because the server has a newer record (the canonical optimistic-concurrency signal), the `detectConcurrentEdit` guard discards our optimistic value and re-fetches the authoritative server record instead.
 
 #### Version-Tag Guard (implemented)
 
-All 10 `*Cache` SwiftData `@Model` classes carry a `changeTag: String?` mirror of CloudKit's `recordChangeTag`. The 10 CloudKit typed structs likewise carry `changeTag` populated in `init(record:)` from `record.recordChangeTag`. This changeTag is propagated through `SyncEngine.batchUpsert*`, `BackgroundCacheActor.batchUpsert*`, and the per-record `CacheService.upsertX` paths.
+All `*Cache` SwiftData `@Model` classes carry a `changeTag: String?` mirror of CloudKit's `recordChangeTag`. The CloudKit typed structs likewise carry `changeTag` populated in `init(record:)` from `record.recordChangeTag`. This changeTag is propagated through `SyncEngine.batchUpsert*`, `BackgroundCacheActor.batchUpsert*`, and the per-record `CacheService.upsertX` paths.
 
-Four services (`QuestService`, `TreasuryService`, `FamilyService`, `XPService`) gate the snapshot rollback with a per-call static helper:
+A single centralized guard — `enum ConcurrentEditDetector` in `Project/Services/ConcurrentEditDetector.swift` — exposes `detectConcurrentEdit(preMutationChangeTag:fetchCurrent:error:) -> Bool`. Four services (`QuestService`, `TreasuryService`, `FamilyService`, `XPService`) invoke this guard on the snapshot-rollback path. The helper consults two independent signals — either is sufficient:
 
-```swift
-static func detectConcurrentEdit(
-    preMutationChangeTag: String?,
-    fetchCurrent: () -> String?,
-    error: Error
-) -> Bool
-```
-
-The helper consults two independent signals — either is sufficient:
-
-- **Signal 1 — CloudKit `serverRecordChanged`.** The `CloudKitService` wraps raw `CKError.serverRecordChanged` into `CloudKitServiceError.notFound("serverRecordChanged")` (see `CloudKitService.swift`). When `cloudKit.save(X)` raises this, the server has a newer record and `detectConcurrentEdit` returns true.
+- **Signal 1 — CloudKit `serverRecordChanged`.** The `CloudKitService` wraps raw `CKError.serverRecordChanged` into `CloudKitServiceError.serverRecordChanged`. When `cloudKit.save(X)` raises this, the server has a newer record and `detectConcurrentEdit` returns true.
 - **Signal 2 — changeTag divergence.** The caller captures `snapshot?.changeTag` from the cache row BEFORE the optimistic `upsertX(updated)` and passes a closure that re-fetches the row's `changeTag` AFTER the throw. If both values are non-nil and unequal, `detectConcurrentEdit` returns true.
 
 On a concurrent edit, the service:
 
-1. emits the `.warning` toast *"Data was modified by another device. Refresh to see the latest."*;
+1. emits a `.warning` toast *"Data was modified by another device. Refresh to see the latest."* via the shared `ToastManager` (the `@MainActor` toast infrastructure held as `var toastManager: ToastManager?` by the mutation services);
 2. re-fetches the authoritative server record via `cloudKit.fetch(X.self, id: ...)` and writes it to the cache via `cacheService?.upsertX(fresh)` — replacing the rejected optimistic value with the truth;
 3. falls back to the pre-mutation snapshot restore via `upsertX(snapshot.toX(...))` if the re-fetch also fails (the snapshot is stale; `SyncEngine.syncAll` will reconcile on the next successful sync);
 4. for `QuestService`/`TreasuryService`/`FamilyService`: still throws the original error so the caller's ViewModel observes a save failure. For `XPService.addXP`: returns the freshly-fetched Profile (or, on fallback, the pre-mutation `snapshotProfile`).
@@ -509,8 +286,8 @@ On a concurrent edit, the service:
 These remain tracked as hardening items:
 
 - The pre-`save` window (between the optimistic `upsertX(updated)` and `await cloudKit.save(...)` completing) is short enough that the only reliable concurrent-edit signal during it is Signal 1 — CloudKit's synchronous `serverRecordChanged`. Signal 2 catches divergence that arrived via a background `SyncEngine.incrementalSync` push during the `await`; with the `CacheService.upsertX` changeTag-preservation fix, the cache row's `changeTag` is no longer overwritten with `nil` when the incoming struct carries `nil`, making Signal 2 effective for that path.
-- In the rare case where the concurrent-edit re-fetch also fails (network unavailable, server returns no fresher record), the fallback restores the pre-mutation `value` snapshot. The snapshot is a stale value, not truth; the next successful `SyncEngine.syncAll` reconciles.
-- `AchievementService` and `SpendingService` use the same optimistic-rollback pattern but do not yet wrap their rollback with `detectConcurrentEdit`; their rollback semantics are unaffected (snapshot restore on non-concurrent failures).
+- In the rare case where the concurrent-edit re-fetch also fails (network unavailable, server returns no fresher record), the fallback restores the pre-mutation snapshot. The snapshot is a stale value, not truth; the next successful `SyncEngine.syncAll` reconciles.
+- `AchievementService` and `ManualSpendingService` use the same optimistic-rollback pattern but do not yet wrap their rollback with `detectConcurrentEdit`; their rollback semantics are unaffected (snapshot restore on non-concurrent failures).
 
 ---
 
@@ -518,24 +295,24 @@ These remain tracked as hardening items:
 
 ### MVVM + Protocol Services
 - Views observe ViewModels via `@Observable` (iOS 17+, preferred over `ObservableObject`/`@Published`).
-- ViewModels depend on service protocols/concrete services, not on CloudKit directly.
+- ViewModels depend on service protocols/concrete services, not on CloudKit directly. Where a service benefits from a mock seam today, a small `@MainActor` protocol is declared alongside the service — `CloudKitServicing` (next to `XPService`) abstracts `CloudKitService.save/fetch` and is the only one extracted so far; `SpendingService` is the next planned extraction (§3).
 - Services are injected via `@Environment` or initializer injection at `LootListApp`. The cache is injected as an **optional** `CacheService?` so services degrade gracefully when the cache is unavailable.
 
 ### CloudKit Integration
 - **Container:** `CKContainer(identifier: "iCloud.com.volcrypt.lootlist")` (via `CloudKitService.defaultContainer`).
 - **Database selection:** always go through `CloudKitService.database(isOwner:)` — never assume `sharedCloudDatabase`.
 - **Subscriptions:** `CKSubscription` per zone, managed by `AppSyncCoordinator` + `CloudKitService.SubscriptionManager` (an actor that holds per-recordType change-stream continuations). `CloudKitService.changes(for:)` exposes an `AsyncStream`; `broadcastChange` fans events to subscribers.
-- **Retry/backoff:** `CloudKitService.retrying()` with `backoffSchedule = [0.5s, 1.5s, 4s]`, `maxRetries = 3`. Surface failures as `CloudKitServiceError` (`retryable`, `exhaustedBudget`, `networkUnavailable`, `zoneSetupFailed`, `subscriptionSetupFailed`, `shareFailed`).
+- **Retry/backoff:** `CloudKitService.retrying()` with `backoffSchedule = [0.5s, 1.5s, 4s]`, `maxRetries = 3`. Failures surface as `CloudKitServiceError` (the full case set lives in `Project/Services/CloudKitService.swift`; notably `serverRecordChanged` is the canonical concurrent-edit signal used by §Conflict).
 - **Shares:** `createShare` / `fetchOrCreateShareURL` / `acceptShare`; incoming share URLs handled via `.onOpenURL` → `pendingShareMetadata`.
 - **Tests:** CloudKit mocks are returned when `TestEnvironment.isRunningUnitOrUITests`; use `SampleData.populate` to seed both CloudKit mocks and the in-memory cache.
 
 ### Local Cache Integration
 - Services hold `var cacheService: CacheService?` and **write through** to the cache on every successful CloudKit write.
 - Reads may use `*FromCache(_:zoneID:)` helpers to reconstruct CloudKit model types from cached rows when offline.
-- Do **not** add new cached models without: (a) a `*Cache` `@Model` class with `@Attribute(.unique) recordName` + `familyRecordName`, (b) a `convenience init(from:)`, (c) `CacheConversions` functions, (d) upsert/fetch methods on `CacheService`, (e) write-through in the owning service.
+- Do **not** add a new cached model type without: (a) a `*Cache` `@Model` class with `@Attribute(.unique) recordName` + `familyRecordName` (conforming to `FamilyScopedCache`), (b) a `convenience init(from:)`, (c) `CacheConversions` functions, (d) an upsert path on `CacheService` (with fetch/invalidation helpers as needed in `CacheService+Fetches` / `CacheService+Invalidation`), (e) write-through in the owning service.
 
 ### Data Migrations
-- Schema/data backfills register a `MigrationStep` on `DataMigrationsCoordinator` (versioned via UserDefaults). Do not patch records ad-hoc inside services.
+- Schema/data backfills register a `MigrationStep` on `DataMigrationsCoordinator` (versioned via UserDefaults). Do not patch records ad-hoc inside services. (Note: SwiftData schema migrations, when stages are eventually needed beyond V1, are wired through `LootListSchema`'s `SchemaMigrationPlan` — currently empty.)
 
 ### Code Commenting Guidelines
 Code should be self-documenting through clear naming, clean structure, and descriptive method signatures. Avoid obvious, redundant, or multi-paragraph comments on self-explanatory code.
@@ -567,6 +344,8 @@ Code should be self-documenting through clear naming, clean structure, and descr
 
 ## Testing
 
-- **Unit tests** (`ProjectTests/`): `Models/CloudKitModelTests`, `Services/*Tests` (Achievement, Avatar, Family, Quest, Treasury, XP), `Utilities/CalendarUtilsTests`, `ViewModels/*Tests` (HeroDashboard, QuestManager, Treasury).
-- **UI tests** (`ProjectUITests/`): per-screen UITests (HeroDashboard, Onboarding, ParentDashboard, Treasury, TrophyRoom), `LootListScreenshotTests` (via `SnapshotHelper`).
-- **Test isolation:** `TestEnvironment.isRunningUnitOrUITests` flips `CacheService(inMemory: true)`, short-circuits CloudKit availability, and triggers `SampleData.populate(cloudKit:cacheService:)`. CLI args (`--onboarding`, `--parent`) select the seeded auth status.
+Unit tests live in `ProjectTests/` (mirroring the source layout: `Models/`, `Services/`, `Utilities/`, `ViewModels/`); UI and snapshot tests live in `ProjectUITests/` (per-screen XCTestCases plus `LootListScreenshotTests` via `SnapshotHelper`). The exact test list is intentionally omitted — it is inspectable via tree/glob and grows with the codebase.
+
+**Test-environment contract (this is the architectural part, not the file list):**
+- `TestEnvironment.isRunningUnitOrUITests` is the single switch. When true: `CacheService` is constructed with `inMemory: true`; CloudKit availability is short-circuited so mocks are returned instead of live databases; and `SampleData.populate(cloudKit:cacheService:)` seeds both the CloudKit mocks and the in-memory cache with a consistent fixture set.
+- **CLI args** (`--onboarding`, `--parent`) select the seeded auth status, so UI tests can drive a screen deterministically without replaying the full onboarding flow.

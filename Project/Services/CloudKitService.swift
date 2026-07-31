@@ -16,6 +16,8 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
 
     case notFound(String)
 
+    case serverRecordChanged
+
     case retryable(attempt: Int, code: Int?)
 
     case exhaustedBudget(attempt: Int)
@@ -43,6 +45,8 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
             "Network connection is unavailable."
         case let .notFound(details):
             "Requested record was not found (\(details))."
+        case .serverRecordChanged:
+            "Another device modified this record. Refresh to see the latest."
         case let .retryable(_, code):
             "CloudKit service is temporarily busy (code: \(code ?? 0))."
         case .exhaustedBudget:
@@ -938,7 +942,7 @@ class CloudKitService {
         case .zoneNotFound, .unknownItem, .constraintViolation:
             .notFound("\(error.code.rawValue)")
         case .serverRecordChanged:
-            .notFound("serverRecordChanged")
+            .serverRecordChanged
         case .managedAccountRestricted, .notAuthenticated, .userDeletedZone:
             .accountUnavailable
         case .networkUnavailable, .networkFailure:

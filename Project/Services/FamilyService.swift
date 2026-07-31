@@ -487,6 +487,17 @@ final class FamilyService: FamilyProfileFetching {
         updated.avatarPresetID = avatarPresetID
         updated.customAvatarImageData = customAvatarImageData
 
+        let name = profile.id.recordName
+        let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
+
+        cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == updated.id {
+            appState.currentProfile = updated
+        }
+
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
@@ -496,6 +507,39 @@ final class FamilyService: FamilyProfileFetching {
             }
             return saved
         } catch {
+            if ConcurrentEditDetector.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { self.cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            ) {
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
+                    cacheService?.upsertProfile(fresh)
+                    if appState.currentProfile?.id == fresh.id {
+                        appState.currentProfile = fresh
+                    }
+                } else if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
+                    if appState.currentProfile?.id == snapshotProfile.id {
+                        appState.currentProfile = snapshotProfile
+                    }
+                }
+            } else {
+                if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
+                    if appState.currentProfile?.id == snapshotProfile.id {
+                        appState.currentProfile = snapshotProfile
+                    }
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update avatar: \(error)"
             )
@@ -568,11 +612,58 @@ final class FamilyService: FamilyProfileFetching {
         var updated = profile
         updated.role = newRole
 
+        let name = profile.id.recordName
+        let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
+
+        cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == updated.id {
+            appState.currentProfile = updated
+        }
+
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
             cacheService?.upsertProfile(saved)
+            if appState.currentProfile?.id == saved.id {
+                appState.currentProfile = saved
+            }
         } catch {
+            if ConcurrentEditDetector.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { self.cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            ) {
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
+                    cacheService?.upsertProfile(fresh)
+                    if appState.currentProfile?.id == fresh.id {
+                        appState.currentProfile = fresh
+                    }
+                } else if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
+                    if appState.currentProfile?.id == snapshotProfile.id {
+                        appState.currentProfile = snapshotProfile
+                    }
+                }
+            } else {
+                if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
+                    if appState.currentProfile?.id == snapshotProfile.id {
+                        appState.currentProfile = snapshotProfile
+                    }
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
+            }
             throw FamilyServiceError.persistenceFailed(
                 "Could not update role: \(error)"
             )
@@ -622,11 +713,58 @@ final class FamilyService: FamilyProfileFetching {
         var updated = profile
         updated.isActive = false
 
+        let name = profile.id.recordName
+        let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
+
+        cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == updated.id {
+            appState.currentProfile = updated
+        }
+
         let (zoneID, db) = familyContext(for: profile.family.recordID)
         do {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
             cacheService?.upsertProfile(saved)
+            if appState.currentProfile?.id == saved.id {
+                appState.currentProfile = saved
+            }
         } catch {
+            if ConcurrentEditDetector.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { self.cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            ) {
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
+                    cacheService?.upsertProfile(fresh)
+                    if appState.currentProfile?.id == fresh.id {
+                        appState.currentProfile = fresh
+                    }
+                } else if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
+                    if appState.currentProfile?.id == snapshotProfile.id {
+                        appState.currentProfile = snapshotProfile
+                    }
+                }
+            } else {
+                if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
+                    if appState.currentProfile?.id == snapshotProfile.id {
+                        appState.currentProfile = snapshotProfile
+                    }
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
+            }
             throw FamilyServiceError.persistenceFailed("\(errorMessage): \(error)")
         }
     }
