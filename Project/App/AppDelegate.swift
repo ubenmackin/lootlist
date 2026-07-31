@@ -21,6 +21,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        let syncNotifications = NotificationCenter.default.notifications(named: .syncDidComplete)
+
         if let dict = userInfo as? [String: NSObject],
            let notification = CKNotification(fromRemoteNotificationDictionary: dict)
         {
@@ -32,7 +34,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         Task {
             _ = await withTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    for await _ in NotificationCenter.default.notifications(named: .syncDidComplete) {
+                    for await _ in syncNotifications {
                         break
                     }
                 }

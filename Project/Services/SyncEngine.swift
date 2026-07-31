@@ -24,7 +24,8 @@ final class SyncEngine {
     private let syncCoordinator: AppSyncCoordinator
 
     private(set) var isSyncing: Bool = false
-    private var needsResync: Bool = false
+    private enum PendingSync: Comparable { case none, incremental, full }
+    private var pendingSync: PendingSync = .none
     private(set) var lastSyncedAt: Date?
     var syncError: String?
 
@@ -56,12 +57,12 @@ final class SyncEngine {
     /// Shared implementation for scoped and unscoped full syncs.
     private func _syncAll(familyRecordName: String?) async {
         if isSyncing {
-            needsResync = true
+            pendingSync = .full
             return
         }
 
         isSyncing = true
-        needsResync = false
+        pendingSync = .none
         syncError = nil
         var syncErrors: [String] = []
 
@@ -70,20 +71,15 @@ final class SyncEngine {
             lastSyncedAt = Date()
             let userInfo: [String: Any]? = syncErrors.isEmpty ? nil : ["errors": syncErrors]
             NotificationCenter.default.post(name: .syncDidComplete, object: self, userInfo: userInfo)
-
-            if needsResync {
-                Task {
-                    if let familyRecordName {
-                        await syncAll(familyRecordName: familyRecordName)
-                    } else {
-                        await syncAllFamiliesUnscoped()
-                    }
-                }
-            }
+            dispatchPendingSync(familyRecordName: familyRecordName)
         }
 
         logger.info("Starting syncAll for familyRecordName=\(familyRecordName ?? "all", privacy: .private)")
+        await fetchAndCacheAllEntities(familyRecordName: familyRecordName, syncErrors: &syncErrors)
+        logger.info("syncAll completed successfully.")
+    }
 
+    private func fetchAndCacheAllEntities(familyRecordName: String?, syncErrors: inout [String]) async {
         let zoneID = cloudKit.resolvedZoneID
         let db = cloudKit.activeFamilyDatabase
 
@@ -187,90 +183,127 @@ final class SyncEngine {
             logger.error("Failed to sync profile achievements: \(error)")
             syncErrors.append("ProfileAchievements: \(error.localizedDescription)")
         }
-
-        logger.info("syncAll completed successfully.")
     }
 
     /// Incremental delta sync using CKServerChangeToken for a specific family.
     func incrementalSync(familyRecordName: String? = nil) async {
         if isSyncing {
-            needsResync = true
+            if pendingSync < .full {
+                pendingSync = .incremental
+            }
             return
         }
 
         isSyncing = true
-        needsResync = false
+        pendingSync = .none
         syncError = nil
 
         defer {
             isSyncing = false
             lastSyncedAt = Date()
             NotificationCenter.default.post(name: .syncDidComplete, object: self)
-
-            if needsResync {
-                Task {
-                    await incrementalSync(familyRecordName: familyRecordName)
-                }
-            }
+            dispatchPendingSync(familyRecordName: familyRecordName)
         }
 
         let zoneID = cloudKit.resolvedZoneID
         let db = cloudKit.activeFamilyDatabase
         let tokenKey = tokenKey(for: zoneID, db: db)
 
-        var cachedToken: CKServerChangeToken?
-        if let data = UserDefaults.standard.data(forKey: tokenKey) {
-            cachedToken = try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
-        }
-
-        guard let token = cachedToken else {
+        guard let token = loadChangeToken(key: tokenKey) else {
             logger.info("No server change token found, executing syncAll(familyRecordName: \(familyRecordName ?? "all", privacy: .private))")
             isSyncing = false
-            if let familyRecordName {
-                await syncAll(familyRecordName: familyRecordName)
-            } else {
-                await syncAllFamiliesUnscoped()
-            }
+            await dispatchFullSync(familyRecordName: familyRecordName)
             return
         }
 
         logger.info("Starting incrementalSync with change token")
         do {
             let result = try await cloudKit.fetchZoneChanges(since: token)
+            await processIncrementalChanges(result)
+            saveChangeToken(result.newToken, key: tokenKey)
 
-            for record in result.changedRecords {
-                await processChangedRecord(record)
-            }
-
-            for (deletedID, recordType) in result.deletedRecordIDs {
-                guard let cachedType = CachedRecordType.recordType(for: recordType) else {
-                    logger.warning("Skipping delete of unknown recordType '\(recordType, privacy: .public)' for record \(deletedID.recordName, privacy: .private)")
-                    continue
-                }
-                await backgroundCache.deleteRecord(recordName: deletedID.recordName, type: cachedType)
-            }
-
-            if let newToken = result.newToken {
-                if let data = try? NSKeyedArchiver.archivedData(withRootObject: newToken, requiringSecureCoding: true) {
-                    UserDefaults.standard.set(data, forKey: tokenKey)
-                }
-            }
-
-            if result.moreComing {
-                needsResync = true
+            if result.moreComing, pendingSync < .full {
+                pendingSync = .incremental
             }
 
             logger.info("incrementalSync completed successfully.")
         } catch {
-            logger.error("incrementalSync failed: \(error, privacy: .private), falling back to syncAll(familyRecordName: \(familyRecordName ?? "all", privacy: .private))")
-            UserDefaults.standard.removeObject(forKey: tokenKey)
-            isSyncing = false
-            if let familyRecordName {
-                await syncAll(familyRecordName: familyRecordName)
+            if isTokenInvalidError(error) {
+                logger.error("incrementalSync token invalid: \(error, privacy: .private), falling back to syncAll")
+                UserDefaults.standard.removeObject(forKey: tokenKey)
+                isSyncing = false
+                await dispatchFullSync(familyRecordName: familyRecordName)
             } else {
-                await syncAllFamiliesUnscoped()
+                logger.error("incrementalSync transient failure: \(error, privacy: .private)")
+                syncError = error.localizedDescription
             }
         }
+    }
+
+    private func processIncrementalChanges(_ result: CloudKitService.ZoneChangesResult) async {
+        for record in result.changedRecords {
+            await processChangedRecord(record)
+        }
+
+        for (deletedID, recordType) in result.deletedRecordIDs {
+            guard let cachedType = CachedRecordType.recordType(for: recordType) else {
+                logger.warning("Skipping delete of unknown recordType '\(recordType, privacy: .public)' for record \(deletedID.recordName, privacy: .private)")
+                continue
+            }
+            await backgroundCache.deleteRecord(recordName: deletedID.recordName, type: cachedType)
+        }
+    }
+
+    // MARK: - Sync Helpers
+
+    private func dispatchPendingSync(familyRecordName: String?) {
+        guard pendingSync != .none else { return }
+        let pending = pendingSync
+        pendingSync = .none
+        Task {
+            switch pending {
+            case .full, .none:
+                await dispatchFullSync(familyRecordName: familyRecordName)
+            case .incremental:
+                await incrementalSync(familyRecordName: familyRecordName)
+            }
+        }
+    }
+
+    private func dispatchFullSync(familyRecordName: String?) async {
+        if let familyRecordName {
+            await syncAll(familyRecordName: familyRecordName)
+        } else {
+            await syncAllFamiliesUnscoped()
+        }
+    }
+
+    private func loadChangeToken(key: String) -> CKServerChangeToken? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data)
+    }
+
+    private func saveChangeToken(_ token: CKServerChangeToken?, key: String) {
+        guard let token,
+              let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true)
+        else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    private func isTokenInvalidError(_ error: Error) -> Bool {
+        if let ckServiceError = error as? CloudKitServiceError {
+            if case let .notFound(detail) = ckServiceError,
+               detail == "15" || detail == "26" // CKError.changeTokenExpired=15, zoneNotFound=26
+            {
+                return true
+            }
+        }
+        if let ckError = error as? CKError,
+           ckError.code == .changeTokenExpired || ckError.code == .zoneNotFound
+        {
+            return true
+        }
+        return false
     }
 
     /// Returns a UserDefaults key scoped to a specific record zone and database scope.

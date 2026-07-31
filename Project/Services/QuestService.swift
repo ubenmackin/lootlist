@@ -71,9 +71,15 @@ final class QuestService {
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
-        let saved = try await cloudKit.save(template)
-        cacheService?.upsertQuestTemplate(saved)
-        return saved
+        cacheService?.upsertQuestTemplate(template)
+        do {
+            let saved = try await cloudKit.save(template)
+            cacheService?.upsertQuestTemplate(saved)
+            return saved
+        } catch {
+            cacheService?.invalidateQuestTemplate(recordName: template.id.recordName)
+            throw error
+        }
     }
 
     @discardableResult
@@ -377,8 +383,19 @@ final class QuestService {
     }
 
     func unassignQuest(_ quest: Quest) async throws {
+        let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
+            .first(where: { $0.recordName == quest.id.recordName })
+        let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
+
         cacheService?.invalidateQuest(recordName: quest.id.recordName)
-        try await cloudKit.delete(quest.id)
+        do {
+            try await cloudKit.delete(quest.id)
+        } catch {
+            if let snapshotQuest {
+                cacheService?.upsertQuest(snapshotQuest)
+            }
+            throw error
+        }
     }
 
     /// Cache-first read. On cold cache miss, falls back to a single synchronous
