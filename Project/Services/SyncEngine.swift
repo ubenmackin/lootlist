@@ -81,18 +81,17 @@ final class SyncEngine {
 
     private func fetchAndCacheAllEntities(familyRecordName: String?, syncErrors: inout [String]) async {
         let zoneID = cloudKit.resolvedZoneID
-        let db = cloudKit.activeFamilyDatabase
 
-        async let familyTask = cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let notifPrefsTask = cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let profilesTask = cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let questsTask = cloudKit.query(Quest.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let templatesTask = cloudKit.query(QuestTemplate.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let completionsTask = cloudKit.query(QuestCompletion.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let ledgerTask = cloudKit.query(LedgerEntry.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let allowanceTask = cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let achievementsTask = cloudKit.query(Achievement.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
-        async let profileAchievementsTask = cloudKit.query(ProfileAchievement.self, predicate: NSPredicate(value: true), in: zoneID, using: db)
+        async let familyTask = cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let notifPrefsTask = cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let profilesTask = cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let questsTask = cloudKit.query(Quest.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let templatesTask = cloudKit.query(QuestTemplate.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let completionsTask = cloudKit.query(QuestCompletion.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let ledgerTask = cloudKit.query(LedgerEntry.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let allowanceTask = cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let achievementsTask = cloudKit.query(Achievement.self, predicate: NSPredicate(value: true), in: zoneID)
+        async let profileAchievementsTask = cloudKit.query(ProfileAchievement.self, predicate: NSPredicate(value: true), in: zoneID)
 
         do {
             let families = try await familyTask
@@ -206,8 +205,7 @@ final class SyncEngine {
         }
 
         let zoneID = cloudKit.resolvedZoneID
-        let db = cloudKit.activeFamilyDatabase
-        let tokenKey = tokenKey(for: zoneID, db: db)
+        let tokenKey = tokenKey(for: zoneID, isShared: !cloudKit.activeIsOwner)
 
         guard let token = loadChangeToken(key: tokenKey) else {
             logger.info("No server change token found, executing syncAll(familyRecordName: \(familyRecordName ?? "all", privacy: .private))")
@@ -307,10 +305,14 @@ final class SyncEngine {
     }
 
     /// Returns a UserDefaults key scoped to a specific record zone and database scope.
-    func tokenKey(for zoneID: CKRecordZone.ID, db: CKDatabase?) -> String {
-        let dbLabel: CKDatabase.Scope = db?.databaseScope ?? .private
-        let scopeLabel = dbLabel == .shared ? "shared" : "private"
+    func tokenKey(for zoneID: CKRecordZone.ID, isShared: Bool) -> String {
+        let scopeLabel = isShared ? "shared" : "private"
         return "ck_change_token.\(zoneID.zoneName).\(scopeLabel)"
+    }
+
+    func tokenKey(for zoneID: CKRecordZone.ID, db: CKDatabase?) -> String {
+        let isShared = db?.databaseScope == .shared
+        return tokenKey(for: zoneID, isShared: isShared)
     }
 
     private func processChangedRecord(_ record: CKRecord) async {
@@ -390,13 +392,13 @@ final class SyncEngine {
                     await incrementalSync(familyRecordName: familyRecordName)
                 case let .shareAccepted(shareID):
                     let acceptedZoneID = shareID.zoneID
-                    UserDefaults.standard.removeObject(forKey: tokenKey(for: acceptedZoneID, db: cloudKit.sharedDatabase))
+                    UserDefaults.standard.removeObject(forKey: tokenKey(for: acceptedZoneID, isShared: true))
                     cacheService.clearAll()
                     cloudKit.activeFamilyZoneID = acceptedZoneID
                     cloudKit.activeIsOwner = false
                     await syncAll(familyRecordName: acceptedZoneID.zoneName)
                 case .zoneReset:
-                    UserDefaults.standard.removeObject(forKey: tokenKey(for: cloudKit.resolvedZoneID, db: cloudKit.activeFamilyDatabase))
+                    UserDefaults.standard.removeObject(forKey: tokenKey(for: cloudKit.resolvedZoneID, isShared: !cloudKit.activeIsOwner))
                     cacheService.clearAll()
                     if let familyRecordName = cloudKit.activeFamilyZoneID?.zoneName {
                         await syncAll(familyRecordName: familyRecordName)

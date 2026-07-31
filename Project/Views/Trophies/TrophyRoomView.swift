@@ -75,12 +75,6 @@ struct TrophyRoomView: View {
                 )
             }
             rebuild()
-            if let profile = appState.currentProfile {
-                Task { _ = try? await achievementService.fetchEarned(profile: profile) }
-                if let family = appState.family {
-                    Task { _ = try? await achievementService.fetchAllDefinitions(family: family) }
-                }
-            }
         }
         .onChange(of: cachedAchievements) { _, _ in rebuild() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
