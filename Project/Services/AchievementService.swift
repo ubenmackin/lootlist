@@ -214,13 +214,6 @@ final class AchievementService {
             let familyName = family.id.recordName
             let cached = cache.fetchAchievements(family: familyName)
             if !cached.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                    let predicate = NSPredicate(format: "family == %@", familyRef)
-                    if let fresh = try? await cloudKit.query(Achievement.self, predicate: predicate) {
-                        cacheService?.upsertAchievements(fresh)
-                    }
-                }
                 return cached.map { $0.toAchievement(zoneID: cloudKit.resolvedZoneID) }
             }
         }
@@ -236,14 +229,6 @@ final class AchievementService {
             let profileName = profile.id.recordName
             let cached = cache.fetchProfileAchievements(profileRecordName: profileName)
             if !cached.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(format: "profile == %@", profileRef)
-                    let sortDescriptors = [NSSortDescriptor(key: "earnedDate", ascending: false)]
-                    if let fresh = try? await cloudKit.query(ProfileAchievement.self, predicate: predicate, sortDescriptors: sortDescriptors) {
-                        cacheService?.upsertProfileAchievements(fresh)
-                    }
-                }
                 return cached.map { $0.toProfileAchievement(zoneID: cloudKit.resolvedZoneID) }
                     .sorted { $0.earnedDate > $1.earnedDate }
             }

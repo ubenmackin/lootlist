@@ -32,10 +32,7 @@ struct QuestLogView: View {
         self.initialHero = initialHero
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name }
         }
@@ -98,7 +95,6 @@ struct QuestLogView: View {
             if let initialHero, viewModel?.selectedHero == nil {
                 viewModel?.selectedHero = initialHero
             }
-            // snapshot. Subsequent mutations re-fire `.onChange`.
             rebuildViewModel()
         }
         .onDisappear {
@@ -118,9 +114,7 @@ struct QuestLogView: View {
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
 
-        // The `@Query` declarations above already filter by
-        // `familyRecordName` at the SwiftData/SQLite layer, so we no longer
-        // post-filter the cached rows in Swift. Pass them straight through.
+        // Rebuild view model lists directly from cached SwiftData rows.
         vm.rebuildLists(profiles: cachedProfiles, quests: cachedQuests, logs: cachedCompletions)
     }
 

@@ -110,9 +110,15 @@ final class FamilyDashboardViewModel {
                 $0.verificationStatus == VerificationStatus.verified.rawValue
                     || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
             }
-            var goldFromQuests = completedLogs.reduce(into: 0.0) { acc, log in
-                if let quest = questByName[log.questRecordName] {
-                    acc += quest.goldReward
+            var approvedCountByQuest: [String: Int] = [:]
+            for log in completedLogs {
+                approvedCountByQuest[log.questRecordName, default: 0] += 1
+            }
+            var goldFromQuests = 0.0
+            for (qName, count) in approvedCountByQuest {
+                if let quest = questByName[qName] {
+                    goldFromQuests += GoldCalculation.creditAsDouble(for: quest,
+                                                                     approvedCount: count)
                 }
             }
             let assignedQuests = quests.filter {

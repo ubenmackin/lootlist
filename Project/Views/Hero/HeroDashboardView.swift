@@ -27,10 +27,7 @@ struct HeroDashboardView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name && $0.isActive == true }
         }
@@ -71,14 +68,12 @@ struct HeroDashboardView: View {
             .navigationTitle("Quests")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
-                // Pull-to-refresh re-derives from the current cache snapshot.
                 rebuildViewModel()
             }
             .task {
                 if viewModel == nil {
                     viewModel = HeroDashboardViewModel(appState: appState)
                 }
-                // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuildViewModel()
             }
             .onChange(of: cachedQuests) { _, _ in
@@ -97,11 +92,7 @@ struct HeroDashboardView: View {
         guard let vm = viewModel else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        // The `@Query` declarations above already filter by
-        // `familyRecordName` (and the active flag where appropriate) at the
-        // SwiftData/SQLite layer. The remaining per-hero filters stay in
-        // Swift because the assigned-hero identity varies per viewer and
-        // can't be pushed into a static `Query` predicate.
+        // Filter family-scoped cached records for the active hero profile.
         let quests = cachedQuests
             .filter { $0.assigneeRecordName == profileName && $0.isActive }
 

@@ -57,10 +57,7 @@ struct ProfileView: View {
         self.notificationService = notificationService
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name }
         }
@@ -137,10 +134,6 @@ struct ProfileView: View {
                 }
             }
             .task {
-                // cache snapshot, then a single one-shot background freshness
-                // touch (achievementService) that upserts into SwiftData — the
-                // resulting mutation re-fires `.onChange` → recompute. No
-                // per-appear / per-cache-change CK re-fetch.
                 recomputeCharacterFromCache()
                 viewModel.refreshFreshness(
                     profile: appState.currentProfile,
@@ -546,9 +539,15 @@ final class ProfileViewModel {
             quests.map { ($0.recordName, $0) },
             uniquingKeysWith: { current, _ in current }
         )
-        let goldFromQuests = completedLogs.reduce(into: 0.0) { acc, log in
-            if let quest = questByName[log.questRecordName] {
-                acc += quest.goldReward
+        var approvedCountByQuest: [String: Int] = [:]
+        for log in completedLogs {
+            approvedCountByQuest[log.questRecordName, default: 0] += 1
+        }
+        var goldFromQuests = 0.0
+        for (qName, count) in approvedCountByQuest {
+            if let quest = questByName[qName] {
+                goldFromQuests += GoldCalculation.creditAsDouble(for: quest,
+                                                                 approvedCount: count)
             }
         }
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }

@@ -44,10 +44,7 @@ struct QuestManagerView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // so we don't fetch every family's rows and post-filter in Swift.
-        // Mirrors the L1 branch style in `CacheService.upsertX`: nil family
-        // means "no filter", non-nil means "filter by family". We do NOT use
-        // the banned `familyRecordName ?? ""` sentinel — that conflicts with
+        // Filter queries by family at the SwiftData store layer when a family record name is available.
         let templateFilter: Predicate<QuestTemplateCache>? = familyRecordName.map { name in
             #Predicate { $0.familyRecordName == name && $0.isActive == true }
         }
@@ -97,11 +94,9 @@ struct QuestManagerView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                // cache snapshot. Subsequent mutations re-fire `.onChange`.
                 rebuildViewModel()
             }
             .refreshable {
-                // re-derive from the current cache snapshot. Background
                 rebuildViewModel()
             }
             .onChange(of: scenePhase) { _, newPhase in
@@ -119,8 +114,6 @@ struct QuestManagerView: View {
                 rebuildViewModel()
             }
             .onChange(of: cachedProfiles) { _, _ in
-                // heroes list is derived from `@Query cachedProfiles`
-                // (replaces the deleted `loadHeroes()` cache-fetch path).
                 rebuildViewModel()
             }
             .toolbar {
