@@ -482,8 +482,7 @@ struct SyncEngineTests {
         let sut = try makeSUT(seedRecords: allTenTypes())
 
         let zoneID = sut.cloudKit.resolvedZoneID
-        let db = sut.cloudKit.activeFamilyDatabase
-        let dbLabel = db.databaseScope == .shared ? "shared" : "private"
+        let dbLabel = sut.cloudKit.activeIsOwner ? "private" : "shared"
         let tokenKey = "ck_change_token.\(zoneID.zoneName).\(dbLabel)"
         UserDefaults.standard.removeObject(forKey: tokenKey)
 
@@ -521,8 +520,7 @@ struct SyncEngineTests {
             syncCoordinator: coordinator
         )
 
-        let db = cloudKit.activeFamilyDatabase
-        let dbLabel = db.databaseScope == .shared ? "shared" : "private"
+        let dbLabel = cloudKit.activeIsOwner ? "private" : "shared"
         let tokenKey = "ck_change_token.\(zoneID.zoneName).\(dbLabel)"
         UserDefaults.standard.removeObject(forKey: tokenKey)
 
@@ -715,8 +713,7 @@ struct SyncEngineTests {
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.seedMockRecords([seedProfile(recordName: "p_a", familyRef: ref("fam_a"))])
 
-        let db = cloudKit.activeFamilyDatabase
-        let dbLabel = db.databaseScope == .shared ? "shared" : "private"
+        let dbLabel = cloudKit.activeIsOwner ? "private" : "shared"
         let tokenKey = "ck_change_token.\(zoneID.zoneName).\(dbLabel)"
         UserDefaults.standard.removeObject(forKey: tokenKey)
 
@@ -827,8 +824,7 @@ struct SyncEngineTests {
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.seedMockRecords([seedProfile(recordName: "p_a", familyRef: ref("fam_a"))])
 
-        let db = cloudKit.activeFamilyDatabase
-        let dbType = db.databaseScope == .shared ? "shared" : "private"
+        let dbType = cloudKit.activeIsOwner ? "private" : "shared"
         let tokenKey = "ck_change_token.\(zoneID.zoneName).\(dbType)"
         UserDefaults.standard.removeObject(forKey: tokenKey)
 

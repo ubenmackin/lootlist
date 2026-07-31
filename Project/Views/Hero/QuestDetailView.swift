@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct QuestDetailView: View {
@@ -16,8 +17,8 @@ struct QuestDetailView: View {
     @Environment(QuestService.self) private var questService
     @Environment(CacheService.self) private var cacheService: CacheService?
 
-    @State private var allLogs: [QuestCompletion] = []
-    @State private var latestLog: QuestCompletion?
+    @Query private var cachedCompletions: [QuestCompletionCache]
+
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
     @State private var isLoadingLog: Bool = false
@@ -26,6 +27,15 @@ struct QuestDetailView: View {
 
     private var targetCount: Int {
         max(1, quest.targetCount)
+    }
+
+    private var allLogs: [QuestCompletion] {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        return cachedCompletions.map { $0.toQuestCompletion(zoneID: zoneID) }
+    }
+
+    private var latestLog: QuestCompletion? {
+        allLogs.first ?? initialLog
     }
 
     private var approvedLogs: [QuestCompletion] {
@@ -43,10 +53,16 @@ struct QuestDetailView: View {
     init(quest: Quest, initialLog: QuestCompletion? = nil) {
         self.quest = quest
         self.initialLog = initialLog
-        _latestLog = State(initialValue: initialLog)
-        if let initialLog {
-            _allLogs = State(initialValue: [initialLog])
+
+        let questName = quest.id.recordName
+        let filter = #Predicate<QuestCompletionCache> {
+            $0.questRecordName == questName
         }
+        _cachedCompletions = Query(
+            filter: filter,
+            sort: \QuestCompletionCache.completedDate,
+            order: .reverse
+        )
     }
 
     var body: some View {
@@ -290,11 +306,11 @@ struct QuestDetailView: View {
         }
     }
 
-    private func load(forceRefresh: Bool = false) async {
+    private func load() async {
         isLoadingLog = true
         defer { isLoadingLog = false }
 
-        if !forceRefresh, let cacheService {
+        if let cacheService {
             let familyName = quest.family.recordID.recordName
             let templateName = quest.template.recordID.recordName
             if let cached = cacheService.fetchQuestTemplates(family: familyName)
@@ -311,19 +327,6 @@ struct QuestDetailView: View {
                 template = nil
             }
         }
-
-        do {
-            // On forceRefresh (post-mutation), bypass SwiftData to reconcile
-            // against CloudKit's authoritative log set and prevent duplicate
-            // completions from another device.
-            let logs = try await questService.fetchQuestLogs(forQuest: quest, useCache: !forceRefresh)
-            allLogs = logs
-            if let fetched = logs.first {
-                latestLog = fetched
-            }
-        } catch {
-            // Keep existing log if fetch encounters error
-        }
     }
 
     private func completeQuest() async {
@@ -335,13 +338,7 @@ struct QuestDetailView: View {
         isCompleting = true
         defer { isCompleting = false }
         do {
-            let newLog = try await questService.markComplete(quest: quest, by: profile)
-            latestLog = newLog
-            allLogs.append(newLog)
-            // Reconcile local state against CloudKit's authoritative log set before
-            // the user can tap the next slot. Awaits so the multi-completion disable
-            // check reads the freshly-loaded `allLogs` and cannot desync by one tap.
-            await load(forceRefresh: true)
+            _ = try await questService.markComplete(quest: quest, by: profile)
         } catch let questError as QuestServiceError {
             self.error = questError.localizedDescription
             self.isErrorPresented = true

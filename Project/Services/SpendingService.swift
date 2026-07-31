@@ -71,17 +71,6 @@ final class ManualSpendingService: SpendingService {
             let cached = cache.fetchLedgerEntries(profileRecordName: profileName)
             let filtered = cached.filter { dateRange.contains($0.date) }
             if !filtered.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-                    if let all = try? await cloudKit.query(
-                        LedgerEntry.self,
-                        predicate: predicate,
-                        sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)]
-                    ) {
-                        cacheService?.upsertLedgerEntries(all)
-                    }
-                }
                 let zoneID = cloudKit.resolvedZoneID
                 return filtered.map { cacheRow in
                     LedgerEntry(
@@ -132,8 +121,7 @@ final class ManualSpendingService: SpendingService {
         cacheService?.upsertLedgerEntry(entry)
         do {
             let zoneID = cloudKit.resolvedZoneID
-            let db = cloudKit.activeFamilyDatabase
-            let saved = try await cloudKit.save(entry, in: zoneID, using: db)
+            let saved = try await cloudKit.save(entry, in: zoneID)
             cacheService?.upsertLedgerEntry(saved)
             return saved
         } catch {
