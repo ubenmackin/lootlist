@@ -15,7 +15,7 @@ import Foundation
 ///   1) CloudKit raised a `serverRecordChanged` error during `cloudKit.save`.
 ///      CloudKitService wraps raw `CKError` instances into
 ///      `CloudKitServiceError` before throwing, so we pattern-match the
-///      wrapped form — `CloudKitServiceError.notFound("serverRecordChanged")`
+///      wrapped form — `CloudKitServiceError.serverRecordChanged`
 ///      — rather than `CKError` itself, which the service layer never sees.
 ///   2) The cache row's current `changeTag` differs from the
 ///      `preMutationChangeTag` we captured before the optimistic write. A
@@ -35,8 +35,8 @@ enum ConcurrentEditDetector {
         error: Error
     ) -> Bool {
         // Signal 1: CloudKit's canonical optimistic-concurrency conflict.
-        if case let .notFound(details) = error as? CloudKitServiceError,
-           details == "serverRecordChanged"
+        if let serviceError = error as? CloudKitServiceError,
+           serviceError == .serverRecordChanged
         {
             return true
         }

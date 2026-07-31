@@ -5,12 +5,29 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import SwiftData
 import SwiftUI
 
 struct SpendingLogView: View {
     @Bindable var viewModel: TreasuryViewModel
+    let familyRecordName: String?
+
+    @Query private var cachedLedgers: [LedgerEntryCache]
 
     @State private var showAllTime: Bool = false
+
+    init(viewModel: TreasuryViewModel, familyRecordName: String? = nil) {
+        self.viewModel = viewModel
+        self.familyRecordName = familyRecordName
+        let ledgerFilter: Predicate<LedgerEntryCache>? = familyRecordName.map { name in
+            #Predicate { $0.familyRecordName == name }
+        }
+        _cachedLedgers = Query(
+            filter: ledgerFilter,
+            sort: \LedgerEntryCache.date,
+            order: .reverse
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -34,12 +51,13 @@ struct SpendingLogView: View {
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: showAllTime) { _, newValue in
-            Task { await viewModel.loadSpendingLog(showAllTime: newValue) }
+            viewModel.rebuildSpendingLog(from: cachedLedgers, showAllTime: newValue)
+        }
+        .onChange(of: cachedLedgers) { _, newLedgers in
+            viewModel.rebuildSpendingLog(from: newLedgers, showAllTime: showAllTime)
         }
         .task {
-            if viewModel.spendingLog.isEmpty {
-                await viewModel.loadSpendingLog(showAllTime: showAllTime)
-            }
+            viewModel.rebuildSpendingLog(from: cachedLedgers, showAllTime: showAllTime)
         }
     }
 

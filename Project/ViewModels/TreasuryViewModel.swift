@@ -156,25 +156,18 @@ final class TreasuryViewModel {
         spendingLog = (includedLedgers + logLedgers).sorted { $0.date > $1.date }
     }
 
-    func loadSpendingLog(showAllTime: Bool) async {
-        guard let profile = appState.currentProfile else {
-            errorMessage = "No hero profile loaded."
-            return
-        }
-        let weekRange = WeekMath.weekRange(starting: WeekMath.weekOf(date: Date()))
-        // the prior inclusive [start, start+secondsInWeek-1] window for that query
-        // (display path only — gold/quest totals route through the half-open Range).
-        let range: DateInterval = showAllTime
-            ? DateInterval(start: .distantPast, end: .distantFuture)
-            : DateInterval(start: weekRange.lowerBound,
-                           end: weekRange.upperBound.addingTimeInterval(-1))
-        do {
-            let entries = try await spending.fetchTransactions(
-                for: profile, in: range
-            )
-            spendingLog = entries.map { LedgerEntryCache(from: $0) }
-        } catch {
-            errorMessage = "\(error)"
+    func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], showAllTime: Bool) {
+        guard let profile = appState.currentProfile else { return }
+        let profileName = profile.id.recordName
+        let filtered = cachedLedgers.filter { $0.profileRecordName == profileName }
+
+        if showAllTime {
+            spendingLog = filtered.sorted { $0.date > $1.date }
+        } else {
+            let weekRange = WeekMath.weekRange(starting: WeekMath.weekOf(date: Date()))
+            spendingLog = filtered
+                .filter { weekRange.contains($0.date) }
+                .sorted { $0.date > $1.date }
         }
     }
 
