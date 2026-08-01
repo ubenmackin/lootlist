@@ -88,6 +88,7 @@ final class QuestService {
         let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
 
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestTemplate(template)
@@ -132,6 +133,7 @@ final class QuestService {
         let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
 
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestTemplate(deactivated)
@@ -260,6 +262,7 @@ final class QuestService {
             .first(where: { $0.recordName == name })
 
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuest(quest)
@@ -383,16 +386,39 @@ final class QuestService {
     }
 
     func unassignQuest(_ quest: Quest) async throws {
+        let name = quest.id.recordName
         let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
-            .first(where: { $0.recordName == quest.id.recordName })
+            .first(where: { $0.recordName == name })
+
+        let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
 
-        cacheService?.invalidateQuest(recordName: quest.id.recordName)
+        cacheService?.invalidateQuest(recordName: name)
         do {
             try await cloudKit.delete(quest.id)
         } catch {
-            if let snapshotQuest {
-                cacheService?.upsertQuest(snapshotQuest)
+            if handleConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            ) {
+                if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
+                    cacheService?.upsertQuest(fresh)
+                } else if let snapshotQuest {
+                    cacheService?.upsertQuest(snapshotQuest)
+                } else {
+                    cacheService?.invalidateQuest(recordName: name)
+                }
+            } else {
+                if let snapshotQuest {
+                    cacheService?.upsertQuest(snapshotQuest)
+                } else {
+                    cacheService?.invalidateQuest(recordName: name)
+                }
+                showErrorToast(error)
             }
             throw error
         }
@@ -542,6 +568,7 @@ extension QuestService {
         let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
 
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotCompletion: QuestCompletion? = snapshot?.toQuestCompletion(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestCompletion(updated)
@@ -609,6 +636,7 @@ extension QuestService {
         let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
 
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotCompletion: QuestCompletion? = snapshot?.toQuestCompletion(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertQuestCompletion(updated)

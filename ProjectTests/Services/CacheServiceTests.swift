@@ -80,9 +80,9 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert quest preserves change tag when nil`() throws {
-        // Signal-2 regression guard: when the incoming changeTag is nil,
-        // the existing server-side tag must NOT be overwritten.
+    func `upsert quest clears change tag when nil`() throws {
+        // changeTag is copied unconditionally: a nil incoming changeTag is a
+        // meaningful "no further tag" value and must clear the cached tag.
         let service = try makeService()
         var quest = Quest(
             template: ref("tpl"),
@@ -100,14 +100,14 @@ struct CacheServiceTests {
         quest.changeTag = "server-v1"
         service.upsertQuest(quest)
 
-        // Upsert same record with nil changeTag — existing tag must survive.
+        // Upsert same record with nil changeTag — the cached tag must be cleared.
         var upserted = quest
         upserted.changeTag = nil
         service.upsertQuest(upserted)
 
         let quests = service.fetchQuests(family: "fam")
         #expect(quests.count == 1)
-        #expect(quests.first?.changeTag == "server-v1")
+        #expect(quests.first?.changeTag == nil)
     }
 
     @Test
@@ -251,7 +251,7 @@ struct CacheServiceTests {
     // MARK: - Notification Preference ChangeTag
 
     @Test
-    func `upsert notification preference preserves change tag`() throws {
+    func `upsert notification preference clears change tag when nil`() throws {
         let service = try makeService()
         var pref = NotificationPreference(
             profile: ref("hero"),
@@ -264,14 +264,14 @@ struct CacheServiceTests {
         pref.changeTag = "server-v1"
         service.upsertNotificationPreference(pref)
 
-        // Upsert with nil changeTag — existing tag must be preserved.
+        // Upsert with nil changeTag — the cached tag must be cleared.
         var upserted = pref
         upserted.changeTag = nil
         service.upsertNotificationPreference(upserted)
 
         let prefs = service.fetchNotificationPreferences(profileRecordName: "hero")
         #expect(prefs.count == 1)
-        #expect(prefs.first?.changeTag == "server-v1")
+        #expect(prefs.first?.changeTag == nil)
     }
 
     // MARK: - Per-Family Purge (M4 Regression)

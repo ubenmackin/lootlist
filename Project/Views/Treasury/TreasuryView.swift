@@ -33,19 +33,13 @@ struct TreasuryView: View {
         self.spending = spending
         self.familyRecordName = familyRecordName
 
-        // Filter queries by family at the SwiftData store layer when a family record name is available.
-        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let ledgerFilter: Predicate<LedgerEntryCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name && $0.isActive == true }
-        }
-        let allowanceFilter: Predicate<AllowancePeriodCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
         _cachedCompletions = Query(
             filter: completionFilter,
             sort: \QuestCompletionCache.completedDate,

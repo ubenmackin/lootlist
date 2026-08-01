@@ -26,13 +26,11 @@ struct TrophyRoomView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // Filter queries by family at the SwiftData store layer when a family record name is available.
-        let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let profileAchievementFilter: Predicate<ProfileAchievementCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
+        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
         _cachedAchievements = Query(
             filter: achievementFilter,
             sort: \AchievementCache.name

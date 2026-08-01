@@ -11,7 +11,7 @@ import SwiftData
 
 extension QuestCache {
     func toQuest(zoneID: CKRecordZone.ID) -> Quest {
-        Quest(
+        var quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: templateRecordName, zoneID: zoneID), action: .none),
             assignee: CKRecord.Reference(recordID: CKRecord.ID(recordName: assigneeRecordName, zoneID: zoneID), action: .none),
             goldReward: goldReward,
@@ -27,6 +27,9 @@ extension QuestCache {
             descriptionText: descriptionText,
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        quest.changeTag = changeTag
+        return quest
     }
 }
 
@@ -46,13 +49,15 @@ extension QuestCompletionCache {
             completion.verifiedBy = CKRecord.Reference(recordID: CKRecord.ID(recordName: verifiedByName, zoneID: zoneID), action: .none)
         }
         completion.verifiedDate = verifiedDate
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        completion.changeTag = changeTag
         return completion
     }
 }
 
 extension QuestTemplateCache {
     func toQuestTemplate(zoneID: CKRecordZone.ID) -> QuestTemplate {
-        QuestTemplate(
+        var template = QuestTemplate(
             name: name,
             description: templateDescription,
             defaultGold: goldReward,
@@ -67,6 +72,9 @@ extension QuestTemplateCache {
             isActive: isActive,
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        template.changeTag = changeTag
+        return template
     }
 }
 
@@ -86,13 +94,15 @@ extension ProfileCache {
         profile.xp = xpTotal
         profile.level = level
         profile.isActive = isActive
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        profile.changeTag = changeTag
         return profile
     }
 }
 
 extension LedgerEntryCache {
     func toLedgerEntry(zoneID: CKRecordZone.ID) -> LedgerEntry {
-        LedgerEntry(
+        var entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zoneID), action: .none),
             amount: amount,
             description: entryDescription,
@@ -101,12 +111,15 @@ extension LedgerEntryCache {
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        entry.changeTag = changeTag
+        return entry
     }
 }
 
 extension AchievementCache {
     func toAchievement(zoneID: CKRecordZone.ID) -> Achievement {
-        Achievement(
+        var achievement = Achievement(
             name: name,
             description: achievementDescription,
             iconSystemName: iconSystemName,
@@ -116,18 +129,24 @@ extension AchievementCache {
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        achievement.changeTag = changeTag
+        return achievement
     }
 }
 
 extension ProfileAchievementCache {
     func toProfileAchievement(zoneID: CKRecordZone.ID) -> ProfileAchievement {
-        ProfileAchievement(
+        var pa = ProfileAchievement(
             achievement: CKRecord.Reference(recordID: CKRecord.ID(recordName: achievementRecordName, zoneID: zoneID), action: .none),
             profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zoneID), action: .none),
             earnedDate: earnedDate,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        pa.changeTag = changeTag
+        return pa
     }
 }
 
@@ -145,24 +164,29 @@ extension AllowancePeriodCache {
         period.questsCompleted = questsCompleted
         period.paidDate = paidDate
         period.paidAmount = paidAmount
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        period.changeTag = changeTag
         return period
     }
 }
 
 extension FamilyCache {
     func toFamily(zoneID: CKRecordZone.ID) -> Family {
-        Family(
+        var family = Family(
             name: name,
             createdBy: CKRecord.ID(recordName: createdByRecordName, zoneID: zoneID),
             payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        family.changeTag = changeTag
+        return family
     }
 }
 
 extension NotificationPreferenceCache {
     func toNotificationPreference(zoneID: CKRecordZone.ID) -> NotificationPreference {
-        NotificationPreference(
+        var preference = NotificationPreference(
             profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zoneID), action: .none),
             eventType: NotificationEventType(rawValue: eventType) ?? .questAssigned,
             enabled: enabled,
@@ -170,5 +194,8 @@ extension NotificationPreferenceCache {
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        preference.changeTag = changeTag
+        return preference
     }
 }

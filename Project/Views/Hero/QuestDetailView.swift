@@ -15,9 +15,9 @@ struct QuestDetailView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
-    @Environment(CacheService.self) private var cacheService: CacheService?
 
     @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
@@ -62,6 +62,15 @@ struct QuestDetailView: View {
             filter: filter,
             sort: \QuestCompletionCache.completedDate,
             order: .reverse
+        )
+
+        // Scope templates to the quest's family at the SwiftData store layer.
+        let familyName = quest.family.recordID.recordName
+        let templateFilter = #Predicate<QuestTemplateCache> {
+            $0.familyRecordName == familyName
+        }
+        _cachedTemplates = Query(
+            filter: templateFilter
         )
     }
 
@@ -310,14 +319,9 @@ struct QuestDetailView: View {
         isLoadingLog = true
         defer { isLoadingLog = false }
 
-        if let cacheService {
-            let familyName = quest.family.recordID.recordName
-            let templateName = quest.template.recordID.recordName
-            if let cached = cacheService.fetchQuestTemplates(family: familyName)
-                .first(where: { $0.recordName == templateName })
-            {
-                template = cached.toQuestTemplate(zoneID: questService.cloudKitReference.resolvedZoneID)
-            }
+        let templateName = quest.template.recordID.recordName
+        if let cached = cachedTemplates.first(where: { $0.recordName == templateName }) {
+            template = cached.toQuestTemplate(zoneID: questService.cloudKitReference.resolvedZoneID)
         } else {
             do {
                 template = try await questService.cloudKitReference.fetch(

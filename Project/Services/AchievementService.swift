@@ -278,6 +278,7 @@ final class AchievementService {
         let snapshot = cacheService?.fetchProfileAchievements(profileRecordName: profile.id.recordName)
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotPA: ProfileAchievement? = snapshot?.toProfileAchievement(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertProfileAchievement(row)
