@@ -112,4 +112,33 @@ enum GoldCalculation: Sendable {
                        isAllOrNothing: quest.isAllOrNothing,
                        approvedCount: approvedCount)
     }
+
+    static func creditAsDecimal(xp: Int, baseRate: Double) -> Decimal {
+        // Use Decimal for precise calculation
+        let rate = Decimal(baseRate)
+        let xpDecimal = Decimal(xp)
+        return xpDecimal * rate / 100
+    }
+
+    static func creditAsDouble(xp: Int, baseRate: Double) -> Double {
+        NSDecimalNumber(decimal: creditAsDecimal(xp: xp, baseRate: baseRate)).doubleValue
+    }
+
+    static func totalGold(
+        for quests: [QuestCache],
+        approvedLogs: [QuestCompletionCache]
+    ) -> Double {
+        let questByName = Dictionary(quests.map { ($0.recordName, $0) }, uniquingKeysWith: { current, _ in current })
+        var countByQuest: [String: Int] = [:]
+        for log in approvedLogs {
+            countByQuest[log.questRecordName, default: 0] += 1
+        }
+        var total = 0.0
+        for (qName, count) in countByQuest {
+            if let quest = questByName[qName] {
+                total += creditAsDouble(for: quest, approvedCount: count)
+            }
+        }
+        return total
+    }
 }

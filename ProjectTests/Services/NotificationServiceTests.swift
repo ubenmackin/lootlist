@@ -108,7 +108,7 @@ struct NotificationServiceTests {
         #expect(service.isNotificationEnabled(for: .levelUp) == true)
 
         // Another device writes a `NotificationPreference` (enabled=false) and
-        let backgroundCache = BackgroundCacheActor(container: cache.container)
+        let backgroundCache = try BackgroundCacheActor(container: #require(cache.container))
         let remote = NotificationPreference(
             profile: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID),

@@ -13,24 +13,32 @@ import SwiftData
 @MainActor
 @Observable
 final class CacheService {
-    let container: ModelContainer
+    let container: ModelContainer?
+    var initializationError: Error?
+
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var isBatching = false
 
     /// Shorthand for `container.mainContext`. Used by every read/write on this
     /// service so the underlying access path lives in one place.
-    var context: ModelContext {
-        container.mainContext
+    var context: ModelContext? {
+        container?.mainContext
     }
 
     init(inMemory: Bool = false) throws {
         let schema = Schema(LootListSchemaV1.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
-        container = try ModelContainer(
-            for: schema,
-            migrationPlan: LootListMigrationPlan.self,
-            configurations: config
-        )
+        do {
+            container = try ModelContainer(
+                for: schema,
+                migrationPlan: LootListMigrationPlan.self,
+                configurations: config
+            )
+        } catch {
+            logger.error("Failed to create ModelContainer: \(error)")
+            container = nil
+            initializationError = error
+        }
     }
 
     func withBatch(_ work: () -> Void) {
@@ -42,12 +50,22 @@ final class CacheService {
         work()
     }
 
-    func saveContext() {
-        guard !isBatching else { return }
+    /// Saves the model context, throwing on failure.
+    func trySaveContext() throws {
+        guard let context else { return }
+        try context.save()
+    }
+
+    /// Saves the model context, logging errors. Returns true on success.
+    @discardableResult
+    func saveContext() -> Bool {
+        guard !isBatching else { return true }
         do {
-            try container.mainContext.save()
+            try trySaveContext()
+            return true
         } catch {
-            logger.error("Failed to save main context: \(error, privacy: .private)")
+            logger.error("Failed to save context: \(error, privacy: .private)")
+            return false
         }
     }
 
@@ -57,9 +75,10 @@ final class CacheService {
     /// Internal so the `CacheService+Invalidation` extension can cascade-delete
     /// from `purgeFamily(recordName:)`.
     func deleteAll<T: PersistentModel>(
-        from context: ModelContext,
+        from context: ModelContext?,
         where predicate: Predicate<T>
     ) {
+        guard let context else { return }
         if let items = try? context.fetch(FetchDescriptor<T>(predicate: predicate)) {
             for item in items {
                 context.delete(item)
@@ -73,6 +92,7 @@ final class CacheService {
     // Background sync from CloudKit uses BackgroundCacheActor instead.
 
     func upsertQuest(_ quest: Quest, family _: String? = nil) {
+        guard let context else { return }
         let name = quest.id.recordName
         let descriptor = FetchDescriptor<QuestCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -102,6 +122,7 @@ final class CacheService {
     }
 
     func upsertProfile(_ profile: Profile, family _: String? = nil) {
+        guard let context else { return }
         let name = profile.id.recordName
         let descriptor = FetchDescriptor<ProfileCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -128,6 +149,7 @@ final class CacheService {
     }
 
     func upsertQuestCompletion(_ completion: QuestCompletion, family _: String? = nil) {
+        guard let context else { return }
         let name = completion.id.recordName
         let descriptor = FetchDescriptor<QuestCompletionCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -154,6 +176,7 @@ final class CacheService {
     }
 
     func upsertQuestTemplate(_ template: QuestTemplate, family _: String? = nil) {
+        guard let context else { return }
         let name = template.id.recordName
         let descriptor = FetchDescriptor<QuestTemplateCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -181,6 +204,7 @@ final class CacheService {
     }
 
     func upsertFamily(_ family: Family) {
+        guard let context else { return }
         let name = family.id.recordName
         let descriptor = FetchDescriptor<FamilyCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -200,6 +224,7 @@ final class CacheService {
     }
 
     func upsertLedgerEntry(_ entry: LedgerEntry) {
+        guard let context else { return }
         let name = entry.id.recordName
         let descriptor = FetchDescriptor<LedgerEntryCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -221,6 +246,7 @@ final class CacheService {
     }
 
     func upsertAllowancePeriod(_ period: AllowancePeriod) {
+        guard let context else { return }
         let name = period.id.recordName
         let descriptor = FetchDescriptor<AllowancePeriodCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -245,6 +271,7 @@ final class CacheService {
     }
 
     func upsertAchievement(_ achievement: Achievement) {
+        guard let context else { return }
         let name = achievement.id.recordName
         let descriptor = FetchDescriptor<AchievementCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -267,6 +294,7 @@ final class CacheService {
     }
 
     func upsertNotificationPreference(_ pref: NotificationPreference) {
+        guard let context else { return }
         let name = pref.id.recordName
         let descriptor = FetchDescriptor<NotificationPreferenceCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -287,6 +315,7 @@ final class CacheService {
     }
 
     func upsertProfileAchievement(_ pa: ProfileAchievement) {
+        guard let context else { return }
         let name = pa.id.recordName
         let descriptor = FetchDescriptor<ProfileAchievementCache>(
             predicate: #Predicate { $0.recordName == name }
@@ -308,6 +337,7 @@ final class CacheService {
     // MARK: - Batch Upserts
 
     func upsertQuests(_ quests: [Quest], family: String? = nil) {
+        guard let context else { return }
         let existing: [QuestCache] = if let family {
             (try? context.fetch(FetchDescriptor<QuestCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -345,6 +375,7 @@ final class CacheService {
     }
 
     func upsertProfiles(_ profiles: [Profile], family: String? = nil) {
+        guard let context else { return }
         let existing: [ProfileCache] = if let family {
             (try? context.fetch(FetchDescriptor<ProfileCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -379,6 +410,7 @@ final class CacheService {
     }
 
     func upsertQuestCompletions(_ completions: [QuestCompletion], family: String? = nil) {
+        guard let context else { return }
         let existing: [QuestCompletionCache] = if let family {
             (try? context.fetch(FetchDescriptor<QuestCompletionCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -413,6 +445,7 @@ final class CacheService {
     }
 
     func upsertQuestTemplates(_ templates: [QuestTemplate], family: String? = nil) {
+        guard let context else { return }
         let existing: [QuestTemplateCache] = if let family {
             (try? context.fetch(FetchDescriptor<QuestTemplateCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -448,6 +481,7 @@ final class CacheService {
     }
 
     func upsertLedgerEntries(_ entries: [LedgerEntry], family: String? = nil) {
+        guard let context else { return }
         let existing: [LedgerEntryCache] = if let family {
             (try? context.fetch(FetchDescriptor<LedgerEntryCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -477,6 +511,7 @@ final class CacheService {
     }
 
     func upsertAllowancePeriods(_ periods: [AllowancePeriod], family: String? = nil) {
+        guard let context else { return }
         let existing: [AllowancePeriodCache] = if let family {
             (try? context.fetch(FetchDescriptor<AllowancePeriodCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -509,6 +544,7 @@ final class CacheService {
     }
 
     func upsertAchievements(_ achievements: [Achievement], family: String? = nil) {
+        guard let context else { return }
         let existing: [AchievementCache] = if let family {
             (try? context.fetch(FetchDescriptor<AchievementCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -539,6 +575,7 @@ final class CacheService {
     }
 
     func upsertProfileAchievements(_ pas: [ProfileAchievement], family: String? = nil) {
+        guard let context else { return }
         let existing: [ProfileAchievementCache] = if let family {
             (try? context.fetch(FetchDescriptor<ProfileAchievementCache>(
                 predicate: #Predicate { $0.familyRecordName == family }
@@ -566,6 +603,7 @@ final class CacheService {
     }
 
     func upsertNotificationPreferences(_ prefs: [NotificationPreference], family: String? = nil) {
+        guard let context else { return }
         let existing: [NotificationPreferenceCache] = if let family {
             (try? context.fetch(FetchDescriptor<NotificationPreferenceCache>(
                 predicate: #Predicate { $0.familyRecordName == family }

@@ -678,21 +678,8 @@ struct EditAvatarSheet: View {
             }
             .onChange(of: photoItem) { _, newItem in
                 Task {
-                    if let data = try? await newItem?.loadTransferable(type: Data.self),
-                       let rawImage = UIImage(data: data)
-                    {
-                        let maxDimension: CGFloat = 512
-                        let maxSide = max(rawImage.size.width, rawImage.size.height)
-                        let scaledImage: UIImage
-                        if maxSide > maxDimension {
-                            let scale = maxDimension / maxSide
-                            let newSize = CGSize(width: rawImage.size.width * scale, height: rawImage.size.height * scale)
-                            let renderer = UIGraphicsImageRenderer(size: newSize)
-                            scaledImage = renderer.image { _ in rawImage.draw(in: CGRect(origin: .zero, size: newSize)) }
-                        } else {
-                            scaledImage = rawImage
-                        }
-                        customData = scaledImage.jpegData(compressionQuality: 0.8)
+                    if let data = try? await newItem?.loadTransferable(type: Data.self) {
+                        customData = AvatarService.resizeImageData(data, maxDimension: 400)
                     }
                 }
             }

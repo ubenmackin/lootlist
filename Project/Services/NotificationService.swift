@@ -87,7 +87,7 @@ final class NotificationService {
                     && $0.eventType == eventTypeRaw
             }
         )
-        return try? cacheService.container.mainContext.fetch(descriptor).first
+        return try? cacheService.container?.mainContext.fetch(descriptor).first
     }
 
     private func userDefaultsFallback(for eventType: NotificationEventType) -> Bool {
@@ -95,20 +95,10 @@ final class NotificationService {
         let master = defaults.object(forKey: Self.masterDefaultsKey) as? Bool ?? true
         guard master else { return false }
 
-        switch eventType {
-        case .questAssigned:
-            return defaults.object(forKey: "questAssignedNotificationsEnabled") as? Bool ?? true
-        case .questNeedsReview:
-            return defaults.object(forKey: "questNeedsReviewNotificationsEnabled") as? Bool ?? true
-        case .questCompleted:
-            return defaults.object(forKey: "questVerifiedNotificationsEnabled") as? Bool ?? true
-        case .levelUp:
-            return defaults.object(forKey: "levelUpNotificationsEnabled") as? Bool ?? true
-        case .goldEarned:
-            return defaults.object(forKey: "weeklySummaryNotificationsEnabled") as? Bool ?? true
-        default:
-            return true
+        if let value = defaults.object(forKey: eventType.userDefaultsKey) as? Bool {
+            return value
         }
+        return true
     }
 
     private func mirrorToUserDefaults(event: NotificationEventType, enabled: Bool) {

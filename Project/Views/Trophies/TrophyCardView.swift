@@ -117,31 +117,26 @@ struct TrophyCardView: View {
     }
 
     private var requirementHint: String {
-        switch achievement.requirementTypeEnum {
-        case AchievementRequirement.firstQuest:
-            "Completed your first quest"
-        case AchievementRequirement.questCount10:
-            "\(achievement.requirementValue) quests completed"
-        case AchievementRequirement.questCount50:
-            "\(achievement.requirementValue) quests completed"
-        case AchievementRequirement.questCount100:
-            "\(achievement.requirementValue) quests completed"
-        case AchievementRequirement.weekly100:
-            "100% of a week completed"
-        case AchievementRequirement.streak7:
-            "\(achievement.requirementValue)-day combo streak"
-        case AchievementRequirement.streak30:
-            "\(achievement.requirementValue)-day combo streak"
-        case AchievementRequirement.gold100:
-            "$\(achievement.requirementValue) gold earned"
-        case AchievementRequirement.gold500:
-            "$\(achievement.requirementValue) gold earned"
-        case AchievementRequirement.ledgerCount10:
-            "\(achievement.requirementValue) ledger entries"
-        case AchievementRequirement.ledgerWeeks4:
-            "\(achievement.requirementValue) weeks of spending"
-        case AchievementRequirement.earlyBird9am:
-            "Complete a quest before 9 AM"
+        guard let req = achievement.requirementTypeEnum else {
+            return ""
+        }
+        switch req {
+        case .firstQuest:
+            return "Completed your first quest"
+        case .questCount10, .questCount50, .questCount100:
+            return "\(achievement.requirementValue) quests completed"
+        case .weekly100:
+            return "100% of a week completed"
+        case .streak7, .streak30:
+            return "\(achievement.requirementValue)-day combo streak"
+        case .gold100, .gold500:
+            return "$\(achievement.requirementValue) gold earned"
+        case .ledgerCount10:
+            return "\(achievement.requirementValue) ledger entries"
+        case .ledgerWeeks4:
+            return "\(achievement.requirementValue) weeks of spending"
+        case .earlyBird9am:
+            return "Complete a quest before 9 AM"
         }
     }
 }

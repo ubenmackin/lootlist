@@ -68,7 +68,7 @@ final class ManualSpendingService: SpendingService {
     {
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let cached = cache.fetchLedgerEntries(profileRecordName: profileName)
+            let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: profile.family.recordID.recordName)
             let filtered = cached.filter { dateRange.contains($0.date) }
             if !filtered.isEmpty {
                 let zoneID = cloudKit.resolvedZoneID
@@ -118,6 +118,11 @@ final class ManualSpendingService: SpendingService {
             source: "manual",
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
+        let name = entry.id.recordName
+        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+
         cacheService?.upsertLedgerEntry(entry)
         do {
             let zoneID = cloudKit.resolvedZoneID
@@ -125,35 +130,71 @@ final class ManualSpendingService: SpendingService {
             cacheService?.upsertLedgerEntry(saved)
             return saved
         } catch {
-            cacheService?.invalidateLedgerEntry(recordName: entry.id.recordName)
-            let message = (error as? LocalizedError)?.errorDescription
-                ?? error.localizedDescription
-            toastManager?.show(message: message, type: .error)
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+                if let fresh = try? await cloudKit.fetch(LedgerEntry.self, id: entry.id) {
+                    cacheService?.upsertLedgerEntry(fresh)
+                } else {
+                    cacheService?.invalidateLedgerEntry(recordName: name)
+                }
+            } else {
+                cacheService?.invalidateLedgerEntry(recordName: name)
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
+            }
             throw error
         }
     }
 
     func delete(_ entry: LedgerEntry) async throws {
         let name = entry.id.recordName
-        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName).first(where: { $0.recordName == name })
+        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
+
         cacheService?.invalidateLedgerEntry(recordName: name)
         do {
             try await cloudKit.delete(entry.id)
         } catch {
-            if let snapshot {
-                cacheService?.upsertLedgerEntry(LedgerEntry(
-                    profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.profileRecordName), action: .none),
-                    amount: snapshot.amount,
-                    description: snapshot.entryDescription,
-                    date: snapshot.date,
-                    source: snapshot.source,
-                    family: CKRecord.Reference(recordID: CKRecord.ID(recordName: snapshot.familyRecordName), action: .none),
-                    id: CKRecord.ID(recordName: snapshot.recordName)
-                ))
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { self.cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+                if let fresh = try? await cloudKit.fetch(LedgerEntry.self, id: entry.id) {
+                    cacheService?.upsertLedgerEntry(fresh)
+                } else if let snapshotEntry {
+                    cacheService?.upsertLedgerEntry(snapshotEntry)
+                }
+            } else {
+                if let snapshotEntry {
+                    cacheService?.upsertLedgerEntry(snapshotEntry)
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
-            let message = (error as? LocalizedError)?.errorDescription
-                ?? error.localizedDescription
-            toastManager?.show(message: message, type: .error)
             throw error
         }
     }

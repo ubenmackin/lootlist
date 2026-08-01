@@ -335,7 +335,10 @@ final class TreasuryService {
     private func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         // Cache-first
         if let cache = cacheService {
-            let cached = cache.fetchLedgerEntries(profileRecordName: profile.id.recordName)
+            let cached = cache.fetchLedgerEntries(
+                profileRecordName: profile.id.recordName,
+                family: profile.family.recordID.recordName
+            )
             if !cached.isEmpty {
                 return cached.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
             }
@@ -378,7 +381,10 @@ final class TreasuryService {
                                     in dateRange: Range<Date>) async throws -> [LedgerEntry]
     {
         if let cache = cacheService {
-            let cached = cache.fetchLedgerEntries(profileRecordName: profile.id.recordName)
+            let cached = cache.fetchLedgerEntries(
+                profileRecordName: profile.id.recordName,
+                family: profile.family.recordID.recordName
+            )
             let filtered = cached.filter { dateRange.contains($0.date) }
             if !filtered.isEmpty {
                 return filtered.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
@@ -446,7 +452,7 @@ final class TreasuryService {
     {
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let cached = cache.fetchAllowancePeriods(profileRecordName: profileName)
+            let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: profile.family.recordID.recordName)
                 .first { Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf) }
             if let cached {
                 return cached.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)

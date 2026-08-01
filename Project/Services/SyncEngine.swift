@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 import Observation
 import os
+import Synchronization
 
 @MainActor
 @Observable
@@ -29,7 +30,7 @@ final class SyncEngine {
     private(set) var lastSyncedAt: Date?
     var syncError: String?
 
-    private var syncTask: Task<Void, Never>?
+    private let syncTaskMutex = Mutex<Task<Void, Never>?>(nil)
 
     init(cloudKit: CloudKitService,
          cacheService: CacheService,
@@ -42,6 +43,10 @@ final class SyncEngine {
         self.syncCoordinator = syncCoordinator
 
         listenToPushNotifications()
+    }
+
+    nonisolated deinit {
+        syncTaskMutex.withLock { $0?.cancel() }
     }
 
     /// Full sync scoped to a single family zone.
@@ -57,6 +62,7 @@ final class SyncEngine {
     /// Shared implementation for scoped and unscoped full syncs.
     private func _syncAll(familyRecordName: String?) async {
         if isSyncing {
+            logger.info("Sync already in progress, skipping full sync (queued as pending)")
             pendingSync = .full
             return
         }
@@ -82,19 +88,8 @@ final class SyncEngine {
     private func fetchAndCacheAllEntities(familyRecordName: String?, syncErrors: inout [String]) async {
         let zoneID = cloudKit.resolvedZoneID
 
-        async let familyTask = cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let notifPrefsTask = cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let profilesTask = cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let questsTask = cloudKit.query(Quest.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let templatesTask = cloudKit.query(QuestTemplate.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let completionsTask = cloudKit.query(QuestCompletion.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let ledgerTask = cloudKit.query(LedgerEntry.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let allowanceTask = cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let achievementsTask = cloudKit.query(Achievement.self, predicate: NSPredicate(value: true), in: zoneID)
-        async let profileAchievementsTask = cloudKit.query(ProfileAchievement.self, predicate: NSPredicate(value: true), in: zoneID)
-
         do {
-            let families = try await familyTask
+            let families = try await cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertFamilies(families)
             await backgroundCache.purgeMissingFamilies(validRecordNames: Set(families.map(\.id.recordName)))
         } catch {
@@ -103,7 +98,7 @@ final class SyncEngine {
         }
 
         do {
-            let notifPrefs = try await notifPrefsTask
+            let notifPrefs = try await cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertNotificationPreferences(notifPrefs, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingNotificationPreferences(validRecordNames: Set(notifPrefs.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -112,7 +107,7 @@ final class SyncEngine {
         }
 
         do {
-            let profiles = try await profilesTask
+            let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertProfiles(profiles, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingProfiles(validRecordNames: Set(profiles.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -121,7 +116,7 @@ final class SyncEngine {
         }
 
         do {
-            let quests = try await questsTask
+            let quests = try await cloudKit.query(Quest.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertQuests(quests, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingQuests(validRecordNames: Set(quests.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -130,7 +125,7 @@ final class SyncEngine {
         }
 
         do {
-            let templates = try await templatesTask
+            let templates = try await cloudKit.query(QuestTemplate.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertQuestTemplates(templates, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingQuestTemplates(validRecordNames: Set(templates.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -139,7 +134,7 @@ final class SyncEngine {
         }
 
         do {
-            let completions = try await completionsTask
+            let completions = try await cloudKit.query(QuestCompletion.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertQuestCompletions(completions, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingQuestCompletions(validRecordNames: Set(completions.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -148,7 +143,7 @@ final class SyncEngine {
         }
 
         do {
-            let ledgerEntries = try await ledgerTask
+            let ledgerEntries = try await cloudKit.query(LedgerEntry.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertLedgerEntries(ledgerEntries, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingLedgerEntries(validRecordNames: Set(ledgerEntries.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -157,7 +152,7 @@ final class SyncEngine {
         }
 
         do {
-            let allowancePeriods = try await allowanceTask
+            let allowancePeriods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertAllowancePeriods(allowancePeriods, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingAllowancePeriods(validRecordNames: Set(allowancePeriods.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -166,7 +161,7 @@ final class SyncEngine {
         }
 
         do {
-            let achievements = try await achievementsTask
+            let achievements = try await cloudKit.query(Achievement.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertAchievements(achievements, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingAchievements(validRecordNames: Set(achievements.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -175,7 +170,7 @@ final class SyncEngine {
         }
 
         do {
-            let profileAchievements = try await profileAchievementsTask
+            let profileAchievements = try await cloudKit.query(ProfileAchievement.self, predicate: NSPredicate(value: true), in: zoneID)
             await backgroundCache.batchUpsertProfileAchievements(profileAchievements, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingProfileAchievements(validRecordNames: Set(profileAchievements.map(\.id.recordName)), familyRecordName: familyRecordName)
         } catch {
@@ -187,6 +182,7 @@ final class SyncEngine {
     /// Incremental delta sync using CKServerChangeToken for a specific family.
     func incrementalSync(familyRecordName: String? = nil) async {
         if isSyncing {
+            logger.info("Sync already in progress, skipping incremental sync (queued as pending)")
             if pendingSync < .full {
                 pendingSync = .incremental
             }
@@ -383,7 +379,7 @@ final class SyncEngine {
 
     private func listenToPushNotifications() {
         let (stream, _) = syncCoordinator.subscribe()
-        syncTask = Task { [weak self] in
+        let task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
                 switch event {
@@ -408,5 +404,6 @@ final class SyncEngine {
                 }
             }
         }
+        syncTaskMutex.withLock { $0 = task }
     }
 }

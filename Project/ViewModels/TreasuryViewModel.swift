@@ -50,24 +50,7 @@ final class TreasuryViewModel {
             $0.verificationStatus == VerificationStatus.autoApproved.rawValue || $0.verificationStatus == VerificationStatus.verified.rawValue
         }
 
-        let questByName = Dictionary(
-            quests.map { ($0.recordName, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-
-        var allLogsByQuest: [String: [QuestCompletionCache]] = [:]
-        for log in approvedLogs {
-            allLogsByQuest[log.questRecordName, default: []].append(log)
-        }
-
-        var goldFromQuests = 0.0
-        for (qName, qLogs) in allLogsByQuest {
-            guard let quest = questByName[qName] else { continue }
-            goldFromQuests += GoldCalculation.creditAsDouble(
-                for: quest,
-                approvedCount: qLogs.count
-            )
-        }
+        let goldFromQuests = GoldCalculation.totalGold(for: quests, approvedLogs: approvedLogs)
 
         let bonusGold = profileLedgers.filter { $0.amount > 0 }.reduce(into: 0.0) { $0 += $1.amount }
         let spent = profileLedgers.filter { $0.amount < 0 }.reduce(into: 0.0) { $0 += $1.amount }
@@ -89,19 +72,7 @@ final class TreasuryViewModel {
         }
 
         let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) }
-        var weekLogsByQuest: [String: [QuestCompletionCache]] = [:]
-        for log in weekLogs {
-            weekLogsByQuest[log.questRecordName, default: []].append(log)
-        }
-
-        var weekQuestsGold = 0.0
-        for (qName, qLogs) in weekLogsByQuest {
-            guard let quest = questByName[qName] else { continue }
-            weekQuestsGold += GoldCalculation.creditAsDouble(
-                for: quest,
-                approvedCount: qLogs.count
-            )
-        }
+        var weekQuestsGold = GoldCalculation.totalGold(for: quests, approvedLogs: weekLogs)
 
         let assignedQuests = quests.filter {
             $0.assigneeRecordName == profileName && weekRange.contains($0.weekOf)

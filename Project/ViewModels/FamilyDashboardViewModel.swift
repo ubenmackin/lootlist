@@ -77,26 +77,23 @@ final class FamilyDashboardViewModel {
         profileAchievements: [ProfileAchievementCache],
         achievements _: [AchievementCache]
     ) {
+        let familyName = appState.family?.id.recordName
+
         let weekOf = WeekMath.weekOf(date: Date())
         let monday = WeekMath.mondayOfWeek(for: weekOf)
         let weekRange = WeekMath.weekRange(starting: monday)
-        let questByName = Dictionary(
-            quests.map { ($0.recordName, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-
         let active = profiles.filter(\.isActive)
-        heroes = active
+        let computedHeroes = active
             .filter { $0.roleEnum == .hero }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-        parents = active
-            .filter(\.roleEnum.isParent)
+        let computedParents = active
+            .filter { $0.roleEnum?.isParent == true }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
 
         var heroSummaries: [HeroSummary] = []
-        heroSummaries.reserveCapacity(heroes.count)
+        heroSummaries.reserveCapacity(computedHeroes.count)
 
-        for hero in heroes {
+        for hero in computedHeroes {
             let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && $0.weekOf == weekOf }
             let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && $0.weekOf == weekOf }
             let completed = heroLogs.filter {
@@ -110,23 +107,22 @@ final class FamilyDashboardViewModel {
                 $0.verificationStatus == VerificationStatus.verified.rawValue
                     || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
             }
-            var approvedCountByQuest: [String: Int] = [:]
-            for log in completedLogs {
-                approvedCountByQuest[log.questRecordName, default: 0] += 1
-            }
-            var goldFromQuests = 0.0
-            for (qName, count) in approvedCountByQuest {
-                if let quest = questByName[qName] {
-                    goldFromQuests += GoldCalculation.creditAsDouble(for: quest,
-                                                                     approvedCount: count)
-                }
-            }
+            var goldFromQuests = GoldCalculation.totalGold(for: quests, approvedLogs: completedLogs)
+
             let assignedQuests = quests.filter {
                 $0.assigneeRecordName == hero.recordName && weekRange.contains($0.weekOf)
             }
+            let fullyCompletedCount = assignedQuests.filter { quest in
+                let approvedLogs = weekLogs.filter {
+                    $0.questRecordName == quest.recordName &&
+                        $0.verificationStatusEnum != .rejected
+                }
+                return approvedLogs.count >= quest.targetCount
+            }.count
+
             if hero.payoutPolicyEnum == .allOrNothing,
                !assignedQuests.isEmpty,
-               completedLogs.count < assignedQuests.count
+               fullyCompletedCount < assignedQuests.count
             {
                 goldFromQuests = 0
             }
@@ -139,11 +135,6 @@ final class FamilyDashboardViewModel {
                 .reduce(0.0) { $0 + $1.amount }
             let earned = goldFromQuests + bonusGold
 
-            // cache arrays passed into `rebuildLists` (NO CloudKit fetch). The
-            // prior implementation reused the stale `weekSummary` from the
-            // previous render (itself built from `existing ?? 0`), so the
-            // recurrence bottomed out at 0/0 on a fresh launch and never
-            // advanced — a correctness regression.
             let streakLogs = logs.filter { $0.completerRecordName == hero.recordName }
             let streak = HeroDashboardViewModel.computeStreak(from: streakLogs)
             let trophies = profileAchievements
@@ -162,24 +153,21 @@ final class FamilyDashboardViewModel {
 
         let totalEarned = heroSummaries.reduce(into: 0.0) { $0 += $1.weeklyGoldEarned }
         let totalQuests = heroSummaries.reduce(into: 0) { $0 += $1.weeklyQuestsCompleted }
-        weekSummary = WeekendSummary(
-            weekOf: TreasuryService.mondayOfWeek(for: weekOf),
+        let computedWeekSummary = WeekendSummary(
+            weekOf: WeekMath.mondayOfWeek(for: weekOf),
             totalEarned: totalEarned,
             totalQuestsCompleted: totalQuests,
             heroSummaries: heroSummaries
         )
 
-        // cachedAllowancePeriods` passed in by `FamilyDashboardView` (replaces
-        // the deleted `loadPastPayouts()` cache-fetch path). A silent push
-        // that mutates an `AllowancePeriodCache` row re-fires
-        // `.onChange(of: cachedAllowancePeriods)` → `rebuild()` → here, with
-        // NO CloudKit fetch. Sorted by `weekOf` descending (most recent first)
-        // and scoped to the current family.
-        let familyName = appState.family?.id.recordName
-        pastPayouts = allowancePeriods
+        let computedPastPayouts = allowancePeriods
             .filter { familyName == nil || $0.familyRecordName == familyName }
             .sorted { $0.weekOf > $1.weekOf }
 
+        heroes = computedHeroes
+        parents = computedParents
+        weekSummary = computedWeekSummary
+        pastPayouts = computedPastPayouts
         if loadError != nil {
             loadError = nil
         }

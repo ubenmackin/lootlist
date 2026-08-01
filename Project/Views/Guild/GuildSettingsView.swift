@@ -244,7 +244,7 @@ private extension GuildSettingsView {
     }
 
     private func memberRow(_ member: ProfileCache, vm: FamilyDashboardViewModel) -> some View {
-        let role = member.roleEnum
+        let role = member.roleEnum ?? .hero
         return HStack(spacing: 12) {
             ZStack {
                 Circle()

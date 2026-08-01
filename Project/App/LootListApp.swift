@@ -10,26 +10,23 @@ import os
 import SwiftData
 import SwiftUI
 
-@main
-struct LootListApp: App {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
-
-    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-
-    @State private var appState: AppState
-    @State private var cloudKitService: CloudKitService
-    @State private var familyService: FamilyService
-    @State private var xpService: XPService
-    @State private var questService: QuestService
-    @State private var treasuryService: TreasuryService
-    @State private var achievementService: AchievementService
-    @State private var avatarService: AvatarService
-    @State private var notificationService: NotificationService
-    @State private var appSyncCoordinator: AppSyncCoordinator
-    @State private var dataMigrationsCoordinator: DataMigrationsCoordinator
-    @State private var cacheService: CacheService?
-    @State private var syncEngine: SyncEngine?
-    @State private var toastManager: ToastManager
+@MainActor
+@Observable
+final class AppDependencies {
+    let appState: AppState
+    let cloudKitService: CloudKitService
+    let familyService: FamilyService
+    let xpService: XPService
+    let questService: QuestService
+    let treasuryService: TreasuryService
+    let achievementService: AchievementService
+    let avatarService: AvatarService
+    let notificationService: NotificationService
+    let appSyncCoordinator: AppSyncCoordinator
+    let dataMigrationsCoordinator: DataMigrationsCoordinator
+    let cacheService: CacheService?
+    let syncEngine: SyncEngine?
+    let toastManager: ToastManager
 
     init() {
         let app = AppState()
@@ -54,6 +51,7 @@ struct LootListApp: App {
         let achievement = AchievementService(cloudKit: ck)
         let avatar = AvatarService(xp: xp)
         let appSync = AppSyncCoordinator()
+        let toast = ToastManager()
 
         quest.cacheService = cache
         treasury.cacheService = cache
@@ -62,26 +60,27 @@ struct LootListApp: App {
         app.cacheService = cache
         xp.cacheService = cache
 
-        _toastManager = State(initialValue: ToastManager())
+        toastManager = toast
 
-        if let cache {
-            let bgActor = BackgroundCacheActor(container: cache.container)
-            _syncEngine = State(initialValue: SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync))
+        if let cache, let container = cache.container {
+            let bgActor = BackgroundCacheActor(container: container)
+            syncEngine = SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync)
         } else {
-            _syncEngine = State(initialValue: nil)
+            syncEngine = nil
         }
 
         let migrations = DataMigrationsCoordinator()
         migrations.register(
             DataMigrationsCoordinator.questNameBackfillV1(cloudKit: ck)
         )
-        if let cache {
-            let bgActor = BackgroundCacheActor(container: cache.container)
+        if let cache, let container = cache.container {
+            let bgActor = BackgroundCacheActor(container: container)
             migrations.register(
                 DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: bgActor)
             )
         }
 
+        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
         if TestEnvironment.isRunningUnitOrUITests {
             logger.info("Tests detected — seeding mock data and setting test auth state")
             SampleData.populate(cloudKit: ck, cacheService: cache)
@@ -107,29 +106,89 @@ struct LootListApp: App {
             }
         }
 
-        _appState = State(initialValue: app)
-        _cloudKitService = State(initialValue: ck)
-        _familyService = State(initialValue: family)
-        _xpService = State(initialValue: xp)
-        _questService = State(initialValue: quest)
-        _treasuryService = State(initialValue: treasury)
-        _achievementService = State(initialValue: achievement)
-        _avatarService = State(initialValue: avatar)
-        _notificationService = State(initialValue: notification)
-        _appSyncCoordinator = State(initialValue: appSync)
-        _dataMigrationsCoordinator = State(initialValue: migrations)
-        _cacheService = State(initialValue: cache)
+        appState = app
+        cloudKitService = ck
+        familyService = family
+        xpService = xp
+        questService = quest
+        treasuryService = treasury
+        achievementService = achievement
+        avatarService = avatar
+        notificationService = notification
+        appSyncCoordinator = appSync
+        dataMigrationsCoordinator = migrations
+        cacheService = cache
 
-        // Wire the universal toast presenter into each service so it can
-        // surface CloudKit-save-failure banners on top of any inline error
-        // presentation the caller already owns. ManualSpendingService is
-        // constructed later in RootView's `.task` block (see RootView below),
-        // so it is wired via the `@Environment`-injected `toastManager` there.
         quest.toastManager = toastManager
         family.toastManager = toastManager
         treasury.toastManager = toastManager
         achievement.toastManager = toastManager
         xp.toastManager = toastManager
+    }
+}
+
+@main
+struct LootListApp: App {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
+
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    @State private var dependencies = AppDependencies()
+
+    private var appState: AppState {
+        dependencies.appState
+    }
+
+    private var cloudKitService: CloudKitService {
+        dependencies.cloudKitService
+    }
+
+    private var familyService: FamilyService {
+        dependencies.familyService
+    }
+
+    private var xpService: XPService {
+        dependencies.xpService
+    }
+
+    private var questService: QuestService {
+        dependencies.questService
+    }
+
+    private var treasuryService: TreasuryService {
+        dependencies.treasuryService
+    }
+
+    private var achievementService: AchievementService {
+        dependencies.achievementService
+    }
+
+    private var avatarService: AvatarService {
+        dependencies.avatarService
+    }
+
+    private var notificationService: NotificationService {
+        dependencies.notificationService
+    }
+
+    private var appSyncCoordinator: AppSyncCoordinator {
+        dependencies.appSyncCoordinator
+    }
+
+    private var dataMigrationsCoordinator: DataMigrationsCoordinator {
+        dependencies.dataMigrationsCoordinator
+    }
+
+    private var cacheService: CacheService? {
+        dependencies.cacheService
+    }
+
+    private var syncEngine: SyncEngine? {
+        dependencies.syncEngine
+    }
+
+    private var toastManager: ToastManager {
+        dependencies.toastManager
     }
 
     var body: some Scene {
@@ -292,6 +351,20 @@ private struct RootView: View {
                 TabBarView(spending: spendingService ?? ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(.systemBackground))
+            case .offlineEmptyCache:
+                VStack(spacing: 16) {
+                    Image(systemName: "wifi.slash")
+                        .font(.largeTitle)
+                    Text("Offline & No Local Cache")
+                        .font(.headline)
+                    Text("Please connect to iCloud on first launch to load your Guild data.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemBackground))
             }
         }
         .task(id: appState.authStatus) {
@@ -309,7 +382,7 @@ private struct RootView: View {
                 let spending = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService)
                 spending.toastManager = toastManager
                 spendingService = spending
-            case .restoringSession, .checkingCloudData, .detectedPreviousFamily:
+            case .restoringSession, .checkingCloudData, .detectedPreviousFamily, .offlineEmptyCache:
                 onboardingVM = nil
             }
         }

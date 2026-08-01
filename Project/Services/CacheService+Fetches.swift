@@ -6,10 +6,28 @@
 //
 
 import Foundation
+import os
 import SwiftData
 
 extension CacheService {
     // MARK: - Generic helper
+
+    /// Generic fetch helper that handles the common fetch pattern.
+    func fetch<T: PersistentModel>(
+        _: T.Type,
+        predicate: Predicate<T>? = nil,
+        sortBy: [SortDescriptor<T>] = []
+    ) -> [T] {
+        guard let context else { return [] }
+        do {
+            let descriptor = FetchDescriptor<T>(predicate: predicate, sortBy: sortBy)
+            return try context.fetch(descriptor)
+        } catch {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
+            logger.error("Failed to fetch \(String(describing: T.self)): \(error, privacy: .public)")
+            return []
+        }
+    }
 
     /// Fetches every record of `T`, optionally scoped to a single family and sorted
     /// by `sortBy`. Returns `[]` if the fetch fails (mirrors the inline
@@ -17,46 +35,47 @@ extension CacheService {
     /// Constrained to `FamilyScopedCache` so the family predicate compiles
     /// without per-type duplication.
     func familyScopedFetch<T: FamilyScopedCache>(
-        _: T.Type,
+        _ type: T.Type,
         family: String?,
         sortBy: [SortDescriptor<T>] = []
     ) -> [T] {
-        let descriptor: FetchDescriptor<T> = if let family {
-            FetchDescriptor(predicate: #Predicate { $0.familyRecordName == family }, sortBy: sortBy)
+        let predicate: Predicate<T>?
+        if let family {
+            predicate = #Predicate<T> { $0.familyRecordName == family }
         } else {
-            FetchDescriptor(sortBy: sortBy)
+            predicate = nil
         }
-        return (try? context.fetch(descriptor)) ?? []
+        return fetch(type, predicate: predicate, sortBy: sortBy)
     }
 
     // MARK: - Public fetch API
 
     /// Fetches quests, optionally filtered by family and/or a week range.
     func fetchQuests(family: String?, weekInRange: Range<Date>? = nil) -> [QuestCache] {
-        var descriptor: FetchDescriptor<QuestCache>
+        let predicate: Predicate<QuestCache>?
         if let range = weekInRange {
             let start = range.lowerBound
             let end = range.upperBound
             if let family {
-                descriptor = FetchDescriptor(predicate: #Predicate { item in
+                predicate = #Predicate { item in
                     item.familyRecordName == family
                         && item.weekOf >= start
                         && item.weekOf < end
-                })
+                }
             } else {
-                descriptor = FetchDescriptor(predicate: #Predicate { item in
+                predicate = #Predicate { item in
                     item.weekOf >= start
                         && item.weekOf < end
-                })
+                }
             }
         } else if let family {
-            descriptor = FetchDescriptor(predicate: #Predicate { item in
+            predicate = #Predicate { item in
                 item.familyRecordName == family
-            })
+            }
         } else {
-            descriptor = FetchDescriptor()
+            predicate = nil
         }
-        return (try? context.fetch(descriptor)) ?? []
+        return fetch(QuestCache.self, predicate: predicate)
     }
 
     func fetchQuestCompletions(family: String?) -> [QuestCompletionCache] {
@@ -64,10 +83,7 @@ extension CacheService {
     }
 
     func fetchProfile(recordName: String) -> ProfileCache? {
-        let descriptor = FetchDescriptor<ProfileCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        return try? context.fetch(descriptor).first
+        fetch(ProfileCache.self, predicate: #Predicate { $0.recordName == recordName }).first
     }
 
     func fetchProfiles(family: String?) -> [ProfileCache] {
@@ -79,18 +95,22 @@ extension CacheService {
     }
 
     func fetchFamily(recordName: String) -> FamilyCache? {
-        let descriptor = FetchDescriptor<FamilyCache>(
-            predicate: #Predicate { $0.recordName == recordName }
-        )
-        return try? context.fetch(descriptor).first
+        fetch(FamilyCache.self, predicate: #Predicate { $0.recordName == recordName }).first
     }
 
-    func fetchLedgerEntries(profileRecordName: String) -> [LedgerEntryCache] {
-        let descriptor = FetchDescriptor<LedgerEntryCache>(
+    func fetchLedgerEntries(profileRecordName: String, family: String? = nil) -> [LedgerEntryCache] {
+        if let family {
+            return fetch(
+                LedgerEntryCache.self,
+                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
+                sortBy: [SortDescriptor(\.date, order: .reverse)]
+            )
+        }
+        return fetch(
+            LedgerEntryCache.self,
             predicate: #Predicate { $0.profileRecordName == profileRecordName },
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
-        return (try? context.fetch(descriptor)) ?? []
     }
 
     func fetchLedgerEntries(family: String?) -> [LedgerEntryCache] {
@@ -101,12 +121,19 @@ extension CacheService {
         )
     }
 
-    func fetchAllowancePeriods(profileRecordName: String) -> [AllowancePeriodCache] {
-        let descriptor = FetchDescriptor<AllowancePeriodCache>(
+    func fetchAllowancePeriods(profileRecordName: String, family: String? = nil) -> [AllowancePeriodCache] {
+        if let family {
+            return fetch(
+                AllowancePeriodCache.self,
+                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
+                sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
+            )
+        }
+        return fetch(
+            AllowancePeriodCache.self,
             predicate: #Predicate { $0.profileRecordName == profileRecordName },
             sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
         )
-        return (try? context.fetch(descriptor)) ?? []
     }
 
     func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache] {
@@ -122,17 +149,10 @@ extension CacheService {
     }
 
     func fetchProfileAchievements(profileRecordName: String) -> [ProfileAchievementCache] {
-        let descriptor = FetchDescriptor<ProfileAchievementCache>(
-            predicate: #Predicate { $0.profileRecordName == profileRecordName },
-            sortBy: [SortDescriptor(\.earnedDate, order: .reverse)]
-        )
-        return (try? context.fetch(descriptor)) ?? []
+        fetch(ProfileAchievementCache.self, predicate: #Predicate { $0.profileRecordName == profileRecordName }, sortBy: [SortDescriptor(\.earnedDate, order: .reverse)])
     }
 
     func fetchNotificationPreferences(profileRecordName: String) -> [NotificationPreferenceCache] {
-        let descriptor = FetchDescriptor<NotificationPreferenceCache>(
-            predicate: #Predicate { $0.profileRecordName == profileRecordName }
-        )
-        return (try? context.fetch(descriptor)) ?? []
+        fetch(NotificationPreferenceCache.self, predicate: #Predicate { $0.profileRecordName == profileRecordName })
     }
 }

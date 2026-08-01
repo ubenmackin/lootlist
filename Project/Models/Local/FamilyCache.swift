@@ -22,6 +22,10 @@ final class FamilyCache {
     var payoutPolicy: String
     var changeTag: String?
 
+    var payoutPolicyEnum: PayoutPolicy? {
+        PayoutPolicy(rawValue: payoutPolicy)
+    }
+
     init(recordName: String,
          name: String,
          createdByRecordName: String,

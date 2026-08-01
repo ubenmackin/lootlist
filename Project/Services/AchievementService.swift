@@ -274,16 +274,48 @@ final class AchievementService {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             family: familyRef
         )
+        let name = row.id.recordName
+        let snapshot = cacheService?.fetchProfileAchievements(profileRecordName: profile.id.recordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+        let snapshotPA: ProfileAchievement? = snapshot?.toProfileAchievement(zoneID: cloudKit.resolvedZoneID)
+
         cacheService?.upsertProfileAchievement(row)
         do {
             let saved = try await cloudKit.save(row)
             cacheService?.upsertProfileAchievement(saved)
             return saved
         } catch {
-            cacheService?.invalidateProfileAchievement(recordName: row.id.recordName)
-            let message = (error as? LocalizedError)?.errorDescription
-                ?? error.localizedDescription
-            toastManager?.show(message: message, type: .error)
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: { self.cacheService?.fetchProfileAchievements(profileRecordName: profile.id.recordName)
+                    .first(where: { $0.recordName == name })?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+                if let fresh = try? await cloudKit.fetch(ProfileAchievement.self, id: row.id) {
+                    cacheService?.upsertProfileAchievement(fresh)
+                } else if let snapshotPA {
+                    cacheService?.upsertProfileAchievement(snapshotPA)
+                } else {
+                    cacheService?.invalidateProfileAchievement(recordName: name)
+                }
+            } else {
+                if let snapshotPA {
+                    cacheService?.upsertProfileAchievement(snapshotPA)
+                } else {
+                    cacheService?.invalidateProfileAchievement(recordName: name)
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
+            }
             throw error
         }
     }
@@ -303,7 +335,10 @@ final class AchievementService {
                 .map { $0.toQuestCompletion(zoneID: zoneID) }
                 .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
 
-            let cachedLedger = cache.fetchLedgerEntries(profileRecordName: profileName)
+            let cachedLedger = cache.fetchLedgerEntries(
+                profileRecordName: profileName,
+                family: profile.family.recordID.recordName
+            )
             ledger = cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
 
             let cachedQuests = cache.fetchQuests(family: profile.family.recordID.recordName)

@@ -35,7 +35,7 @@ extension QuestCompletionCache {
         var completion = QuestCompletion(
             quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: questRecordName, zoneID: zoneID), action: .none),
             completedBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: completerRecordName, zoneID: zoneID), action: .none),
-            approvalMode: approvalModeEnum,
+            approvalMode: approvalModeEnum ?? .autoApprove,
             weekOf: weekOf,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
@@ -170,76 +170,5 @@ extension NotificationPreferenceCache {
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
-    }
-}
-
-// MARK: - Direct Enum Getters for SwiftUI Views
-
-extension QuestCache {
-    var approvalModeEnum: ApprovalMode {
-        ApprovalMode(rawValue: approvalMode) ?? .autoApprove
-    }
-
-    var rarityEnum: QuestRarity {
-        QuestRarity(rawValue: rarity) ?? .common
-    }
-
-    var scheduleTypeEnum: QuestSchedule {
-        QuestSchedule(rawValue: scheduleType) ?? .weeklyFlexible
-    }
-}
-
-extension QuestCompletionCache {
-    var verificationStatusEnum: VerificationStatus {
-        VerificationStatus(rawValue: verificationStatus) ?? .pending
-    }
-
-    var approvalModeEnum: ApprovalMode {
-        ApprovalMode(rawValue: approvalMode) ?? .autoApprove
-    }
-}
-
-extension ProfileCache {
-    var roleEnum: UserRole {
-        UserRole(rawValue: role) ?? .hero
-    }
-
-    var payoutPolicyEnum: PayoutPolicy {
-        PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest
-    }
-
-    var avatarClassEnum: AvatarClass? {
-        guard let avatarClass else { return nil }
-        return AvatarClass(rawValue: avatarClass)
-    }
-}
-
-extension AllowancePeriodCache {
-    var statusEnum: PayoutStatus {
-        PayoutStatus(rawValue: status) ?? .active
-    }
-}
-
-extension AchievementCache {
-    var categoryEnum: AchievementCategory {
-        AchievementCategory(rawValue: category) ?? .quest
-    }
-
-    var requirementTypeEnum: AchievementRequirement {
-        AchievementRequirement(rawValue: requirementType) ?? .firstQuest
-    }
-}
-
-extension QuestTemplateCache {
-    var scheduleTypeEnum: QuestSchedule {
-        QuestSchedule(rawValue: scheduleType) ?? .weeklyFlexible
-    }
-
-    var rarityEnum: QuestRarity {
-        QuestRarity.from(xp: xpReward)
-    }
-
-    var approvalModeEnum: ApprovalMode {
-        ApprovalMode(rawValue: approvalMode) ?? .autoApprove
     }
 }

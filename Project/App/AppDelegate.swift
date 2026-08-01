@@ -39,7 +39,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                     }
                 }
                 group.addTask {
-                    try? await Task.sleep(nanoseconds: 25_000_000_000)
+                    try? await Task.sleep(for: .seconds(25))
                 }
                 await group.next()
                 group.cancelAll()

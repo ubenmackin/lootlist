@@ -10,7 +10,7 @@ import SwiftData
 
 @Model
 final class QuestCache: FamilyScopedCache {
-    #Index<QuestCache>([\.familyRecordName], [\.assigneeRecordName], [\.weekOf])
+    #Index<QuestCache>([\.familyRecordName, \.assigneeRecordName, \.weekOf])
 
     @Attribute(.unique) var recordName: String
     var familyRecordName: String
@@ -29,6 +29,18 @@ final class QuestCache: FamilyScopedCache {
     var descriptionText: String?
     var createdByRecordName: String
     var changeTag: String?
+
+    var approvalModeEnum: ApprovalMode? {
+        ApprovalMode(rawValue: approvalMode)
+    }
+
+    var rarityEnum: QuestRarity? {
+        QuestRarity(rawValue: rarity)
+    }
+
+    var scheduleTypeEnum: QuestSchedule? {
+        QuestSchedule(rawValue: scheduleType)
+    }
 
     init(recordName: String,
          familyRecordName: String,

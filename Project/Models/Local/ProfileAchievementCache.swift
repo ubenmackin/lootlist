@@ -10,7 +10,7 @@ import SwiftData
 
 @Model
 final class ProfileAchievementCache: FamilyScopedCache {
-    #Index<ProfileAchievementCache>([\.familyRecordName], [\.profileRecordName])
+    #Index<ProfileAchievementCache>([\.familyRecordName, \.profileRecordName, \.earnedDate])
 
     @Attribute(.unique) var recordName: String
     var achievementRecordName: String

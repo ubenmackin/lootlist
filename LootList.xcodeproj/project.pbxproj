@@ -28,6 +28,7 @@
 		21198597FF7A7473784031A3 /* ToastManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */; };
 		214CE8D6A7157C8F10E073FE /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */; };
 		2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */; };
+		24670CCE597CD4D0815458D5 /* MockCloudKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBDE8FEF5840BB3453FC7F81 /* MockCloudKitService.swift */; };
 		292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F750555385910A36899A9BE /* ApprovalMode.swift */; };
 		2A00B0CD73498D56AE7C0EE5 /* TrophyRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C3E6FC5C9D55197733AA29 /* TrophyRoomView.swift */; };
 		2B30CA9F75994E6D1379D071 /* QuestManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8489EFF3404096B84A6A50E9 /* QuestManagerView.swift */; };
@@ -54,6 +55,7 @@
 		478DAB9FF630E62B539FD2D3 /* StreakBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C212892FE74417041671730 /* StreakBadge.swift */; };
 		48D5AF22A208D1D904393F6E /* TreasuryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4F63E61875E6DDD28AEE9E /* TreasuryView.swift */; };
 		4DE4E9257E98EBD2264C991C /* QuestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793AE042C54685940F7C3EF1 /* QuestService.swift */; };
+		4EF789182D28E751857FE6EE /* CloudKitServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 174A338676002E0C46AF3AB3 /* CloudKitServiceProtocol.swift */; };
 		50E39FEEA657632AB7AF960A /* QuestCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5860C6168028B967E157D8 /* QuestCardView.swift */; };
 		52A53EA19BB89D7C3EFCB445 /* CloudKitModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE5E3D8D810E51ADA1E99FB /* CloudKitModelTests.swift */; };
 		52FE085830E8699E665FCC4A /* TestEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9C9A669EA50B98696C391D /* TestEnvironment.swift */; };
@@ -130,6 +132,7 @@
 		DA5FCFBBA3499702B942474F /* QuestManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB8F932423BB04CC32F1B0A3 /* QuestManagerViewModel.swift */; };
 		DC69B6E9CDF2FCE89100AB23 /* QuestAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D870526224A67A707B7E4A4D /* QuestAssignmentView.swift */; };
 		DF2FE889C970BE09DE142988 /* LogSpendingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEED66C9830A57FFB23082CE /* LogSpendingView.swift */; };
+		DFEAD6B1C37337AF65451C96 /* ManualSpendingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */; };
 		E0A47CEA58D68C881E835BE6 /* TrophyRoomUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A4358651CDDB644ED05D11 /* TrophyRoomUITests.swift */; };
 		E34EE23B5C196960F948EBA3 /* AppSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE6285FFE10617D254E1E805 /* AppSyncCoordinator.swift */; };
 		E36683A28880AEC5B372B88E /* FamilyJoinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6030F1A54F52EBA1F3AB0AF2 /* FamilyJoinView.swift */; };
@@ -182,6 +185,7 @@
 		121FF6F520EF7DA800B28557 /* CharacterSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterSheetView.swift; sourceTree = "<group>"; };
 		136948D3323E0410CAA49E77 /* TemplateManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateManagerView.swift; sourceTree = "<group>"; };
 		15D5A603E5EA302DAED56DE1 /* CacheService+Invalidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheService+Invalidation.swift"; sourceTree = "<group>"; };
+		174A338676002E0C46AF3AB3 /* CloudKitServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitServiceProtocol.swift; sourceTree = "<group>"; };
 		1A45D8298C46FC546B3956B2 /* FamilyScopedCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyScopedCache.swift; sourceTree = "<group>"; };
 		1ACB50C5AFC8745DF880FC82 /* XPService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPService.swift; sourceTree = "<group>"; };
 		1D0BDA960AB6ACFCFD2CC92F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -286,12 +290,14 @@
 		D64CDD4E3D55127858D95F0E /* AppLaunchSplashScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLaunchSplashScreen.swift; sourceTree = "<group>"; };
 		D7A4358651CDDB644ED05D11 /* TrophyRoomUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyRoomUITests.swift; sourceTree = "<group>"; };
 		D870526224A67A707B7E4A4D /* QuestAssignmentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestAssignmentView.swift; sourceTree = "<group>"; };
+		DBDE8FEF5840BB3453FC7F81 /* MockCloudKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockCloudKitService.swift; sourceTree = "<group>"; };
 		DC969A154514821895033EF1 /* BalanceCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BalanceCardView.swift; sourceTree = "<group>"; };
 		DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheService+Fetches.swift"; sourceTree = "<group>"; };
 		E12CEF7F5C434D5B4F157574 /* PayoutStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutStatus.swift; sourceTree = "<group>"; };
 		E51839A707B6EEEF665443E2 /* CacheService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheService.swift; sourceTree = "<group>"; };
 		E6AAB59C9EA231BA29647A45 /* TreasuryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryService.swift; sourceTree = "<group>"; };
 		E71AC4B9376BAC604D6141A1 /* NotificationPreferenceCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreferenceCache.swift; sourceTree = "<group>"; };
+		E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualSpendingServiceTests.swift; sourceTree = "<group>"; };
 		EA8C10DB8B00F3CBF07A0F97 /* DataMigrationsCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataMigrationsCoordinator.swift; sourceTree = "<group>"; };
 		EB8F932423BB04CC32F1B0A3 /* QuestManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerViewModel.swift; sourceTree = "<group>"; };
 		EC02F032B488C7539AE674DD /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
@@ -382,9 +388,11 @@
 				DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */,
 				15D5A603E5EA302DAED56DE1 /* CacheService+Invalidation.swift */,
 				5C3ABA1D09005EC293F24135 /* CloudKitService.swift */,
+				174A338676002E0C46AF3AB3 /* CloudKitServiceProtocol.swift */,
 				ABC6F310F0839965B96333F4 /* ConcurrentEditDetector.swift */,
 				EA8C10DB8B00F3CBF07A0F97 /* DataMigrationsCoordinator.swift */,
 				2C47FAAAF5A2001034107C67 /* FamilyService.swift */,
+				DBDE8FEF5840BB3453FC7F81 /* MockCloudKitService.swift */,
 				CD7309A7921898E5B1910AA9 /* NotificationService.swift */,
 				793AE042C54685940F7C3EF1 /* QuestService.swift */,
 				73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */,
@@ -456,6 +464,7 @@
 				4B2E8E5B2EA9796AAB28C2FC /* CacheConversionsTests.swift */,
 				749D406B4D6BBEE27417C140 /* CacheServiceTests.swift */,
 				4281781D7DC9B5AE88396307 /* FamilyServiceTests.swift */,
+				E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */,
 				F56074526FD4DE3AADA0F3DA /* NotificationServiceTests.swift */,
 				56D827C1B1BDCCD1F2D6AA52 /* OptimisticRollbackTests.swift */,
 				FE146AF998123F6F9E4FB25B /* QuestServiceTests.swift */,
@@ -800,6 +809,7 @@
 				37AC4EA530872C7044E2AF0E /* CharacterSheetView.swift in Sources */,
 				F393DAB542CFB599BEC298C4 /* CloudKitRecord.swift in Sources */,
 				F0C89F0E52740773FEE220D3 /* CloudKitService.swift in Sources */,
+				4EF789182D28E751857FE6EE /* CloudKitServiceProtocol.swift in Sources */,
 				CBA9D5825F9C6A1EAA6A00F2 /* ColorExtensions.swift in Sources */,
 				8DC90A256C736820989E097F /* ConcurrentEditDetector.swift in Sources */,
 				7D504C659F2008C130F84BC6 /* DataMigrationsCoordinator.swift in Sources */,
@@ -825,6 +835,7 @@
 				DF2FE889C970BE09DE142988 /* LogSpendingView.swift in Sources */,
 				A4E8AE3F2D6B3EDD03B6CCF8 /* LootListApp.swift in Sources */,
 				62A01E2B3B36E4332FE0477F /* LootListSchema.swift in Sources */,
+				24670CCE597CD4D0815458D5 /* MockCloudKitService.swift in Sources */,
 				C1918099647CCE0351E916E4 /* NotificationEventType.swift in Sources */,
 				B57AAF9141482F6DDF4FFECB /* NotificationPreference.swift in Sources */,
 				B9BDDBEF3E58F0D6A3860731 /* NotificationPreferenceCache.swift in Sources */,
@@ -915,6 +926,7 @@
 				72D4C00D8E7A0E4DDB43547C /* FamilyDashboardViewModelTests.swift in Sources */,
 				ED9699802AC50FDE9DE80541 /* FamilyServiceTests.swift in Sources */,
 				EC94E2CDB261FFEB865D2E7C /* HeroDashboardViewModelTests.swift in Sources */,
+				DFEAD6B1C37337AF65451C96 /* ManualSpendingServiceTests.swift in Sources */,
 				0E6C4DF8B74D3ADEC3A8609A /* NotificationServiceTests.swift in Sources */,
 				2EF69CF462F9C95DAC72D6B3 /* OptimisticRollbackTests.swift in Sources */,
 				ABA21AD6F50F102108FBB1A6 /* QuestManagerViewModelTests.swift in Sources */,
