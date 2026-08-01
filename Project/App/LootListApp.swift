@@ -289,7 +289,7 @@ struct LootListApp: App {
 
     private func handleIncomingShareURL(_ url: URL) {
         guard !TestEnvironment.isRunningUnitOrUITests else { return }
-        let container = CloudKitService.defaultContainer
+        let container = cloudKitService.container
         Task {
             do {
                 let metadata = try await container.shareMetadata(for: url)
@@ -311,7 +311,7 @@ private struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(CloudKitService.self) private var cloudKitService
     @Environment(FamilyService.self) private var familyService
-    @Environment(CacheService.self) private var cacheService: CacheService
+    @Environment(CacheService.self) private var cacheService: CacheService?
     @Environment(ToastManager.self) private var toastManager
 
     @State private var onboardingVM: OnboardingViewModel?

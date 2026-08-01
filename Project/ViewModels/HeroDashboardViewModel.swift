@@ -152,7 +152,7 @@ final class HeroDashboardViewModel {
 
     func approvedCount(for quest: QuestCache) -> Int {
         logs(for: quest).filter {
-            $0.verificationStatus == VerificationStatus.verified.rawValue || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
+            $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
         }.count
     }
 
@@ -166,8 +166,7 @@ final class HeroDashboardViewModel {
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let approvedWeekLogs = logs.filter {
-            ($0.verificationStatus == VerificationStatus.autoApproved.rawValue
-                || $0.verificationStatus == VerificationStatus.verified.rawValue)
+            ($0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified)
                 && weekRange.contains($0.weekOf)
         }
 
@@ -180,7 +179,7 @@ final class HeroDashboardViewModel {
         let fullyCompletedCount = assignedQuests.filter { quest in
             let qLogs = logs.filter {
                 $0.questRecordName == quest.recordName &&
-                    $0.verificationStatusEnum != .rejected &&
+                    ($0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved) &&
                     weekRange.contains($0.weekOf)
             }
             return qLogs.count >= quest.targetCount
@@ -200,8 +199,8 @@ final class HeroDashboardViewModel {
         let calendar = Calendar.iso8601UTC
         var daySet: Set<Date> = []
         for log in logs where
-            log.verificationStatus == VerificationStatus.autoApproved.rawValue
-            || log.verificationStatus == VerificationStatus.verified.rawValue
+            log.verificationStatusEnum == .autoApproved
+            || log.verificationStatusEnum == .verified
         {
             if let day = calendar.dateInterval(of: .day, for: log.completedDate)?.start {
                 daySet.insert(day)
@@ -218,7 +217,8 @@ final class HeroDashboardViewModel {
         var cursor = anchor
         while daySet.contains(cursor) {
             streak += 1
-            cursor = calendar.date(byAdding: .day, value: -1, to: cursor) ?? cursor
+            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = previousDay
         }
         return streak
     }
@@ -268,7 +268,7 @@ final class HeroDashboardViewModel {
         guard !dayQuests.isEmpty else { return false }
         return dayQuests.allSatisfy { quest in
             let approvedLogs = logs(for: quest).filter {
-                $0.verificationStatusEnum != .rejected
+                $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
             }
             return approvedLogs.count >= quest.targetCount
         }
@@ -322,11 +322,5 @@ final class HeroDashboardViewModel {
                 isFuture: isFuture
             )
         }
-    }
-}
-
-private extension Quest {
-    func isScheduledFor(weekdayCode _: String) -> Bool {
-        scheduleType == .weeklyFlexible || true
     }
 }
