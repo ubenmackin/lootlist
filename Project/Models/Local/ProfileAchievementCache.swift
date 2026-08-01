@@ -9,7 +9,9 @@ import Foundation
 import SwiftData
 
 @Model
-final class ProfileAchievementCache: FamilyScopedCache {
+final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
+    typealias DomainModel = ProfileAchievement
+
     #Index<ProfileAchievementCache>([\.familyRecordName, \.profileRecordName, \.earnedDate])
 
     @Attribute(.unique) var recordName: String
@@ -43,5 +45,26 @@ final class ProfileAchievementCache: FamilyScopedCache {
             earnedDate: pa.earnedDate,
             changeTag: pa.changeTag
         )
+    }
+
+    // MARK: - CacheMergeable
+
+    func update(from pa: ProfileAchievement) {
+        achievementRecordName = pa.achievement.recordID.recordName
+        profileRecordName = pa.profile.recordID.recordName
+        familyRecordName = pa.family.recordID.recordName
+        earnedDate = pa.earnedDate
+        changeTag = pa.changeTag
+    }
+
+    static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<ProfileAchievementCache> {
+        if let familyRecordName {
+            return FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
+        }
+        return FetchDescriptor<ProfileAchievementCache>()
+    }
+
+    static func fetchDescriptor(recordName: String) -> FetchDescriptor<ProfileAchievementCache> {
+        FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == recordName })
     }
 }

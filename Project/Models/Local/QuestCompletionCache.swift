@@ -9,7 +9,9 @@ import Foundation
 import SwiftData
 
 @Model
-final class QuestCompletionCache: FamilyScopedCache {
+final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
+    typealias DomainModel = QuestCompletion
+
     #Index<QuestCompletionCache>([\.familyRecordName, \.completerRecordName, \.questRecordName, \.weekOf])
 
     @Attribute(.unique) var recordName: String
@@ -74,5 +76,33 @@ final class QuestCompletionCache: FamilyScopedCache {
             verifiedDate: completion.verifiedDate,
             changeTag: completion.changeTag
         )
+    }
+
+    // MARK: - CacheMergeable
+
+    func update(from completion: QuestCompletion) {
+        questRecordName = completion.quest.recordID.recordName
+        familyRecordName = completion.family.recordID.recordName
+        completerRecordName = completion.completedBy.recordID.recordName
+        completedDate = completion.completedDate
+        weekOf = completion.weekOf
+        verificationStatus = completion.verificationStatus.rawValue
+        approvalMode = (completion.verificationStatus == .autoApproved)
+            ? ApprovalMode.autoApprove.rawValue
+            : ApprovalMode.parentVerify.rawValue
+        verifiedByRecordName = completion.verifiedBy?.recordID.recordName
+        verifiedDate = completion.verifiedDate
+        changeTag = completion.changeTag
+    }
+
+    static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestCompletionCache> {
+        if let familyRecordName {
+            return FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
+        }
+        return FetchDescriptor<QuestCompletionCache>()
+    }
+
+    static func fetchDescriptor(recordName: String) -> FetchDescriptor<QuestCompletionCache> {
+        FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == recordName })
     }
 }

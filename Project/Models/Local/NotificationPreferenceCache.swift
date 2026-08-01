@@ -9,7 +9,9 @@ import Foundation
 import SwiftData
 
 @Model
-final class NotificationPreferenceCache: FamilyScopedCache {
+final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
+    typealias DomainModel = NotificationPreference
+
     #Index<NotificationPreferenceCache>([\.familyRecordName, \.profileRecordName, \.eventType])
 
     @Attribute(.unique) var recordName: String
@@ -51,5 +53,27 @@ final class NotificationPreferenceCache: FamilyScopedCache {
             pushEnabled: preference.pushEnabled,
             changeTag: preference.changeTag
         )
+    }
+
+    // MARK: - CacheMergeable
+
+    func update(from preference: NotificationPreference) {
+        profileRecordName = preference.profile.recordID.recordName
+        familyRecordName = preference.family.recordID.recordName
+        eventType = preference.eventType.rawValue
+        enabled = preference.enabled
+        pushEnabled = preference.pushEnabled
+        changeTag = preference.changeTag
+    }
+
+    static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<NotificationPreferenceCache> {
+        if let familyRecordName {
+            return FetchDescriptor<NotificationPreferenceCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
+        }
+        return FetchDescriptor<NotificationPreferenceCache>()
+    }
+
+    static func fetchDescriptor(recordName: String) -> FetchDescriptor<NotificationPreferenceCache> {
+        FetchDescriptor<NotificationPreferenceCache>(predicate: #Predicate { $0.recordName == recordName })
     }
 }

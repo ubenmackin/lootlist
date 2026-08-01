@@ -163,6 +163,7 @@ final class ManualSpendingService: SpendingService {
         let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName)
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.invalidateLedgerEntry(recordName: name)

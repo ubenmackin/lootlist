@@ -52,7 +52,18 @@ final class AppSyncCoordinator {
     }
 
     func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase) async {
-        let subscription = CKDatabaseSubscription(subscriptionID: "lootlist-changes-\(zoneID.zoneName)")
+        // Dual-path subscription strategy:
+        // - Owner (private) database: use a zone-scoped CKRecordZoneSubscription so
+        //   change notifications only fire for this family's zone, avoiding spurious
+        //   incrementalSync calls triggered by unrelated zones in the same database.
+        // - Participant (shared) database: keep using CKDatabaseSubscription because
+        //   CKRecordZoneSubscription may not work with shared zones; participants
+        //   observe the shared zone through a database-level subscription instead.
+        let subscription: CKSubscription = if database.databaseScope == .shared {
+            CKDatabaseSubscription(subscriptionID: "lootlist-changes-\(zoneID.zoneName)")
+        } else {
+            CKRecordZoneSubscription(zoneID: zoneID, subscriptionID: "lootlist-changes-\(zoneID.zoneName)")
+        }
 
         let notificationInfo = CKSubscription.NotificationInfo()
         notificationInfo.shouldSendContentAvailable = true
@@ -79,12 +90,54 @@ final class AppSyncCoordinator {
     }
 
     func handleNotification(_ notification: CKNotification) {
-        guard let databaseNotification = notification as? CKDatabaseNotification else { return }
+        // Route by notification type rather than concrete class, because the two
+        // subscription strategies emit different notification families:
+        // - Owner (private-database) path: CKRecordZoneSubscription generates
+        //   CKRecordZoneNotification events (a CKQueryNotification subclass) with
+        //   notificationType == .recordZone — NOT CKDatabaseNotification.
+        // - Participant (shared-database) path: CKDatabaseSubscription generates
+        //   CKDatabaseNotification events with notificationType == .database.
+        // Both must reach handleDatabaseChange so push-driven incrementalSync
+        // fires for either role; only genuinely unexpected substrate changes
+        // (e.g. .readNotification) should be dropped.
+        let subscriptionID: String
+        switch notification.notificationType {
+        case .database:
+            guard let databaseNotification = notification as? CKDatabaseNotification else {
+                logger.warning("CloudKit .database notification with unexpected concrete type (\(String(describing: type(of: notification)))) — dropping it")
+                return
+            }
+            subscriptionID = databaseNotification.subscriptionID ?? "unknown"
+        case .recordZone:
+            // CKRecordZoneNotification is a CKQueryNotification subclass; cast
+            // permissively so a future concrete variant still gets forwarded.
+            guard let queryNotification = notification as? CKQueryNotification else {
+                logger.warning("CloudKit .recordZone notification with unexpected concrete type (\(String(describing: type(of: notification)))) — dropping it")
+                return
+            }
+            subscriptionID = queryNotification.subscriptionID ?? "unknown"
+            if let zoneNotification = notification as? CKRecordZoneNotification,
+               let zoneID = zoneNotification.recordZoneID
+            {
+                logger.debug("CloudKit record-zone change notification received for zone \(zoneID.zoneName, privacy: .private)")
+            }
+        case .query:
+            guard let queryNotification = notification as? CKQueryNotification else {
+                logger.warning("CloudKit .query notification with unexpected concrete type (\(String(describing: type(of: notification)))) — dropping it")
+                return
+            }
+            subscriptionID = queryNotification.subscriptionID ?? "unknown"
+        default:
+            // Truly unexpected substrate change (e.g. .readNotification, or a
+            // type introduced by a future SDK): drop it loudly rather than
+            // failing silently.
+            logger.warning("Received an unhandled CloudKit notification (\(String(describing: type(of: notification)))) — dropping it")
+            return
+        }
 
-        let subscriptionID = databaseNotification.subscriptionID ?? "unknown"
         logger.debug("CloudKit change notification received for subscription: \(subscriptionID, privacy: .private)")
         #if DEBUG
-            let subID = databaseNotification.subscriptionID ?? "nil"
+            let subID = subscriptionID
             let notifType = String(describing: type(of: notification))
             logger.info("[DEBUG] handleNotification subscriptionID=\(subID, privacy: .private) notificationType=\(notifType, privacy: .public)")
         #endif

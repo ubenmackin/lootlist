@@ -97,12 +97,12 @@ final class XPService {
         // optimistic upsert so the cache can be restored to its prior value if
         // CloudKit rejects the write.
         let name = profile.id.recordName
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile = cacheService?.fetchProfile(recordName: name)?.toProfile(zoneID: profile.id.zoneID)
 
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
-        // since the typed Profile built via `toProfile(zoneID:)` defaults its
-        // changeTag to nil (it isn't loaded from a CKRecord).
+        // sync pulling a mutation into the cache mid-save).
         let preMutationChangeTag = cacheService?.fetchProfile(recordName: name)?.changeTag
 
         // Optimistic local write first

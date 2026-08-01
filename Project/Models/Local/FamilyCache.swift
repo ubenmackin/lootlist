@@ -9,7 +9,9 @@ import Foundation
 import SwiftData
 
 @Model
-final class FamilyCache {
+final class FamilyCache: CacheMergeable {
+    typealias DomainModel = Family
+
     // The `#Index<FamilyCache>([\.recordName])` macro was removed: it
     // duplicated the implicit unique index already provided by
     // `@Attribute(.unique) var recordName` below. Query predicates on
@@ -21,6 +23,11 @@ final class FamilyCache {
     var createdAt: Date
     var payoutPolicy: String
     var changeTag: String?
+
+    /// `FamilyCache` is the root record and is never family-scoped.
+    var familyRecordName: String {
+        ""
+    }
 
     var payoutPolicyEnum: PayoutPolicy? {
         PayoutPolicy(rawValue: payoutPolicy)
@@ -50,5 +57,24 @@ final class FamilyCache {
             payoutPolicy: family.payoutPolicy.rawValue,
             changeTag: family.changeTag
         )
+    }
+
+    // MARK: - CacheMergeable
+
+    func update(from family: Family) {
+        name = family.name
+        createdByRecordName = family.createdBy.recordName
+        createdAt = family.createdAt
+        payoutPolicy = family.payoutPolicy.rawValue
+        changeTag = family.changeTag
+    }
+
+    static func fetchDescriptor(familyRecordName _: String?) -> FetchDescriptor<FamilyCache> {
+        // FamilyCache is the root record — never family-scoped.
+        FetchDescriptor<FamilyCache>()
+    }
+
+    static func fetchDescriptor(recordName: String) -> FetchDescriptor<FamilyCache> {
+        FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })
     }
 }
