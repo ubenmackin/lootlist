@@ -136,7 +136,8 @@ struct CacheConversionsTests {
             verificationStatus: "pending", approvalMode: "nonsense",
             verifiedByRecordName: nil, verifiedDate: nil
         )
-        #expect(cache.approvalModeEnum == .autoApprove)
+        #expect(cache.approvalModeEnum == nil)
+        #expect((cache.approvalModeEnum ?? .autoApprove) == .autoApprove)
     }
 
     // MARK: - Dedup identity

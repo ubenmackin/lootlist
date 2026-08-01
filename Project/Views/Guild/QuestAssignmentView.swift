@@ -561,10 +561,10 @@ struct QuestAssignmentView: View {
         editQuestDescription = quest.descriptionText ?? ""
         editGoldText = String(format: "%.2f", quest.goldReward)
         editXpText = "\(quest.xpReward)"
-        editSchedule = quest.scheduleTypeEnum
+        editSchedule = quest.scheduleTypeEnum ?? .weeklyFlexible
         editTargetCount = quest.targetCount
         editIsAllOrNothing = quest.isAllOrNothing
-        editApproval = quest.approvalModeEnum
+        editApproval = quest.approvalModeEnum ?? .autoApprove
 
         // Resolve assignee from heroes list
         editAssignee = viewModel.heroes.first { $0.recordName == quest.assigneeRecordName }

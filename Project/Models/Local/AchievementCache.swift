@@ -22,6 +22,14 @@ final class AchievementCache: FamilyScopedCache {
     var requirementValue: Int
     var changeTag: String?
 
+    var categoryEnum: AchievementCategory? {
+        AchievementCategory(rawValue: category)
+    }
+
+    var requirementTypeEnum: AchievementRequirement? {
+        AchievementRequirement(rawValue: requirementType)
+    }
+
     init(recordName: String,
          familyRecordName: String,
          name: String,

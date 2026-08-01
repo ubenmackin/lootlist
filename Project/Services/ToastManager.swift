@@ -126,9 +126,8 @@ final class ToastManager {
     /// and hops back to MainActor only to remove the toast by id.
     private func scheduleAutoDismiss(for id: UUID) {
         let task = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: ToastManager.autoDismissDuration)
-            // Hop back to MainActor before mutating `toasts`. If the toast was
-            await MainActor.run { [weak self] in
+            try? await Task.sleep(for: .seconds(7))
+            if !Task.isCancelled {
                 self?.dismiss(id: id)
             }
         }

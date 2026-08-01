@@ -28,6 +28,18 @@ final class QuestTemplateCache: FamilyScopedCache {
     var createdByRecordName: String
     var changeTag: String?
 
+    var scheduleTypeEnum: QuestSchedule? {
+        QuestSchedule(rawValue: scheduleType)
+    }
+
+    var rarityEnum: QuestRarity? {
+        QuestRarity(rawValue: rarity)
+    }
+
+    var approvalModeEnum: ApprovalMode? {
+        ApprovalMode(rawValue: approvalMode)
+    }
+
     init(recordName: String,
          familyRecordName: String,
          name: String,

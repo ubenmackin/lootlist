@@ -49,36 +49,21 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         id = record.recordID
         changeTag = record.recordChangeTag
 
-        guard let name = record["name"] as? String else {
-            throw CKDecodingError.missingField("name")
-        }
-        self.name = name
+        name = try record.extract("name")
+        description = try record.extract("description")
+        defaultGold = try record.extract("defaultGold")
+        xpReward = try record.extract("xpReward")
 
-        guard let description = record["description"] as? String else {
-            throw CKDecodingError.missingField("description")
-        }
-        self.description = description
-
-        guard let defaultGold = record["defaultGold"] as? Double else {
-            throw CKDecodingError.missingField("defaultGold")
-        }
-        self.defaultGold = defaultGold
-
-        guard let xpReward = record["xpReward"] as? Int else {
-            throw CKDecodingError.missingField("xpReward")
-        }
-        self.xpReward = xpReward
-
-        let scheduleRaw = (record["scheduleType"] as? String) ?? QuestSchedule.weeklyFlexible.rawValue
+        let scheduleRaw = record.extractOptional("scheduleType") ?? QuestSchedule.weeklyFlexible.rawValue
         scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
 
-        specificDays = (record["specificDays"] as? [String]) ?? []
+        specificDays = record.extractOptional("specificDays") ?? []
 
-        targetCount = (record["targetCount"] as? Int) ?? 1
+        targetCount = record.extractOptional("targetCount") ?? 1
 
-        isAllOrNothing = (record["isAllOrNothing"] as? Bool) ?? false
+        isAllOrNothing = record.bool(forKey: "isAllOrNothing", default: false)
 
-        guard let approvalRaw = record["approvalMode"] as? String,
+        guard let approvalRaw: String = record.extractOptional("approvalMode"),
               let approvalMode = ApprovalMode(rawValue: approvalRaw)
         else {
             throw CKDecodingError.missingField("approvalMode")
@@ -95,7 +80,7 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         }
         self.family = family
 
-        isActive = (record["isActive"] as? Bool) ?? false
+        isActive = record.bool(forKey: "isActive", default: false)
     }
 
     func toRecord() -> CKRecord {

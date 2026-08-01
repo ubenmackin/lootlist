@@ -247,10 +247,13 @@ class CloudKitService {
             return CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
         }()
 
-        let recordToSave: CKRecord = if let existing = try? await targetDB.record(for: targetID) {
-            existing
-        } else {
-            CKRecord(recordType: T.recordType, recordID: targetID)
+        let recordToSave: CKRecord
+        do {
+            recordToSave = try await targetDB.record(for: targetID)
+        } catch let error as CKError where error.code == .unknownItem {
+            recordToSave = CKRecord(recordType: T.recordType, recordID: targetID)
+        } catch {
+            throw error // Propagate network errors rather than silently creating duplicates
         }
 
         if T.recordType != Family.recordType {
@@ -623,21 +626,27 @@ class CloudKitService {
         let pvtDB = privateDatabase
         let targetID = CKRecord.ID(recordName: rootRecordID.recordName, zoneID: zoneID)
 
-        if let rootRecord = try? await pvtDB.record(for: targetID),
-           let shareRef = rootRecord.share,
-           let existingShare = await (try? pvtDB.record(for: shareRef.recordID)) as? CKShare
-        {
-            if existingShare.publicPermission != .readWrite {
-                existingShare.publicPermission = .readWrite
-                _ = try? await pvtDB.save(existingShare)
+        do {
+            let rootRecord = try await pvtDB.record(for: targetID)
+            if let shareRef = rootRecord.share,
+               let existingShare = try await pvtDB.record(for: shareRef.recordID) as? CKShare
+            {
+                if existingShare.publicPermission != .readWrite {
+                    existingShare.publicPermission = .readWrite
+                    _ = try await pvtDB.save(existingShare)
+                }
+                if let existingURL = existingShare.url {
+                    logger.info("Found existing CKShare URL via rootRecord.share: \(existingURL, privacy: .private)")
+                    return existingURL
+                }
             }
-            if let existingURL = existingShare.url {
-                logger.info("Found existing CKShare URL via rootRecord.share: \(existingURL, privacy: .private)")
-                return existingURL
-            }
+        } catch let error as CKError where error.code == .unknownItem {
+            // Fall through to check via query or create a new one
+        } catch {
+            throw error
         }
 
-        if let existingURL = try? await fetchShareURL(in: zoneID) {
+        if let existingURL = try await fetchShareURL(in: zoneID) {
             return existingURL
         }
 

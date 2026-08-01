@@ -225,10 +225,13 @@ struct NotificationSettingsView: View {
                 return notificationService.isNotificationEnabled(for: event)
             },
             set: { newValue in
-                // Mirror to UserDefaults for first-launch fallback continuity.
-                UserDefaults.standard.set(newValue, forKey: event.userDefaultsKey)
                 Task {
-                    try? await notificationService.updatePreference(event: event, enabled: newValue)
+                    do {
+                        try await notificationService.updatePreference(event: event, enabled: newValue)
+                        UserDefaults.standard.set(newValue, forKey: event.userDefaultsKey)
+                    } catch {
+                        // Log error, possibly revert UI state
+                    }
                 }
             }
         )

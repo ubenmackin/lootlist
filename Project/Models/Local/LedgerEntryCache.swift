@@ -10,7 +10,7 @@ import SwiftData
 
 @Model
 final class LedgerEntryCache: FamilyScopedCache {
-    #Index<LedgerEntryCache>([\.familyRecordName], [\.profileRecordName], [\.date])
+    #Index<LedgerEntryCache>([\.familyRecordName, \.profileRecordName, \.date])
 
     @Attribute(.unique) var recordName: String
     var profileRecordName: String

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 
 enum AvatarPreset: String, CaseIterable, Sendable {
     case knightV1 = "knight_v1"
@@ -199,6 +200,20 @@ final class AvatarService {
             avatarClass: profile.avatarClass,
             role: profile.role
         )
+    }
+
+    static func resizeImageData(_ data: Data, maxDimension: CGFloat) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let ratio = min(maxDimension / image.size.width, maxDimension / image.size.height)
+        let newSize = CGSize(
+            width: image.size.width * ratio,
+            height: image.size.height * ratio
+        )
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        let resized = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+        return resized.jpegData(compressionQuality: 0.8)
     }
 }
 

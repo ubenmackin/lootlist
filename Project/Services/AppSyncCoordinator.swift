@@ -32,31 +32,23 @@ final class AppSyncCoordinator {
     private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
 
     init() {
-        NotificationCenter.default.addObserver(
-            forName: .cloudKitNotificationReceived,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self, let ckNotification = notification.object as? CKNotification else { return }
-            Task { @MainActor in
-                self.handleNotification(ckNotification)
-            }
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: .cloudKitShareAccepted,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self, let metadata = notification.object as? CKShare.Metadata else { return }
-            Task { @MainActor in
-                self.handleShareAcceptance(shareMetadata: metadata)
-            }
-        }
+        startNotificationListeners()
     }
 
-    deinit {
-        NotificationCenter.default.removeObserver(self)
+    private func startNotificationListeners() {
+        Task { [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: .cloudKitNotificationReceived) {
+                guard let self, let ckNotification = notification.object as? CKNotification else { continue }
+                handleNotification(ckNotification)
+            }
+        }
+
+        Task { [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: .cloudKitShareAccepted) {
+                guard let self, let metadata = notification.object as? CKShare.Metadata else { continue }
+                handleShareAcceptance(shareMetadata: metadata)
+            }
+        }
     }
 
     func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase) async {
@@ -120,8 +112,8 @@ final class AppSyncCoordinator {
         let stream = AsyncStream<SyncEvent> { continuation in
             continuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
-                Task { @MainActor in
-                    self?.continuations.removeValue(forKey: id)
+                Task { [weak self] in
+                    await self?.unsubscribe(id: id)
                 }
             }
         }

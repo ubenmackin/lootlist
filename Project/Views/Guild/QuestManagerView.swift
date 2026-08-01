@@ -27,6 +27,7 @@ struct QuestManagerView: View {
     @State private var showAddTemplateSheet: Bool = false
     @State private var editingTemplate: QuestTemplate?
     @State private var editingQuest: Quest?
+    @State private var isSubmitting = false
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -44,16 +45,13 @@ struct QuestManagerView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // Filter queries by family at the SwiftData store layer when a family record name is available.
-        let templateFilter: Predicate<QuestTemplateCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name && $0.isActive == true }
-        }
-        let assignmentFilter: Predicate<QuestCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name && $0.isActive == true }
-        }
-        let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+        let assignmentFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+
         _cachedTemplates = Query(
             filter: templateFilter,
             sort: \QuestTemplateCache.name
@@ -137,6 +135,7 @@ struct QuestManagerView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .disabled(isSubmitting)
                     .accessibilityLabel(selectedTab == .assignments ? "Assign New Quest" : "New Template")
                 }
             }
@@ -210,8 +209,8 @@ struct QuestManagerView: View {
 
     private func assignmentRow(quest: QuestCache, vm: QuestManagerViewModel) -> some View {
         let zoneID = questService.cloudKitReference.resolvedZoneID
-        let approvalMode = quest.approvalModeEnum
-        let rarity = quest.rarityEnum
+        let approvalMode = quest.approvalModeEnum ?? .autoApprove
+        let rarity = quest.rarityEnum ?? .common
         return Button {
             editingQuest = quest.toQuest(zoneID: zoneID)
         } label: {
@@ -233,10 +232,16 @@ struct QuestManagerView: View {
         .contentShape(Rectangle())
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
-                Task { try? await vm.unassignQuest(quest.toQuest(zoneID: zoneID)) }
+                guard !isSubmitting else { return }
+                isSubmitting = true
+                Task {
+                    defer { isSubmitting = false }
+                    try? await vm.unassignQuest(quest.toQuest(zoneID: zoneID))
+                }
             } label: {
                 Label("Unassign", systemImage: "trash")
             }
+            .disabled(isSubmitting)
         }
     }
 
@@ -273,8 +278,8 @@ struct QuestManagerView: View {
 
     private func templateRow(template: QuestTemplateCache, vm: QuestManagerViewModel) -> some View {
         let zoneID = questService.cloudKitReference.resolvedZoneID
-        let scheduleType = template.scheduleTypeEnum
-        let rarity = template.rarityEnum
+        let scheduleType = template.scheduleTypeEnum ?? .weeklyFlexible
+        let rarity = template.rarityEnum ?? .common
         return HStack(spacing: 12) {
             Image(systemName: scheduleType.iconSystemName)
                 .foregroundStyle(.tint)
@@ -302,17 +307,29 @@ struct QuestManagerView: View {
         .swipeActions(edge: .trailing) {
             if template.isActive {
                 Button {
-                    Task { try? await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID)) }
+                    guard !isSubmitting else { return }
+                    isSubmitting = true
+                    Task {
+                        defer { isSubmitting = false }
+                        try? await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                    }
                 } label: {
                     Label("Deactivate", systemImage: "trash.slash")
                 }
+                .disabled(isSubmitting)
                 .tint(.orange)
             } else {
                 Button {
-                    Task { try? await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID)) }
+                    guard !isSubmitting else { return }
+                    isSubmitting = true
+                    Task {
+                        defer { isSubmitting = false }
+                        try? await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                    }
                 } label: {
                     Label("Activate", systemImage: "arrow.clockwise.circle.fill")
                 }
+                .disabled(isSubmitting)
                 .tint(.green)
             }
         }

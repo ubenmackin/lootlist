@@ -10,7 +10,7 @@ import SwiftData
 
 @Model
 final class AllowancePeriodCache: FamilyScopedCache {
-    #Index<AllowancePeriodCache>([\.familyRecordName], [\.profileRecordName], [\.weekOf])
+    #Index<AllowancePeriodCache>([\.familyRecordName, \.profileRecordName, \.weekOf])
 
     @Attribute(.unique) var recordName: String
     var profileRecordName: String
@@ -23,6 +23,10 @@ final class AllowancePeriodCache: FamilyScopedCache {
     var paidDate: Date?
     var paidAmount: Double?
     var changeTag: String?
+
+    var statusEnum: PayoutStatus? {
+        PayoutStatus(rawValue: status)
+    }
 
     init(recordName: String,
          profileRecordName: String,

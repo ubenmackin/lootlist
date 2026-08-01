@@ -10,7 +10,7 @@ import SwiftData
 
 @Model
 final class QuestCompletionCache: FamilyScopedCache {
-    #Index<QuestCompletionCache>([\.familyRecordName], [\.questRecordName], [\.completerRecordName], [\.weekOf])
+    #Index<QuestCompletionCache>([\.familyRecordName, \.completerRecordName, \.questRecordName, \.weekOf])
 
     @Attribute(.unique) var recordName: String
     var questRecordName: String
@@ -23,6 +23,14 @@ final class QuestCompletionCache: FamilyScopedCache {
     var verifiedByRecordName: String?
     var verifiedDate: Date?
     var changeTag: String?
+
+    var verificationStatusEnum: VerificationStatus? {
+        VerificationStatus(rawValue: verificationStatus)
+    }
+
+    var approvalModeEnum: ApprovalMode? {
+        ApprovalMode(rawValue: approvalMode)
+    }
 
     init(recordName: String,
          questRecordName: String,
