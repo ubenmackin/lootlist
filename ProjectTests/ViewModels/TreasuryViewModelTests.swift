@@ -10,7 +10,8 @@ import Foundation
 @testable import LootList
 import Testing
 
-final class MockSpendingService: SpendingService, @unchecked Sendable {
+@MainActor
+final class MockSpendingService: SpendingService {
     var transactions: [LedgerEntry] = []
     var isAvailableValue: Bool = true
     var shouldFail: Bool = false

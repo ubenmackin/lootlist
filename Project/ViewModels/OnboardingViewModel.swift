@@ -106,6 +106,10 @@ final class OnboardingViewModel {
     }
 
     func createFamily(name: String) async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             error = "Your guild needs a name, Guild Master."
@@ -117,7 +121,6 @@ final class OnboardingViewModel {
             return
         }
 
-        isLoading = true
         error = nil
 
         // Resolve the iCloud user ID up front. Surfacing a failure here (vs.
@@ -128,7 +131,6 @@ final class OnboardingViewModel {
         do {
             owneriCloudID = try await iCloudUserID()
         } catch {
-            isLoading = false
             self.error = "Could not reach iCloud to identify your account. Check your network and tap Found the Guild to retry."
             return
         }
@@ -160,18 +162,19 @@ final class OnboardingViewModel {
         } catch {
             self.error = "Could not found your guild: \(error)"
         }
-
-        isLoading = false
     }
 
     func joinFamilyViaShareLink() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
             error = "Pick a name before joining your party."
             return
         }
 
-        isLoading = true
         error = nil
 
         // 1. If user pasted a share URL string into the join field, resolve its metadata first
@@ -183,15 +186,16 @@ final class OnboardingViewModel {
                     let metadata = try await container.shareMetadata(for: url)
                     pendingShareMetadata = metadata
                 } catch {
-                    isLoading = false
                     self.error = "Could not open share invitation: \(error.localizedDescription)"
                     return
                 }
+            } else if !rawURL.isEmpty {
+                error = "The invitation link is not a valid URL."
+                return
             }
         }
 
         guard let metadata = pendingShareMetadata else {
-            isLoading = false
             error = "No share invitation found. Ask your Guild Master to send an invitation link."
             return
         }
@@ -204,7 +208,6 @@ final class OnboardingViewModel {
         do {
             heroiCloudID = try await iCloudUserID()
         } catch {
-            isLoading = false
             self.error = "Could not reach iCloud to identify your account. Check your network and tap Join the Quest to retry."
             return
         }
@@ -234,8 +237,6 @@ final class OnboardingViewModel {
         } catch {
             self.error = "Could not join the guild: \(error)"
         }
-
-        isLoading = false
     }
 
     var isParentFlow: Bool {

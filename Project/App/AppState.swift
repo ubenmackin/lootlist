@@ -20,6 +20,7 @@ final class AppState {
         case detectedPreviousFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool)
         case onboarding
         case authenticated
+        case offlineEmptyCache
     }
 
     var authStatus: AuthStatus
@@ -119,13 +120,14 @@ final class AppState {
         let familyID = CKRecord.ID(recordName: familyRecordName, zoneID: zoneID)
 
         do {
-            let fetchedProfile: Profile = try await cloudKit.fetch(Profile.self, id: profileID, using: db)
-            let fetchedFamily: Family = try await cloudKit.fetch(Family.self, id: familyID, using: db)
+            async let fetchedProfile = cloudKit.fetch(Profile.self, id: profileID, using: db)
+            async let fetchedFamily = cloudKit.fetch(Family.self, id: familyID, using: db)
+            let (profile, familyResult) = try await (fetchedProfile, fetchedFamily)
 
             familyZoneID = zoneID
             isZoneOwner = isOwner
-            family = fetchedFamily
-            currentProfile = fetchedProfile
+            family = familyResult
+            currentProfile = profile
 
             if isOwner {
                 activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: familyID)
@@ -157,7 +159,7 @@ final class AppState {
                     authStatus = .authenticated
                     logger.info("Session restored from local cache (offline mode)")
                 } else {
-                    authStatus = .onboarding
+                    authStatus = .offlineEmptyCache
                 }
             }
         }

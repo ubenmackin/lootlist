@@ -33,14 +33,9 @@ struct Family: Identifiable, Equatable, Sendable {
         id = record.recordID
         changeTag = record.recordChangeTag
 
-        guard let name = record["name"] as? String else {
-            throw CKDecodingError.missingField("name")
-        }
-        self.name = name
+        name = try record.extract("name")
 
-        guard let createdByID = record["createdBy"] as? String else {
-            throw CKDecodingError.missingField("createdBy")
-        }
+        let createdByID: String = try record.extract("createdBy")
         createdBy = CKRecord.ID(recordName: createdByID)
 
         guard let createdAt = record["createdAt"] as? Date else {
@@ -48,7 +43,7 @@ struct Family: Identifiable, Equatable, Sendable {
         }
         self.createdAt = createdAt
 
-        if let rawPolicy = record["payoutPolicy"] as? String,
+        if let rawPolicy: String = record.extractOptional("payoutPolicy"),
            let policy = PayoutPolicy(rawValue: rawPolicy)
         {
             payoutPolicy = policy

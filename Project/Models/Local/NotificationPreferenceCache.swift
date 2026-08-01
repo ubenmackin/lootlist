@@ -20,6 +20,10 @@ final class NotificationPreferenceCache: FamilyScopedCache {
     var pushEnabled: Bool
     var changeTag: String?
 
+    var eventTypeEnum: NotificationEventType? {
+        NotificationEventType(rawValue: eventType)
+    }
+
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,

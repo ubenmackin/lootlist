@@ -29,20 +29,20 @@ private struct BrokenRecord: CloudKitRecord {
     }
 }
 
-/// Thread-safe box for notification-observer state across the @Sendable closure boundary.
-private final class SyncResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _receivedNotification = false
-    private var _receivedErrors: [String]?
+import os
+
+/// Thread-safe box for notification-observer state across closure boundaries.
+private final class SyncResultBox: Sendable {
+    private let lock = OSAllocatedUnfairLock<(receivedNotification: Bool, receivedErrors: [String]?)>(initialState: (false, nil))
 
     var receivedNotification: Bool {
-        get { lock.withLock { _receivedNotification } }
-        set { lock.withLock { _receivedNotification = newValue } }
+        get { lock.withLock { $0.receivedNotification } }
+        set { lock.withLock { $0.receivedNotification = newValue } }
     }
 
     var receivedErrors: [String]? {
-        get { lock.withLock { _receivedErrors } }
-        set { lock.withLock { _receivedErrors = newValue } }
+        get { lock.withLock { $0.receivedErrors } }
+        set { lock.withLock { $0.receivedErrors = newValue } }
     }
 }
 
@@ -639,7 +639,7 @@ struct SyncEngineTests {
     func `zone reset purges before resync`() async throws {
         let sut = try makeSUT(seedRecords: allTenTypes())
 
-        let staleCtx = ModelContext(sut.cacheService.container)
+        let staleCtx = try ModelContext(#require(sut.cacheService.container))
         staleCtx.insert(FamilyCache(
             recordName: "stale_family",
             name: "Stale Guild",
@@ -649,7 +649,7 @@ struct SyncEngineTests {
         ))
         try staleCtx.save()
 
-        #expect(try remainingCount(FamilyCache.self, in: sut.cacheService.container) == 1)
+        #expect(try remainingCount(FamilyCache.self, in: #require(sut.cacheService.container)) == 1)
         #expect(try remainingCount(FamilyCache.self, in: sut.backgroundContainer) == 0)
 
         let box = SyncResultBox()
@@ -671,7 +671,7 @@ struct SyncEngineTests {
 
         #expect(box.receivedNotification == true)
 
-        #expect(try remainingCount(FamilyCache.self, in: sut.cacheService.container) == 0)
+        #expect(try remainingCount(FamilyCache.self, in: #require(sut.cacheService.container)) == 0)
         #expect(try remainingCount(FamilyCache.self, in: sut.backgroundContainer) == 1)
         #expect(sut.engine.lastSyncedAt != nil)
     }
@@ -684,8 +684,8 @@ struct SyncEngineTests {
 
         let zoneID = CKRecordZone.ID(zoneName: "FamilyZone", ownerName: "TestOwner")
 
-        let privateKey = sut.engine.tokenKey(for: zoneID, db: sut.cloudKit.privateDatabase)
-        let sharedKey = sut.engine.tokenKey(for: zoneID, db: sut.cloudKit.sharedDatabase)
+        let privateKey = sut.engine.tokenKey(for: zoneID, isShared: false)
+        let sharedKey = sut.engine.tokenKey(for: zoneID, isShared: true)
 
         #expect(privateKey.contains("FamilyZone"))
         #expect(sharedKey.contains("FamilyZone"))

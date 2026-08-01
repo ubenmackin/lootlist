@@ -57,39 +57,25 @@ struct Achievement: Identifiable, Equatable, Sendable {
         id = record.recordID
         changeTag = record.recordChangeTag
 
-        guard let name = record["name"] as? String else {
-            throw CKDecodingError.missingField("name")
-        }
-        self.name = name
+        name = try record.extract("name")
+        description = try record.extract("description")
+        iconSystemName = try record.extract("iconSystemName")
 
-        guard let description = record["description"] as? String else {
-            throw CKDecodingError.missingField("description")
-        }
-        self.description = description
-
-        guard let iconSystemName = record["iconSystemName"] as? String else {
-            throw CKDecodingError.missingField("iconSystemName")
-        }
-        self.iconSystemName = iconSystemName
-
-        guard let categoryRaw = record["category"] as? String,
+        guard let categoryRaw: String = record.extractOptional("category"),
               let category = AchievementCategory(rawValue: categoryRaw)
         else {
             throw CKDecodingError.missingField("category")
         }
         self.category = category
 
-        guard let requirementTypeRaw = record["requirementType"] as? String,
+        guard let requirementTypeRaw: String = record.extractOptional("requirementType"),
               let requirementType = AchievementRequirement(rawValue: requirementTypeRaw)
         else {
             throw CKDecodingError.missingField("requirementType")
         }
         self.requirementType = requirementType
 
-        guard let requirementValue = record["requirementValue"] as? Int else {
-            throw CKDecodingError.missingField("requirementValue")
-        }
-        self.requirementValue = requirementValue
+        requirementValue = try record.extract("requirementValue")
 
         guard let family = record["family"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("family")

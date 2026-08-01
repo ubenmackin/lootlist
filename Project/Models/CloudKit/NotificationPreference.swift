@@ -40,15 +40,15 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
         }
         self.profile = profile
 
-        guard let eventTypeRaw = record["eventType"] as? String,
+        guard let eventTypeRaw: String = record.extractOptional("eventType"),
               let eventType = NotificationEventType(rawValue: eventTypeRaw)
         else {
             throw CKDecodingError.missingField("eventType")
         }
         self.eventType = eventType
 
-        enabled = (record["enabled"] as? Bool) ?? false
-        pushEnabled = (record["pushEnabled"] as? Bool) ?? false
+        enabled = record.bool(forKey: "enabled", default: false)
+        pushEnabled = record.bool(forKey: "pushEnabled", default: false)
 
         guard let family = record["family"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("family")

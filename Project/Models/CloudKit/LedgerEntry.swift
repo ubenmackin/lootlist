@@ -41,25 +41,15 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         }
         self.profile = profile
 
-        guard let amount = record["amount"] as? Double else {
-            throw CKDecodingError.missingField("amount")
-        }
-        self.amount = amount
-
-        guard let description = record["description"] as? String else {
-            throw CKDecodingError.missingField("description")
-        }
-        self.description = description
+        amount = try record.extract("amount")
+        description = try record.extract("description")
 
         guard let date = record["date"] as? Date else {
             throw CKDecodingError.missingField("date")
         }
         self.date = date
 
-        guard let source = record["source"] as? String else {
-            throw CKDecodingError.missingField("source")
-        }
-        self.source = source
+        source = try record.extract("source")
 
         guard let family = record["family"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("family")

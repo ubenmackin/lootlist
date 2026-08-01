@@ -120,6 +120,9 @@ final class HeroDashboardViewModel {
                 } else {
                     todayList.append(quest)
                 }
+
+            default:
+                break
             }
         }
 
@@ -132,7 +135,9 @@ final class HeroDashboardViewModel {
 
         let heroLogs = logs.filter { $0.completerRecordName == profileName }
         streak = Self.computeStreak(from: heroLogs)
-        earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests)
+        let profileRecordName = appState.currentProfile?.id.recordName ?? ""
+        let payoutPolicy = appState.currentProfile?.payoutPolicy
+        earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests, profileRecordName: profileRecordName, payoutPolicy: payoutPolicy)
 
         // Precompute the number of fully-completed quests once, so the view
         // body can read a plain Int instead of re-filtering logs per quest.
@@ -156,10 +161,7 @@ final class HeroDashboardViewModel {
         return approvedCount(for: quest) >= target
     }
 
-    /// Half-open-week, approved-completions, quest-gold join — the same
-    /// derivation `TreasuryViewModel.rebuildLists` performs for its weekly
-    /// gold-from-quests total.
-    static func earnedThisWeek(logs: [QuestCompletionCache], quests: [QuestCache]) -> Double {
+    nonisolated static func earnedThisWeek(logs: [QuestCompletionCache], quests: [QuestCache], profileRecordName: String, payoutPolicy: PayoutPolicy?) -> Double {
         let weekOf = WeekMath.weekOf(date: Date())
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
@@ -168,28 +170,33 @@ final class HeroDashboardViewModel {
                 || $0.verificationStatus == VerificationStatus.verified.rawValue)
                 && weekRange.contains($0.weekOf)
         }
-        let questByName = Dictionary(
-            quests.map { ($0.recordName, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
 
-        var logsByQuest: [String: [QuestCompletionCache]] = [:]
-        for log in approvedWeekLogs {
-            logsByQuest[log.questRecordName, default: []].append(log)
+        var totalEarned = GoldCalculation.totalGold(for: quests, approvedLogs: approvedWeekLogs)
+
+        let assignedQuests = quests.filter {
+            $0.assigneeRecordName == profileRecordName && weekRange.contains($0.weekOf)
         }
 
-        var totalEarned = 0.0
-        for (qName, qLogs) in logsByQuest {
-            guard let quest = questByName[qName] else { continue }
-            totalEarned += GoldCalculation.creditAsDouble(
-                for: quest,
-                approvedCount: qLogs.count
-            )
+        let fullyCompletedCount = assignedQuests.filter { quest in
+            let qLogs = logs.filter {
+                $0.questRecordName == quest.recordName &&
+                    $0.verificationStatusEnum != .rejected &&
+                    weekRange.contains($0.weekOf)
+            }
+            return qLogs.count >= quest.targetCount
+        }.count
+
+        if payoutPolicy == .allOrNothing,
+           !assignedQuests.isEmpty,
+           fullyCompletedCount < assignedQuests.count
+        {
+            totalEarned = 0
         }
+
         return totalEarned
     }
 
-    static func computeStreak(from logs: [QuestCompletionCache]) -> Int {
+    nonisolated static func computeStreak(from logs: [QuestCompletionCache]) -> Int {
         let calendar = Calendar.iso8601UTC
         var daySet: Set<Date> = []
         for log in logs where
@@ -227,6 +234,8 @@ final class HeroDashboardViewModel {
                     return (template.specificDays ?? []).contains(selectedDayCode)
                 }
                 return true
+            default:
+                return false
             }
         }
     }
@@ -240,6 +249,8 @@ final class HeroDashboardViewModel {
                 if let template = templatesByID[quest.templateRecordName] {
                     return template.specificDays?.contains(day.weekdayCode) == true
                 }
+                return false
+            default:
                 return false
             }
         }
@@ -256,7 +267,10 @@ final class HeroDashboardViewModel {
         }
         guard !dayQuests.isEmpty else { return false }
         return dayQuests.allSatisfy { quest in
-            logsByQuestRecordName[quest.recordName] != nil
+            let approvedLogs = logs(for: quest).filter {
+                $0.verificationStatusEnum != .rejected
+            }
+            return approvedLogs.count >= quest.targetCount
         }
     }
 

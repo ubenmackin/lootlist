@@ -48,40 +48,28 @@ struct Profile: Identifiable, Equatable, Sendable {
         id = record.recordID
         changeTag = record.recordChangeTag
 
-        guard let displayName = record["displayName"] as? String else {
-            throw CKDecodingError.missingField("displayName")
-        }
-        self.displayName = displayName
+        displayName = try record.extract("displayName")
 
-        if let avatarClassRaw = record["avatarClass"] as? String {
+        if let avatarClassRaw: String = record.extractOptional("avatarClass") {
             avatarClass = AvatarClass(rawValue: avatarClassRaw)
         } else {
             avatarClass = nil
         }
 
-        avatarPresetID = record["avatarPresetID"] as? String
-        customAvatarImageData = record["customAvatarImageData"] as? Data
+        avatarPresetID = record.extractOptional("avatarPresetID")
+        customAvatarImageData = record.extractOptional("customAvatarImageData")
 
-        guard let roleRaw = record["role"] as? String,
+        guard let roleRaw: String = record.extractOptional("role"),
               let role = UserRole(rawValue: roleRaw)
         else {
             throw CKDecodingError.missingField("role")
         }
         self.role = role
 
-        guard let xp = record["xp"] as? Int else {
-            throw CKDecodingError.missingField("xp")
-        }
-        self.xp = xp
+        xp = try record.extract("xp")
+        level = try record.extract("level")
 
-        guard let level = record["level"] as? Int else {
-            throw CKDecodingError.missingField("level")
-        }
-        self.level = level
-
-        guard let iCloudUserIDStr = record["iCloudUserID"] as? String else {
-            throw CKDecodingError.missingField("iCloudUserID")
-        }
+        let iCloudUserIDStr: String = try record.extract("iCloudUserID")
         iCloudUserID = CKRecord.ID(recordName: iCloudUserIDStr)
 
         guard let familyRef = record["family"] as? CKRecord.Reference else {
@@ -89,9 +77,9 @@ struct Profile: Identifiable, Equatable, Sendable {
         }
         family = familyRef
 
-        isActive = (record["isActive"] as? Bool) ?? false
+        isActive = record.bool(forKey: "isActive", default: false)
 
-        if let rawPolicy = record["payoutPolicy"] as? String,
+        if let rawPolicy: String = record.extractOptional("payoutPolicy"),
            let policy = PayoutPolicy(rawValue: rawPolicy)
         {
             payoutPolicy = policy

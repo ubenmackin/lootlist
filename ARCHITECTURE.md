@@ -287,7 +287,7 @@ These remain tracked as hardening items:
 
 - The pre-`save` window (between the optimistic `upsertX(updated)` and `await cloudKit.save(...)` completing) is short enough that the only reliable concurrent-edit signal during it is Signal 1 — CloudKit's synchronous `serverRecordChanged`. Signal 2 catches divergence that arrived via a background `SyncEngine.incrementalSync` push during the `await`; with the `CacheService.upsertX` changeTag-preservation fix, the cache row's `changeTag` is no longer overwritten with `nil` when the incoming struct carries `nil`, making Signal 2 effective for that path.
 - In the rare case where the concurrent-edit re-fetch also fails (network unavailable, server returns no fresher record), the fallback restores the pre-mutation snapshot. The snapshot is a stale value, not truth; the next successful `SyncEngine.syncAll` reconciles.
-- `AchievementService` and `ManualSpendingService` use the same optimistic-rollback pattern but do not yet wrap their rollback with `detectConcurrentEdit`; their rollback semantics are unaffected (snapshot restore on non-concurrent failures).
+- `AchievementService` and `ManualSpendingService` now use the same optimistic-rollback pattern AND wrap their rollback with `detectConcurrentEdit`, aligned with QuestService, TreasuryService, FamilyService, and XPService.
 
 ---
 

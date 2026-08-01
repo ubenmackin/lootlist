@@ -28,6 +28,14 @@ struct OptimisticRollbackTests {
         ) async throws -> T {
             throw MockError.saveFailed
         }
+
+        override func delete(
+            _: CKRecord.ID,
+            in _: CKRecordZone.ID? = nil,
+            using _: CKDatabase? = nil
+        ) async throws {
+            throw MockError.saveFailed
+        }
     }
 
     /// Subclass of `CloudKitService` that succeeds for the first N `save`
@@ -517,6 +525,7 @@ struct OptimisticRollbackTests {
         let family = makeFamily(zoneID)
         cache.upsertFamily(family)
         appState.family = family
+        appState.currentProfile = makeParent(zoneID)
 
         // Attempt -- save will fail.
         do {
@@ -611,5 +620,38 @@ struct OptimisticRollbackTests {
             restored.verifiedBy == nil,
             "Cache must have pre-mutation nil verifiedBy after rollback"
         )
+    }
+
+    // MARK: - 11. AchievementService.award invalidates cache on save failure
+
+    @Test
+    func `achievement service award invalidates cache on save failure`() async throws {
+        let zoneID = makeZoneID()
+        let cloudKit = FailingCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let service = AchievementService(cloudKit: cloudKit, cacheService: cache)
+
+        let familyRef = makeFamilyRef(zoneID)
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        let achievement = Achievement(
+            name: "Test Achievement",
+            description: "Test Description",
+            iconSystemName: "star",
+            category: .quest,
+            requirementType: .firstQuest,
+            requirementValue: 1,
+            family: familyRef
+        )
+
+        do {
+            _ = try await service.award(achievement, to: hero, family: family)
+            #expect(Bool(false), "Expected save to throw")
+        } catch {
+            #expect(error is MockError)
+        }
+
+        let cached = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName)
+        #expect(cached.isEmpty, "ProfileAchievement must be invalidated after save failure for new award")
     }
 }

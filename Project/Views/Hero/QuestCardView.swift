@@ -30,8 +30,8 @@ struct QuestCardView: View {
     }
 
     var body: some View {
-        let approvalMode = quest.approvalModeEnum
-        let rarity = quest.rarityEnum
+        let approvalMode = quest.approvalModeEnum ?? .autoApprove
+        let rarity = quest.rarityEnum ?? .common
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {

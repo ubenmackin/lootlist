@@ -81,31 +81,24 @@ struct Quest: Identifiable, Equatable, Sendable {
         }
         self.assignee = assignee
 
-        guard let goldReward = record["goldReward"] as? Double else {
-            throw CKDecodingError.missingField("goldReward")
-        }
-        self.goldReward = goldReward
+        goldReward = try record.extract("goldReward")
+        xpReward = try record.extract("xpReward")
 
-        guard let xpReward = record["xpReward"] as? Int else {
-            throw CKDecodingError.missingField("xpReward")
-        }
-        self.xpReward = xpReward
-
-        let scheduleRaw = (record["scheduleType"] as? String) ?? QuestSchedule.weeklyFlexible.rawValue
+        let scheduleRaw = record.extractOptional("scheduleType") ?? QuestSchedule.weeklyFlexible.rawValue
         scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
 
-        targetCount = (record["targetCount"] as? Int) ?? 1
+        targetCount = record.extractOptional("targetCount") ?? 1
 
-        isAllOrNothing = (record["isAllOrNothing"] as? NSNumber)?.boolValue ?? (record["isAllOrNothing"] as? Bool) ?? false
+        isAllOrNothing = record.bool(forKey: "isAllOrNothing", default: false)
 
-        guard let approvalRaw = record["approvalMode"] as? String,
+        guard let approvalRaw: String = record.extractOptional("approvalMode"),
               let approvalMode = ApprovalMode(rawValue: approvalRaw)
         else {
             throw CKDecodingError.missingField("approvalMode")
         }
         self.approvalMode = approvalMode
 
-        active = (record["active"] as? NSNumber)?.boolValue ?? (record["active"] as? Bool) ?? true
+        active = record.bool(forKey: "active", default: true)
 
         guard let weekOf = record["weekOf"] as? Date else {
             throw CKDecodingError.missingField("weekOf")
@@ -122,8 +115,8 @@ struct Quest: Identifiable, Equatable, Sendable {
         }
         self.family = family
 
-        name = record["name"] as? String
-        descriptionText = record["descriptionText"] as? String
+        name = record.extractOptional("name")
+        descriptionText = record.extractOptional("descriptionText")
     }
 
     func toRecord() -> CKRecord {

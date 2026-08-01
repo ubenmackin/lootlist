@@ -13,52 +13,62 @@ extension CacheService {
 
     /// Fetches the first record matching `descriptor`, deletes it, and saves.
     func invalidate(_ descriptor: FetchDescriptor<some PersistentModel>) {
+        guard let context else { return }
         if let object = try? context.fetch(descriptor).first {
             context.delete(object)
             saveContext()
         }
     }
 
+    /// Generic invalidation helper for any model with a recordName.
+    func invalidateByRecordName<T: PersistentModel>(
+        _: T.Type,
+        recordName _: String,
+        predicate: Predicate<T>
+    ) {
+        invalidate(FetchDescriptor<T>(predicate: predicate))
+    }
+
     // MARK: - Per-record invalidation
 
     func invalidateQuest(recordName: String) {
-        invalidate(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(QuestCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateQuestCompletion(recordName: String) {
-        invalidate(FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(QuestCompletionCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateProfile(recordName: String) {
-        invalidate(FetchDescriptor<ProfileCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(ProfileCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateQuestTemplate(recordName: String) {
-        invalidate(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(QuestTemplateCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateLedgerEntry(recordName: String) {
-        invalidate(FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(LedgerEntryCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateAllowancePeriod(recordName: String) {
-        invalidate(FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(AllowancePeriodCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateAchievement(recordName: String) {
-        invalidate(FetchDescriptor<AchievementCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(AchievementCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateProfileAchievement(recordName: String) {
-        invalidate(FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(ProfileAchievementCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateFamily(recordName: String) {
-        invalidate(FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(FamilyCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     func invalidateNotificationPreference(recordName: String) {
-        invalidate(FetchDescriptor<NotificationPreferenceCache>(predicate: #Predicate { $0.recordName == recordName }))
+        invalidateByRecordName(NotificationPreferenceCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
     }
 
     // MARK: - Per-Family Purge
@@ -72,6 +82,7 @@ extension CacheService {
         let familyDescriptor = FetchDescriptor<FamilyCache>(
             predicate: #Predicate { $0.recordName == recordName }
         )
+        guard let context else { return }
         if let family = try? context.fetch(familyDescriptor).first {
             context.delete(family)
         }
@@ -93,6 +104,7 @@ extension CacheService {
     // MARK: - Bulk Clear
 
     func clearAll() {
+        guard let context else { return }
         try? context.delete(model: QuestCache.self)
         try? context.delete(model: QuestTemplateCache.self)
         try? context.delete(model: ProfileCache.self)

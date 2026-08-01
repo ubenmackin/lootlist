@@ -18,6 +18,7 @@ struct HeroDashboardView: View {
     @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var viewModel: HeroDashboardViewModel?
+    @State private var submittingQuestIDs: Set<String> = []
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -27,16 +28,13 @@ struct HeroDashboardView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // Filter queries by family at the SwiftData store layer when a family record name is available.
-        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name && $0.isActive == true }
-        }
-        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let templateFilter: Predicate<QuestTemplateCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name && $0.isActive == true }
-        }
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+
         _cachedQuests = Query(
             filter: questFilter,
             sort: \QuestCache.weekOf,
@@ -274,7 +272,11 @@ struct HeroDashboardView: View {
                 logs: questLogs,
                 isOverdue: isOverdue,
                 onComplete: {
+                    let qID = quest.recordName
+                    guard !submittingQuestIDs.contains(qID) else { return }
+                    submittingQuestIDs.insert(qID)
                     Task {
+                        defer { submittingQuestIDs.remove(qID) }
                         guard let profile = appState.currentProfile else { return }
                         _ = try? await questService.markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile)
                     }

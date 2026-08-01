@@ -49,30 +49,19 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
         }
         self.profile = profile
 
-        guard let statusRaw = record["status"] as? String,
+        guard let statusRaw: String = record.extractOptional("status"),
               let status = PayoutStatus(rawValue: statusRaw)
         else {
             throw CKDecodingError.missingField("status")
         }
         self.status = status
 
-        guard let totalEarned = record["totalEarned"] as? Double else {
-            throw CKDecodingError.missingField("totalEarned")
-        }
-        self.totalEarned = totalEarned
+        totalEarned = try record.extract("totalEarned")
+        questsCompleted = try record.extract("questsCompleted")
+        questsTotal = try record.extract("questsTotal")
 
-        guard let questsCompleted = record["questsCompleted"] as? Int else {
-            throw CKDecodingError.missingField("questsCompleted")
-        }
-        self.questsCompleted = questsCompleted
-
-        guard let questsTotal = record["questsTotal"] as? Int else {
-            throw CKDecodingError.missingField("questsTotal")
-        }
-        self.questsTotal = questsTotal
-
-        paidDate = record["paidDate"] as? Date
-        paidAmount = record["paidAmount"] as? Double
+        paidDate = record.extractOptional("paidDate")
+        paidAmount = record.extractOptional("paidAmount")
 
         guard let family = record["family"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("family")

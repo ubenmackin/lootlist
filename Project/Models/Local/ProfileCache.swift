@@ -10,7 +10,7 @@ import SwiftData
 
 @Model
 final class ProfileCache: FamilyScopedCache {
-    #Index<ProfileCache>([\.familyRecordName], [\.iCloudUserRecordName])
+    #Index<ProfileCache>([\.familyRecordName, \.iCloudUserRecordName])
 
     @Attribute(.unique) var recordName: String
     var familyRecordName: String
@@ -25,6 +25,18 @@ final class ProfileCache: FamilyScopedCache {
     var avatarClass: String?
     var payoutPolicy: String
     var changeTag: String?
+
+    var roleEnum: UserRole? {
+        UserRole(rawValue: role)
+    }
+
+    var avatarClassEnum: AvatarClass? {
+        avatarClass.flatMap { AvatarClass(rawValue: $0) }
+    }
+
+    var payoutPolicyEnum: PayoutPolicy? {
+        PayoutPolicy(rawValue: payoutPolicy)
+    }
 
     init(recordName: String,
          familyRecordName: String,

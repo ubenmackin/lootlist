@@ -56,7 +56,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
         }
         self.completedDate = completedDate
 
-        guard let verificationStatusRaw = record["verificationStatus"] as? String else {
+        guard let verificationStatusRaw: String = try? record.extract("verificationStatus") else {
             throw CKDecodingError.missingField("verificationStatus")
         }
         verificationStatus = VerificationStatus(rawValue: verificationStatusRaw) ?? .pending

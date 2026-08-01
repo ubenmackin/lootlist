@@ -186,7 +186,7 @@ struct PayoutHistoryView: View {
                 Text(String(format: "%.2f gold", period.totalEarned))
                     .font(.subheadline.weight(.bold).monospacedDigit())
 
-                statusBadge(for: period.statusEnum)
+                statusBadge(for: period.statusEnum ?? .payoutPending)
             }
         }
         .padding(.vertical, 4)
@@ -253,7 +253,7 @@ private struct PayoutDetailSheet: View {
                 Section("Summary") {
                     LabeledContent("Hero", value: heroName)
                     LabeledContent("Week Of", value: period.weekOf.formatted(.dateTime.month().day().year()))
-                    LabeledContent("Status", value: period.statusEnum.displayName)
+                    LabeledContent("Status", value: (period.statusEnum ?? .payoutPending).displayName)
                     LabeledContent("Quests Completed", value: "\(period.questsCompleted) of \(period.questsTotal)")
                     LabeledContent("Total Gold Earned", value: String(format: "%.2f", period.totalEarned))
                     if let paidDate = period.paidDate {
