@@ -197,6 +197,8 @@ final class SyncEngine {
             isSyncing = false
             lastSyncedAt = Date()
             NotificationCenter.default.post(name: .syncDidComplete, object: self)
+            // After saving the change token marking byte progress, set pendingSync = incremental if moreComing.
+            // The next call will resume from the checkpoint token.
             dispatchPendingSync(familyRecordName: familyRecordName)
         }
 
@@ -404,6 +406,9 @@ final class SyncEngine {
                 }
             }
         }
+        // The push listener task is stored in syncTaskMutex for cancellation in deinit.
+        // The isSyncing / pendingSync mechanism serializes actual sync execution —
+        // the two are distinct levels of the guardian.
         syncTaskMutex.withLock { $0 = task }
     }
 }

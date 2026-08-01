@@ -197,6 +197,7 @@ final class TreasuryService {
         // `snapshot.toAllowancePeriod(...)` later would yield the
         // *post*-mutation values. The value-type copy
         // (`AllowancePeriod` struct) is unaffected by later mutations.
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertAllowancePeriod(updated)
@@ -258,6 +259,7 @@ final class TreasuryService {
         // `snapshot.toAllowancePeriod(...)` later would yield the
         // *post*-mutation values. The value-type copy
         // (`AllowancePeriod` struct) is unaffected by later mutations.
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
 
         // Optimistic write first

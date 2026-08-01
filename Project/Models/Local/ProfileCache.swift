@@ -9,7 +9,9 @@ import Foundation
 import SwiftData
 
 @Model
-final class ProfileCache: FamilyScopedCache {
+final class ProfileCache: FamilyScopedCache, CacheMergeable {
+    typealias DomainModel = Profile
+
     #Index<ProfileCache>([\.familyRecordName, \.iCloudUserRecordName])
 
     @Attribute(.unique) var recordName: String
@@ -83,5 +85,33 @@ final class ProfileCache: FamilyScopedCache {
             payoutPolicy: profile.payoutPolicy.rawValue,
             changeTag: profile.changeTag
         )
+    }
+
+    // MARK: - CacheMergeable
+
+    func update(from profile: Profile) {
+        familyRecordName = profile.family.recordID.recordName
+        displayName = profile.displayName
+        role = profile.role.rawValue
+        xpTotal = profile.xp
+        avatarName = profile.avatarPresetID
+        customAvatarImageData = profile.customAvatarImageData
+        isActive = profile.isActive
+        level = profile.level
+        iCloudUserRecordName = profile.iCloudUserID.recordName
+        avatarClass = profile.avatarClass?.rawValue
+        payoutPolicy = profile.payoutPolicy.rawValue
+        changeTag = profile.changeTag
+    }
+
+    static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<ProfileCache> {
+        if let familyRecordName {
+            return FetchDescriptor<ProfileCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
+        }
+        return FetchDescriptor<ProfileCache>()
+    }
+
+    static func fetchDescriptor(recordName: String) -> FetchDescriptor<ProfileCache> {
+        FetchDescriptor<ProfileCache>(predicate: #Predicate { $0.recordName == recordName })
     }
 }

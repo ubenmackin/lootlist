@@ -50,6 +50,17 @@ extension Achievement: CloudKitRecord {}
 extension ProfileAchievement: CloudKitRecord {}
 extension NotificationPreference: CloudKitRecord {}
 
+extension Family: CacheMergeableDomain {}
+extension Profile: CacheMergeableDomain {}
+extension QuestTemplate: CacheMergeableDomain {}
+extension Quest: CacheMergeableDomain {}
+extension QuestCompletion: CacheMergeableDomain {}
+extension AllowancePeriod: CacheMergeableDomain {}
+extension LedgerEntry: CacheMergeableDomain {}
+extension Achievement: CacheMergeableDomain {}
+extension ProfileAchievement: CacheMergeableDomain {}
+extension NotificationPreference: CacheMergeableDomain {}
+
 enum CKDecodingError: Error, Equatable, Sendable {
     case unexpectedRecordType(expected: String, actual: String)
 

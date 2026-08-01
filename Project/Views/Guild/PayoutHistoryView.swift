@@ -41,19 +41,13 @@ struct PayoutHistoryView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
 
-        // Filter queries by family at the SwiftData store layer when a family record name is available.
-        let allowanceFilter: Predicate<AllowancePeriodCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let achievementFilter: Predicate<AchievementCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let profileAchievementFilter: Predicate<ProfileAchievementCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
+        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
             sort: \AllowancePeriodCache.weekOf,

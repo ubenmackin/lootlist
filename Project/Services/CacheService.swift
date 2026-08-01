@@ -86,6 +86,8 @@ final class CacheService {
         }
     }
 
+    // changeTag is copied unconditionally — nil is a meaningful "no further tag" value that must propagate.
+
     // MARK: - Upserts (single)
 
     // Synchronous @MainActor paths for optimistic UI writes by view models and services.
@@ -111,10 +113,9 @@ final class CacheService {
             existing.isAllOrNothing = quest.isAllOrNothing
             existing.approvalMode = quest.approvalMode.rawValue
             existing.descriptionText = quest.descriptionText
+            existing.targetCount = quest.targetCount
             existing.createdByRecordName = quest.createdBy.recordID.recordName
-            if let tag = quest.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = quest.changeTag
         } else {
             context.insert(QuestCache(from: quest))
         }
@@ -139,9 +140,7 @@ final class CacheService {
             existing.iCloudUserRecordName = profile.iCloudUserID.recordName
             existing.avatarClass = profile.avatarClass?.rawValue
             existing.payoutPolicy = profile.payoutPolicy.rawValue
-            if let tag = profile.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = profile.changeTag
         } else {
             context.insert(ProfileCache(from: profile))
         }
@@ -166,9 +165,7 @@ final class CacheService {
                 : ApprovalMode.parentVerify.rawValue
             existing.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
             existing.verifiedDate = completion.verifiedDate
-            if let tag = completion.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = completion.changeTag
         } else {
             context.insert(QuestCompletionCache(from: completion))
         }
@@ -190,13 +187,12 @@ final class CacheService {
             existing.rarity = template.rarity.rawValue
             existing.specificDays = template.specificDays.isEmpty ? nil : template.specificDays
             existing.templateDescription = template.description
+            existing.targetCount = template.targetCount
             existing.scheduleType = template.scheduleType.rawValue
             existing.isAllOrNothing = template.isAllOrNothing
             existing.approvalMode = template.approvalMode.rawValue
             existing.createdByRecordName = template.createdBy.recordID.recordName
-            if let tag = template.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = template.changeTag
         } else {
             context.insert(QuestTemplateCache(from: template))
         }
@@ -214,9 +210,7 @@ final class CacheService {
             existing.createdByRecordName = family.createdBy.recordName
             existing.createdAt = family.createdAt
             existing.payoutPolicy = family.payoutPolicy.rawValue
-            if let tag = family.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = family.changeTag
         } else {
             context.insert(FamilyCache(from: family))
         }
@@ -236,9 +230,7 @@ final class CacheService {
             existing.entryDescription = entry.description
             existing.date = entry.date
             existing.source = entry.source
-            if let tag = entry.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = entry.changeTag
         } else {
             context.insert(LedgerEntryCache(from: entry))
         }
@@ -261,9 +253,7 @@ final class CacheService {
             existing.questsTotal = period.questsTotal
             existing.paidDate = period.paidDate
             existing.paidAmount = period.paidAmount
-            if let tag = period.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = period.changeTag
         } else {
             context.insert(AllowancePeriodCache(from: period))
         }
@@ -284,9 +274,7 @@ final class CacheService {
             existing.category = achievement.category.rawValue
             existing.requirementType = achievement.requirementType.rawValue
             existing.requirementValue = achievement.requirementValue
-            if let tag = achievement.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = achievement.changeTag
         } else {
             context.insert(AchievementCache(from: achievement))
         }
@@ -305,9 +293,7 @@ final class CacheService {
             existing.eventType = pref.eventType.rawValue
             existing.enabled = pref.enabled
             existing.pushEnabled = pref.pushEnabled
-            if let tag = pref.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = pref.changeTag
         } else {
             context.insert(NotificationPreferenceCache(from: pref))
         }
@@ -325,9 +311,7 @@ final class CacheService {
             existing.profileRecordName = pa.profile.recordID.recordName
             existing.familyRecordName = pa.family.recordID.recordName
             existing.earnedDate = pa.earnedDate
-            if let tag = pa.changeTag {
-                existing.changeTag = tag
-            }
+            existing.changeTag = pa.changeTag
         } else {
             context.insert(ProfileAchievementCache(from: pa))
         }
@@ -363,10 +347,9 @@ final class CacheService {
                 cached.isAllOrNothing = quest.isAllOrNothing
                 cached.approvalMode = quest.approvalMode.rawValue
                 cached.descriptionText = quest.descriptionText
+                cached.targetCount = quest.targetCount
                 cached.createdByRecordName = quest.createdBy.recordID.recordName
-                if let tag = quest.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = quest.changeTag
             } else {
                 context.insert(QuestCache(from: quest))
             }
@@ -399,9 +382,7 @@ final class CacheService {
                 cached.iCloudUserRecordName = profile.iCloudUserID.recordName
                 cached.avatarClass = profile.avatarClass?.rawValue
                 cached.payoutPolicy = profile.payoutPolicy.rawValue
-                if let tag = profile.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = profile.changeTag
             } else {
                 context.insert(ProfileCache(from: profile))
             }
@@ -434,9 +415,7 @@ final class CacheService {
                     : ApprovalMode.parentVerify.rawValue
                 cached.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
                 cached.verifiedDate = completion.verifiedDate
-                if let tag = completion.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = completion.changeTag
             } else {
                 context.insert(QuestCompletionCache(from: completion))
             }
@@ -466,13 +445,12 @@ final class CacheService {
                 cached.rarity = template.rarity.rawValue
                 cached.specificDays = template.specificDays.isEmpty ? nil : template.specificDays
                 cached.templateDescription = template.description
+                cached.targetCount = template.targetCount
                 cached.scheduleType = template.scheduleType.rawValue
                 cached.isAllOrNothing = template.isAllOrNothing
                 cached.approvalMode = template.approvalMode.rawValue
                 cached.createdByRecordName = template.createdBy.recordID.recordName
-                if let tag = template.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = template.changeTag
             } else {
                 context.insert(QuestTemplateCache(from: template))
             }
@@ -500,9 +478,7 @@ final class CacheService {
                 cached.entryDescription = entry.description
                 cached.date = entry.date
                 cached.source = entry.source
-                if let tag = entry.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = entry.changeTag
             } else {
                 context.insert(LedgerEntryCache(from: entry))
             }
@@ -533,9 +509,7 @@ final class CacheService {
                 cached.questsTotal = period.questsTotal
                 cached.paidDate = period.paidDate
                 cached.paidAmount = period.paidAmount
-                if let tag = period.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = period.changeTag
             } else {
                 context.insert(AllowancePeriodCache(from: period))
             }
@@ -564,9 +538,7 @@ final class CacheService {
                 cached.category = achievement.category.rawValue
                 cached.requirementType = achievement.requirementType.rawValue
                 cached.requirementValue = achievement.requirementValue
-                if let tag = achievement.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = achievement.changeTag
             } else {
                 context.insert(AchievementCache(from: achievement))
             }
@@ -592,9 +564,7 @@ final class CacheService {
                 cached.profileRecordName = pa.profile.recordID.recordName
                 cached.familyRecordName = pa.family.recordID.recordName
                 cached.earnedDate = pa.earnedDate
-                if let tag = pa.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = pa.changeTag
             } else {
                 context.insert(ProfileAchievementCache(from: pa))
             }
@@ -621,9 +591,7 @@ final class CacheService {
                 cached.eventType = pref.eventType.rawValue
                 cached.enabled = pref.enabled
                 cached.pushEnabled = pref.pushEnabled
-                if let tag = pref.changeTag {
-                    cached.changeTag = tag
-                }
+                cached.changeTag = pref.changeTag
             } else {
                 context.insert(NotificationPreferenceCache(from: pref))
             }

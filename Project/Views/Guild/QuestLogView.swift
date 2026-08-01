@@ -32,16 +32,12 @@ struct QuestLogView: View {
         self.initialHero = initialHero
         self.familyRecordName = familyRecordName
 
-        // Filter queries by family at the SwiftData store layer when a family record name is available.
-        let profileFilter: Predicate<ProfileCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let questFilter: Predicate<QuestCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
-        let completionFilter: Predicate<QuestCompletionCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
         _cachedProfiles = Query(
             filter: profileFilter,
             sort: \ProfileCache.displayName

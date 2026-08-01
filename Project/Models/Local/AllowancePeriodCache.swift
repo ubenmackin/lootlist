@@ -9,7 +9,9 @@ import Foundation
 import SwiftData
 
 @Model
-final class AllowancePeriodCache: FamilyScopedCache {
+final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
+    typealias DomainModel = AllowancePeriod
+
     #Index<AllowancePeriodCache>([\.familyRecordName, \.profileRecordName, \.weekOf])
 
     @Attribute(.unique) var recordName: String
@@ -67,5 +69,31 @@ final class AllowancePeriodCache: FamilyScopedCache {
             paidAmount: period.paidAmount,
             changeTag: period.changeTag
         )
+    }
+
+    // MARK: - CacheMergeable
+
+    func update(from period: AllowancePeriod) {
+        profileRecordName = period.profile.recordID.recordName
+        familyRecordName = period.family.recordID.recordName
+        weekOf = period.weekOf
+        status = period.status.rawValue
+        totalEarned = period.totalEarned
+        questsCompleted = period.questsCompleted
+        questsTotal = period.questsTotal
+        paidDate = period.paidDate
+        paidAmount = period.paidAmount
+        changeTag = period.changeTag
+    }
+
+    static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<AllowancePeriodCache> {
+        if let familyRecordName {
+            return FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
+        }
+        return FetchDescriptor<AllowancePeriodCache>()
+    }
+
+    static func fetchDescriptor(recordName: String) -> FetchDescriptor<AllowancePeriodCache> {
+        FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == recordName })
     }
 }

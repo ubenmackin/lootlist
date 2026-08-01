@@ -19,9 +19,11 @@ struct SpendingLogView: View {
     init(viewModel: TreasuryViewModel, familyRecordName: String? = nil) {
         self.viewModel = viewModel
         self.familyRecordName = familyRecordName
-        let ledgerFilter: Predicate<LedgerEntryCache>? = familyRecordName.map { name in
-            #Predicate { $0.familyRecordName == name }
-        }
+
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         _cachedLedgers = Query(
             filter: ledgerFilter,
             sort: \LedgerEntryCache.date,

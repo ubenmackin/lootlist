@@ -225,6 +225,7 @@ final class FamilyService: FamilyProfileFetching {
         // place by `upsertFamily`, so reading `snapshot.toFamily(...)` later
         // would yield the *post*-mutation values. The value-type copy
         // (`Family` struct) is unaffected by later mutations.
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotFamily: Family? = snapshot?.toFamily(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertFamily(updated)
@@ -286,6 +287,14 @@ final class FamilyService: FamilyProfileFetching {
         // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
 
+        // Capture an immutable value-type copy of the snapshot BEFORE the
+        // optimistic write. The cache-managed `snapshot` will be mutated in
+        // place by `upsertFamily`, so reading `snapshot.toFamily(...)` later
+        // would yield the *post*-mutation values. The value-type copy
+        // (`Family` struct) is unaffected by later mutations.
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        let snapshotFamily: Family? = snapshot?.toFamily(zoneID: cloudKit.resolvedZoneID)
+
         cacheService?.upsertFamily(updated)
         appState.family = updated
 
@@ -314,14 +323,14 @@ final class FamilyService: FamilyProfileFetching {
                 if let fresh = try? await cloudKit.fetch(Family.self, id: family.id, using: db) {
                     cacheService?.upsertFamily(fresh)
                     appState.family = fresh
-                } else if let snapshot {
-                    cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
-                    appState.family = snapshot.toFamily(zoneID: zoneID)
+                } else if let snapshotFamily {
+                    cacheService?.upsertFamily(snapshotFamily)
+                    appState.family = snapshotFamily
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertFamily(snapshot.toFamily(zoneID: zoneID))
-                    appState.family = snapshot.toFamily(zoneID: zoneID)
+                if let snapshotFamily {
+                    cacheService?.upsertFamily(snapshotFamily)
+                    appState.family = snapshotFamily
                 }
                 let message = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription
@@ -344,6 +353,14 @@ final class FamilyService: FamilyProfileFetching {
         // Capture the last-seen server changeTag BEFORE the optimistic write so
         // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
+
+        // Capture an immutable value-type copy of the snapshot BEFORE the
+        // optimistic write. The cache-managed `snapshot` will be mutated in
+        // place by `upsertProfile`, so reading `snapshot.toProfile(...)` later
+        // would yield the *post*-mutation values. The value-type copy
+        // (`Profile` struct) is unaffected by later mutations.
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
@@ -379,17 +396,17 @@ final class FamilyService: FamilyProfileFetching {
                     if appState.currentProfile?.id == profile.id {
                         appState.currentProfile = fresh
                     }
-                } else if let snapshot {
-                    cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                } else if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
                     if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                        appState.currentProfile = snapshotProfile
                     }
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
                     if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                        appState.currentProfile = snapshotProfile
                     }
                 }
                 let message = (error as? LocalizedError)?.errorDescription
@@ -419,6 +436,14 @@ final class FamilyService: FamilyProfileFetching {
         // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
 
+        // Capture an immutable value-type copy of the snapshot BEFORE the
+        // optimistic write. The cache-managed `snapshot` will be mutated in
+        // place by `upsertProfile`, so reading `snapshot.toProfile(...)` later
+        // would yield the *post*-mutation values. The value-type copy
+        // (`Profile` struct) is unaffected by later mutations.
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
+
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
             appState.currentProfile = updated
@@ -453,17 +478,17 @@ final class FamilyService: FamilyProfileFetching {
                     if appState.currentProfile?.id == profile.id {
                         appState.currentProfile = fresh
                     }
-                } else if let snapshot {
-                    cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                } else if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
                     if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                        appState.currentProfile = snapshotProfile
                     }
                 }
             } else {
-                if let snapshot {
-                    cacheService?.upsertProfile(snapshot.toProfile(zoneID: zoneID))
+                if let snapshotProfile {
+                    cacheService?.upsertProfile(snapshotProfile)
                     if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshot.toProfile(zoneID: zoneID)
+                        appState.currentProfile = snapshotProfile
                     }
                 }
                 let message = (error as? LocalizedError)?.errorDescription
@@ -491,6 +516,7 @@ final class FamilyService: FamilyProfileFetching {
         let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertProfile(updated)
@@ -616,6 +642,7 @@ final class FamilyService: FamilyProfileFetching {
         let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertProfile(updated)
@@ -717,6 +744,7 @@ final class FamilyService: FamilyProfileFetching {
         let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
         cacheService?.upsertProfile(updated)
