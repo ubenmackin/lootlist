@@ -185,12 +185,12 @@ final class QuestLogViewModel {
 
             let logs = rawCompletionsByQuest[quest.recordName] ?? []
             let approvedLogs = logs.filter {
-                $0.verificationStatus == VerificationStatus.verified.rawValue || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
+                $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
             }
             let target = max(1, quest.targetCount)
 
             let hasRejectedLog = logs.contains {
-                $0.verificationStatus == VerificationStatus.rejected.rawValue
+                $0.verificationStatusEnum == .rejected
             }
 
             let status: CompletionStatus = if logs.isEmpty {

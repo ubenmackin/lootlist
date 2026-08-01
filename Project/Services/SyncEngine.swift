@@ -323,28 +323,43 @@ final class SyncEngine {
     private func processCoreRecord(_ record: CKRecord) async -> Bool {
         switch record.recordType {
         case Family.recordType:
-            if let family = try? Family(record: record) {
+            do {
+                let family = try Family(record: record)
                 await backgroundCache.batchUpsertFamilies([family])
+            } catch {
+                logger.error("Failed to parse Family record \(record.recordID.recordName, privacy: .private): \(error)")
             }
             return true
         case Profile.recordType:
-            if let profile = try? Profile(record: record) {
+            do {
+                let profile = try Profile(record: record)
                 await backgroundCache.batchUpsertProfiles([profile], familyRecordName: profile.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse Profile record \(record.recordID.recordName, privacy: .private): \(error)")
             }
             return true
         case Quest.recordType:
-            if let quest = try? Quest(record: record) {
+            do {
+                let quest = try Quest(record: record)
                 await backgroundCache.batchUpsertQuests([quest], familyRecordName: quest.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse Quest record \(record.recordID.recordName, privacy: .private): \(error)")
             }
             return true
         case QuestTemplate.recordType:
-            if let template = try? QuestTemplate(record: record) {
+            do {
+                let template = try QuestTemplate(record: record)
                 await backgroundCache.batchUpsertQuestTemplates([template], familyRecordName: template.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse QuestTemplate record \(record.recordID.recordName, privacy: .private): \(error)")
             }
             return true
         case QuestCompletion.recordType:
-            if let completion = try? QuestCompletion(record: record) {
+            do {
+                let completion = try QuestCompletion(record: record)
                 await backgroundCache.batchUpsertQuestCompletions([completion], familyRecordName: completion.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse QuestCompletion record \(record.recordID.recordName, privacy: .private): \(error)")
             }
             return true
         default:
@@ -355,24 +370,39 @@ final class SyncEngine {
     private func processSecondaryRecord(_ record: CKRecord) async {
         switch record.recordType {
         case LedgerEntry.recordType:
-            if let entry = try? LedgerEntry(record: record) {
+            do {
+                let entry = try LedgerEntry(record: record)
                 await backgroundCache.batchUpsertLedgerEntries([entry], familyRecordName: entry.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse LedgerEntry record \(record.recordID.recordName, privacy: .private): \(error)")
             }
         case AllowancePeriod.recordType:
-            if let period = try? AllowancePeriod(record: record) {
+            do {
+                let period = try AllowancePeriod(record: record)
                 await backgroundCache.batchUpsertAllowancePeriods([period], familyRecordName: period.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse AllowancePeriod record \(record.recordID.recordName, privacy: .private): \(error)")
             }
         case Achievement.recordType:
-            if let achievement = try? Achievement(record: record) {
+            do {
+                let achievement = try Achievement(record: record)
                 await backgroundCache.batchUpsertAchievements([achievement], familyRecordName: achievement.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse Achievement record \(record.recordID.recordName, privacy: .private): \(error)")
             }
         case ProfileAchievement.recordType:
-            if let pa = try? ProfileAchievement(record: record) {
+            do {
+                let pa = try ProfileAchievement(record: record)
                 await backgroundCache.batchUpsertProfileAchievements([pa], familyRecordName: pa.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse ProfileAchievement record \(record.recordID.recordName, privacy: .private): \(error)")
             }
         case NotificationPreference.recordType:
-            if let pref = try? NotificationPreference(record: record) {
+            do {
+                let pref = try NotificationPreference(record: record)
                 await backgroundCache.batchUpsertNotificationPreferences([pref], familyRecordName: pref.family.recordID.recordName)
+            } catch {
+                logger.error("Failed to parse NotificationPreference record \(record.recordID.recordName, privacy: .private): \(error)")
             }
         default:
             break
