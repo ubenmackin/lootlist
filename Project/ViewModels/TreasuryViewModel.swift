@@ -47,7 +47,7 @@ final class TreasuryViewModel {
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
         let approvedLogs = profileLogs.filter {
-            $0.verificationStatus == VerificationStatus.autoApproved.rawValue || $0.verificationStatus == VerificationStatus.verified.rawValue
+            $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
         }
 
         let goldFromQuests = GoldCalculation.totalGold(for: quests, approvedLogs: approvedLogs)
@@ -77,9 +77,14 @@ final class TreasuryViewModel {
         let assignedQuests = quests.filter {
             $0.assigneeRecordName == profileName && weekRange.contains($0.weekOf)
         }
+        let fullyCompletedCount = assignedQuests.filter { quest in
+            let qApprovedLogs = weekLogs.filter { $0.questRecordName == quest.recordName }
+            return qApprovedLogs.count >= quest.targetCount
+        }.count
+
         if profile.payoutPolicy == .allOrNothing,
            !assignedQuests.isEmpty,
-           weekLogs.count < assignedQuests.count
+           fullyCompletedCount < assignedQuests.count
         {
             weekQuestsGold = 0
         }

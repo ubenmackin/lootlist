@@ -97,15 +97,14 @@ final class FamilyDashboardViewModel {
             let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && $0.weekOf == weekOf }
             let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && $0.weekOf == weekOf }
             let completed = heroLogs.filter {
-                $0.verificationStatus == VerificationStatus.autoApproved.rawValue || $0.verificationStatus == VerificationStatus.verified.rawValue
+                $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
             }
 
             let weekLogs = logs.filter {
                 $0.completerRecordName == hero.recordName && weekRange.contains($0.weekOf)
             }
             let completedLogs = weekLogs.filter {
-                $0.verificationStatus == VerificationStatus.verified.rawValue
-                    || $0.verificationStatus == VerificationStatus.autoApproved.rawValue
+                $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
             }
             var goldFromQuests = GoldCalculation.totalGold(for: quests, approvedLogs: completedLogs)
 
@@ -115,7 +114,7 @@ final class FamilyDashboardViewModel {
             let fullyCompletedCount = assignedQuests.filter { quest in
                 let approvedLogs = weekLogs.filter {
                     $0.questRecordName == quest.recordName &&
-                        $0.verificationStatusEnum != .rejected
+                        ($0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved)
                 }
                 return approvedLogs.count >= quest.targetCount
             }.count

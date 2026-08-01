@@ -36,6 +36,10 @@ final class FamilyService: FamilyProfileFetching {
     private let questService: QuestService
     var cacheService: CacheService?
 
+    var cloudKitReference: CloudKitService {
+        cloudKit
+    }
+
     var toastManager: ToastManager?
 
     init(cloudKit: CloudKitService, appState: AppState, questService: QuestService, cacheService: CacheService? = nil) {

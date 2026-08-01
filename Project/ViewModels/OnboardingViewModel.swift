@@ -273,6 +273,6 @@ final class OnboardingViewModel {
     }
 
     private func iCloudUserID() async throws -> CKRecord.ID {
-        try await CloudKitService.defaultContainer.userRecordID()
+        try await familyService.cloudKitReference.currentUserRecordID()
     }
 }
