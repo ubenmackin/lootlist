@@ -117,7 +117,8 @@ final class AppSyncCoordinator {
             }
             subscriptionID = queryNotification.subscriptionID ?? "unknown"
             if let zoneNotification = notification as? CKRecordZoneNotification,
-               let zoneID = zoneNotification.recordZoneID {
+               let zoneID = zoneNotification.recordZoneID
+            {
                 logger.debug("CloudKit record-zone change notification received for zone \(zoneID.zoneName, privacy: .private)")
             }
         case .query:
