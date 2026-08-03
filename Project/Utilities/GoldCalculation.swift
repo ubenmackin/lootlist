@@ -113,6 +113,95 @@ enum GoldCalculation: Sendable {
                        approvedCount: approvedCount)
     }
 
+    /// XP credit for a quest, mirroring the gold proration above so XP and
+    /// gold can never disagree on a partially completed quest.
+    ///
+    /// This is the economy cap for `QuestService.applyReward`: the cumulative
+    /// XP credit for a quest is `xpReward` at most, and over-completion
+    /// (`approvedCount > targetCount`) never increases it. Callers that grant
+    /// XP per approved completion must grant the *marginal* amount
+    /// (`xpCredit(N) - xpCredit(N-1)`) so a quest's total XP payout across all
+    /// approved completions — including completions racing in from a stale
+    /// cache or a second device — never exceeds the quest's bounty.
+    ///
+    /// The plain marginal is only correct when the recount's `approvedCount`
+    /// is accurate. Under a concurrent cross-device completion the post-save
+    /// recount can omit the other device's just-saved completion (a fresh
+    /// cache serves only the local log), so both devices would compute the
+    /// same marginal and mint 2× the bounty. Reward callers must therefore
+    /// pass the quest's already-banked credit into
+    /// `marginalXPCredit(for:approvedCount:alreadyCredited:)`, which caps the
+    /// grant at the remaining bounty.
+    ///
+    /// Arithmetic mirrors `credit`: `Decimal` division so
+    /// `(xpReward / targetCount) * targetCount` rounds back to `xpReward`
+    /// exactly; the result is bridged through `Double` (like `creditAsDouble`)
+    /// so odd divisions never truncate a quest's bounty.
+    ///
+    /// - Parameters:
+    ///   - xpReward: Full XP bounty for the quest.
+    ///   - targetCount: Completions required to fully earn `xpReward`.
+    ///     Treated as `max(1, targetCount)` so a malformed `0` never divides
+    ///     by zero.
+    ///   - isAllOrNothing: `true` for `PayoutPolicy.allOrNothing`.
+    ///   - approvedCount: Number of approved (verified/auto-approved) logs for
+    ///     this quest.
+    /// - Returns: The cumulative XP credit, capped at `xpReward`.
+    static func xpCredit(xpReward: Int,
+                         targetCount: Int,
+                         isAllOrNothing: Bool,
+                         approvedCount: Int) -> Int
+    {
+        let safeTarget = max(1, targetCount)
+        let capped = min(max(0, approvedCount), safeTarget)
+
+        if isAllOrNothing {
+            return capped >= safeTarget ? max(0, xpReward) : 0
+        }
+
+        let perUnit = Decimal(max(0, xpReward)) / Decimal(safeTarget)
+        let total = perUnit * Decimal(capped)
+        return Int(NSDecimalNumber(decimal: total).doubleValue)
+    }
+
+    /// Convenience for the CloudKit `Quest` model.
+    static func xpCredit(for quest: Quest, approvedCount: Int) -> Int {
+        xpCredit(xpReward: quest.xpReward,
+                 targetCount: quest.targetCount,
+                 isAllOrNothing: quest.isAllOrNothing,
+                 approvedCount: approvedCount)
+    }
+
+    /// The XP grant for ONE approved completion of a quest, capped so the
+    /// quest's total XP payout can never exceed its bounty.
+    ///
+    /// The plain marginal (`xpCredit(N) - xpCredit(N-1)`) is correct only when
+    /// the recount's `approvedCount` is accurate. When a concurrent
+    /// cross-device completion races the post-save recount, each device can
+    /// observe only its own completion and both would grant the same full
+    /// marginal. `alreadyCredited` — the XP already banked for this quest by
+    /// earlier reward steps (the quest-scoped credit ledger) — bounds the
+    /// grant to the remaining bounty, so the grant is
+    /// `min(marginal, xpCredit(N) - alreadyCredited)`.
+    ///
+    /// - Parameters:
+    ///   - quest: The quest being rewarded.
+    ///   - approvedCount: Approved logs visible to the post-save recount
+    ///     (`max(1, ...)` semantics handled by the caller).
+    ///   - alreadyCredited: XP already banked for this quest by earlier reward
+    ///     steps, from the quest-scoped credit ledger.
+    /// - Returns: The XP to grant for this completion, always `>= 0`.
+    static func marginalXPCredit(for quest: Quest,
+                                 approvedCount: Int,
+                                 alreadyCredited: Int) -> Int
+    {
+        let cumulative = xpCredit(for: quest, approvedCount: approvedCount)
+        let previous = xpCredit(for: quest, approvedCount: approvedCount - 1)
+        let marginal = max(0, cumulative - previous)
+        let remaining = max(0, cumulative - alreadyCredited)
+        return min(marginal, remaining)
+    }
+
     static func creditAsDecimal(xp: Int, baseRate: Double) -> Decimal {
         // Use Decimal for precise calculation
         let rate = Decimal(baseRate)

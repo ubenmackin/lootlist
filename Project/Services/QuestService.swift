@@ -7,11 +7,14 @@
 
 import CloudKit
 import Foundation
+import Synchronization
 
 enum QuestServiceError: Error, Equatable, Sendable {
     case missingSession
 
     case alreadyCompleted
+
+    case alreadyInFlight
 
     case alreadyResolved(String)
 
@@ -23,7 +26,7 @@ enum QuestServiceError: Error, Equatable, Sendable {
 final class QuestService {
     let cloudKit: CloudKitService
 
-    private let xpService: XPService
+    let xpService: XPService
     let notificationService: NotificationService?
 
     var cacheService: CacheService?
@@ -34,7 +37,14 @@ final class QuestService {
         cloudKit
     }
 
-    private let calendar: Calendar = .iso8601UTC
+    let calendar: Calendar = .iso8601UTC
+
+    /// Record names of quests with a completion save currently in flight.
+    /// Local double-submit guard: a second `markComplete` tap for the
+    /// same quest while a save is pending is a no-op/toast instead of a
+    /// duplicate write. Actor-safe via `Mutex`; entries are inserted
+    /// before the optimistic write and released when the save settles.
+    let inFlightCompletions = Mutex<Set<String>>([])
 
     init(cloudKit: CloudKitService,
          xpService: XPService,
@@ -45,12 +55,14 @@ final class QuestService {
         self.notificationService = notificationService
     }
 
+    // MARK: - Quest Templates
+
     @discardableResult
     func createTemplate(name: String,
-                        description: String,
+                        description: String = "",
                         defaultGold: Double,
                         xpReward: Int,
-                        schedule: QuestSchedule,
+                        schedule: QuestSchedule = .weeklyFlexible,
                         specificDays: [String] = [],
                         targetCount: Int = 1,
                         isAllOrNothing: Bool = false,
@@ -71,13 +83,19 @@ final class QuestService {
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(template.id.recordName)
+
         cacheService?.upsertQuestTemplate(template)
         do {
             let saved = try await cloudKit.save(template)
             cacheService?.upsertQuestTemplate(saved)
+            await registry?.deregister(template.id.recordName)
             return saved
         } catch {
             cacheService?.invalidateQuestTemplate(recordName: template.id.recordName)
+            await registry?.deregister(template.id.recordName)
             throw error
         }
     }
@@ -91,35 +109,29 @@ final class QuestService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertQuestTemplate(template)
         do {
             let saved = try await cloudKit.save(template)
             cacheService?.upsertQuestTemplate(saved)
+            await registry?.deregister(name)
             return saved
         } catch {
-            if handleConcurrentEdit(
+            await handleSaveFailure(
+                recordID: template.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
+                snapshot: snapshotTemplate,
+                fetchCurrentTag: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
+                upsert: { self.cacheService?.upsertQuestTemplate($0) },
+                invalidate: { self.cacheService?.invalidateQuestTemplate(recordName: $0) },
                 error: error
-            ) {
-                // Concurrent edit: re-fetch authoritative record, fall back to snapshot, else invalidate.
-                if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
-                    cacheService?.upsertQuestTemplate(fresh)
-                } else if let snapshotTemplate {
-                    cacheService?.upsertQuestTemplate(snapshotTemplate)
-                } else {
-                    cacheService?.invalidateQuestTemplate(recordName: name)
-                }
-            } else {
-                if let snapshotTemplate {
-                    cacheService?.upsertQuestTemplate(snapshotTemplate)
-                } else {
-                    cacheService?.invalidateQuestTemplate(recordName: name)
-                }
-                showErrorToast(error)
-            }
+            )
+            await registry?.deregister(name)
             throw error
         }
     }
@@ -136,34 +148,29 @@ final class QuestService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertQuestTemplate(deactivated)
         do {
             let saved = try await cloudKit.save(deactivated)
             cacheService?.upsertQuestTemplate(saved)
+            await registry?.deregister(name)
             return saved
         } catch {
-            if handleConcurrentEdit(
+            await handleSaveFailure(
+                recordID: template.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
+                snapshot: snapshotTemplate,
+                fetchCurrentTag: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
+                upsert: { self.cacheService?.upsertQuestTemplate($0) },
+                invalidate: { self.cacheService?.invalidateQuestTemplate(recordName: $0) },
                 error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(QuestTemplate.self, id: template.id) {
-                    cacheService?.upsertQuestTemplate(fresh)
-                } else if let snapshotTemplate {
-                    cacheService?.upsertQuestTemplate(snapshotTemplate)
-                } else {
-                    cacheService?.invalidateQuestTemplate(recordName: name)
-                }
-            } else {
-                if let snapshotTemplate {
-                    cacheService?.upsertQuestTemplate(snapshotTemplate)
-                } else {
-                    cacheService?.invalidateQuestTemplate(recordName: name)
-                }
-                showErrorToast(error)
-            }
+            )
+            await registry?.deregister(name)
             throw error
         }
     }
@@ -173,7 +180,7 @@ final class QuestService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuestTemplates(family: familyName)
-            if !cached.isEmpty {
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questTemplate) {
                 return cached.map { $0.toQuestTemplate(zoneID: cloudKit.resolvedZoneID) }
                     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             }
@@ -217,40 +224,30 @@ final class QuestService {
             descriptionText: template.description
         )
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(quest.id.recordName)
+
         // Optimistic local write first
         cacheService?.upsertQuest(quest)
 
         do {
             let saved = try await cloudKit.save(quest)
             cacheService?.upsertQuest(saved)
-            if let notificationService {
-                Task { @Sendable in
-                    try? await notificationService.send(
-                        .questAssigned,
-                        to: assignee,
-                        title: "⚔️ New Quest Assigned!",
-                        body: "You have been assigned '\(questName)'."
-                    )
-                }
-            }
+            sendAssignmentNotification(to: assignee, questName: questName)
+            await registry?.deregister(quest.id.recordName)
             return saved
         } catch {
-            if handleConcurrentEdit(
-                preMutationChangeTag: nil,
-                fetchCurrent: { self.cacheService?.fetchQuests(family: family.id.recordName)
+            await handleSaveFailure(
+                recordID: quest.id,
+                fetchCurrentTag: { self.cacheService?.fetchQuests(family: family.id.recordName)
                     .first(where: { $0.recordName == quest.id.recordName })?.changeTag
                 },
+                upsert: { self.cacheService?.upsertQuest($0) },
+                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
                 error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
-                    cacheService?.upsertQuest(fresh)
-                } else {
-                    cacheService?.invalidateQuest(recordName: quest.id.recordName)
-                }
-            } else {
-                cacheService?.invalidateQuest(recordName: quest.id.recordName)
-                showErrorToast(error)
-            }
+            )
+            await registry?.deregister(quest.id.recordName)
             throw error
         }
     }
@@ -265,34 +262,29 @@ final class QuestService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertQuest(quest)
         do {
             let saved = try await cloudKit.save(quest)
             cacheService?.upsertQuest(saved)
+            await registry?.deregister(name)
             return saved
         } catch {
-            if handleConcurrentEdit(
+            await handleSaveFailure(
+                recordID: quest.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
+                snapshot: snapshotQuest,
+                fetchCurrentTag: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
+                upsert: { self.cacheService?.upsertQuest($0) },
+                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
                 error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
-                    cacheService?.upsertQuest(fresh)
-                } else if let snapshotQuest {
-                    cacheService?.upsertQuest(snapshotQuest)
-                } else {
-                    cacheService?.invalidateQuest(recordName: name)
-                }
-            } else {
-                if let snapshotQuest {
-                    cacheService?.upsertQuest(snapshotQuest)
-                } else {
-                    cacheService?.invalidateQuest(recordName: name)
-                }
-                showErrorToast(error)
-            }
+            )
+            await registry?.deregister(name)
             throw error
         }
     }
@@ -343,44 +335,33 @@ final class QuestService {
             descriptionText: description
         )
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(quest.id.recordName)
+
         // Optimistic local write first
         cacheService?.upsertQuest(quest)
 
         do {
             let saved = try await cloudKit.save(quest)
             cacheService?.upsertQuest(saved)
-            if let notificationService {
-                Task { @Sendable in
-                    try? await notificationService.send(
-                        .questAssigned,
-                        to: assignee,
-                        title: "⚔️ New Quest Assigned!",
-                        body: "You have been assigned '\(name)'."
-                    )
-                }
-            }
+            sendAssignmentNotification(to: assignee, questName: name)
+            await registry?.deregister(quest.id.recordName)
             return saved
         } catch {
-            if handleConcurrentEdit(
-                preMutationChangeTag: nil,
-                fetchCurrent: { self.cacheService?.fetchQuests(family: family.id.recordName)
+            await handleSaveFailure(
+                recordID: quest.id,
+                fetchCurrentTag: { self.cacheService?.fetchQuests(family: family.id.recordName)
                     .first(where: { $0.recordName == quest.id.recordName })?.changeTag
                 },
+                upsert: { self.cacheService?.upsertQuest($0) },
+                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
                 error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
-                    cacheService?.upsertQuest(fresh)
-                } else {
-                    cacheService?.invalidateQuest(recordName: quest.id.recordName)
-                }
-                // The deactivated ad-hoc template was already persisted before
-                // the quest save; invalidate it too so it doesn't orphan.
-                cacheService?.invalidateQuestTemplate(recordName: adhocTemplate.id.recordName)
-            } else {
-                cacheService?.invalidateQuest(recordName: quest.id.recordName)
-                cacheService?.invalidateQuestTemplate(recordName: adhocTemplate.id.recordName)
-                showErrorToast(error)
-            }
+            )
+            // The deactivated ad-hoc template was already persisted before
+            // the quest save; invalidate it too so it doesn't orphan.
+            cacheService?.invalidateQuestTemplate(recordName: adhocTemplate.id.recordName)
+            await registry?.deregister(quest.id.recordName)
             throw error
         }
     }
@@ -394,32 +375,27 @@ final class QuestService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.invalidateQuest(recordName: name)
         do {
             try await cloudKit.delete(quest.id)
+            await registry?.deregister(name)
         } catch {
-            if handleConcurrentEdit(
+            await handleSaveFailure(
+                recordID: quest.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
+                snapshot: snapshotQuest,
+                fetchCurrentTag: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
+                upsert: { self.cacheService?.upsertQuest($0) },
+                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
                 error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(Quest.self, id: quest.id) {
-                    cacheService?.upsertQuest(fresh)
-                } else if let snapshotQuest {
-                    cacheService?.upsertQuest(snapshotQuest)
-                } else {
-                    cacheService?.invalidateQuest(recordName: name)
-                }
-            } else {
-                if let snapshotQuest {
-                    cacheService?.upsertQuest(snapshotQuest)
-                } else {
-                    cacheService?.invalidateQuest(recordName: name)
-                }
-                showErrorToast(error)
-            }
+            )
+            await registry?.deregister(name)
             throw error
         }
     }
@@ -436,8 +412,8 @@ final class QuestService {
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuests(family: familyName, weekInRange: range)
                 .filter { $0.assigneeRecordName == profileName && $0.isActive }
-            if !cached.isEmpty {
-                return await stampAllQuests(cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) })
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+                return cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
             }
         }
 
@@ -461,8 +437,8 @@ final class QuestService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuests(family: familyName, weekInRange: range)
                 .filter(\.isActive)
-            if !cached.isEmpty {
-                return await stampAllQuests(cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) })
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+                return cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
             }
         }
 
@@ -474,395 +450,6 @@ final class QuestService {
         return stampedAll
             .filter { $0.active && range.contains($0.weekOf) }
             .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
-    }
-}
-
-// MARK: - Quest Completions & Verification
-
-extension QuestService {
-    @discardableResult
-    func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        // Fast-path: read existing logs cache-first for 0ms response.
-        let cachedLogs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
-        let cachedNonRejectedCount = cachedLogs.filter { $0.verificationStatus != .rejected }.count
-        let target = max(1, quest.targetCount)
-        if cachedNonRejectedCount >= target {
-            throw QuestServiceError.alreadyCompleted
-        }
-
-        // If local cache shows non-rejected count < target, check CloudKit to reconcile
-        // potential stale cache (e.g. completion from another device). If offline,
-        // the CloudKit query fails gracefully and we proceed with local completion.
-        if let ckLogs = try? await fetchQuestLogs(forQuest: quest, useCache: false) {
-            let ckNonRejectedCount = ckLogs.filter { $0.verificationStatus != .rejected }.count
-            if ckNonRejectedCount >= target {
-                throw QuestServiceError.alreadyCompleted
-            }
-        }
-
-        let log = QuestCompletion(
-            quest: CKRecord.Reference(recordID: quest.id, action: .none),
-            completedBy: CKRecord.Reference(recordID: profile.id, action: .none),
-            approvalMode: quest.approvalMode,
-            weekOf: quest.weekOf,
-            family: quest.family
-        )
-
-        var editable = log
-        editable.completedDate = completedDate
-
-        // Optimistic local write first
-        cacheService?.upsertQuestCompletion(editable)
-
-        do {
-            let saved = try await cloudKit.save(editable)
-            cacheService?.upsertQuestCompletion(saved)
-
-            switch quest.approvalMode {
-            case .autoApprove:
-                try await applyReward(for: quest, to: profile)
-            case .parentVerify:
-                if let notificationService,
-                   let parent = try? await cloudKit.fetch(Profile.self, id: quest.createdBy.recordID)
-                {
-                    Task { @Sendable in
-                        try? await notificationService.sendQuestNeedsReview(questLog: saved, to: parent)
-                    }
-                }
-            }
-
-            return saved
-        } catch {
-            if handleConcurrentEdit(
-                preMutationChangeTag: nil,
-                fetchCurrent: { self.cacheService?.fetchQuestCompletions(family: quest.family.recordID.recordName)
-                    .first(where: { $0.recordName == editable.id.recordName })?.changeTag
-                },
-                error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: editable.id) {
-                    cacheService?.upsertQuestCompletion(fresh)
-                } else {
-                    cacheService?.invalidateQuestCompletion(recordName: editable.id.recordName)
-                }
-            } else {
-                cacheService?.invalidateQuestCompletion(recordName: editable.id.recordName)
-                showErrorToast(error)
-            }
-            throw error
-        }
-    }
-
-    @discardableResult
-    func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        guard questLog.verificationStatus == .pending else {
-            throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
-        }
-
-        var updated = questLog
-        updated.verificationStatus = .verified
-        updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
-        updated.verifiedDate = Date()
-
-        let name = questLog.id.recordName
-        let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
-
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotCompletion: QuestCompletion? = snapshot?.toQuestCompletion(zoneID: cloudKit.resolvedZoneID)
-
-        cacheService?.upsertQuestCompletion(updated)
-        do {
-            let saved = try await cloudKit.save(updated)
-            cacheService?.upsertQuestCompletion(saved)
-
-            let quest = try await cloudKit.fetch(Quest.self, id: questLog.quest.recordID)
-            let hero = try await cloudKit.fetch(Profile.self, id: questLog.completedBy.recordID)
-            let creditedGold = try await applyReward(for: quest, to: hero)
-
-            if let notificationService {
-                Task { @Sendable in
-                    let goldText = NumberFormatter.goldFormatter
-                        .string(from: NSNumber(value: creditedGold)) ?? "\(creditedGold)"
-                    try? await notificationService.send(
-                        .questCompleted,
-                        to: hero,
-                        title: "🏆 Quest Verified!",
-                        body: "Your quest was verified! You earned \(goldText) gold."
-                    )
-                }
-            }
-
-            return saved
-        } catch {
-            if handleConcurrentEdit(
-                preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: questLog.id) {
-                    cacheService?.upsertQuestCompletion(fresh)
-                } else if let snapshotCompletion {
-                    cacheService?.upsertQuestCompletion(snapshotCompletion)
-                } else {
-                    cacheService?.invalidateQuestCompletion(recordName: name)
-                }
-            } else {
-                if let snapshotCompletion {
-                    cacheService?.upsertQuestCompletion(snapshotCompletion)
-                } else {
-                    cacheService?.invalidateQuestCompletion(recordName: name)
-                }
-                showErrorToast(error)
-            }
-            throw error
-        }
-    }
-
-    @discardableResult
-    func reject(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        guard questLog.verificationStatus == .pending else {
-            throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
-        }
-
-        var updated = questLog
-        updated.verificationStatus = .rejected
-        updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
-        updated.verifiedDate = Date()
-
-        let name = questLog.id.recordName
-        let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
-
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotCompletion: QuestCompletion? = snapshot?.toQuestCompletion(zoneID: cloudKit.resolvedZoneID)
-
-        cacheService?.upsertQuestCompletion(updated)
-        do {
-            let saved = try await cloudKit.save(updated)
-            cacheService?.upsertQuestCompletion(saved)
-            return saved
-        } catch {
-            if handleConcurrentEdit(
-                preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                error: error
-            ) {
-                if let fresh = try? await cloudKit.fetch(QuestCompletion.self, id: questLog.id) {
-                    cacheService?.upsertQuestCompletion(fresh)
-                } else if let snapshotCompletion {
-                    cacheService?.upsertQuestCompletion(snapshotCompletion)
-                } else {
-                    cacheService?.invalidateQuestCompletion(recordName: name)
-                }
-            } else {
-                if let snapshotCompletion {
-                    cacheService?.upsertQuestCompletion(snapshotCompletion)
-                } else {
-                    cacheService?.invalidateQuestCompletion(recordName: name)
-                }
-                showErrorToast(error)
-            }
-            throw error
-        }
-    }
-
-    func generateWeeklyQuests(family: Family,
-                              weekOf: Date,
-                              createdBy: Profile,
-                              heroes: [Profile]) async throws
-    {
-        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
-
-        let templates = try await fetchTemplates(family: family).filter(\.isActive)
-        guard !templates.isEmpty, !heroes.isEmpty else { return }
-
-        let existing = try await fetchQuestsForFamilyWeek(family: family, weekOf: normalizedWeek)
-        var existingKeys = Set(existing.map { "\($0.template.recordID.recordName)|\($0.assignee.recordID.recordName)" })
-
-        let weekWeekdayCodes = weekdayCodes(inWeekOf: normalizedWeek)
-
-        for template in templates {
-            let scheduleMatches: Bool = switch template.scheduleType {
-            case .specificDays:
-                !template.specificDays.isEmpty
-                    && !Set(template.specificDays).isDisjoint(with: weekWeekdayCodes)
-            case .weeklyFlexible:
-                true
-            }
-
-            guard scheduleMatches else { continue }
-
-            for hero in heroes {
-                let key = "\(template.id.recordName)|\(hero.id.recordName)"
-                guard !existingKeys.contains(key) else { continue }
-
-                _ = try await assignQuest(
-                    template: template,
-                    assignee: hero,
-                    weekOf: normalizedWeek,
-                    createdBy: createdBy,
-                    family: family
-                )
-                existingKeys.insert(key)
-            }
-        }
-    }
-
-    func fetchStreak(for profile: Profile) async throws -> Int {
-        let logs = try await fetchQuestLogs(for: profile)
-        guard !logs.isEmpty else { return 0 }
-
-        let daySet: Set<Date> = Set(logs.compactMap { log -> Date? in
-            guard log.verificationStatus == .autoApproved || log.verificationStatus == .verified else { return nil }
-            return calendar.dateInterval(of: .day, for: log.completedDate)?.start
-        })
-
-        let today = calendar.startOfDay(for: Date())
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
-        let anchor = daySet.contains(today) ? today
-            : (daySet.contains(yesterday) ? yesterday : nil)
-        guard let anchor else { return 0 }
-
-        var streak = 0
-        var cursor = anchor
-
-        while daySet.contains(cursor) {
-            streak += 1
-            cursor = calendar.date(byAdding: .day, value: -1, to: cursor) ?? cursor
-        }
-        return streak
-    }
-
-    func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
-        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
-        let logs = try await fetchQuestLogs(for: profile)
-            .filter { $0.weekOf == normalizedWeek
-                && ($0.verificationStatus == .autoApproved
-                    || $0.verificationStatus == .verified)
-            }
-
-        guard !logs.isEmpty else { return 0 }
-
-        let questIDs = Array(Set(logs.map(\.quest.recordID)))
-        var questMap: [CKRecord.ID: Quest] = [:]
-
-        // Cache-first: build a lookup dictionary from the family's cached
-        // quests.  Only quest IDs absent from the cache fall through to the
-        // per-ID CloudKit fetch below (genuine cache miss).
-        if let cache = cacheService,
-           let familyName = logs.first?.family.recordID.recordName
-        {
-            let zoneID = cloudKit.resolvedZoneID
-            for row in cache.fetchQuests(family: familyName) {
-                let quest = row.toQuest(zoneID: zoneID)
-                questMap[quest.id] = quest
-            }
-        }
-
-        let missingIDs = questIDs.filter { questMap[$0] == nil }
-
-        // CK fallback ONLY for cache-miss IDs (gracefully skipping deleted/missing quests).
-        for questID in missingIDs {
-            if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
-                questMap[questID] = fetched
-            }
-        }
-
-        // Group approved logs by quest and route gold credit through the
-        // shared `GoldCalculation` helper — the same one
-        // `TreasuryService.sumGold` uses — so this weekly total and the wallet
-        // never disagree on a partially completed quest. The proration is
-        // per-quest (approvedCount per quest * goldReward / targetCount,
-        // capped by `isAllOrNothing`), so the helper is invoked once per
-        // quest with the full approved count for that quest.
-        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
-        for log in logs {
-            approvedCountByQuest[log.quest.recordID, default: 0] += 1
-        }
-
-        var total: Double = 0
-        for (questID, approvedCount) in approvedCountByQuest {
-            if let quest = questMap[questID] {
-                total += GoldCalculation.creditAsDouble(for: quest,
-                                                        approvedCount: approvedCount)
-            }
-        }
-        return total
-    }
-
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
-    func fetchQuestLogs(forQuest quest: Quest, useCache: Bool = true) async throws -> [QuestCompletion] {
-        if useCache, let cache = cacheService {
-            let questName = quest.id.recordName
-            let cached = cache.fetchQuestCompletions(family: quest.family.recordID.recordName)
-                .filter { $0.questRecordName == questName }
-            if !cached.isEmpty {
-                return cached.map { $0.toQuestCompletion(zoneID: cloudKit.resolvedZoneID) }
-                    .sorted { $0.completedDate > $1.completedDate }
-            }
-        }
-
-        let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
-        let predicate = NSPredicate(format: "quest == %@", questRef)
-        let all = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: predicate,
-            sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
-        )
-        cacheService?.upsertQuestCompletions(all)
-        return all
-    }
-
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
-    func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
-        if let cache = cacheService {
-            let profileName = profile.id.recordName
-            let cached = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
-                .filter { $0.completerRecordName == profileName }
-            if !cached.isEmpty {
-                return cached.map { $0.toQuestCompletion(zoneID: cloudKit.resolvedZoneID) }
-                    .sorted { $0.completedDate > $1.completedDate }
-            }
-        }
-
-        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(format: "completedBy == %@", profileRef)
-        let all = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: predicate,
-            sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
-        )
-        cacheService?.upsertQuestCompletions(all)
-        return all
-    }
-
-    // MARK: - Batch Fetch
-
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
-    func fetchQuestCompletionsForFamily(family: Family) async throws -> [QuestCompletion] {
-        if let cache = cacheService {
-            let familyName = family.id.recordName
-            let cached = cache.fetchQuestCompletions(family: familyName)
-            if !cached.isEmpty {
-                let zoneID = cloudKit.resolvedZoneID
-                return cached.map { $0.toQuestCompletion(zoneID: zoneID) }
-            }
-        }
-
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        let completions = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: predicate,
-            sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
-        )
-        cacheService?.upsertQuestCompletions(completions, family: family.id.recordName)
-        return completions
     }
 
     private func stampNameIfNeeded(_ quest: Quest) async -> Quest {
@@ -889,7 +476,7 @@ extension QuestService {
     /// Returns `true` when a concurrent edit is found — callers then run
     /// their per-type rollback (fresh re-fetch / snapshot restore / invalidate).
     @discardableResult
-    private func handleConcurrentEdit(
+    func handleConcurrentEdit(
         preMutationChangeTag: String?,
         fetchCurrent: @escaping () -> String?,
         error: Error
@@ -908,26 +495,70 @@ extension QuestService {
         return detected
     }
 
-    private func showErrorToast(_ error: Error) {
+    func showErrorToast(_ error: Error) {
         let message = (error as? LocalizedError)?.errorDescription
             ?? error.localizedDescription
         toastManager?.show(message: message, type: .error)
     }
 
-    /// Gold credit routes through the shared `GoldCalculation` helper — the
-    /// same one `TreasuryService.sumGold` uses — so the reward step and the
-    /// wallet never disagree on a partially completed quest. The persisted
-    /// `QuestCompletion` record remains the credit TreasuryService sums; no
-    /// parallel wallet write happens here.
-    @discardableResult
-    private func applyReward(for quest: Quest, to hero: Profile) async throws -> Double {
-        try await xpService.addXP(quest.xpReward, to: hero)
+    func sendAssignmentNotification(to assignee: Profile, questName: String) {
+        guard let notificationService else { return }
+        Task { @Sendable in
+            try? await notificationService.send(
+                .questAssigned,
+                to: assignee,
+                title: "⚔️ New Quest Assigned!",
+                body: "You have been assigned '\(questName)'."
+            )
+        }
+    }
 
-        // Read existing logs cache-first to compute approved count and prorated gold.
-        let logs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
-        let approvedCount = logs.filter { $0.verificationStatus != .rejected }.count
+    func handleSaveFailure<T: CloudKitRecord>(
+        recordID: CKRecord.ID,
+        preMutationChangeTag: String? = nil,
+        snapshot: T? = nil,
+        fetchCurrentTag: @escaping () -> String?,
+        upsert: (T) -> Void,
+        invalidate: (String) -> Void,
+        error: Error
+    ) async {
+        // A `.notFound` from `cloudKit.save` is definitive evidence of a
+        // concurrent delete — CloudKitService wraps `CKError.unknownItem`
+        // (and zone/constraint variants) into `.notFound` when the record no
+        // longer exists server-side. Restoring the pre-mutation snapshot would
+        // resurrect a record that another device deleted ("zombie quest"), so
+        // invalidate instead; the next sync pass confirms the absence. This
+        // branch runs BEFORE the changeTag-based detector because a concurrent
+        // deletion also removes the cached row, making `fetchCurrentTag` nil
+        // and signal 2 silently false — `.notFound` is the unambiguous signal.
+        if let serviceError = error as? CloudKitServiceError,
+           case .notFound = serviceError
+        {
+            invalidate(recordID.recordName)
+            showErrorToast(error)
+            return
+        }
 
-        return GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
+        if handleConcurrentEdit(
+            preMutationChangeTag: preMutationChangeTag,
+            fetchCurrent: fetchCurrentTag,
+            error: error
+        ) {
+            if let fresh = try? await cloudKit.fetch(T.self, id: recordID) {
+                upsert(fresh)
+            } else if let snapshot {
+                upsert(snapshot)
+            } else {
+                invalidate(recordID.recordName)
+            }
+        } else {
+            if let snapshot {
+                upsert(snapshot)
+            } else {
+                invalidate(recordID.recordName)
+            }
+            showErrorToast(error)
+        }
     }
 
     static func mondayOfWeek(for date: Date) -> Date {

@@ -29,6 +29,14 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
 
     var verifiedDate: Date?
 
+    /// Per-record XP-credit idempotency marker (security remediation, finding
+    /// 2): the XP amount this completion's reward step settled (`nil` = not yet
+    /// settled, `0` = settled but capped). A reward-step re-run for a
+    /// completion whose marker is set grants zero additional XP. Server-
+    /// authoritative like every field on the record — shared across family
+    /// devices via the family zone.
+    var xpCredited: Int?
+
     var weekOf: Date
 
     var family: CKRecord.Reference
@@ -63,6 +71,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
 
         verifiedBy = record["verifiedBy"] as? CKRecord.Reference
         verifiedDate = record["verifiedDate"] as? Date
+        xpCredited = record.extractOptional("xpCredited")
 
         guard let weekOf = record["weekOf"] as? Date else {
             throw CKDecodingError.missingField("weekOf")
@@ -87,6 +96,9 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
         if let verifiedDate {
             record["verifiedDate"] = verifiedDate as CKRecordValue
         }
+        if let xpCredited {
+            record["xpCredited"] = xpCredited as CKRecordValue
+        }
         record["weekOf"] = weekOf as CKRecordValue
         record["family"] = family as CKRecordValue
         return record
@@ -98,6 +110,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
          completedDate: Date = Date(),
          weekOf: Date,
          family: CKRecord.Reference,
+         xpCredited: Int? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -109,6 +122,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
             : .pending
         verifiedBy = nil
         verifiedDate = nil
+        self.xpCredited = xpCredited
         self.weekOf = weekOf
         self.family = family
     }

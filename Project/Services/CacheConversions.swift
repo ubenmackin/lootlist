@@ -25,6 +25,7 @@ extension QuestCache {
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             name: questName,
             descriptionText: descriptionText,
+            xpBanked: xpBanked,
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
@@ -49,6 +50,7 @@ extension QuestCompletionCache {
             completion.verifiedBy = CKRecord.Reference(recordID: CKRecord.ID(recordName: verifiedByName, zoneID: zoneID), action: .none)
         }
         completion.verifiedDate = verifiedDate
+        completion.xpCredited = xpCredited
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         completion.changeTag = changeTag
         return completion

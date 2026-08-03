@@ -105,6 +105,10 @@ final class XPService {
         // sync pulling a mutation into the cache mid-save).
         let preMutationChangeTag = cacheService?.fetchProfile(recordName: name)?.changeTag
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         // Optimistic local write first
         cacheService?.upsertProfile(updated)
 
@@ -123,6 +127,7 @@ final class XPService {
                     )
                 }
             }
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -142,12 +147,15 @@ final class XPService {
 
                 if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id) {
                     cacheService?.upsertProfile(fresh)
+                    await registry?.deregister(name)
                     return fresh
                 } else if let snapshotProfile {
                     cacheService?.upsertProfile(snapshotProfile)
+                    await registry?.deregister(name)
                     return snapshotProfile
                 } else {
                     cacheService?.invalidateProfile(recordName: name)
+                    await registry?.deregister(name)
                     return profile
                 }
             } else {
@@ -156,9 +164,11 @@ final class XPService {
                 toastManager?.show(message: message, type: .error)
                 if let snapshotProfile {
                     cacheService?.upsertProfile(snapshotProfile)
+                    await registry?.deregister(name)
                     return snapshotProfile
                 }
                 cacheService?.invalidateProfile(recordName: name)
+                await registry?.deregister(name)
                 return profile
             }
         }

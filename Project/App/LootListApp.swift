@@ -63,7 +63,7 @@ final class AppDependencies {
         toastManager = toast
 
         if let cache, let container = cache.container {
-            let bgActor = BackgroundCacheActor(container: container)
+            let bgActor = BackgroundCacheActor(container: container, inFlightRegistry: cache.inFlightRegistry)
             syncEngine = SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync)
         } else {
             syncEngine = nil
@@ -74,7 +74,7 @@ final class AppDependencies {
             DataMigrationsCoordinator.questNameBackfillV1(cloudKit: ck)
         )
         if let cache, let container = cache.container {
-            let bgActor = BackgroundCacheActor(container: container)
+            let bgActor = BackgroundCacheActor(container: container, inFlightRegistry: cache.inFlightRegistry)
             migrations.register(
                 DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: bgActor)
             )
@@ -220,13 +220,14 @@ struct LootListApp: App {
                     await appState.restoreSession(cloudKit: cloudKitService)
 
                     // Bootstrap full sync: initial app launch after session
-                    // restoration. At this point we have no single-family
-                    // context to scope against — the purpose is a first-run
-                    // pull of all data visible to this user across all
-                    // families. Use syncAllFamiliesUnscoped() to make the
-                    // unscoped intent explicit and prevent accidental
-                    // omission of a familyRecordName in future edits.
-                    await syncEngine?.syncAllFamiliesUnscoped()
+                    // restoration. The CloudKit zone is named after the
+                    // Family record, so the resolved zone's name is the
+                    // concrete family scope. syncAllForActiveZone() hydrates
+                    // ONLY the currently resolved family zone — there is no
+                    // unscoped cross-family pull, and the purge paths are
+                    // scoped to that family so other families' cached rows are
+                    // never deleted (D1).
+                    await syncEngine?.syncAllForActiveZone()
 
                     if let zoneID = appState.familyZoneID {
                         let db = cloudKitService.database(isOwner: appState.isZoneOwner)

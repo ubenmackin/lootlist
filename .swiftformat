@@ -15,3 +15,6 @@
 
 # Ignore derived data
 --exclude DerivedData,Build
+
+# Disable redundantSelf rule to keep explicit self required by Swift 6 closure capture semantics
+--disable redundantSelf

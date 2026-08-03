@@ -98,6 +98,10 @@ extension CacheService {
         deleteAll(from: context, where: #Predicate<ProfileCache> { $0.familyRecordName == recordName })
         deleteAll(from: context, where: #Predicate<NotificationPreferenceCache> { $0.familyRecordName == recordName })
 
+        // The family's rows are gone, so its freshness stamps must go too —
+        // otherwise a later partial re-population could look freshly synced.
+        invalidateFreshness(forFamilyRecordName: recordName)
+
         saveContext()
     }
 
@@ -116,5 +120,8 @@ extension CacheService {
         try? context.delete(model: ProfileAchievementCache.self)
         try? context.delete(model: NotificationPreferenceCache.self)
         try? context.save()
+
+        // A wiped cache must never serve a stale freshness watermark (D8).
+        invalidateAllFreshness()
     }
 }

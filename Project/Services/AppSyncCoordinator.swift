@@ -16,6 +16,18 @@ extension Notification.Name {
     static let syncDidComplete = Notification.Name("syncDidComplete")
 }
 
+/// Terminal outcome of a sync pass. Surfaced via the `.syncDidComplete`
+/// notification so background-fetch completion can report the real result
+/// (`.newData`/`.noData`/`.failed`) instead of always claiming new data.
+enum SyncOutcome: String, Sendable, Equatable {
+    case changed
+    case noChange
+    case failed
+
+    /// Notification userInfo key under which `.syncDidComplete` posts the outcome.
+    static let userInfoKey = "syncOutcome"
+}
+
 @MainActor
 @Observable
 final class AppSyncCoordinator {

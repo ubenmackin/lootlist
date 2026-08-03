@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 import os
 import SwiftData
+import Synchronization
 
 @MainActor
 @Observable
@@ -19,6 +20,22 @@ final class CacheService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var isBatching = false
 
+    /// Shared in-flight mutation registry. Mutation services
+    /// register a `recordName` before their optimistic upsert and deregister it
+    /// once the CloudKit save settles (success or terminal failure);
+    /// `BackgroundCacheActor.batchUpsert*` consults this same instance so a
+    /// background sync never clobbers an optimistically-written row with stale
+    /// server data. `@ObservationIgnored` because it is shared concurrency
+    /// infrastructure, not observable UI state.
+    @ObservationIgnored
+    let inFlightRegistry = InFlightMutationRegistry()
+
+    /// Cancellable handle for the `ModelContext.didSave` observer task.
+    /// Wrapped in a `Mutex` so `nonisolated deinit` can cancel the
+    /// listener without touching main-actor-isolated state (same pattern as
+    /// SyncEngine's sync task mutex).
+    private let didSaveObserverMutex = Mutex<Task<Void, Never>?>(nil)
+
     /// Shorthand for `container.mainContext`. Used by every read/write on this
     /// service so the underlying access path lives in one place.
     var context: ModelContext? {
@@ -26,7 +43,7 @@ final class CacheService {
     }
 
     init(inMemory: Bool = false) throws {
-        let schema = Schema(LootListSchemaV1.models)
+        let schema = Schema(LootListSchemaV2.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
             container = try ModelContainer(
@@ -39,6 +56,46 @@ final class CacheService {
             container = nil
             initializationError = error
         }
+        installDidSaveObserver()
+    }
+
+    nonisolated deinit {
+        didSaveObserverMutex.withLock { $0?.cancel() }
+    }
+
+    /// Installs the didSave observer: observes every `ModelContext.didSave` and,
+    /// when the saved context is a background context of this container, forces
+    /// `container.mainContext` to re-evaluate so `@Query` results update
+    /// deterministically even when the OS misses automatic cross-context
+    /// propagation. The listener runs as a `@MainActor` task (isolation
+    /// inherited from this class), so the hop to main is implicit — no
+    /// `@Sendable` closure capture of `self` is involved. Skipped when the
+    /// container failed to initialize.
+    private func installDidSaveObserver() {
+        guard container != nil else { return }
+        let task = Task { [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
+                guard let self,
+                      let savedContext = notification.object as? ModelContext else { continue }
+                // Main-context saves already re-fire @Query through normal
+                // SwiftUI observation; only background-context saves need the
+                // deterministic kick. Accessing `savedContext.container` is unsafe
+                // across actor boundaries and crashes if `savedContext` is deallocating,
+                // so we check pointer inequality against `mainContext`.
+                guard savedContext !== container?.mainContext else { continue }
+                refreshMainContextAfterBackgroundSave()
+            }
+        }
+        didSaveObserverMutex.withLock { $0 = task }
+    }
+
+    /// Forces the main context to incorporate a background save:
+    /// `processPendingChanges()` flushes queued remote-change notifications so
+    /// `@Query` fetch results re-evaluate deterministically.
+    private func refreshMainContextAfterBackgroundSave() {
+        guard let container else { return }
+        let mainContext = container.mainContext
+        mainContext.processPendingChanges()
     }
 
     func withBatch(_ work: () -> Void) {
@@ -67,6 +124,58 @@ final class CacheService {
             logger.error("Failed to save context: \(error, privacy: .private)")
             return false
         }
+    }
+
+    // MARK: - Freshness Watermark
+
+    private static let freshnessKeyPrefix = "cache_fresh_"
+
+    /// Marks the cache as fully synced for a given family + entity type.
+    /// Stored in UserDefaults (not SwiftData) so stamps survive cache purges
+    /// and are cheap to read on every cache-first gate. Only SyncEngine writes
+    /// stamps — after a successful `batchUpsert*` + `purgeMissing*` pass — so
+    /// an absent stamp means "never fully synced" and cache-first reads must
+    /// fall through to CloudKit.
+    func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
+        UserDefaults.standard.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
+    }
+
+    /// Returns true when a successful sync pass has stamped this
+    /// family + entity type. Absent stamps (never synced) and stamps cleared
+    /// by `clearAll()` / `purgeFamily(recordName:)` read as stale.
+    func isCacheFresh(familyRecordName: String, type: CachedRecordType) -> Bool {
+        UserDefaults.standard.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type)) != nil
+    }
+
+    /// Removes the freshness stamp for one family + type.
+    func invalidateFreshness(familyRecordName: String, type: CachedRecordType) {
+        UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
+    }
+
+    /// Removes every freshness stamp (all families + types). Called by
+    /// `clearAll()` so a wiped cache never serves a stale watermark.
+    func invalidateAllFreshness() {
+        let defaults = UserDefaults.standard
+        let staleKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(Self.freshnessKeyPrefix) }
+        for key in staleKeys {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    /// Removes every freshness stamp scoped to a single family. Called by
+    /// `purgeFamily(recordName:)` so a purged family never serves a stale
+    /// watermark for the rows that were just deleted.
+    func invalidateFreshness(forFamilyRecordName familyRecordName: String) {
+        let defaults = UserDefaults.standard
+        let prefix = "\(Self.freshnessKeyPrefix)\(familyRecordName)_"
+        let staleKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
+        for key in staleKeys {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private func freshnessKey(familyRecordName: String, type: CachedRecordType) -> String {
+        "\(Self.freshnessKeyPrefix)\(familyRecordName)_\(type.rawValue)"
     }
 
     // MARK: - Private Helpers
@@ -108,7 +217,10 @@ final class CacheService {
             existing.isActive = quest.active
             existing.goldReward = quest.goldReward
             existing.xpReward = quest.xpReward
-            existing.rarity = quest.rarity.rawValue
+            existing.xpBanked = quest.xpBanked
+            // `rarity` is intentionally NOT re-stamped: `rarityEnum` derives it
+            // from `xpReward` at read time; the stored string is only a legacy
+            // fallback for rows without a meaningful xpReward.
             existing.scheduleType = quest.scheduleType.rawValue
             existing.isAllOrNothing = quest.isAllOrNothing
             existing.approvalMode = quest.approvalMode.rawValue
@@ -165,6 +277,7 @@ final class CacheService {
                 : ApprovalMode.parentVerify.rawValue
             existing.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
             existing.verifiedDate = completion.verifiedDate
+            existing.xpCredited = completion.xpCredited
             existing.changeTag = completion.changeTag
         } else {
             context.insert(QuestCompletionCache(from: completion))
@@ -342,7 +455,10 @@ final class CacheService {
                 cached.isActive = quest.active
                 cached.goldReward = quest.goldReward
                 cached.xpReward = quest.xpReward
-                cached.rarity = quest.rarity.rawValue
+                cached.xpBanked = quest.xpBanked
+                // `rarity` is intentionally NOT re-stamped: `rarityEnum` derives
+                // it from `xpReward` at read time; the stored string is only a
+                // legacy fallback for rows without a meaningful xpReward.
                 cached.scheduleType = quest.scheduleType.rawValue
                 cached.isAllOrNothing = quest.isAllOrNothing
                 cached.approvalMode = quest.approvalMode.rawValue
@@ -415,6 +531,7 @@ final class CacheService {
                     : ApprovalMode.parentVerify.rawValue
                 cached.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
                 cached.verifiedDate = completion.verifiedDate
+                cached.xpCredited = completion.xpCredited
                 cached.changeTag = completion.changeTag
             } else {
                 context.insert(QuestCompletionCache(from: completion))

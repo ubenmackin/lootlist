@@ -85,6 +85,10 @@ struct NotificationServiceTests {
         #expect(cachedRows.first?.enabled == false)
         #expect(cachedRows.first?.eventType == NotificationEventType.questAssigned.rawValue)
 
+        // A completed sync pass stamped this family's preference cache fresh,
+        // so the canonical read trusts the cached row (not just the mirror).
+        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
+
         // The canonical read path now reflects the cached value.
         #expect(service.isNotificationEnabled(for: .questAssigned) == false)
 
@@ -124,9 +128,12 @@ struct NotificationServiceTests {
             id: CKRecord.ID(recordName: "remote-pref-1", zoneID: zoneID)
         )
         await backgroundCache.batchUpsertNotificationPreferences([remote])
+        // SyncEngine stamps freshness after a successful sync pass — model that
+        // here so the read-first gate trusts the remotely-written row.
+        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
 
         // Next read picks up the remotely-written value — proving the cache
-        // (not UserDefaults) is the read source for a populated row.
+        // (not UserDefaults) is the read source for a populated, fresh row.
         #expect(service.isNotificationEnabled(for: .levelUp) == false,
                 "isNotificationEnabled must reflect the cached remote mutation, not the stale default")
     }

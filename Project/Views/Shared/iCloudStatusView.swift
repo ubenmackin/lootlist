@@ -255,11 +255,12 @@ struct iCloudStatusView: View {
     private var actionsSection: some View {
         Section {
             Button {
-                // Bootstrap-style unscoped full sync: explicit manual "Force Sync"
-                // user action in iCloud settings — documented intent is a
-                // generic full refresh across all families, not a single-family
-                // push-response refresh.
-                Task { await syncEngine?.syncAllFamiliesUnscoped() }
+                // Manual "Force Sync" user action in iCloud settings — a
+                // full refresh of the currently resolved family zone. The
+                // zone is named after the Family record, so the resolved
+                // zone's name is the family scope; purges are scoped to it
+                // so other families' cached rows are never deleted (D1).
+                Task { await syncEngine?.syncAllForActiveZone() }
             } label: {
                 HStack {
                     Label("Force Sync", systemImage: "arrow.triangle.2.circlepath")
