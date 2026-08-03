@@ -57,7 +57,8 @@ final class TreasuryViewModel {
 
         balance = goldFromQuests + bonusGold + spent
 
-        let weekOf = WeekMath.weekOf(date: Date())
+        let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let currentAllowance = allowancePeriods.first {
@@ -71,7 +72,8 @@ final class TreasuryViewModel {
             allowancePeriod = nil
         }
 
-        let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) }
+        let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate) }
+
         var weekQuestsGold = GoldCalculation.totalGold(for: quests, approvedLogs: weekLogs)
 
         let assignedQuests = quests.filter {
@@ -140,8 +142,11 @@ final class TreasuryViewModel {
         if showAllTime {
             spendingLog = filtered.sorted { $0.date > $1.date }
         } else {
-            let weekRange = WeekMath.weekRange(starting: WeekMath.weekOf(date: Date()))
+            let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
+            let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
+
             spendingLog = filtered
+
                 .filter { weekRange.contains($0.date) }
                 .sorted { $0.date > $1.date }
         }

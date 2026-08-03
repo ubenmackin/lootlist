@@ -146,9 +146,19 @@ struct FamilyDashboardView: View {
         )
     }
 
+    @State private var showEarlyPayoutConfirm: Bool = false
+    @State private var isProcessingPayout: Bool = false
+
+    private var pendingCompletions: [QuestCompletionCache] {
+        cachedCompletions.filter { $0.verificationStatus == VerificationStatus.pending.rawValue }
+    }
+
     @ViewBuilder
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         parentHeaderCard
+        if !pendingCompletions.isEmpty, appState.currentProfile?.role != .hero {
+            pendingApprovalsCard
+        }
         weeklySummaryCard(summary: vm.weekSummary)
         heroesSection(vm: vm)
         if let error = vm.loadError {
@@ -225,11 +235,93 @@ struct FamilyDashboardView: View {
         appState.shareInviteItems
     }
 
-    private func weeklySummaryCard(summary: WeekendSummary?) -> some View {
+    private var pendingApprovalsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("This Week's Haul")
+            HStack {
+                Label("Pending Approvals (\(pendingCompletions.count))", systemImage: "hourglass")
                     .font(.headline)
+                    .foregroundStyle(.orange)
+                Spacer()
+            }
+
+            VStack(spacing: 8) {
+                ForEach(pendingCompletions, id: \.recordName) { completion in
+                    let heroName = cachedProfiles.first { $0.recordName == completion.completerRecordName }?.displayName ?? "Hero"
+                    let questName = cachedQuests.first { $0.recordName == completion.questRecordName }?.questName ?? "Quest"
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(questName)
+                                .font(.subheadline.weight(.semibold))
+                            Text("Submitted by \(heroName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+
+                        Button {
+                            Task {
+                                let zoneID = questService.cloudKitReference.resolvedZoneID
+                                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+                                if let parent = appState.currentProfile {
+                                    _ = try? await questService.reject(questLog: domainLog, by: parent)
+                                }
+                            }
+                        } label: {
+                            Text("Reject")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.red.opacity(0.12)))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            Task {
+                                let zoneID = questService.cloudKitReference.resolvedZoneID
+                                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+                                if let parent = appState.currentProfile {
+                                    _ = try? await questService.verify(questLog: domainLog, by: parent)
+                                }
+                            }
+                        } label: {
+                            Text("Approve")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Capsule().fill(Color.green))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.tertiarySystemGroupedBackground)))
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.40), lineWidth: 1.5)
+        )
+        .padding(.horizontal)
+    }
+
+    private func weeklySummaryCard(summary: WeekendSummary?) -> some View {
+        let lootDayTitle = appState.family?.payoutDay.lootDayTitle ?? "Sunday Loot Day"
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("This Week's Haul")
+                        .font(.headline)
+                    Text(lootDayTitle)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 if let summary {
                     Text(summary.weekOf, format: .dateTime.month().day())
@@ -240,7 +332,49 @@ struct FamilyDashboardView: View {
 
             if let summary {
                 totalsRow(summary: summary)
+
+                if summary.totalEarned > 0, appState.currentProfile?.role != .hero {
+                    Button {
+                        showEarlyPayoutConfirm = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "banknote.fill")
+                            Text("Process Payout Now 🎁")
+                                .font(.subheadline.weight(.bold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.gold.opacity(0.20)))
+                        .foregroundStyle(Color.gold)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isProcessingPayout)
+                    .alert("Process Payout Now?", isPresented: $showEarlyPayoutConfirm) {
+                        Button("Confirm Payout", role: .destructive) {
+                            Task {
+                                isProcessingPayout = true
+                                defer { isProcessingPayout = false }
+                                if let family = appState.family {
+                                    let periods = await treasury.fetchAllowancePeriods(family: family)
+                                    let activePeriods = periods.filter { $0.status == .active || $0.status == .payoutPending }
+                                    for period in activePeriods {
+                                        _ = try? await treasury.runPayout(period: period)
+                                    }
+                                }
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        let amountStr = String(format: "%.2f", summary.totalEarned)
+                        Text(
+                            "Process payout of \(amountStr) gold across all heroes with completed quests? " +
+                                "This will settle earnings for quests completed so far this week."
+                        )
+                    }
+                }
+
                 Divider()
+
                 whoCompletedWhatList(summary: summary)
             } else {
                 HStack(spacing: 12) {

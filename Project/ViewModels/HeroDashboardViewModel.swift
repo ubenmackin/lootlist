@@ -137,7 +137,8 @@ final class HeroDashboardViewModel {
         streak = Self.computeStreak(from: heroLogs)
         let profileRecordName = appState.currentProfile?.id.recordName ?? ""
         let payoutPolicy = appState.currentProfile?.payoutPolicy
-        earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests, profileRecordName: profileRecordName, payoutPolicy: payoutPolicy)
+        let payoutDay = appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
+        earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests, profileRecordName: profileRecordName, payoutPolicy: payoutPolicy, payoutDay: payoutDay)
 
         // Precompute the number of fully-completed quests once, so the view
         // body can read a plain Int instead of re-filtering logs per quest.
@@ -161,13 +162,19 @@ final class HeroDashboardViewModel {
         return approvedCount(for: quest) >= target
     }
 
-    nonisolated static func earnedThisWeek(logs: [QuestCompletionCache], quests: [QuestCache], profileRecordName: String, payoutPolicy: PayoutPolicy?) -> Double {
-        let weekOf = WeekMath.weekOf(date: Date())
+    nonisolated static func earnedThisWeek(
+        logs: [QuestCompletionCache],
+        quests: [QuestCache],
+        profileRecordName: String,
+        payoutPolicy: PayoutPolicy?,
+        payoutDay: PayoutDay = .sunday
+    ) -> Double {
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let approvedWeekLogs = logs.filter {
             ($0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified)
-                && weekRange.contains($0.weekOf)
+                && (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
         }
 
         var totalEarned = GoldCalculation.totalGold(for: quests, approvedLogs: approvedWeekLogs)
@@ -180,7 +187,7 @@ final class HeroDashboardViewModel {
             let qLogs = logs.filter {
                 $0.questRecordName == quest.recordName &&
                     ($0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved) &&
-                    weekRange.contains($0.weekOf)
+                    (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
             }
             return qLogs.count >= quest.targetCount
         }.count

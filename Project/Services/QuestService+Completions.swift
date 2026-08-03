@@ -228,7 +228,8 @@ extension QuestService {
     }
 
     func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
-        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
+        let payoutDay = effectivePayoutDay(for: profile)
+        let normalizedWeek = QuestService.startOfWeek(for: weekOf, payoutDay: payoutDay)
         let logs = try await fetchQuestLogs(for: profile)
             .filter { $0.weekOf == normalizedWeek
                 && ($0.verificationStatus == .autoApproved
@@ -391,7 +392,7 @@ extension QuestService {
     /// Strictly-local cached logs for a quest, sorted newest-first. Unlike
     /// `fetchQuestLogs(forQuest:useCache:)` this NEVER falls through to a
     /// CloudKit query — it exists for the pre-write path of `markComplete`
-    /// where any network round-trip would break the 0ms mutation promise (D3).
+    /// where any network round-trip would break the 0ms mutation promise.
     private func cachedQuestLogs(forQuest quest: Quest) -> [QuestCompletion] {
         guard let cache = cacheService else { return [] }
         let questName = quest.id.recordName
@@ -426,7 +427,7 @@ extension QuestService {
     func applyReward(for quest: Quest, to hero: Profile, completion: QuestCompletion) async throws -> Double {
         // Read existing logs cache-first to compute the approved count for the
         // prorated gold AND the capped XP delta. This read runs POST-save
-        // (never on the pre-write critical path, D3). The save just succeeded,
+        // (never on the pre-write critical path). The save just succeeded,
         // so this completion is on the server; a transient read failure must
         // not starve a legitimate completion of its reward, so fall back to
         // treating the completed log as a single approved completion.
@@ -448,7 +449,18 @@ extension QuestService {
             }
         }
 
-        return GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
+        let creditedGold = GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
+
+        if hero.payoutPolicy == .realTime, creditedGold > 0, let treasuryService {
+            let questFamilyID = quest.family.recordID
+            Task {
+                if let family = try? await cloudKit.fetch(Family.self, id: questFamilyID) {
+                    _ = try? await treasuryService.processRealTimeSettlement(profile: hero, family: family)
+                }
+            }
+        }
+
+        return creditedGold
     }
 
     /// Bounded retries for the change-tag CAS write-back of `Quest.xpBanked`.

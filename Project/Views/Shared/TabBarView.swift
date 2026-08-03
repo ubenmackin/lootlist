@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct TabBarView: View {
@@ -16,10 +17,20 @@ struct TabBarView: View {
 
     private let spending: any SpendingService
 
+    @Query private var cachedCompletions: [QuestCompletionCache]
+
     @State private var selectedTab: RootTab = .family
 
     init(spending: any SpendingService) {
         self.spending = spending
+    }
+
+    private var pendingCount: Int {
+        guard let familyName = appState.family?.id.recordName else { return 0 }
+        return cachedCompletions.filter {
+            $0.familyRecordName == familyName &&
+                $0.verificationStatus == VerificationStatus.pending.rawValue
+        }.count
     }
 
     var body: some View {
@@ -35,8 +46,14 @@ struct TabBarView: View {
                     .tag(RootTab.placeholder)
             }
         }
-        .onAppear { reconcileDefaultSelection() }
+        .onAppear {
+            reconcileDefaultSelection()
+            notificationService.updateAppBadgeCount(pendingCount: pendingCount)
+        }
         .onChange(of: roleKind) { _, _ in reconcileDefaultSelection() }
+        .onChange(of: pendingCount) { _, newCount in
+            notificationService.updateAppBadgeCount(pendingCount: newCount)
+        }
     }
 
     private var roleKind: RoleKind {
@@ -77,6 +94,7 @@ struct TabBarView: View {
             .tabItem {
                 Label("Manage", systemImage: "rectangle.stack.fill")
             }
+            .badge(pendingCount > 0 ? pendingCount : 0)
             .tag(RootTab.manage)
 
         PayoutHistoryView(familyRecordName: familyName)

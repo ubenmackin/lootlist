@@ -25,6 +25,8 @@ struct Family: Identifiable, Equatable, Sendable {
 
     var payoutPolicy: PayoutPolicy
 
+    var payoutDay: PayoutDay
+
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
             throw CKDecodingError.unexpectedRecordType(expected: Self.recordType,
@@ -50,6 +52,14 @@ struct Family: Identifiable, Equatable, Sendable {
         } else {
             payoutPolicy = .perQuest
         }
+
+        if let rawDay: String = record.extractOptional("payoutDay"),
+           let day = PayoutDay(rawValue: rawDay)
+        {
+            payoutDay = day
+        } else {
+            payoutDay = .sunday
+        }
     }
 
     func toRecord() -> CKRecord {
@@ -58,12 +68,14 @@ struct Family: Identifiable, Equatable, Sendable {
         record["createdBy"] = createdBy.recordName as CKRecordValue
         record["createdAt"] = createdAt as CKRecordValue
         record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
+        record["payoutDay"] = payoutDay.rawValue as CKRecordValue
         return record
     }
 
     init(name: String,
          createdBy: CKRecord.ID,
          payoutPolicy: PayoutPolicy = .perQuest,
+         payoutDay: PayoutDay = .sunday,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -71,5 +83,6 @@ struct Family: Identifiable, Equatable, Sendable {
         self.createdBy = createdBy
         createdAt = Date()
         self.payoutPolicy = payoutPolicy
+        self.payoutDay = payoutDay
     }
 }

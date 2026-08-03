@@ -55,18 +55,18 @@ final class TreasuryService {
     func weeklyBreakdown(profile: Profile,
                          weekOf: Date) async throws -> WeeklyBreakdown
     {
-        let monday = TreasuryService.mondayOfWeek(for: weekOf)
-        let weekRange = TreasuryService.weekRange(starting: monday)
+        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? .sunday)
+        let weekRange = TreasuryService.weekRange(starting: startOfWeek)
 
         let logs = try await fetchQuestLogs(profile: profile,
-                                            weekStarting: monday,
+                                            weekStarting: startOfWeek,
                                             weekEnding: weekRange.upperBound)
         var goldFromQuests = try await sumGold(for: logs)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         // Check if hero has strict All-or-Nothing payout policy enabled.
         if profile.payoutPolicy == .allOrNothing {
-            let assigned = try await fetchAssignedQuests(profile: profile, weekOf: monday)
+            let assigned = try await fetchAssignedQuests(profile: profile, weekOf: startOfWeek)
             if !assigned.isEmpty, completedCount < assigned.count {
                 goldFromQuests = 0.0
             }
@@ -97,21 +97,23 @@ final class TreasuryService {
                                     weekOf: Date,
                                     family: Family) async throws -> AllowancePeriod
     {
-        let monday = TreasuryService.mondayOfWeek(for: weekOf)
+        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? family.payoutDay)
+
         let existing = try await fetchAllowancePeriod(profile: profile,
-                                                      weekOf: monday)
+                                                      weekOf: startOfWeek)
         if let existing {
             return existing
         }
 
         let logs = try await fetchQuestLogs(profile: profile,
-                                            weekStarting: monday,
+                                            weekStarting: startOfWeek,
                                             weekEnding: TreasuryService
-                                                .weekRange(starting: monday).upperBound)
+                                                .weekRange(starting: startOfWeek).upperBound)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         let period = AllowancePeriod(
-            weekOf: monday,
+            weekOf: startOfWeek,
+
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             questsTotal: completedCount,
             family: CKRecord.Reference(recordID: family.id, action: .none)
@@ -254,6 +256,21 @@ final class TreasuryService {
 
     func runPayout(period: AllowancePeriod) async throws {
         var updated = period
+
+        if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID) {
+            let breakdown = try await weeklyBreakdown(profile: profile, weekOf: period.weekOf)
+            guard breakdown.totalEarned > 0 else {
+                // Do not prematurely close allowance periods for heroes with $0 earnings.
+                return
+            }
+            updated.totalEarned = breakdown.totalEarned
+            updated.questsCompleted = breakdown.questsCount
+        } else {
+            guard (updated.totalEarned ?? 0) > 0 else {
+                return
+            }
+        }
+
         updated.status = .paid
         updated.paidDate = Date()
         updated.paidAmount = updated.totalEarned
@@ -261,24 +278,12 @@ final class TreasuryService {
         let name = period.id.recordName
         let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
 
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
         let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertAllowancePeriod`, so reading
-        // `snapshot.toAllowancePeriod(...)` later would yield the
-        // *post*-mutation values. The value-type copy
-        // (`AllowancePeriod` struct) is unaffected by later mutations.
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
 
-        // Register the optimistic window so a background sync skips this row.
         let registry = cacheService?.inFlightRegistry
         await registry?.register(name)
 
-        // Optimistic write first
         cacheService?.upsertAllowancePeriod(updated)
 
         do {
@@ -305,9 +310,6 @@ final class TreasuryService {
             )
 
             if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
                 toastManager?.show(
                     message: "Data was modified by another device. Refresh to see the latest.",
                     type: .warning
@@ -329,6 +331,33 @@ final class TreasuryService {
             await registry?.deregister(name)
             throw error
         }
+    }
+
+    /// Process real-time settlement for heroes with `.realTime` payout policy.
+    @discardableResult
+    func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
+        guard profile.payoutPolicy == .realTime else { return nil }
+        let weekOf = WeekMath.startOfWeek(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
+        let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
+
+        let breakdown = try await weeklyBreakdown(profile: profile, weekOf: weekOf)
+
+        var updated = period
+        updated.paidAmount = breakdown.totalEarned
+        updated.paidDate = Date()
+        if period.paidAmount != updated.paidAmount {
+            // Persist the FRESH breakdown totals so the period's economic
+            // snapshot stays consistent with the gold settled so far. Passing
+            // the pre-settlement period values here would let `updateAllowance`
+            // keep the creation-time zeros (its `?? breakdown` fallback never
+            // fires for non-optional fields). `questsTotal` is intentionally
+            // omitted — the weekly breakdown exposes only the completed count,
+            // and the period's quest total is fixed at creation.
+            return try await updateAllowance(period: updated,
+                                             totalEarned: breakdown.totalEarned,
+                                             questsCompleted: breakdown.questsCount)
+        }
+        return period
     }
 
     /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
@@ -451,7 +480,9 @@ final class TreasuryService {
 
     /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
     private func fetchAssignedQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
-        let range = TreasuryService.weekRange(starting: TreasuryService.mondayOfWeek(for: weekOf))
+        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? .sunday)
+
+        let range = TreasuryService.weekRange(starting: startOfWeek)
 
         if let cache = cacheService {
             let profileName = profile.id.recordName

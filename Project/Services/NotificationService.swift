@@ -294,6 +294,10 @@ final class NotificationService {
         center.setNotificationCategories([category])
         verificationCategoryRegistered = true
     }
+
+    func updateAppBadgeCount(pendingCount: Int) {
+        UNUserNotificationCenter.current().setBadgeCount(max(0, pendingCount)) { _ in }
+    }
 }
 
 enum VerificationAction: Sendable, Equatable {
