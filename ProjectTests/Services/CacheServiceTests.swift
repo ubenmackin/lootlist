@@ -488,4 +488,116 @@ struct CacheServiceTests {
         #expect(cached != nil)
         #expect(cached?.name == "Dragons")
     }
+
+    // MARK: - Freshness Watermark (D8)
+
+    // NOTE: these tests use family names unique to this file ("fresh-fam-*").
+    // Stamps live in UserDefaults.standard and persist for the process, so the
+    // assertions below must never collide with stamps written by other tests.
+
+    @Test
+    func `freshness watermark starts unstamped`() throws {
+        let service = try makeService()
+        #expect(service.isCacheFresh(familyRecordName: "never-stamped-fam", type: .quest) == false)
+    }
+
+    @Test
+    func `mark cache fresh stamps per family and type`() throws {
+        let service = try makeService()
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest)
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == true)
+        // Stamps are per-family AND per-type: other families/types stay stale.
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .quest) == false)
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion) == false)
+    }
+
+    @Test
+    func `clearAll invalidates every freshness stamp`() throws {
+        let service = try makeService()
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest)
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion)
+        service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .profile)
+
+        service.clearAll()
+
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == false)
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion) == false)
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .profile) == false)
+    }
+
+    @Test
+    func `purgeFamily invalidates only that family's freshness stamps`() throws {
+        let service = try makeService()
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest)
+        service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .quest)
+
+        service.purgeFamily(recordName: "fresh-fam-1")
+
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == false)
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .quest) == true)
+    }
+
+    // MARK: - Background → Main Propagation (C2 / D6)
+
+    @Test
+    func `background save becomes visible to main context via didSave observer`() async throws {
+        let service = try makeService()
+        #expect(service.container != nil)
+        guard let container = service.container else { return }
+
+        // Let the main-actor `ModelContext.didSave` observer task subscribe
+        // before the background save fires its notification, so the observer
+        // cannot miss the event it is meant to react to.
+        await Task.yield()
+        await Task.yield()
+
+        let backgroundActor = BackgroundCacheActor(container: container)
+        var quest = Quest(
+            template: ref("tpl"),
+            assignee: ref("hero"),
+            goldReward: 5.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            approvalMode: .autoApprove,
+            weekOf: Date(),
+            createdBy: ref("user1"),
+            family: ref("fam"),
+            name: "Observer Quest",
+            id: CKRecord.ID(recordName: "observer_quest")
+        )
+
+        // Background-context upsert (the push→UI pipeline's write side).
+        await backgroundActor.batchUpsertQuests([quest])
+
+        // Poll until the main context sees the inserted row. The observer's
+        // processPendingChanges() kick makes this
+        // deterministic even when automatic cross-context propagation is missed.
+        var inserted: [QuestCache] = []
+        for _ in 0 ..< 50 {
+            inserted = (try? container.mainContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+            if inserted.count == 1 {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(inserted.count == 1)
+        #expect(inserted.first?.recordName == "observer_quest")
+
+        // Background updates must also be reflected by the main context.
+        quest.goldReward = 42.0
+        quest.name = "Observer Quest Updated"
+        await backgroundActor.batchUpsertQuests([quest])
+
+        var updated: [QuestCache] = []
+        for _ in 0 ..< 50 {
+            updated = (try? container.mainContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+            if updated.first?.goldReward == 42.0 {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(updated.count == 1)
+        #expect(updated.first?.questName == "Observer Quest Updated")
+        #expect(updated.first?.goldReward == 42.0)
+    }
 }

@@ -66,7 +66,14 @@ final class NotificationService {
     }
 
     func isNotificationEnabled(for eventType: NotificationEventType) -> Bool {
-        if let cached = cachedPreference(for: eventType) {
+        // Trust the cached preference only after a completed sync pass for this
+        // family's notification preferences. Before the
+        // first sync — or after `clearAll()` — the UserDefaults mirror is the
+        // source of truth for first-launch continuity.
+        if let cached = cachedPreference(for: eventType),
+           let familyName = appState.family?.id.recordName,
+           cacheService?.isCacheFresh(familyRecordName: familyName, type: .notificationPreference) == true
+        {
             return cached.enabled
         }
         return userDefaultsFallback(for: eventType)
@@ -131,6 +138,10 @@ final class NotificationService {
             id: recordID
         )
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(recordID.recordName)
+
         // Optimistic local write + UserDefaults mirror for fallback continuity.
         cacheService?.upsertNotificationPreference(preference)
         mirrorToUserDefaults(event: event, enabled: enabled)
@@ -138,6 +149,7 @@ final class NotificationService {
         do {
             let saved = try await cloudKit.save(preference)
             cacheService?.upsertNotificationPreference(saved)
+            await registry?.deregister(recordID.recordName)
             return saved
         } catch {
             if let snapshot {
@@ -149,6 +161,7 @@ final class NotificationService {
                 // Brand-new preference with no prior cached row — invalidate.
                 cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
             }
+            await registry?.deregister(recordID.recordName)
             throw error
         }
     }

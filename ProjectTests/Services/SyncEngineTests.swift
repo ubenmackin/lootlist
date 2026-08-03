@@ -11,278 +11,17 @@ import Foundation
 import SwiftData
 import Testing
 
-// MARK: - Broken Record
-
-private struct BrokenRecord: CloudKitRecord {
-    static let recordType = "Family"
-
-    init() {}
-
-    init(record _: CKRecord) throws {
-        // Intentionally never succeeds — only used as a seed record.
-        throw CKDecodingError.missingField("BrokenRecord is not decodable")
-    }
-
-    func toRecord() -> CKRecord {
-        CKRecord(recordType: Self.recordType,
-                 recordID: CKRecord.ID(recordName: "broken_seed"))
-    }
-}
-
-import os
-
-/// Thread-safe box for notification-observer state across closure boundaries.
-private final class SyncResultBox: Sendable {
-    private let lock = OSAllocatedUnfairLock<(receivedNotification: Bool, receivedErrors: [String]?)>(initialState: (false, nil))
-
-    var receivedNotification: Bool {
-        get { lock.withLock { $0.receivedNotification } }
-        set { lock.withLock { $0.receivedNotification = newValue } }
-    }
-
-    var receivedErrors: [String]? {
-        get { lock.withLock { $0.receivedErrors } }
-        set { lock.withLock { $0.receivedErrors = newValue } }
-    }
-}
-
-// MARK: - Tests
+// MARK: - Core Sync Engine Tests
 
 @MainActor
 @Suite(.serialized)
 struct SyncEngineTests {
-    // MARK: - Helpers
-
-    private func makeContainer() throws -> ModelContainer {
-        let config = ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)
-        return try ModelContainer(
-            for: QuestCache.self,
-            QuestTemplateCache.self,
-            ProfileCache.self,
-            QuestCompletionCache.self,
-            FamilyCache.self,
-            LedgerEntryCache.self,
-            AllowancePeriodCache.self,
-            AchievementCache.self,
-            ProfileAchievementCache.self,
-            NotificationPreferenceCache.self,
-            configurations: config
-        )
-    }
-
-    private func ref(_ name: String) -> CKRecord.Reference {
-        CKRecord.Reference(recordID: CKRecord.ID(recordName: name), action: .none)
-    }
-
-    private func fetchAll<T: PersistentModel>(_: T.Type, in container: ModelContainer) throws -> [T] {
-        try ModelContext(container).fetch(FetchDescriptor<T>())
-    }
-
-    private func remainingCount<T: PersistentModel>(_: T.Type, in container: ModelContainer) throws -> Int {
-        try ModelContext(container).fetch(FetchDescriptor<T>()).count
-    }
-
-    private struct SUT {
-        let engine: SyncEngine
-        let cloudKit: CloudKitService
-        let cacheService: CacheService
-        let coordinator: AppSyncCoordinator
-        let backgroundContainer: ModelContainer
-    }
-
-    private func makeSUT(
-        seedRecords: [any CloudKitRecord] = [],
-        cacheContainer _: ModelContainer? = nil
-    ) throws -> SUT {
-        let zoneID = CKRecordZone.ID(zoneName: "SyncTestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-
-        if !seedRecords.isEmpty {
-            cloudKit.seedMockRecords(seedRecords)
-        }
-
-        let bgContainer = try makeContainer()
-        let backgroundCache = BackgroundCacheActor(container: bgContainer)
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: backgroundCache,
-            syncCoordinator: coordinator
-        )
-
-        return SUT(engine: engine, cloudKit: cloudKit, cacheService: cacheService,
-                   coordinator: coordinator, backgroundContainer: bgContainer)
-    }
-
-    // MARK: - Seed data builders
-
-    private func seedFamily(_ name: String = "Dragons",
-                            recordName: String = "fam1") -> Family
-    {
-        Family(name: name,
-               createdBy: CKRecord.ID(recordName: "user1"),
-               id: CKRecord.ID(recordName: recordName))
-    }
-
-    private func seedProfile(recordName: String = "prof1",
-                             familyRef: CKRecord.Reference? = nil) -> Profile
-    {
-        let family = familyRef ?? ref("fam1")
-        return Profile(
-            displayName: "Hero",
-            role: .hero,
-            iCloudUserID: CKRecord.ID(recordName: "icloud1"),
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedQuest(recordName: String = "quest1",
-                           familyRef: CKRecord.Reference? = nil) -> Quest
-    {
-        let family = familyRef ?? ref("fam1")
-        return Quest(
-            template: ref("tpl1"),
-            assignee: ref("prof1"),
-            goldReward: 5.0,
-            xpReward: 50,
-            scheduleType: .weeklyFlexible,
-            approvalMode: .autoApprove,
-            weekOf: Date(),
-            createdBy: ref("user1"),
-            family: family,
-            name: "Clean Room",
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedTemplate(recordName: String = "tpl1",
-                              familyRef: CKRecord.Reference? = nil) -> QuestTemplate
-    {
-        let family = familyRef ?? ref("fam1")
-        return QuestTemplate(
-            name: "Clean Room",
-            description: "Tidy up",
-            defaultGold: 5.0,
-            xpReward: 50,
-            scheduleType: .weeklyFlexible,
-            approvalMode: .autoApprove,
-            createdBy: ref("user1"),
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedCompletion(recordName: String = "comp1",
-                                familyRef: CKRecord.Reference? = nil) -> QuestCompletion
-    {
-        let family = familyRef ?? ref("fam1")
-        return QuestCompletion(
-            quest: ref("quest1"),
-            completedBy: ref("prof1"),
-            approvalMode: .parentVerify,
-            completedDate: Date(),
-            weekOf: Date(),
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedLedger(recordName: String = "ledger1",
-                            familyRef: CKRecord.Reference? = nil) -> LedgerEntry
-    {
-        let family = familyRef ?? ref("fam1")
-        return LedgerEntry(
-            profile: ref("prof1"),
-            amount: 5.0,
-            description: "Bonus",
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedAllowance(recordName: String = "allow1",
-                               familyRef: CKRecord.Reference? = nil) -> AllowancePeriod
-    {
-        let family = familyRef ?? ref("fam1")
-        return AllowancePeriod(
-            weekOf: Date(),
-            profile: ref("prof1"),
-            questsTotal: 5,
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedAchievement(recordName: String = "ach1",
-                                 familyRef: CKRecord.Reference? = nil) -> Achievement
-    {
-        let family = familyRef ?? ref("fam1")
-        return Achievement(
-            name: "First Quest",
-            description: "Complete one quest",
-            iconSystemName: "star.fill",
-            category: .quest,
-            requirementType: .firstQuest,
-            requirementValue: 1,
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedProfileAchievement(recordName: String = "pa1",
-                                        familyRef: CKRecord.Reference? = nil) -> ProfileAchievement
-    {
-        let family = familyRef ?? ref("fam1")
-        return ProfileAchievement(
-            achievement: ref("ach1"),
-            profile: ref("prof1"),
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func seedNotificationPref(recordName: String = "notif1",
-                                      familyRef: CKRecord.Reference? = nil) -> NotificationPreference
-    {
-        let family = familyRef ?? ref("fam1")
-        return NotificationPreference(
-            profile: ref("prof1"),
-            eventType: .questCompleted,
-            enabled: true,
-            pushEnabled: true,
-            family: family,
-            id: CKRecord.ID(recordName: recordName)
-        )
-    }
-
-    private func allTenTypes(familyRef: CKRecord.Reference? = nil) -> [any CloudKitRecord] {
-        [
-            seedFamily(),
-            seedProfile(familyRef: familyRef),
-            seedQuest(familyRef: familyRef),
-            seedTemplate(familyRef: familyRef),
-            seedCompletion(familyRef: familyRef),
-            seedLedger(familyRef: familyRef),
-            seedAllowance(familyRef: familyRef),
-            seedAchievement(familyRef: familyRef),
-            seedProfileAchievement(familyRef: familyRef),
-            seedNotificationPref(familyRef: familyRef)
-        ]
-    }
-
-    // MARK: - Tests
-
     // MARK: Test 1
 
     @Test
     func `sync all calls batch upsert for all 10 types`() async throws {
         let sut = try makeSUT(seedRecords: allTenTypes())
-        await sut.engine.syncAllFamiliesUnscoped()
+        await sut.engine.syncAllForActiveZone()
 
         #expect(try remainingCount(FamilyCache.self, in: sut.backgroundContainer) == 1)
         #expect(try remainingCount(ProfileCache.self, in: sut.backgroundContainer) == 1)
@@ -296,101 +35,87 @@ struct SyncEngineTests {
         #expect(try remainingCount(NotificationPreferenceCache.self, in: sut.backgroundContainer) == 1)
     }
 
-    // MARK: Test 2 — purge-missing paths
+    // MARK: Test 2 — bootstrap sync purges only the resolved family's stale rows
 
     @Test
-    func `sync all calls purge missing for all 10 types`() async throws {
+    func `bootstrap sync purges only the resolved family's stale rows`() async throws {
         let bgContainer = try makeContainer()
         let actor = BackgroundCacheActor(container: bgContainer)
 
-        let families = [
+        await actor.batchUpsertFamilies([
             seedFamily("Alpha", recordName: "fam_a"),
             seedFamily("Beta", recordName: "fam_b")
-        ]
-        await actor.batchUpsertFamilies(families)
+        ])
 
-        let profiles = [
-            seedProfile(recordName: "p_a", familyRef: ref("fam_a")),
+        await actor.batchUpsertProfiles([
+            seedProfile(recordName: "prof1", familyRef: ref("fam_a")),
+            seedProfile(recordName: "p_stale", familyRef: ref("fam_a")),
             seedProfile(recordName: "p_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertProfiles(profiles)
-
-        let quests = [
-            seedQuest(recordName: "q_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertQuests([
+            seedQuest(recordName: "quest1", familyRef: ref("fam_a")),
             seedQuest(recordName: "q_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertQuests(quests)
-
-        let templates = [
-            seedTemplate(recordName: "t_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertQuestTemplates([
+            seedTemplate(recordName: "tpl1", familyRef: ref("fam_a")),
             seedTemplate(recordName: "t_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertQuestTemplates(templates)
-
-        let completions = [
-            seedCompletion(recordName: "c_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertQuestCompletions([
+            seedCompletion(recordName: "comp1", familyRef: ref("fam_a")),
             seedCompletion(recordName: "c_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertQuestCompletions(completions)
-
-        let ledgers = [
-            seedLedger(recordName: "l_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertLedgerEntries([
+            seedLedger(recordName: "ledger1", familyRef: ref("fam_a")),
             seedLedger(recordName: "l_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertLedgerEntries(ledgers)
-
-        let allowances = [
-            seedAllowance(recordName: "ap_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertAllowancePeriods([
+            seedAllowance(recordName: "allow1", familyRef: ref("fam_a")),
             seedAllowance(recordName: "ap_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertAllowancePeriods(allowances)
-
-        let achievements = [
-            seedAchievement(recordName: "ach_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertAchievements([
+            seedAchievement(recordName: "ach1", familyRef: ref("fam_a")),
             seedAchievement(recordName: "ach_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertAchievements(achievements)
-
-        let profileAchs = [
-            seedProfileAchievement(recordName: "pa_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertProfileAchievements([
+            seedProfileAchievement(recordName: "pa1", familyRef: ref("fam_a")),
             seedProfileAchievement(recordName: "pa_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertProfileAchievements(profileAchs)
-
-        let notifPrefs = [
-            seedNotificationPref(recordName: "n_a", familyRef: ref("fam_a")),
+        ])
+        await actor.batchUpsertNotificationPreferences([
+            seedNotificationPref(recordName: "notif1", familyRef: ref("fam_a")),
             seedNotificationPref(recordName: "n_b", familyRef: ref("fam_b"))
-        ]
-        await actor.batchUpsertNotificationPreferences(notifPrefs)
+        ])
 
         #expect(try remainingCount(FamilyCache.self, in: bgContainer) == 2)
-        #expect(try remainingCount(NotificationPreferenceCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 3)
 
-        let zoneID = CKRecordZone.ID(zoneName: "SyncTestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.seedMockRecords(allTenTypes(familyRef: ref("fam_a")))
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: actor,
-            syncCoordinator: coordinator
+        let zoneID = CKRecordZone.ID(zoneName: "fam_a", ownerName: "TestOwner")
+        let sut = try makeSUT(
+            seedRecords: allTenTypes(familyRef: ref("fam_a"), familyRecordName: "fam_a"),
+            zoneID: zoneID,
+            existingBgContainer: bgContainer
         )
 
-        await engine.syncAllFamiliesUnscoped()
+        await sut.engine.syncAllForActiveZone()
 
         #expect(try remainingCount(FamilyCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(QuestCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(QuestTemplateCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(QuestCompletionCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(LedgerEntryCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(AllowancePeriodCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(AchievementCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(ProfileAchievementCache.self, in: bgContainer) == 1)
-        #expect(try remainingCount(NotificationPreferenceCache.self, in: bgContainer) == 1)
+        let families = try fetchAll(FamilyCache.self, in: bgContainer)
+        #expect(families.first?.recordName == "fam_a")
+
+        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
+        let profiles = try fetchAll(ProfileCache.self, in: bgContainer)
+        let profileNames = Set(profiles.map(\.recordName))
+        #expect(profileNames.contains("prof1"))
+        #expect(profileNames.contains("p_b"))
+        #expect(!profileNames.contains("p_stale"))
+
+        #expect(try remainingCount(QuestCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(QuestTemplateCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(QuestCompletionCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(LedgerEntryCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(AllowancePeriodCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(AchievementCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(ProfileAchievementCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(NotificationPreferenceCache.self, in: bgContainer) == 2)
     }
 
     // MARK: Test 3 — families get purged
@@ -406,59 +131,47 @@ struct SyncEngineTests {
         ])
         #expect(try remainingCount(FamilyCache.self, in: bgContainer) == 2)
 
-        let zoneID = CKRecordZone.ID(zoneName: "SyncTestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.seedMockRecords([seedFamily("Alpha", recordName: "fam_a")])
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: actor,
-            syncCoordinator: coordinator
+        let sut = try makeSUT(
+            seedRecords: [seedFamily("Alpha", recordName: "fam_a")],
+            existingBgContainer: bgContainer
         )
 
-        await engine.syncAllFamiliesUnscoped()
+        await sut.engine.syncAllForActiveZone()
 
         #expect(try remainingCount(FamilyCache.self, in: bgContainer) == 1)
         let remaining = try fetchAll(FamilyCache.self, in: bgContainer)
         #expect(remaining.first?.recordName == "fam_a")
     }
 
-    // MARK: Test 4 — notification preferences purged
+    // MARK: Test 4 — scoped purge protects other families' notification preferences
 
     @Test
-    func `sync all purges notification preferences`() async throws {
+    func `sync all purges only resolved family's stale notification preferences`() async throws {
         let bgContainer = try makeContainer()
         let actor = BackgroundCacheActor(container: bgContainer)
 
         await actor.batchUpsertNotificationPreferences([
             seedNotificationPref(recordName: "np_a", familyRef: ref("fam_a")),
+            seedNotificationPref(recordName: "np_stale", familyRef: ref("fam_a")),
             seedNotificationPref(recordName: "np_b", familyRef: ref("fam_b"))
         ])
-        #expect(try remainingCount(NotificationPreferenceCache.self, in: bgContainer) == 2)
+        #expect(try remainingCount(NotificationPreferenceCache.self, in: bgContainer) == 3)
 
-        let zoneID = CKRecordZone.ID(zoneName: "SyncTestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.seedMockRecords([
-            seedNotificationPref(recordName: "np_a", familyRef: ref("fam_a"))
-        ])
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: actor,
-            syncCoordinator: coordinator
+        let zoneID = CKRecordZone.ID(zoneName: "fam_a", ownerName: "TestOwner")
+        let sut = try makeSUT(
+            seedRecords: [seedNotificationPref(recordName: "np_a", familyRef: ref("fam_a"))],
+            zoneID: zoneID,
+            existingBgContainer: bgContainer
         )
 
-        await engine.syncAllFamiliesUnscoped()
+        await sut.engine.syncAllForActiveZone()
 
-        #expect(try remainingCount(NotificationPreferenceCache.self, in: bgContainer) == 1)
+        #expect(try remainingCount(NotificationPreferenceCache.self, in: bgContainer) == 2)
         let remaining = try fetchAll(NotificationPreferenceCache.self, in: bgContainer)
-        #expect(remaining.first?.recordName == "np_a")
+        let names = Set(remaining.map(\.recordName))
+        #expect(names.contains("np_a"))
+        #expect(names.contains("np_b"))
+        #expect(!names.contains("np_stale"))
     }
 
     // MARK: Test 5
@@ -467,7 +180,7 @@ struct SyncEngineTests {
     func `sync all handles empty zone`() async throws {
         let sut = try makeSUT(seedRecords: [])
 
-        await sut.engine.syncAllFamiliesUnscoped()
+        await sut.engine.syncAllForActiveZone()
 
         #expect(try remainingCount(FamilyCache.self, in: sut.backgroundContainer) == 0)
         #expect(try remainingCount(ProfileCache.self, in: sut.backgroundContainer) == 0)
@@ -494,7 +207,7 @@ struct SyncEngineTests {
         #expect(sut.engine.lastSyncedAt != nil)
     }
 
-    // MARK: Test 7 — N1 regression: incrementalSync propagates familyRecordName
+    // MARK: Test 7 — incrementalSync propagates familyRecordName
 
     @Test
     func `incremental sync passes family record name to sync all fallback`() async throws {
@@ -507,24 +220,16 @@ struct SyncEngineTests {
         ])
         #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
 
-        let zoneID = CKRecordZone.ID(zoneName: "SyncTestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.seedMockRecords([seedProfile(recordName: "p_a", familyRef: ref("fam_a"))])
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: actor,
-            syncCoordinator: coordinator
+        let sut = try makeSUT(
+            seedRecords: [seedProfile(recordName: "p_a", familyRef: ref("fam_a"))],
+            existingBgContainer: bgContainer
         )
 
-        let dbLabel = cloudKit.activeIsOwner ? "private" : "shared"
-        let tokenKey = "ck_change_token.\(zoneID.zoneName).\(dbLabel)"
+        let dbLabel = sut.cloudKit.activeIsOwner ? "private" : "shared"
+        let tokenKey = "ck_change_token.\(sut.cloudKit.resolvedZoneID.zoneName).\(dbLabel)"
         UserDefaults.standard.removeObject(forKey: tokenKey)
 
-        await engine.incrementalSync(familyRecordName: "fam_a")
+        await sut.engine.incrementalSync(familyRecordName: "fam_a")
 
         #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
 
@@ -533,7 +238,7 @@ struct SyncEngineTests {
         #expect(recordNames.contains("p_a"))
         #expect(recordNames.contains("p_b"))
 
-        #expect(engine.lastSyncedAt != nil)
+        #expect(sut.engine.lastSyncedAt != nil)
     }
 
     // MARK: Test 8 — concurrency
@@ -542,8 +247,8 @@ struct SyncEngineTests {
     func `incremental sync handles more coming recursively`() async throws {
         let sut = try makeSUT(seedRecords: allTenTypes())
 
-        async let first = sut.engine.syncAllFamiliesUnscoped()
-        async let second = sut.engine.syncAllFamiliesUnscoped()
+        async let first = sut.engine.syncAllForActiveZone()
+        async let second = sut.engine.syncAllForActiveZone()
         await first
         await second
 
@@ -570,7 +275,7 @@ struct SyncEngineTests {
             box.receivedErrors = notification.userInfo?["errors"] as? [String]
         }
 
-        await sut.engine.syncAllFamiliesUnscoped()
+        await sut.engine.syncAllForActiveZone()
 
         await Task.yield()
 
@@ -580,14 +285,11 @@ struct SyncEngineTests {
         NotificationCenter.default.removeObserver(observer)
     }
 
-    // MARK: Test 10 — M1 regression: notification carries errors
+    // MARK: Test 10 — notification carries errors
 
     @Test
     func `sync did complete posts notification on partial failure`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "SyncTestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-
-        cloudKit.seedMockRecords([
+        let sut = try makeSUT(seedRecords: [
             BrokenRecord(),
             seedProfile(),
             seedQuest(),
@@ -600,30 +302,18 @@ struct SyncEngineTests {
             seedNotificationPref()
         ])
 
-        let bgContainer = try makeContainer()
-        let backgroundCache = BackgroundCacheActor(container: bgContainer)
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: backgroundCache,
-            syncCoordinator: coordinator
-        )
-
         let box = SyncResultBox()
 
         let observer = NotificationCenter.default.addObserver(
             forName: .syncDidComplete,
-            object: engine,
+            object: sut.engine,
             queue: .main
         ) { notification in
             box.receivedNotification = true
             box.receivedErrors = notification.userInfo?["errors"] as? [String]
         }
 
-        await engine.syncAllFamiliesUnscoped()
+        await sut.engine.syncAllForActiveZone()
         await Task.yield()
 
         #expect(box.receivedNotification == true)
@@ -633,7 +323,7 @@ struct SyncEngineTests {
         NotificationCenter.default.removeObserver(observer)
     }
 
-    // MARK: Test 11 — M2 regression: clearAll before resync
+    // MARK: Test 11 — clearAll before resync
 
     @Test
     func `zone reset purges before resync`() async throws {
@@ -693,170 +383,5 @@ struct SyncEngineTests {
         #expect(privateKey != sharedKey)
         #expect(privateKey.hasSuffix(".private"))
         #expect(sharedKey.hasSuffix(".shared"))
-    }
-
-    // MARK: Test 13 — F015: recordChanged handler is family-scoped
-
-    @Test
-    func `push handler recordChanged syncs only active family`() async throws {
-        let bgContainer = try makeContainer()
-        let actor = BackgroundCacheActor(container: bgContainer)
-
-        await actor.batchUpsertProfiles([
-            seedProfile(recordName: "p_a", familyRef: ref("fam_a")),
-            seedProfile(recordName: "p_b", familyRef: ref("fam_b"))
-        ])
-        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
-
-        let zoneID = CKRecordZone.ID(zoneName: "fam_a", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.activeFamilyZoneID = zoneID
-        cloudKit.seedMockRecords([seedProfile(recordName: "p_a", familyRef: ref("fam_a"))])
-
-        let dbLabel = cloudKit.activeIsOwner ? "private" : "shared"
-        let tokenKey = "ck_change_token.\(zoneID.zoneName).\(dbLabel)"
-        UserDefaults.standard.removeObject(forKey: tokenKey)
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: actor,
-            syncCoordinator: coordinator
-        )
-
-        let box = SyncResultBox()
-        let observer = NotificationCenter.default.addObserver(
-            forName: .syncDidComplete,
-            object: engine,
-            queue: .main
-        ) { _ in box.receivedNotification = true }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
-        coordinator.handleDatabaseChange(subscriptionID: "test-sub-fam-a")
-
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !box.receivedNotification, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        #expect(box.receivedNotification == true)
-
-        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
-        let remaining = try fetchAll(ProfileCache.self, in: bgContainer)
-        let recordNames = Set(remaining.map(\.recordName))
-        #expect(recordNames.contains("p_a"))
-        #expect(recordNames.contains("p_b"))
-    }
-
-    // MARK: Test 14 — F015: shareAccepted handler is family-scoped
-
-    @Test
-    func `push handler shareAccepted syncs only accepted family`() async throws {
-        let bgContainer = try makeContainer()
-        let actor = BackgroundCacheActor(container: bgContainer)
-
-        await actor.batchUpsertProfiles([
-            seedProfile(recordName: "p_a", familyRef: ref("fam_a")),
-            seedProfile(recordName: "p_b", familyRef: ref("fam_b"))
-        ])
-        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
-
-        let zoneID = CKRecordZone.ID(zoneName: "fam_a", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.seedMockRecords([seedProfile(recordName: "p_a", familyRef: ref("fam_a"))])
-
-        cloudKit.activeFamilyZoneID = CKRecordZone.ID(zoneName: "fam_b", ownerName: "StaleOwner")
-
-        let tokenKey = "ck_change_token.fam_a.shared"
-        UserDefaults.standard.removeObject(forKey: tokenKey)
-
-        let shareZoneID = CKRecordZone.ID(zoneName: "fam_a", ownerName: "ShareOwner")
-        let shareRecordID = CKRecord.ID(recordName: "share-root", zoneID: shareZoneID)
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: actor,
-            syncCoordinator: coordinator
-        )
-
-        let box = SyncResultBox()
-        let observer = NotificationCenter.default.addObserver(
-            forName: .syncDidComplete,
-            object: engine,
-            queue: .main
-        ) { _ in box.receivedNotification = true }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
-        coordinator.notifyShareAccepted(shareID: shareRecordID)
-
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !box.receivedNotification, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        #expect(box.receivedNotification == true)
-
-        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
-        let remaining = try fetchAll(ProfileCache.self, in: bgContainer)
-        let remainingNames = Set(remaining.map(\.recordName))
-        #expect(remainingNames.contains("p_a"))
-        #expect(remainingNames.contains("p_b"))
-    }
-
-    // MARK: Test 15 — F015: zoneReset handler is family-scoped
-
-    @Test
-    func `push handler zoneReset syncs only resolved family`() async throws {
-        let bgContainer = try makeContainer()
-        let actor = BackgroundCacheActor(container: bgContainer)
-
-        await actor.batchUpsertProfiles([
-            seedProfile(recordName: "p_a", familyRef: ref("fam_a")),
-            seedProfile(recordName: "p_b", familyRef: ref("fam_b"))
-        ])
-        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
-
-        let zoneID = CKRecordZone.ID(zoneName: "fam_a", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.activeFamilyZoneID = zoneID
-        cloudKit.seedMockRecords([seedProfile(recordName: "p_a", familyRef: ref("fam_a"))])
-
-        let dbType = cloudKit.activeIsOwner ? "private" : "shared"
-        let tokenKey = "ck_change_token.\(zoneID.zoneName).\(dbType)"
-        UserDefaults.standard.removeObject(forKey: tokenKey)
-
-        let cacheService = try CacheService(inMemory: true)
-        let coordinator = AppSyncCoordinator()
-        let engine = SyncEngine(
-            cloudKit: cloudKit,
-            cacheService: cacheService,
-            backgroundCache: actor,
-            syncCoordinator: coordinator
-        )
-
-        let box = SyncResultBox()
-        let observer = NotificationCenter.default.addObserver(
-            forName: .syncDidComplete,
-            object: engine,
-            queue: .main
-        ) { _ in box.receivedNotification = true }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
-        coordinator.notifyZoneReset()
-
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !box.receivedNotification, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        #expect(box.receivedNotification == true)
-
-        #expect(try remainingCount(ProfileCache.self, in: bgContainer) == 2)
-        let remaining = try fetchAll(ProfileCache.self, in: bgContainer)
-        let remainingNames = Set(remaining.map(\.recordName))
-        #expect(remainingNames.contains("p_a"))
-        #expect(remainingNames.contains("p_b"))
     }
 }

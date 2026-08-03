@@ -8,359 +8,11 @@
 import CloudKit
 import Foundation
 @testable import LootList
+import Synchronization
 import Testing
 
 @MainActor
 struct QuestServiceTests {
-    private func makeTestData() -> (CloudKitService, Profile, Profile, Family) { // swiftlint:disable:this large_tuple
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
-        let userID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
-
-        let parent = Profile(
-            displayName: "Parent GM",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .guildMaster,
-            iCloudUserID: userID,
-            family: familyRef
-        )
-
-        let hero = Profile(
-            displayName: "Child Hero",
-            avatarClass: .mage,
-            avatarPresetID: "mage_01",
-            role: .hero,
-            iCloudUserID: userID,
-            family: familyRef
-        )
-
-        let family = Family(
-            name: "Test Guild",
-            createdBy: parent.id,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-
-        return (cloudKit, parent, hero, family)
-    }
-
-    @Test
-    func `quest service initialization`() {
-        let (cloudKit, _, _, _) = makeTestData()
-        let xpService = XPService(cloudKit: cloudKit)
-        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
-        #expect(questService.cloudKitReference === cloudKit)
-    }
-
-    @Test
-    func `create quest template model instantiation`() async throws {
-        let (cloudKit, parent, _, family) = makeTestData()
-        let xpService = XPService(cloudKit: cloudKit)
-        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
-
-        let template = try await questService.createTemplate(
-            name: "Clean Room",
-            description: "Tidy up all toys",
-            defaultGold: 5.0,
-            xpReward: 50,
-            schedule: .weeklyFlexible,
-            approvalMode: .parentVerify,
-            createdBy: parent,
-            family: family
-        )
-
-        #expect(template.name == "Clean Room")
-        #expect(template.description == "Tidy up all toys")
-        #expect(template.defaultGold == 5.0)
-        #expect(template.xpReward == 50)
-        #expect(template.scheduleType == .weeklyFlexible)
-        #expect(template.approvalMode == .parentVerify)
-        #expect(template.isActive == true)
-    }
-
-    @Test
-    func `quest schedule types and day properties`() {
-        let specific = QuestSchedule.specificDays
-        let flexible = QuestSchedule.weeklyFlexible
-
-        #expect(specific.displayName == "Specific Days")
-        #expect(flexible.displayName == "Flexible (Any Day)")
-        #expect(specific.requiresSpecificDays == true)
-        #expect(flexible.requiresSpecificDays == false)
-    }
-
-    @Test
-    func `quest error types equatable`() {
-        #expect(QuestServiceError.missingSession == QuestServiceError.missingSession)
-        #expect(QuestServiceError.alreadyCompleted == QuestServiceError.alreadyCompleted)
-        #expect(QuestServiceError.alreadyResolved("e1") == QuestServiceError.alreadyResolved("e1"))
-        #expect(QuestServiceError.alreadyResolved("e1") != QuestServiceError.alreadyResolved("e2"))
-        #expect(QuestServiceError.missingRecord("r1") == QuestServiceError.missingRecord("r1"))
-    }
-
-    @Test
-    func `weekRange is half-open and agrees with WeekMath and TreasuryService`() {
-        let monday = WeekMath.mondayOfWeek(for: Date())
-
-        let questRange = QuestService.weekRange(for: monday)
-        let weekMathRange = WeekMath.weekRange(starting: monday)
-        let treasuryRange = TreasuryService.weekRange(starting: monday)
-
-        #expect(questRange == weekMathRange)
-        #expect(questRange == treasuryRange)
-        #expect(questRange.upperBound.timeIntervalSince(questRange.lowerBound)
-            == Double(AppConstants.Time.secondsInWeek))
-    }
-
-    @Test
-    func `completion at last second of week is included by QuestService`() {
-        let monday = WeekMath.mondayOfWeek(for: Date())
-        let secondsInWeek = TimeInterval(AppConstants.Time.secondsInWeek)
-        let lastSecond = monday.addingTimeInterval(secondsInWeek - 1)
-
-        let questRange = QuestService.weekRange(for: monday)
-
-        #expect(questRange.contains(lastSecond))
-    }
-
-    @Test
-    func `completion at exactly start + secondsInWeek belongs to next week`() {
-        let monday = WeekMath.mondayOfWeek(for: Date())
-        let secondsInWeek = TimeInterval(AppConstants.Time.secondsInWeek)
-        let nextWeekStart = monday.addingTimeInterval(secondsInWeek)
-
-        let questRange = QuestService.weekRange(for: monday)
-        let nextQuestRange = QuestService.weekRange(for: nextWeekStart)
-
-        // Excluded from THIS week (half-open upper bound)...
-        #expect(!questRange.contains(nextWeekStart))
-        // ...and included by the NEXT week's range.
-        #expect(nextQuestRange.contains(nextWeekStart))
-    }
-
-    @Test
-    func `mondayOfWeek is consistent across all callers`() {
-        let now = Date()
-
-        let weekMath = WeekMath.mondayOfWeek(for: now)
-        let weekMathAlias = WeekMath.weekOf(date: now)
-        let quest = QuestService.mondayOfWeek(for: now)
-        let treasury = TreasuryService.mondayOfWeek(for: now)
-
-        #expect(weekMath == weekMathAlias)
-        #expect(weekMath == quest)
-        #expect(weekMath == treasury)
-    }
-
-    @Test
-    func `earnedThisWeek reads gold from cache with zero CloudKit fetches`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        let cache = try CacheService(inMemory: true)
-        let xpService = XPService(cloudKit: cloudKit)
-        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
-        questService.cacheService = cache
-
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        // Use `id: profileID` so profile.id.recordName == "hero1" — the production
-        // cache filters / CK query predicates key off `profile.id.recordName`
-        // (e.g. `$0.completerRecordName == profile.id.recordName`), and the seeded
-        // QuestCompletion.completedBy references `profileID`. They must match.
-        let profile = Profile(
-            displayName: "Hero",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .hero,
-            iCloudUserID: profileID,
-            family: familyRef,
-            id: profileID
-        )
-
-        let monday = WeekMath.mondayOfWeek(for: Date())
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
-        )
-
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 40.0,
-            xpReward: 80,
-            scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
-            approvalMode: .autoApprove,
-            weekOf: monday,
-            createdBy: familyRef,
-            family: familyRef,
-            name: "Cached Quest",
-            id: questID
-        )
-
-        let completion = QuestCompletion(
-            quest: CKRecord.Reference(recordID: questID, action: .none),
-            completedBy: CKRecord.Reference(recordID: profileID, action: .none),
-            approvalMode: .autoApprove,
-            weekOf: monday,
-            family: familyRef
-        )
-
-        cache.upsertQuest(quest)
-        cache.upsertQuestCompletions([completion])
-
-        let earned = try await questService.earnedThisWeek(profile: profile, weekOf: monday)
-
-        // Gold must come from cache (40.0).  If code hit CK instead,
-        // gold would be 0 (empty mockRecords → try? swallows fetch errors).
-        #expect(earned == 40.0)
-    }
-
-    @Test
-    func `earnedThisWeek falls back to CloudKit on cache miss`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        let cache = try CacheService(inMemory: true)
-        let xpService = XPService(cloudKit: cloudKit)
-        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
-        questService.cacheService = cache
-
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        // Use `id: profileID` so profile.id.recordName == "hero1" — the production
-        // CK query predicate is `completedBy == <profile.id>`; the seeded
-        // QuestCompletion.completedBy references `profileID`. They must match.
-        let profile = Profile(
-            displayName: "Hero",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .hero,
-            iCloudUserID: profileID,
-            family: familyRef,
-            id: profileID
-        )
-
-        let monday = WeekMath.mondayOfWeek(for: Date())
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
-        )
-
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 35.0,
-            xpReward: 70,
-            scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
-            approvalMode: .autoApprove,
-            weekOf: monday,
-            createdBy: familyRef,
-            family: familyRef,
-            name: "CK Quest",
-            id: questID
-        )
-
-        let completion = QuestCompletion(
-            quest: CKRecord.Reference(recordID: questID, action: .none),
-            completedBy: CKRecord.Reference(recordID: profileID, action: .none),
-            approvalMode: .autoApprove,
-            weekOf: monday,
-            family: familyRef
-        )
-
-        // Seed CloudKit only — cache is empty (cache-miss scenario).
-        cloudKit.seedMockRecords([quest, completion])
-
-        let earned = try await questService.earnedThisWeek(profile: profile, weekOf: monday)
-
-        // Gold must come from CloudKit fallback (35.0).
-        #expect(earned == 35.0)
-    }
-
-    @MainActor
-    private struct MarkCompleteScaffold {
-        let zoneID: CKRecordZone.ID
-        let cloudKit: CloudKitService
-        let cache: CacheService
-        let questService: QuestService
-        let familyRef: CKRecord.Reference
-        let parent: Profile
-        let hero: Profile
-        let quest: Quest
-        let questRef: CKRecord.Reference
-
-        init(approvalMode: ApprovalMode = .parentVerify) throws {
-            zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-            cloudKit = CloudKitService(zoneID: zoneID)
-            cache = try CacheService(inMemory: true)
-            questService = QuestService(cloudKit: cloudKit, xpService: XPService(cloudKit: cloudKit))
-            questService.cacheService = cache
-
-            familyRef = CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-            )
-            let parentID = CKRecord.ID(recordName: "parent1", zoneID: zoneID)
-            parent = Profile(
-                displayName: "Parent GM",
-                avatarClass: .knight,
-                avatarPresetID: "knight_01",
-                role: .guildMaster,
-                iCloudUserID: parentID,
-                family: familyRef
-            )
-            let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-            hero = Profile(
-                displayName: "Hero",
-                avatarClass: .mage,
-                avatarPresetID: "mage_01",
-                role: .hero,
-                iCloudUserID: heroID,
-                family: familyRef
-            )
-
-            let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-            let templateRef = CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
-            )
-            questRef = CKRecord.Reference(recordID: questID, action: .none)
-            quest = Quest(
-                template: templateRef,
-                assignee: CKRecord.Reference(recordID: heroID, action: .none),
-                goldReward: 10.0,
-                xpReward: 20,
-                scheduleType: .weeklyFlexible,
-                isAllOrNothing: false,
-                approvalMode: approvalMode,
-                weekOf: WeekMath.mondayOfWeek(for: Date()),
-                createdBy: CKRecord.Reference(recordID: parentID, action: .none),
-                family: familyRef,
-                name: "Guard Quest",
-                id: questID
-            )
-        }
-
-        func completion(status: VerificationStatus,
-                        recordName: String = "log1") -> QuestCompletion
-        {
-            var log = QuestCompletion(
-                quest: questRef,
-                completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
-                approvalMode: .parentVerify,
-                weekOf: quest.weekOf,
-                family: familyRef,
-                id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
-            )
-            log.verificationStatus = status
-            return log
-        }
-    }
-
     @Test
     func `markComplete throws alreadyCompleted when cache stale pending but CK verified`() async throws {
         let scaffold = try MarkCompleteScaffold()
@@ -376,212 +28,707 @@ struct QuestServiceTests {
     }
 
     @Test
-    func `markComplete throws alreadyCompleted when cache empty but CK verified`() async throws {
+    func `markComplete with empty cache proceeds without a pre-write CloudKit check`() async throws {
         let scaffold = try MarkCompleteScaffold()
 
-        // Cache deliberately empty (no stale state at all).
-        // CloudKit truth: a verified log for this quest.
+        // CloudKit truth: a verified log for this quest. The cache is empty so
+        // the local gate cannot see it — the pre-write path must NOT query
+        // CloudKit to reconcile (D3). Reconciliation is best-effort and
+        // post-save only, so the local completion proceeds.
         scaffold.cloudKit.seedMockRecords([scaffold.completion(status: .verified)])
 
-        await #expect(throws: QuestServiceError.alreadyCompleted) {
-            try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
-        }
+        let saved = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+
+        #expect(saved.verificationStatus == .pending)
+
+        let logs = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+        #expect(
+            logs.contains { $0.questRecordName == scaffold.quest.id.recordName },
+            "markComplete must write the completion locally without a pre-write CloudKit gate"
+        )
     }
 
     @Test
-    func `markComplete CK truth overrides stale cache rejected log`() async throws {
+    func `markComplete with stale rejected cache proceeds without a pre-write CloudKit check`() async throws {
         let scaffold = try MarkCompleteScaffold()
 
+        // A rejected log in cache does not count toward the target, and the
+        // pre-write path must not reconcile against CloudKit (D3) — so the
+        // completion proceeds and a fresh log is written.
         scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
         scaffold.cloudKit.seedMockRecords([scaffold.completion(status: .pending)])
 
-        await #expect(throws: QuestServiceError.alreadyCompleted) {
+        _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+
+        let logs = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+            .filter { $0.questRecordName == scaffold.quest.id.recordName }
+        #expect(
+            logs.count == 2,
+            "Rejected log (not counted) + new completion = 2 logs for the quest"
+        )
+    }
+
+    @Test
+    func `markComplete double tap is gated by the local in-flight guard`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = GatedCloudKitService(zoneID: zoneID)
+        let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
+
+        // A rejected log keeps the local alreadyCompleted check below the
+        // target; the pre-write cache read is strictly local (D3).
+        scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
+
+        // First tap: parks inside cloudKit.save while the guard is active.
+        // Capture Sendable values only (the scaffold struct itself is not).
+        let service = scaffold.questService
+        let quest = scaffold.quest
+        let hero = scaffold.hero
+        let first = Task { try await service.markComplete(quest: quest, by: hero) }
+        // Explicitly wait until the first tap enters park inside cloudKit.save.
+        await cloudKit.waitForParked(count: 1)
+
+        // Second tap while the first save is in flight: local no-op, no write.
+        await #expect(throws: QuestServiceError.alreadyInFlight) {
             try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
         }
+
+        // Release the first save; it completes normally.
+        cloudKit.releaseSaves()
+        _ = try await first.value
+
+        // Exactly one new completion was written (rejected seed + one new).
+        let logs = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+            .filter { $0.questRecordName == scaffold.quest.id.recordName }
+        #expect(
+            logs.count == 2,
+            "First tap wrote one completion; the guarded second tap must not write a duplicate"
+        )
     }
 
     @Test
-    func `fetchActiveQuests makes zero CloudKit save calls`() async throws {
+    func `markComplete performs no CloudKit read before the save`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        let cache = try CacheService(inMemory: true)
-        let xpService = XPService(cloudKit: cloudKit)
-        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
-        questService.cacheService = cache
+        let cloudKit = GatedCloudKitService(zoneID: zoneID)
+        let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
 
-        cloudKit.activeFamilyZoneID = zoneID
+        // Seed a rejected log so the cache-first check is below target without
+        // any CloudKit read.
+        scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        // Use `id: profileID` so profile.id.recordName == "hero1" — fetchActiveQuests
-        // issues the CK query `assignee == <profile.id>`; the seeded Quest.assignee
-        let profile = Profile(
-            displayName: "Hero",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .hero,
-            iCloudUserID: profileID,
-            family: familyRef,
-            id: profileID
+        // Capture Sendable values only (the scaffold struct itself is not).
+        let service = scaffold.questService
+        let quest = scaffold.quest
+        let hero = scaffold.hero
+        let first = Task { try await service.markComplete(quest: quest, by: hero) }
+        // Explicitly wait until the first tap enters park inside cloudKit.save.
+        await cloudKit.waitForParked(count: 1)
+
+        // While the save is in flight, zero CloudKit reads have occurred — the
+        // pre-write critical path is fully local (D3).
+        #expect(
+            cloudKit.readCallCount == 0,
+            "markComplete must not query/fetch CloudKit before the save"
         )
 
-        let monday = WeekMath.mondayOfWeek(for: Date())
-        let templateID = CKRecord.ID(recordName: "tmpl1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(recordID: templateID, action: .none)
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-
-        // Seed template in CK (needed by stampNameIfNeeded to resolve the name).
-        let template = QuestTemplate(
-            name: "Clean Room",
-            description: "Tidy up",
-            defaultGold: 5.0,
-            xpReward: 50,
-            scheduleType: .weeklyFlexible,
-            createdBy: familyRef,
-            family: familyRef,
-            id: templateID
+        cloudKit.releaseSaves()
+        _ = try await first.value
+        // The post-save cache read is served from cache once the family's
+        // completion cache is stamped fresh (TASK-004 watermark).
+        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        let writtenLogs = try await scaffold.questService.fetchQuestLogs(
+            forQuest: scaffold.quest,
+            useCache: true
         )
-
-        // Seed quest with nil name in CK (NOT in cache — forces the CK path).
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 10.0,
-            xpReward: 20,
-            scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
-            approvalMode: .autoApprove,
-            weekOf: monday,
-            createdBy: familyRef,
-            family: familyRef,
-            name: nil,
-            id: questID
+        #expect(
+            writtenLogs.count >= 1,
+            "markComplete must still write the completion"
         )
-
-        cloudKit.seedMockRecords([template, quest])
-
-        // Confirm: quest starts with nil name in CK.
-        let before = try await cloudKit.fetch(Quest.self, id: questID)
-        #expect(before.name == nil, "Precondition: quest must start with nil name")
-
-        // Act — cache is empty so this takes the CK query path.
-        let results = try await questService.fetchActiveQuests(profile: profile, weekOf: monday)
-        #expect(!results.isEmpty, "Should return the quest from CK")
-
-        // If stampNameIfNeeded called cloudKit.save, the name would be stamped.
-        let after = try await cloudKit.fetch(Quest.self, id: questID)
-        #expect(after.name == nil,
-                "fetchActiveQuests must NOT save to CloudKit — name backfill belongs in the launch migration")
     }
 
     @Test
-    func `questNameBackfillV1 saves quests with missing names to CloudKit`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.activeFamilyZoneID = zoneID
-
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-
-        let templateID = CKRecord.ID(recordName: "tmpl1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(recordID: templateID, action: .none)
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-
-        // Seed template with a known name.
-        let template = QuestTemplate(
-            name: "Clean Room",
-            description: "Tidy up",
-            defaultGold: 5.0,
-            xpReward: 50,
-            scheduleType: .weeklyFlexible,
-            createdBy: familyRef,
-            family: familyRef,
-            id: templateID
-        )
-
-        // Seed quest with nil name.
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
-            ),
-            goldReward: 10.0,
-            xpReward: 20,
-            scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
+    func `over-completion beyond targetCount grants zero additional XP`() async throws {
+        // targetCount=2 quest whose bounty has already been fully earned by
+        // two auto-approved completions on the server ("another device"). This
+        // device's cache is stale (empty), so the strictly-local D3 guard lets
+        // a third completion through; the post-save reward step must cap XP so
+        // the third completion mints no additional XP.
+        let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            weekOf: WeekMath.mondayOfWeek(for: Date()),
-            createdBy: familyRef,
-            family: familyRef,
-            name: nil,
-            id: questID
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 2
         )
 
-        cloudKit.seedMockRecords([template, quest])
+        // No freshness stamp: applyReward's post-save read must fall through
+        // to CloudKit (stale cache = other-device completions invisible
+        // locally).
+        scaffold.cache.invalidateFreshness(familyRecordName: "fam1", type: .questCompletion)
+        scaffold.cloudKit.seedMockRecords([
+            scaffold.completion(status: .autoApproved, recordName: "log1"),
+            scaffold.completion(status: .autoApproved, recordName: "log2")
+        ])
 
-        // Act — run the migration step directly.
-        let step = DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit)
-        try await step.run()
+        // Hero has already earned the full 100 XP bounty (2 x 50 prorated).
+        var hero = scaffold.hero
+        hero.xp = 100
+        hero.level = 2
+        scaffold.cache.upsertProfile(hero)
+        scaffold.cloudKit.seedMockRecords([hero])
 
-        let saved = try await cloudKit.fetch(Quest.self, id: questID)
-        #expect(saved.name == "Clean Room",
-                "Migration must backfill nil quest names from the template")
+        _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+
+        // Third approval is beyond targetCount → zero additional XP.
+        let cached = scaffold.cache.fetchProfile(recordName: scaffold.hero.id.recordName)
+        #expect(
+            cached?.xpTotal == 100,
+            "Over-completion beyond targetCount must not mint duplicate XP"
+        )
     }
 
     @Test
-    func `questNameBackfillV1 is idempotent on already-backfilled store`() async throws {
+    func `legitimate single completion grants full XP reward unchanged`() async throws {
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            goldReward: 10.0,
+            xpReward: 50,
+            targetCount: 1
+        )
+        scaffold.cache.invalidateFreshness(familyRecordName: "fam1", type: .questCompletion)
+
+        var hero = scaffold.hero
+        hero.xp = 0
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+
+        _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+
+        // A legitimate first completion of a targetCount=1 quest grants the
+        // full XP reward — unchanged from pre-remediation behavior.
+        let cached = scaffold.cache.fetchProfile(recordName: scaffold.hero.id.recordName)
+        #expect(
+            cached?.xpTotal == 50,
+            "A legitimate completion of a targetCount=1 quest must grant the full XP reward"
+        )
+    }
+
+    @Test
+    func `mid-target completion grants only the prorated marginal XP`() async throws {
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            goldReward: 30.0,
+            xpReward: 100,
+            targetCount: 3
+        )
+        scaffold.cache.invalidateFreshness(familyRecordName: "fam1", type: .questCompletion)
+
+        // One legitimate auto-approved completion already on the server; the
+        // hero earned its prorated 33 XP (100 / 3).
+        scaffold.cloudKit.seedMockRecords([
+            scaffold.completion(status: .autoApproved, recordName: "log1")
+        ])
+
+        var hero = scaffold.hero
+        hero.xp = 33
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+        scaffold.cloudKit.seedMockRecords([hero])
+
+        _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
+
+        // Second approved completion → cumulative credit 66 (100/3 * 2), so
+        // the marginal grant is 66 - 33 = 33 — never the full 100.
+        let cached = scaffold.cache.fetchProfile(recordName: scaffold.hero.id.recordName)
+        #expect(
+            cached?.xpTotal == 66,
+            "Mid-target completion must grant only the prorated marginal XP"
+        )
+    }
+
+    @Test
+    func `concurrent cross-device completions of a targetCount=1 quest cannot mint more than one XP bounty`() async throws {
+        // Two devices share the family's CloudKit zone but keep SEPARATE local
+        // state — no shared UserDefaults ledger exists anymore. The XP credit
+        // ledger lives on CloudKit records (`Quest.xpBanked` +
+        // `QuestCompletion.xpCredited`), so the SHARED CloudKit mock IS the
+        // shared source of truth: device B's reward step must see device A's
+        // banked total through the shared quest record even though B's
+        // post-save recount — a FRESH cache that serves only the local log,
+        // the finding's exact vector — never shows logA.
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.activeFamilyZoneID = zoneID
 
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        let deviceA = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+        let deviceB = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
         )
 
-        let templateID = CKRecord.ID(recordName: "tmpl1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(recordID: templateID, action: .none)
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        // Both devices have a synced hero (0 XP) and a fresh completion cache,
+        // so each post-save recount serves ONLY that device's own just-saved
+        // completion. The shared mock holds the quest record — the ledger.
+        // `hero1` is the same record on both devices (see MarkCompleteScaffold),
+        // so a single seed covers every device's hero fetch.
+        var hero = deviceA.hero
+        hero.xp = 0
+        hero.level = 1
+        cloudKit.seedMockRecords([deviceA.quest, hero])
+        deviceA.cache.upsertProfile(hero)
+        deviceB.cache.upsertProfile(hero)
+        deviceA.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
+        // Device A completes the quest → logA auto-approves and banks 100 XP
+        // on the shared quest record.
+        let logA = try await deviceA.questService.markComplete(quest: deviceA.quest, by: deviceA.hero)
+
+        // Device B completes the same quest. Its reward step resolves the
+        // authoritative quest from the shared mock and sees A's 100 XP banked,
+        // so B's marginal is capped to zero — no second bounty minted.
+        let logB = try await deviceB.questService.markComplete(quest: deviceB.quest, by: deviceB.hero)
+
+        // Shared CloudKit truth: the hero earned exactly one 100 XP bounty.
+        let finalHero = try await cloudKit.fetch(Profile.self, id: deviceB.hero.id)
+        #expect(
+            finalHero.xp == 100,
+            "Two concurrent completions of a targetCount=1 quest must not mint more than 1× XP bounty"
+        )
+
+        // The per-quest banked total on the shared record is exactly one bounty.
+        let finalQuest = try await cloudKit.fetch(Quest.self, id: deviceA.quest.id)
+        #expect(
+            finalQuest.xpBanked == 100,
+            "Quest.xpBanked must hold exactly one XP bounty"
+        )
+
+        // Per-record idempotency markers: logA settled with 100, logB with 0.
+        let stampedA = try await cloudKit.fetch(QuestCompletion.self, id: logA.id)
+        let stampedB = try await cloudKit.fetch(QuestCompletion.self, id: logB.id)
+        #expect(stampedA.xpCredited == 100)
+        #expect(stampedB.xpCredited == 0)
+    }
+
+    @Test
+    func `marginalXPCredit caps each grant at the remaining bounty`() throws {
+        // targetCount=1 quest with a 100 XP bounty.
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+        let quest = scaffold.quest
+
+        // No credit banked: the first (apparent) approval grants the full bounty.
+        #expect(GoldCalculation.marginalXPCredit(for: quest, approvedCount: 1, alreadyCredited: 0) == 100)
+        // Bounty fully banked: a concurrent completion whose recount only sees
+        // itself (approvedCount 1) is capped to zero.
+        #expect(GoldCalculation.marginalXPCredit(for: quest, approvedCount: 1, alreadyCredited: 100) == 0)
+        // A recount that sees both completions (approvedCount 2) is also zero.
+        #expect(GoldCalculation.marginalXPCredit(for: quest, approvedCount: 2, alreadyCredited: 100) == 0)
+    }
+
+    @Test
+    func `marginalXPCredit grants only the prorated marginal for mid-target completions`() throws {
+        // targetCount=3 quest with a 100 XP bounty.
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            goldReward: 30.0,
+            xpReward: 100,
+            targetCount: 3
+        )
+        let quest = scaffold.quest
+
+        // First approval: 33 XP (100/3).
+        #expect(GoldCalculation.marginalXPCredit(for: quest, approvedCount: 1, alreadyCredited: 0) == 33)
+        // Second approval after 33 banked: marginal 33, remaining 33.
+        #expect(GoldCalculation.marginalXPCredit(for: quest, approvedCount: 2, alreadyCredited: 33) == 33)
+        // Re-run of an already-credited record: remaining is 0 → nothing more.
+        #expect(GoldCalculation.marginalXPCredit(for: quest, approvedCount: 2, alreadyCredited: 66) == 0)
+    }
+
+    @Test
+    func `completion whose xpCredited is already set is not re-rewarded`() async throws {
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+        scaffold.cache.invalidateFreshness(familyRecordName: "fam1", type: .questCompletion)
+
+        var hero = scaffold.hero
+        hero.xp = 0
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+        scaffold.cloudKit.seedMockRecords([scaffold.quest, hero])
+
+        let log = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+
+        // First pass banks the full bounty and stamps the per-record marker.
+        let stamped = try await scaffold.cloudKit.fetch(QuestCompletion.self, id: log.id)
+        #expect(
+            stamped.xpCredited == 100,
+            "The reward step must persist the per-record xpCredited marker"
+        )
+
+        // Re-run the reward step with the settled completion: xpCredited is
+        // already set, so zero additional XP is granted.
+        let quest = try await scaffold.cloudKit.fetch(Quest.self, id: scaffold.quest.id)
+        let reRunGold = try await scaffold.questService.applyReward(
+            for: quest,
+            to: hero,
+            completion: stamped
+        )
+
+        // Gold credit is still derived independently (count-capped), but XP is
+        // untouched.
+        #expect(reRunGold == 100.0)
+        let finalHero = try await scaffold.cloudKit.fetch(Profile.self, id: hero.id)
+        #expect(
+            finalHero.xp == 100,
+            "A completion whose xpCredited is already set must not be re-rewarded"
+        )
+        let finalQuest = try await scaffold.cloudKit.fetch(Quest.self, id: scaffold.quest.id)
+        #expect(finalQuest.xpBanked == 100, "The banked total must not advance on a re-run")
+    }
+
+    @Test
+    func `quest xpBanked is stamped on CloudKit and synced into QuestCache`() async throws {
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+        scaffold.cache.invalidateFreshness(familyRecordName: "fam1", type: .questCompletion)
+
+        var hero = scaffold.hero
+        hero.xp = 0
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+        scaffold.cloudKit.seedMockRecords([scaffold.quest, hero])
+
+        _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+
+        // CloudKit: the server-authoritative banked total is stamped on the
+        // quest record.
+        let quest = try await scaffold.cloudKit.fetch(Quest.self, id: scaffold.quest.id)
+        #expect(
+            quest.xpBanked == 100,
+            "Quest.xpBanked must be stamped on the CloudKit record after rewarding"
+        )
+
+        // Local cache: the reward step's post-save upsert propagated xpBanked
+        // into the SwiftData cache row, and toQuest round-trips it.
+        let cached = try #require(
+            scaffold.cache.fetchQuests(family: "fam1")
+                .first { $0.recordName == scaffold.quest.id.recordName }
+        )
+        #expect(cached.xpBanked == 100)
+        #expect(cached.toQuest(zoneID: scaffold.zoneID).xpBanked == 100)
+    }
+
+    @Test
+    func `quest bank write-back retries on serverRecordChanged and caps the grant`() async throws {
+        // The shared CloudKit mock rejects the second Quest save with
+        // `serverRecordChanged` — the change-tag CAS conflict the production
+        // server raises when device A's banked write lands before device B's.
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = OneShotQuestConflictCloudKitService(zoneID: zoneID)
+
+        let deviceA = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+        let deviceB = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+
+        // Both devices see the same `hero1` record (see MarkCompleteScaffold),
+        // so a single seed covers every device's hero fetch.
+        var hero = deviceA.hero
+        hero.xp = 0
+        hero.level = 1
+        cloudKit.seedMockRecords([deviceA.quest, hero])
+        deviceA.cache.upsertProfile(hero)
+        deviceB.cache.upsertProfile(hero)
+        deviceA.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+
+        // Device A banks the full bounty: quest.xpBanked 0 → 100 (quest save 1).
+        _ = try await deviceA.questService.markComplete(quest: deviceA.quest, by: deviceA.hero)
+
+        // Device B's quest cache is FRESH but predates A's bank — a stale
+        // xpBanked=0 snapshot, exactly the race window. Its reward step trusts
+        // the cache, attempts to bank 100 (quest save 2), and is rejected with
+        // serverRecordChanged. The CAS retry re-fetches the authoritative quest,
+        // recomputes the marginal against A's 100, and grants zero.
+        deviceB.cache.upsertQuest(deviceB.quest)
+        deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        _ = try await deviceB.questService.markComplete(quest: deviceB.quest, by: deviceB.hero)
+
+        // Exactly one bounty minted, despite the stale fresh cache.
+        let finalHero = try await cloudKit.fetch(Profile.self, id: deviceA.hero.id)
+        #expect(
+            finalHero.xp == 100,
+            "The CAS retry must not mint a second XP bounty"
+        )
+        let finalQuest = try await cloudKit.fetch(Quest.self, id: deviceA.quest.id)
+        #expect(
+            finalQuest.xpBanked == 100,
+            "The CAS retry must not inflate the banked total"
+        )
+    }
+
+    // MARK: - Review remediation: capped vs exhausted CAS (Finding 1)
+
+    @Test
+    func `a completion that loses the CAS race is not permanently settled - xpCredited stays nil`() async throws {
+        // Sustained contention: every `Quest` save is rejected with
+        // `serverRecordChanged`, so `bankXP`'s bounded retry loop exhausts
+        // without ever settling. The completion must NOT be permanently marked
+        // "rewarded zero" — its `xpCredited` stays `nil` so a future reward-step
+        // re-run can retry the CAS, rather than being silently suppressed.
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = AlwaysConflictQuestCloudKitService(zoneID: zoneID)
+
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+
+        var hero = scaffold.hero
+        hero.xp = 0
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([scaffold.quest, hero])
+        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+
+        // The completion-save itself (a QuestCompletion) succeeds; only the
+        // Quest xpBanked write-back is refused, exhausting the CAS retry loop.
+        let saved = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
+
+        // xpCredited must remain nil — the completion is still owed XP and is
+        // re-grantable; a permanent `0` stamp would silently suppress it.
+        let stamped = try await cloudKit.fetch(QuestCompletion.self, id: saved.id)
+        #expect(
+            stamped.xpCredited == nil,
+            "A completion that lost the CAS race must keep xpCredited nil (re-grantable), not be stamped 0"
+        )
+
+        // No XP was banked on the quest either — the write-back never settled.
+        let finalQuest = try await cloudKit.fetch(Quest.self, id: scaffold.quest.id)
+        #expect(
+            finalQuest.xpBanked == 0,
+            "No XP must be banked when the CAS write-back never settled"
+        )
+
+        // And the hero received no XP.
+        let finalHero = try await cloudKit.fetch(Profile.self, id: hero.id)
+        #expect(
+            finalHero.xp == 0,
+            "The hero must not receive XP when the CAS write-back never settled"
+        )
+    }
+
+    @Test
+    func `a legitimately capped completion stamps xpCredited to zero`() async throws {
+        // The bounty is already fully banked on the server (xpBanked == bounty),
+        // so `marginalXPCredit` returns 0 on iteration 1. This is a legitimate
+        // cap — the completion owes nothing — and must stamp `xpCredited = 0`
+        // so a re-run does not retry the CAS.
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+
+        let deviceA = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+        let deviceB = try MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
+        )
+
+        var hero = deviceA.hero
+        hero.xp = 0
+        hero.level = 1
+        cloudKit.seedMockRecords([deviceA.quest, hero])
+        deviceA.cache.upsertProfile(hero)
+        deviceB.cache.upsertProfile(hero)
+        deviceA.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+
+        // Device A banks the full bounty → xpBanked 0 → 100.
+        _ = try await deviceA.questService.markComplete(quest: deviceA.quest, by: deviceA.hero)
+
+        // Device B's reward step resolves the authoritative quest (now 100
+        // banked), sees remaining == 0 on iteration 1, and legitimately stamps 0.
+        let logB = try await deviceB.questService.markComplete(quest: deviceB.quest, by: deviceB.hero)
+
+        let stampedB = try await cloudKit.fetch(QuestCompletion.self, id: logB.id)
+        #expect(
+            stampedB.xpCredited == 0,
+            "A legitimately capped completion must stamp xpCredited = 0"
+        )
+
+        // The banked total stays at one bounty — B's cap did not mint anything.
+        let finalQuest = try await cloudKit.fetch(Quest.self, id: deviceA.quest.id)
+        #expect(
+            finalQuest.xpBanked == 100,
+            "A legitimately capped completion must not advance the banked total"
+        )
+    }
+
+    // MARK: - Review remediation: cache-hit read path issues ZERO CloudKit fetches (Finding 3)
+
+    @Test
+    func `fetchActiveQuests cache-hit issues zero CloudKit fetches when cached quests have nil names`() async throws {
+        // A fresh cache with legacy quests whose name is nil. The cache-hit read
+        // path must serve these without any per-template CloudKit fetch; the
+        // displayName fallback gives a usable title until the write-through stamp
+        // arrives.
+        let scaffold = try MarkCompleteScaffold()
+        let zoneID = scaffold.zoneID
+        let cloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
+
+        // Seed a template so the displayName fallback can derive a title, but
+        // do NOT seed a Quest record — cache will hold the nameless row.
         let template = QuestTemplate(
-            name: "Clean Room",
-            description: "Tidy up",
-            defaultGold: 5.0,
-            xpReward: 50,
-            scheduleType: .weeklyFlexible,
-            createdBy: familyRef,
-            family: familyRef,
-            id: templateID
-        )
-
-        // Quest already has a name — migration should skip it.
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
-            ),
-            goldReward: 10.0,
+            name: "Active Template",
+            description: "desc",
+            defaultGold: 10,
             xpReward: 20,
             scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
+            specificDays: [],
+            targetCount: 1,
+            createdBy: CKRecord.Reference(recordID: scaffold.parent.id, action: .none),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID)
+        )
+        cloudKit.seedMockRecords([template])
+
+        // Build a quest whose name is nil (legacy row) and write it straight into
+        // the local cache by hand, bypassing the CloudKit save path.
+        var quest = scaffold.quest
+        quest.name = nil
+        scaffold.cache.upsertQuest(quest)
+        scaffold.cache.markCacheFresh(familyRecordName: scaffold.familyRef.recordID.recordName, type: .quest)
+
+        // Reset the CloudKit read counter after the template seed.
+        cloudKit.readCallCount = 0
+
+        // Build a QuestService wired to the counting CloudKit double. Do NOT
+        // touch CloudKit on the cache-hit branch — the read counter will catch
+        // any ad-hoc fetch.
+        let service = QuestService(
+            cloudKit: cloudKit,
+            xpService: XPService(cloudKit: cloudKit)
+        )
+        service.cacheService = scaffold.cache
+
+        let hero = scaffold.hero
+        let weekOf = WeekMath.mondayOfWeek(for: Date())
+        let results = try await service.fetchActiveQuests(profile: hero, weekOf: weekOf)
+
+        // The read must be served from cache with the legacy displayName fallback.
+        let served = try #require(
+            results.first(where: { $0.id.recordName == quest.id.recordName }),
+            "The cache-hit path must return the nameless quest"
+        )
+        #expect(
+            served.displayName.contains("tmpl"),
+            "A nil-name quest on a cache-hit should use the legacy template-id displayName fallback"
+        )
+        // Zero CloudKit reads issued on the cache-hit path.
+        #expect(
+            cloudKit.readCallCount == 0,
+            "fetchActiveQuests must issue ZERO CloudKit reads on a fresh-cache hit, even when quests have nil names"
+        )
+    }
+
+    // MARK: - Review remediation: in-flight registry namespacing (Finding 4)
+
+    @Test
+    func `reward step does not prematurely de-register a concurrent quest edit in-flight`() async throws {
+        // A quest-edit optimistic write registers the bare quest recordName.
+        // While it is still in flight, `bankXP` runs and registers/deregisters
+        // its own namespaced key (`"xpBank:<recordName>"`). The reward step's
+        // deregister must NOT remove the quest-edit's entry, so the quest row
+        // stays guarded for the still-pending edit.
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+
+        let scaffold = try MarkCompleteScaffold(
             approvalMode: .autoApprove,
-            weekOf: WeekMath.mondayOfWeek(for: Date()),
-            createdBy: familyRef,
-            family: familyRef,
-            name: "Already Named",
-            id: questID
+            cloudKitOverride: cloudKit,
+            goldReward: 100.0,
+            xpReward: 100,
+            targetCount: 1
         )
 
-        cloudKit.seedMockRecords([template, quest])
+        var hero = scaffold.hero
+        hero.xp = 0
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([scaffold.quest, hero])
+        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
-        // Act — run migration; should be a no-op.
-        let step = DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit)
-        try await step.run()
+        let registry = scaffold.cache.inFlightRegistry
+        let questRecordName = scaffold.quest.id.recordName
 
-        let fetched = try await cloudKit.fetch(Quest.self, id: questID)
-        #expect(fetched.name == "Already Named",
-                "Migration must not overwrite existing names")
+        // Baseline: nothing in flight yet.
+        #expect(await registry.contains(questRecordName) == false)
+
+        // Simulate a quest-edit optimistic window opening (the `updateQuest`
+        // path registers the bare recordName before its `cloudKit.save`).
+        await registry.register(questRecordName)
+        #expect(await registry.contains(questRecordName))
+
+        // The reward step runs and banks XP via `bankXP`, which registers and
+        // deregisters its own namespaced key `"xpBank:<recordName>"`.
+        _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
+
+        // The quest-edit's in-flight entry must STILL be active — `bankXP`'s
+        // deregister of `"xpBank:<recordName>"` must not have removed the bare
+        // quest-edit entry. Before the namespacing fix, both shared the same
+        // key (`recordName`) and `bankXP`'s deregister would have stripped the
+        // quest-edit's guard here; now the namespaced key isolates them.
+        #expect(
+            await registry.contains(questRecordName),
+            "A concurrent quest-edit in-flight entry must not be de-registered by the reward step"
+        )
+
+        // The simulated quest-edit settle: now deregistering the bare entry
+        // (as `updateQuest` would once its save settles) clears the recordName
+        // from the in-flight set. This proves the reward step left the quest-edit
+        // entry intact and undisrupted — the registry is empty afterwards.
+        await registry.deregister(questRecordName)
+        #expect(await registry.contains(questRecordName) == false)
+        #expect(await registry.activeRecordNames().isEmpty)
     }
 }

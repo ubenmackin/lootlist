@@ -68,9 +68,10 @@ final class ManualSpendingService: SpendingService {
     {
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: profile.family.recordID.recordName)
+            let familyName = profile.family.recordID.recordName
+            let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if !filtered.isEmpty {
+            if !filtered.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
                 let zoneID = cloudKit.resolvedZoneID
                 return filtered.map { cacheRow in
                     LedgerEntry(
@@ -123,11 +124,16 @@ final class ManualSpendingService: SpendingService {
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertLedgerEntry(entry)
         do {
             let zoneID = cloudKit.resolvedZoneID
             let saved = try await cloudKit.save(entry, in: zoneID)
             cacheService?.upsertLedgerEntry(saved)
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -154,6 +160,7 @@ final class ManualSpendingService: SpendingService {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw error
         }
     }
@@ -166,9 +173,14 @@ final class ManualSpendingService: SpendingService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.invalidateLedgerEntry(recordName: name)
         do {
             try await cloudKit.delete(entry.id)
+            await registry?.deregister(name)
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
@@ -196,6 +208,7 @@ final class ManualSpendingService: SpendingService {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw error
         }
     }

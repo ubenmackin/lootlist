@@ -358,6 +358,7 @@ extension QuestServiceError: LocalizedError {
         switch self {
         case .missingSession: "Sign in to iCloud to continue."
         case .alreadyCompleted: "This quest has already been completed."
+        case .alreadyInFlight: "This quest is already being completed."
         case let .alreadyResolved(status): "This quest is already \(status)."
         case let .missingRecord(status): "A required record could not be loaded: \(status)"
         }

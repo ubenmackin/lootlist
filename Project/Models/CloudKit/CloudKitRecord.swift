@@ -8,7 +8,7 @@
 import CloudKit
 import Foundation
 
-protocol CloudKitRecord {
+protocol CloudKitRecord: Sendable {
     static var recordType: String { get }
 
     init(record: CKRecord) throws
