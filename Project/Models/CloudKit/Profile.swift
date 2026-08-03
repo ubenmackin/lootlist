@@ -31,6 +31,7 @@ struct Profile: Identifiable, Equatable, Sendable {
 
     var isActive: Bool
     var payoutPolicy: PayoutPolicy
+    var payoutDay: PayoutDay?
 
     var effectiveClassDisplay: String {
         if let avatarClass {
@@ -86,6 +87,14 @@ struct Profile: Identifiable, Equatable, Sendable {
         } else {
             payoutPolicy = .perQuest
         }
+
+        if let rawDay: String = record.extractOptional("payoutDay"),
+           let day = PayoutDay(rawValue: rawDay)
+        {
+            payoutDay = day
+        } else {
+            payoutDay = nil
+        }
     }
 
     func toRecord() -> CKRecord {
@@ -113,6 +122,11 @@ struct Profile: Identifiable, Equatable, Sendable {
         record["family"] = family as CKRecordValue
         record["isActive"] = isActive as CKRecordValue
         record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
+        if let payoutDay {
+            record["payoutDay"] = payoutDay.rawValue as CKRecordValue
+        } else {
+            record["payoutDay"] = nil
+        }
         return record
     }
 
@@ -124,6 +138,7 @@ struct Profile: Identifiable, Equatable, Sendable {
          iCloudUserID: CKRecord.ID,
          family: CKRecord.Reference,
          payoutPolicy: PayoutPolicy = .perQuest,
+         payoutDay: PayoutDay? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -138,6 +153,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         self.family = family
         isActive = true
         self.payoutPolicy = payoutPolicy
+        self.payoutDay = payoutDay
     }
 }
 

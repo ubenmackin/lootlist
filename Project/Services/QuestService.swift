@@ -30,6 +30,7 @@ final class QuestService {
     let notificationService: NotificationService?
 
     var cacheService: CacheService?
+    var treasuryService: TreasuryService?
 
     var toastManager: ToastManager?
 
@@ -205,7 +206,9 @@ final class QuestService {
                      createdBy: Profile,
                      family: Family) async throws -> Quest
     {
-        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
+        let payoutDay = assignee.payoutDay ?? family.payoutDay
+        let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
+
         let questName = nameOverride.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
             ?? template.name
         let quest = Quest(
@@ -318,7 +321,9 @@ final class QuestService {
         )
         _ = try await deactivateTemplate(adhocTemplate)
 
-        let normalizedWeek = QuestService.mondayOfWeek(for: weekOf)
+        let payoutDay = assignee.payoutDay ?? family.payoutDay
+        let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
+
         let quest = Quest(
             template: CKRecord.Reference(recordID: adhocTemplate.id, action: .none),
             assignee: CKRecord.Reference(recordID: assignee.id, action: .none),
@@ -404,7 +409,7 @@ final class QuestService {
     /// CloudKit query to hydrate. Background ongoing refresh handled by
     /// SyncEngine via push notifications.
     func fetchActiveQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
-        let range = QuestService.weekRange(for: weekOf)
+        let range = QuestService.weekRange(for: weekOf, payoutDay: effectivePayoutDay(for: profile))
 
         // Cache-first: check local cache
         if let cache = cacheService {
@@ -431,7 +436,7 @@ final class QuestService {
     /// CloudKit query to hydrate. Background ongoing refresh handled by
     /// SyncEngine via push notifications.
     func fetchQuestsForFamilyWeek(family: Family, weekOf: Date) async throws -> [Quest] {
-        let range = QuestService.weekRange(for: weekOf)
+        let range = QuestService.weekRange(for: weekOf, payoutDay: family.payoutDay)
 
         if let cache = cacheService {
             let familyName = family.id.recordName
@@ -561,12 +566,36 @@ final class QuestService {
         }
     }
 
+    static func startOfWeek(for date: Date, payoutDay: PayoutDay = .sunday) -> Date {
+        WeekMath.startOfWeek(for: date, payoutDay: payoutDay)
+    }
+
     static func mondayOfWeek(for date: Date) -> Date {
         WeekMath.mondayOfWeek(for: date)
     }
 
-    static func weekRange(for date: Date) -> Range<Date> {
-        WeekMath.weekRange(starting: mondayOfWeek(for: date))
+    static func weekRange(for date: Date, payoutDay: PayoutDay = .sunday) -> Range<Date> {
+        WeekMath.weekRange(starting: startOfWeek(for: date, payoutDay: payoutDay))
+    }
+
+    /// Resolves the effective payout day a profile's quests bucket by: the
+    /// profile's own override wins, then the family's configured payout day
+    /// (read from the local cache when present), falling back to the
+    /// backward-compatible Sunday default when unknown. Mirrors the write-path
+    /// normalization in `assignQuest`/`assignQuickQuest` so reads bucket by the
+    /// same cycle the stored `weekOf` values were normalized to.
+    func effectivePayoutDay(for profile: Profile) -> PayoutDay {
+        if let profilePayoutDay = profile.payoutDay {
+            return profilePayoutDay
+        }
+        let familyRecordName = profile.family.recordID.recordName
+        if !familyRecordName.isEmpty,
+           let familyCache = cacheService?.fetchFamily(recordName: familyRecordName),
+           let familyPayoutDay = familyCache.payoutDayEnum
+        {
+            return familyPayoutDay
+        }
+        return .sunday
     }
 
     private func weekdayCodes(inWeekOf weekOf: Date) -> Set<String> {

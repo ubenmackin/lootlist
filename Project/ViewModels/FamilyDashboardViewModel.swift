@@ -79,9 +79,7 @@ final class FamilyDashboardViewModel {
     ) {
         let familyName = appState.family?.id.recordName
 
-        let weekOf = WeekMath.weekOf(date: Date())
-        let monday = WeekMath.mondayOfWeek(for: weekOf)
-        let weekRange = WeekMath.weekRange(starting: monday)
+        let familyPayoutDay = appState.family?.payoutDay ?? .sunday
         let active = profiles.filter(\.isActive)
         let computedHeroes = active
             .filter { $0.roleEnum == .hero }
@@ -94,23 +92,26 @@ final class FamilyDashboardViewModel {
         heroSummaries.reserveCapacity(computedHeroes.count)
 
         for hero in computedHeroes {
-            let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && $0.weekOf == weekOf }
-            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && $0.weekOf == weekOf }
+            let heroPayoutDay = hero.payoutDayEnum ?? familyPayoutDay
+            let heroWeekOf = WeekMath.startOfWeek(for: Date(), payoutDay: heroPayoutDay)
+            let heroWeekRange = WeekMath.weekRange(starting: heroWeekOf)
+
+            let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
+
+            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && (heroWeekRange.contains($0.weekOf) || heroWeekRange.contains($0.completedDate)) }
+
             let completed = heroLogs.filter {
                 $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
             }
 
-            let weekLogs = logs.filter {
-                $0.completerRecordName == hero.recordName && weekRange.contains($0.weekOf)
-            }
-            let completedLogs = weekLogs.filter {
-                $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
-            }
+            let weekLogs = heroLogs
+            let completedLogs = completed
             var goldFromQuests = GoldCalculation.totalGold(for: quests, approvedLogs: completedLogs)
 
             let assignedQuests = quests.filter {
-                $0.assigneeRecordName == hero.recordName && weekRange.contains($0.weekOf)
+                $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf)
             }
+
             let fullyCompletedCount = assignedQuests.filter { quest in
                 let approvedLogs = weekLogs.filter {
                     $0.questRecordName == quest.recordName &&
@@ -127,7 +128,7 @@ final class FamilyDashboardViewModel {
             }
 
             let heroLedgers = ledgers.filter {
-                $0.profileRecordName == hero.recordName && weekRange.contains($0.date)
+                $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
             }
             let bonusGold = heroLedgers
                 .filter { $0.amount > 0 }
@@ -153,7 +154,7 @@ final class FamilyDashboardViewModel {
         let totalEarned = heroSummaries.reduce(into: 0.0) { $0 += $1.weeklyGoldEarned }
         let totalQuests = heroSummaries.reduce(into: 0) { $0 += $1.weeklyQuestsCompleted }
         let computedWeekSummary = WeekendSummary(
-            weekOf: WeekMath.mondayOfWeek(for: weekOf),
+            weekOf: WeekMath.startOfWeek(for: Date(), payoutDay: familyPayoutDay),
             totalEarned: totalEarned,
             totalQuestsCompleted: totalQuests,
             heroSummaries: heroSummaries

@@ -15,7 +15,7 @@ extension QuestServiceTests {
 
     @Test
     func `markComplete performs no ad-hoc post-save CloudKit query`() async throws {
-        // D5: services must not issue ad-hoc CloudKit refreshes; SyncEngine is
+        // Services must not issue ad-hoc CloudKit refreshes; SyncEngine is
         // the single writer of server-derived state. The pre-remediation code
         // spawned `Task { fetchQuestLogs(useCache: false) }` after the save — a
         // background CloudKit query. That path is removed; `markComplete` must
@@ -27,7 +27,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
 
         // Rejected seed keeps the local alreadyCompleted check below target
-        // without any CloudKit read (D3).
+        // without any CloudKit read.
         scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
 
         let service = scaffold.questService
@@ -42,7 +42,7 @@ extension QuestServiceTests {
 
         #expect(
             cloudKit.queryHitCount == 0,
-            "markComplete must not issue an ad-hoc post-save CloudKit query (D5: SyncEngine is the single writer)"
+            "markComplete must not issue an ad-hoc post-save CloudKit query; SyncEngine is the single writer"
         )
 
         // Release any (none, post-remediation) parked query so the test cleans up.
@@ -330,6 +330,253 @@ extension QuestServiceTests {
         #expect(results.count == 1)
         #expect(results.first?.id.recordName == "quest-cached")
         #expect(results.first?.goldReward == 5.0)
+    }
+
+    // MARK: - Non-Sunday payout day bucketing
+
+    @Test
+    func `fetchActiveQuests buckets by the hero's Friday payout override`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
+        questService.cacheService = cache
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        // The hero overrides the family default: Friday payout cycles.
+        let hero = Profile(
+            displayName: "Hero",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .hero,
+            iCloudUserID: heroID,
+            family: familyRef,
+            payoutDay: .friday,
+            id: heroID
+        )
+        let templateRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
+        )
+
+        // Friday payout cycles start the day after Friday (Saturday) — NOT the
+        // current Monday. The buggy Monday-start range would drop the
+        // current-cycle quest below.
+        let now = Date()
+        let currentCycle = WeekMath.startOfWeek(for: now, payoutDay: .friday)
+        let previousCycle = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: -1, to: currentCycle)
+            ?? currentCycle
+
+        let currentQuest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 10.0,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: currentCycle,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Current Cycle Quest",
+            id: CKRecord.ID(recordName: "quest-current", zoneID: zoneID)
+        )
+        let previousQuest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 99.0,
+            xpReward: 200,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: previousCycle,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Previous Cycle Quest",
+            id: CKRecord.ID(recordName: "quest-previous", zoneID: zoneID)
+        )
+        cache.upsertQuests([currentQuest, previousQuest])
+        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+
+        let results = try await questService.fetchActiveQuests(profile: hero, weekOf: now)
+
+        #expect(
+            results.map(\.id.recordName) == ["quest-current"],
+            "fetchActiveQuests must serve the current Friday cycle and exclude the previous cycle"
+        )
+    }
+
+    @Test
+    func `fetchQuestsForFamilyWeek buckets by the family's Friday payout day`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
+        questService.cacheService = cache
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Friday Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            payoutDay: .friday,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let templateRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
+        )
+
+        let now = Date()
+        let currentCycle = WeekMath.startOfWeek(for: now, payoutDay: .friday)
+        let previousCycle = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: -1, to: currentCycle)
+            ?? currentCycle
+
+        let currentQuest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 10.0,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: currentCycle,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Current Cycle Quest",
+            id: CKRecord.ID(recordName: "quest-current", zoneID: zoneID)
+        )
+        let previousQuest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 99.0,
+            xpReward: 200,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: previousCycle,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Previous Cycle Quest",
+            id: CKRecord.ID(recordName: "quest-previous", zoneID: zoneID)
+        )
+        cache.upsertQuests([currentQuest, previousQuest])
+        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+
+        let results = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: now)
+
+        #expect(
+            results.map(\.id.recordName) == ["quest-current"],
+            "fetchQuestsForFamilyWeek must serve the current Friday cycle and exclude the previous cycle"
+        )
+    }
+
+    @Test
+    func `earnedThisWeek buckets by the family's Friday payout day`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
+        questService.cacheService = cache
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        // The family defaults to Friday payouts; the hero inherits it, so the
+        // effective payout day must be resolved from the cached family.
+        let family = Family(
+            name: "Friday Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            payoutDay: .friday,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        cache.upsertFamily(family)
+
+        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let hero = Profile(
+            displayName: "Hero",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .hero,
+            iCloudUserID: heroID,
+            family: familyRef,
+            id: heroID
+        )
+        let templateRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
+        )
+
+        let now = Date()
+        let currentCycle = WeekMath.startOfWeek(for: now, payoutDay: .friday)
+        let previousCycle = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: -1, to: currentCycle)
+            ?? currentCycle
+
+        let currentQuest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 10.0,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: currentCycle,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Current Cycle Quest",
+            id: CKRecord.ID(recordName: "quest-current", zoneID: zoneID)
+        )
+        let previousQuest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 99.0,
+            xpReward: 200,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: previousCycle,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Previous Cycle Quest",
+            id: CKRecord.ID(recordName: "quest-previous", zoneID: zoneID)
+        )
+        cache.upsertQuests([currentQuest, previousQuest])
+
+        var currentLog = QuestCompletion(
+            quest: CKRecord.Reference(recordID: currentQuest.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: heroID, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: currentCycle,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "log-current", zoneID: zoneID)
+        )
+        currentLog.verificationStatus = .autoApproved
+        var previousLog = QuestCompletion(
+            quest: CKRecord.Reference(recordID: previousQuest.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: heroID, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: previousCycle,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "log-previous", zoneID: zoneID)
+        )
+        previousLog.verificationStatus = .autoApproved
+        cache.upsertQuestCompletions([currentLog, previousLog])
+        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+
+        let earned = try await questService.earnedThisWeek(profile: hero, weekOf: now)
+
+        #expect(
+            earned == 10.0,
+            "earnedThisWeek must count the current Friday cycle's completion (10 gold) and exclude the previous cycle's 99 gold"
+        )
     }
 
     // MARK: - Data Migrations

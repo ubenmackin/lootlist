@@ -91,6 +91,7 @@ extension ProfileCache {
             iCloudUserID: CKRecord.ID(recordName: iCloudUserRecordName, zoneID: zoneID),
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
+            payoutDay: payoutDay.flatMap { PayoutDay(rawValue: $0) },
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
         profile.xp = xpTotal
@@ -178,6 +179,7 @@ extension FamilyCache {
             name: name,
             createdBy: CKRecord.ID(recordName: createdByRecordName, zoneID: zoneID),
             payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
+            payoutDay: PayoutDay(rawValue: payoutDay) ?? .sunday,
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.

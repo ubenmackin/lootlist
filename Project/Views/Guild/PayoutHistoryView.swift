@@ -217,14 +217,15 @@ struct PayoutHistoryView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        let payoutDayName = appState.family?.payoutDay.displayName ?? "Sunday"
+        return VStack(spacing: 12) {
             Spacer()
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
             Text("No Payout History Yet")
                 .font(.headline)
-            Text("Payouts occur every Sunday when quests are tallied.")
+            Text("Payouts occur every \(payoutDayName) when quests are tallied.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

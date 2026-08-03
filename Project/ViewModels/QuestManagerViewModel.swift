@@ -218,7 +218,8 @@ final class QuestManagerViewModel {
             throw QuestServiceError.missingSession
         }
         let all = try await questService.fetchQuestsForFamilyWeek(
-            family: family, weekOf: QuestService.mondayOfWeek(for: Date())
+            family: family,
+            weekOf: QuestService.startOfWeek(for: Date(), payoutDay: family.payoutDay)
         )
 
         // Single batch fetch — replaces per-quest N+1 queries.

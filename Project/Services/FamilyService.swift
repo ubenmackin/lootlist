@@ -32,9 +32,10 @@ protocol FamilyProfileFetching: Sendable {
 final class FamilyService: FamilyProfileFetching {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
-    private let cloudKit: CloudKitService
-    private let appState: AppState
+    let cloudKit: CloudKitService
+    let appState: AppState
     private let questService: QuestService
+
     var cacheService: CacheService?
 
     var cloudKitReference: CloudKitService {
@@ -215,7 +216,7 @@ final class FamilyService: FamilyProfileFetching {
         // the Family + their own hero so far. Hydrate the roster now (deduped
         // by the in-flight guard) so the hero dashboard shows siblings without
         // waiting for the next push-driven sync. Routine background updates
-        // belong to SyncEngine (D5).
+        // belong to SyncEngine's push-driven pipeline.
         await refreshProfilesFromCloudKit(for: family)
 
         return (family, savedHero)
@@ -297,327 +298,6 @@ final class FamilyService: FamilyProfileFetching {
             await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed(
                 "Could not update family name: \(error)"
-            )
-        }
-    }
-
-    @discardableResult
-    func updatePayoutPolicy(family: Family, policy: PayoutPolicy) async throws -> Family {
-        var updated = family
-        updated.payoutPolicy = policy
-
-        let name = family.id.recordName
-        let snapshot = cacheService?.fetchFamily(recordName: name)
-
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
-        let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertFamily`, so reading `snapshot.toFamily(...)` later
-        // would yield the *post*-mutation values. The value-type copy
-        // (`Family` struct) is unaffected by later mutations.
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotFamily: Family? = snapshot?.toFamily(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
-        cacheService?.upsertFamily(updated)
-        appState.family = updated
-
-        let (zoneID, db) = familyContext(for: family.id)
-        do {
-            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
-            cacheService?.upsertFamily(saved)
-            appState.family = saved
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
-                preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchFamily(recordName: name)?.changeTag },
-                error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(Family.self, id: family.id, using: db) {
-                    cacheService?.upsertFamily(fresh)
-                    appState.family = fresh
-                } else if let snapshotFamily {
-                    cacheService?.upsertFamily(snapshotFamily)
-                    appState.family = snapshotFamily
-                }
-            } else {
-                if let snapshotFamily {
-                    cacheService?.upsertFamily(snapshotFamily)
-                    appState.family = snapshotFamily
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
-            await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update payout policy: \(error)"
-            )
-        }
-    }
-
-    @discardableResult
-    func updateProfilePayoutPolicy(profile: Profile, policy: PayoutPolicy) async throws -> Profile {
-        var updated = profile
-        updated.payoutPolicy = policy
-
-        let name = profile.id.recordName
-        let snapshot = cacheService?.fetchProfile(recordName: name)
-
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
-        let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertProfile`, so reading `snapshot.toProfile(...)` later
-        // would yield the *post*-mutation values. The value-type copy
-        // (`Profile` struct) is unaffected by later mutations.
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
-        cacheService?.upsertProfile(updated)
-        if appState.currentProfile?.id == profile.id {
-            appState.currentProfile = updated
-        }
-
-        let (zoneID, db) = familyContext(for: profile.family.recordID)
-        do {
-            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
-            cacheService?.upsertProfile(saved)
-            if appState.currentProfile?.id == saved.id {
-                appState.currentProfile = saved
-            }
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
-                preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchProfile(recordName: name)?.changeTag },
-                error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
-                    cacheService?.upsertProfile(fresh)
-                    if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = fresh
-                    }
-                } else if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-            } else {
-                if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
-            await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update profile payout policy: \(error)"
-            )
-        }
-    }
-
-    @discardableResult
-    func updateProfileDisplayName(profile: Profile, newName: String) async throws -> Profile {
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw FamilyServiceError.persistenceFailed("Character name cannot be empty.")
-        }
-
-        var updated = profile
-        updated.displayName = trimmed
-
-        let name = profile.id.recordName
-        let snapshot = cacheService?.fetchProfile(recordName: name)
-
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
-        let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertProfile`, so reading `snapshot.toProfile(...)` later
-        // would yield the *post*-mutation values. The value-type copy
-        // (`Profile` struct) is unaffected by later mutations.
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
-        cacheService?.upsertProfile(updated)
-        if appState.currentProfile?.id == profile.id {
-            appState.currentProfile = updated
-        }
-
-        let (zoneID, db) = familyContext(for: profile.family.recordID)
-        do {
-            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
-            cacheService?.upsertProfile(saved)
-            if appState.currentProfile?.id == saved.id {
-                appState.currentProfile = saved
-            }
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
-                preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchProfile(recordName: name)?.changeTag },
-                error: error
-            )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
-                    cacheService?.upsertProfile(fresh)
-                    if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = fresh
-                    }
-                } else if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-            } else {
-                if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == profile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
-            await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update character name: \(error)"
-            )
-        }
-    }
-
-    @discardableResult
-    func updateProfileAvatar(profile: Profile,
-                             avatarClass: AvatarClass?,
-                             avatarPresetID: String?,
-                             customAvatarImageData: Data?) async throws -> Profile
-    {
-        var updated = profile
-        updated.avatarClass = avatarClass
-        updated.avatarPresetID = avatarPresetID
-        updated.customAvatarImageData = customAvatarImageData
-
-        let name = profile.id.recordName
-        let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
-            .first(where: { $0.recordName == name })
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
-        cacheService?.upsertProfile(updated)
-        if appState.currentProfile?.id == updated.id {
-            appState.currentProfile = updated
-        }
-
-        let (zoneID, db) = familyContext(for: profile.family.recordID)
-        do {
-            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
-            cacheService?.upsertProfile(saved)
-            if appState.currentProfile?.id == saved.id {
-                appState.currentProfile = saved
-            }
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            if ConcurrentEditDetector.detectConcurrentEdit(
-                preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                error: error
-            ) {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
-                    cacheService?.upsertProfile(fresh)
-                    if appState.currentProfile?.id == fresh.id {
-                        appState.currentProfile = fresh
-                    }
-                } else if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == snapshotProfile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-            } else {
-                if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == snapshotProfile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
-            await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update avatar: \(error)"
             )
         }
     }
@@ -792,14 +472,15 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     private func unassignActiveQuests(for profile: Profile) async {
-        guard appState.family != nil else { return }
-        let currentWeek = TreasuryService.mondayOfWeek(for: Date())
+        guard let family = appState.family else { return }
+        let payoutDay = profile.payoutDay ?? family.payoutDay
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
 
         #if DEBUG
-            let questMonday = QuestService.mondayOfWeek(for: Date())
+            let questStart = QuestService.startOfWeek(for: Date(), payoutDay: payoutDay)
             assert(
-                questMonday == currentWeek,
-                "TreasuryService.mondayOfWeek and QuestService.mondayOfWeek diverged: \(currentWeek) vs \(questMonday)"
+                currentWeek == questStart,
+                "QuestService.startOfWeek and WeekMath.startOfWeek diverged: \(currentWeek) vs \(questStart)"
             )
         #endif
 
@@ -812,7 +493,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    private func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase) {
+    func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase) {
         let zoneID = cloudKit.resolvedZoneID // already set with correct ownerName
         let db = cloudKit.database(isOwner: appState.isZoneOwner)
         return (zoneID, db)
