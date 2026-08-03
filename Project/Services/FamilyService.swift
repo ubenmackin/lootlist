@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 
 enum FamilyServiceError: Error, Equatable, Sendable {
     case invalidInviteCode
@@ -41,6 +42,14 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     var toastManager: ToastManager?
+
+    /// Keys of immediate profile refreshes currently in flight, formatted as
+    /// `"<operation>|<familyRecordName>"`. Actor-isolated dedupe guard: when a
+    /// genuinely-required immediate refresh for the same operation + family is
+    /// already running, concurrent callers collapse onto it instead of issuing
+    /// duplicate CloudKit queries that race SyncEngine's push-driven incremental
+    /// sync and duplicate server-derived writes.
+    private let refreshInFlightKeys = Mutex<Set<String>>([])
 
     init(cloudKit: CloudKitService, appState: AppState, questService: QuestService, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
@@ -202,6 +211,13 @@ final class FamilyService: FamilyProfileFetching {
         cloudKit.activeIsOwner = false
         appState.saveSession(profile: savedHero, family: family, zoneID: zoneID, isOwner: false)
 
+        // Genuinely-required immediate refresh: the joiner's cache holds only
+        // the Family + their own hero so far. Hydrate the roster now (deduped
+        // by the in-flight guard) so the hero dashboard shows siblings without
+        // waiting for the next push-driven sync. Routine background updates
+        // belong to SyncEngine (D5).
+        await refreshProfilesFromCloudKit(for: family)
+
         return (family, savedHero)
     }
 
@@ -232,6 +248,10 @@ final class FamilyService: FamilyProfileFetching {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotFamily: Family? = snapshot?.toFamily(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertFamily(updated)
         appState.family = updated
 
@@ -240,6 +260,7 @@ final class FamilyService: FamilyProfileFetching {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
             cacheService?.upsertFamily(saved)
             appState.family = saved
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -273,6 +294,7 @@ final class FamilyService: FamilyProfileFetching {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed(
                 "Could not update family name: \(error)"
             )
@@ -299,6 +321,10 @@ final class FamilyService: FamilyProfileFetching {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotFamily: Family? = snapshot?.toFamily(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertFamily(updated)
         appState.family = updated
 
@@ -307,6 +333,7 @@ final class FamilyService: FamilyProfileFetching {
             let saved = try await cloudKit.save(updated, in: zoneID, using: db)
             cacheService?.upsertFamily(saved)
             appState.family = saved
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -340,6 +367,7 @@ final class FamilyService: FamilyProfileFetching {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed(
                 "Could not update payout policy: \(error)"
             )
@@ -366,6 +394,10 @@ final class FamilyService: FamilyProfileFetching {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
             appState.currentProfile = updated
@@ -378,6 +410,7 @@ final class FamilyService: FamilyProfileFetching {
             if appState.currentProfile?.id == saved.id {
                 appState.currentProfile = saved
             }
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -417,6 +450,7 @@ final class FamilyService: FamilyProfileFetching {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed(
                 "Could not update profile payout policy: \(error)"
             )
@@ -448,6 +482,10 @@ final class FamilyService: FamilyProfileFetching {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
             appState.currentProfile = updated
@@ -460,6 +498,7 @@ final class FamilyService: FamilyProfileFetching {
             if appState.currentProfile?.id == saved.id {
                 appState.currentProfile = saved
             }
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -499,6 +538,7 @@ final class FamilyService: FamilyProfileFetching {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed(
                 "Could not update character name: \(error)"
             )
@@ -523,6 +563,10 @@ final class FamilyService: FamilyProfileFetching {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
@@ -535,6 +579,7 @@ final class FamilyService: FamilyProfileFetching {
             if appState.currentProfile?.id == saved.id {
                 appState.currentProfile = saved
             }
+            await registry?.deregister(name)
             return saved
         } catch {
             if ConcurrentEditDetector.detectConcurrentEdit(
@@ -570,6 +615,7 @@ final class FamilyService: FamilyProfileFetching {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed(
                 "Could not update avatar: \(error)"
             )
@@ -578,20 +624,18 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Role & Membership Management
 
+    /// Cache-first read. A fresh cache is served as-is;
+    /// background updates flow through SyncEngine's push-driven pipeline, so no
+    /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
+    /// partial cache falls through to a single synchronous CloudKit query that
+    /// write-throughs the cache.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchProfiles(family: familyName)
                 .filter { $0.role == UserRole.hero.rawValue && $0.isActive }
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-            if !cached.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                    let predicate = NSPredicate(format: "family == %@", familyRef)
-                    if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate) {
-                        cacheService?.upsertProfiles(fresh)
-                    }
-                }
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
                 return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
             }
         }
@@ -604,18 +648,16 @@ final class FamilyService: FamilyProfileFetching {
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
+    /// Cache-first read. A fresh cache is served as-is;
+    /// background updates flow through SyncEngine's push-driven pipeline, so no
+    /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
+    /// partial cache falls through to a single synchronous CloudKit query that
+    /// write-throughs the cache.
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchProfiles(family: familyName)
-            if !cached.isEmpty {
-                Task { [cloudKit, cacheService] in
-                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                    let predicate = NSPredicate(format: "family == %@", familyRef)
-                    if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate) {
-                        cacheService?.upsertProfiles(fresh)
-                    }
-                }
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
                 return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
                     .sorted { lhs, rhs in
                         if lhs.isActive != rhs.isActive {
@@ -649,6 +691,10 @@ final class FamilyService: FamilyProfileFetching {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
@@ -661,6 +707,7 @@ final class FamilyService: FamilyProfileFetching {
             if appState.currentProfile?.id == saved.id {
                 appState.currentProfile = saved
             }
+            await registry?.deregister(name)
         } catch {
             if ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
@@ -695,6 +742,7 @@ final class FamilyService: FamilyProfileFetching {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed(
                 "Could not update role: \(error)"
             )
@@ -712,6 +760,36 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     // MARK: - Private Helpers
+
+    /// Immediately re-queries a family's profiles from CloudKit and
+    /// write-throughs the cache via this service's own write path. Deduped by
+    /// an actor-isolated in-flight guard keyed by operation + family, so
+    /// concurrent callers collapse to a single query instead of racing
+    /// SyncEngine's push-driven incremental sync with duplicate
+    /// server-derived writes. Reserved for the few places where an
+    /// immediate refresh is genuinely required (e.g. joining a family via
+    /// share link) — routine background updates belong to SyncEngine, and
+    /// stale cache-first reads already fall through to the synchronous query
+    /// in `fetchHeroes`/`fetchAllProfilesForFamily`. Internal so tests can
+    /// exercise the in-flight dedupe.
+    func refreshProfilesFromCloudKit(for family: Family) async {
+        let key = "profiles|\(family.id.recordName)"
+        let alreadyInFlight = refreshInFlightKeys.withLock { keys -> Bool in
+            if keys.contains(key) {
+                return true
+            }
+            keys.insert(key)
+            return false
+        }
+        guard !alreadyInFlight else { return }
+        defer { refreshInFlightKeys.withLock { _ = $0.remove(key) } }
+
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let predicate = NSPredicate(format: "family == %@", familyRef)
+        if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate) {
+            cacheService?.upsertProfiles(fresh)
+        }
+    }
 
     private func unassignActiveQuests(for profile: Profile) async {
         guard appState.family != nil else { return }
@@ -751,6 +829,10 @@ final class FamilyService: FamilyProfileFetching {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
@@ -763,6 +845,7 @@ final class FamilyService: FamilyProfileFetching {
             if appState.currentProfile?.id == saved.id {
                 appState.currentProfile = saved
             }
+            await registry?.deregister(name)
         } catch {
             if ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
@@ -797,6 +880,7 @@ final class FamilyService: FamilyProfileFetching {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed("\(errorMessage): \(error)")
         }
     }

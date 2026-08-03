@@ -23,6 +23,10 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
     var isActive: Bool
     var goldReward: Double
     var xpReward: Int
+    /// Cached copy of `Quest.xpBanked` (the server-authoritative XP-credit
+    /// ledger total). Synced via `update(from:)`/`toQuest(zoneID:)` so the
+    /// reward step can resolve the freshest banked total cache-first.
+    var xpBanked: Int = 0
     var rarity: String
     var scheduleType: String
     var targetCount: Int = 1
@@ -37,7 +41,15 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
     }
 
     var rarityEnum: QuestRarity? {
-        QuestRarity(rawValue: rarity)
+        // Rarity is a pure function of XP in the domain layer (Quest.rarity
+        // derives the same way), so derive it at read time instead of trusting
+        // the stored string — a change to the XP↔rarity constants is then
+        // reflected immediately without waiting for a resync. Legacy rows that
+        // predate a meaningful xpReward fall back to the stored raw string.
+        if xpReward > 0 {
+            return QuestRarity.from(xp: xpReward)
+        }
+        return QuestRarity(rawValue: rarity)
     }
 
     var scheduleTypeEnum: QuestSchedule? {
@@ -60,6 +72,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
          approvalMode: String,
          descriptionText: String?,
          createdByRecordName: String,
+         xpBanked: Int = 0,
          changeTag: String? = nil)
     {
         self.recordName = recordName
@@ -71,6 +84,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         self.isActive = isActive
         self.goldReward = goldReward
         self.xpReward = xpReward
+        self.xpBanked = xpBanked
         self.rarity = rarity
         self.scheduleType = scheduleType
         self.targetCount = targetCount
@@ -99,6 +113,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
             approvalMode: quest.approvalMode.rawValue,
             descriptionText: quest.descriptionText,
             createdByRecordName: quest.createdBy.recordID.recordName,
+            xpBanked: quest.xpBanked,
             changeTag: quest.changeTag
         )
     }
@@ -114,7 +129,10 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         isActive = quest.active
         goldReward = quest.goldReward
         xpReward = quest.xpReward
-        rarity = quest.rarity.rawValue
+        xpBanked = quest.xpBanked
+        // `rarity` is intentionally NOT re-stamped: `rarityEnum` derives it from
+        // `xpReward` at read time, so the stored string is only a legacy
+        // fallback for rows without a meaningful xpReward.
         scheduleType = quest.scheduleType.rawValue
         isAllOrNothing = quest.isAllOrNothing
         approvalMode = quest.approvalMode.rawValue

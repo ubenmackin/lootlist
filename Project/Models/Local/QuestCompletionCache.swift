@@ -24,6 +24,10 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
     var approvalMode: String
     var verifiedByRecordName: String?
     var verifiedDate: Date?
+    /// Cached copy of `QuestCompletion.xpCredited` (the per-record XP-credit
+    /// idempotency marker). Synced via `update(from:)`/`toQuestCompletion(zoneID:)`
+    /// so a reward-step re-run can detect an already-settled completion.
+    var xpCredited: Int?
     var changeTag: String?
 
     var verificationStatusEnum: VerificationStatus? {
@@ -44,6 +48,7 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
          approvalMode: String,
          verifiedByRecordName: String?,
          verifiedDate: Date?,
+         xpCredited: Int? = nil,
          changeTag: String? = nil)
     {
         self.recordName = recordName
@@ -56,6 +61,7 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
         self.approvalMode = approvalMode
         self.verifiedByRecordName = verifiedByRecordName
         self.verifiedDate = verifiedDate
+        self.xpCredited = xpCredited
         self.changeTag = changeTag
     }
 
@@ -74,6 +80,7 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
             approvalMode: derivedApprovalMode.rawValue,
             verifiedByRecordName: completion.verifiedBy?.recordID.recordName,
             verifiedDate: completion.verifiedDate,
+            xpCredited: completion.xpCredited,
             changeTag: completion.changeTag
         )
     }
@@ -92,6 +99,7 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
             : ApprovalMode.parentVerify.rawValue
         verifiedByRecordName = completion.verifiedBy?.recordID.recordName
         verifiedDate = completion.verifiedDate
+        xpCredited = completion.xpCredited
         changeTag = completion.changeTag
     }
 

@@ -117,6 +117,10 @@ final class TreasuryService {
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(period.id.recordName)
+
         cacheService?.upsertAllowancePeriod(period)
         // Brand-new record: there is no prior cache snapshot, so
         // `preMutationChangeTag` is `nil` and the changeTag-divergence check
@@ -126,6 +130,7 @@ final class TreasuryService {
         do {
             let saved = try await cloudKit.save(period)
             cacheService?.upsertAllowancePeriod(saved)
+            await registry?.deregister(period.id.recordName)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -156,6 +161,7 @@ final class TreasuryService {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(period.id.recordName)
             throw error
         }
     }
@@ -200,10 +206,15 @@ final class TreasuryService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertAllowancePeriod(updated)
         do {
             let saved = try await cloudKit.save(updated)
             cacheService?.upsertAllowancePeriod(saved)
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -236,6 +247,7 @@ final class TreasuryService {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw error
         }
     }
@@ -262,6 +274,10 @@ final class TreasuryService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         // Optimistic write first
         cacheService?.upsertAllowancePeriod(updated)
 
@@ -278,6 +294,7 @@ final class TreasuryService {
                     }
                 }
             }
+            await registry?.deregister(name)
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
@@ -309,6 +326,7 @@ final class TreasuryService {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw error
         }
     }
@@ -317,9 +335,10 @@ final class TreasuryService {
     private func goldFromQuests(profile: Profile) async throws -> Double {
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let cachedCompletions = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
+            let familyName = profile.family.recordID.recordName
+            let cachedCompletions = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName }
-            if !cachedCompletions.isEmpty {
+            if !cachedCompletions.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
                 let zoneID = cloudKit.resolvedZoneID
                 let logs = cachedCompletions.map { $0.toQuestCompletion(zoneID: zoneID) }
                 return try await sumGold(for: logs)
@@ -337,11 +356,12 @@ final class TreasuryService {
     private func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         // Cache-first
         if let cache = cacheService {
+            let familyName = profile.family.recordID.recordName
             let cached = cache.fetchLedgerEntries(
                 profileRecordName: profile.id.recordName,
-                family: profile.family.recordID.recordName
+                family: familyName
             )
-            if !cached.isEmpty {
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
                 return cached.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
             }
         }
@@ -362,7 +382,7 @@ final class TreasuryService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchAllowancePeriods(family: familyName)
-            if !cached.isEmpty {
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
                 let zoneID = cloudKit.resolvedZoneID
                 return cached.map { $0.toAllowancePeriod(zoneID: zoneID) }
             }
@@ -383,12 +403,13 @@ final class TreasuryService {
                                     in dateRange: Range<Date>) async throws -> [LedgerEntry]
     {
         if let cache = cacheService {
+            let familyName = profile.family.recordID.recordName
             let cached = cache.fetchLedgerEntries(
                 profileRecordName: profile.id.recordName,
-                family: profile.family.recordID.recordName
+                family: familyName
             )
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if !filtered.isEmpty {
+            if !filtered.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
                 return filtered.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
             }
         }
@@ -412,9 +433,10 @@ final class TreasuryService {
     {
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let cached = cache.fetchQuestCompletions(family: profile.family.recordID.recordName)
+            let familyName = profile.family.recordID.recordName
+            let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName && $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
-            if !cached.isEmpty {
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
                 let zoneID = cloudKit.resolvedZoneID
                 return cached.map { $0.toQuestCompletion(zoneID: zoneID) }
             }
@@ -433,9 +455,10 @@ final class TreasuryService {
 
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let cached = cache.fetchQuests(family: profile.family.recordID.recordName)
+            let familyName = profile.family.recordID.recordName
+            let cached = cache.fetchQuests(family: familyName)
                 .filter { $0.assigneeRecordName == profileName && range.contains($0.weekOf) }
-            if !cached.isEmpty {
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
                 let zoneID = cloudKit.resolvedZoneID
                 return cached.map { $0.toQuest(zoneID: zoneID) }
             }
@@ -454,9 +477,10 @@ final class TreasuryService {
     {
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: profile.family.recordID.recordName)
+            let familyName = profile.family.recordID.recordName
+            let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
                 .first { Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf) }
-            if let cached {
+            if let cached, cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
                 return cached.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
             }
         }

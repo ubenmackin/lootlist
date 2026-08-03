@@ -23,6 +23,15 @@ struct Quest: Identifiable, Equatable, Sendable {
 
     var goldReward: Double
     var xpReward: Int
+
+    /// Monotonic per-quest total of XP already banked by the reward step.
+    /// Server-authoritative and synced across family devices: the quest record
+    /// is the shared XP-credit ledger, so two devices completing the same
+    /// quest concurrently are capped by the same banked total (security
+    /// remediation, finding 2). Written ONLY via the change-tag CAS path in
+    /// `QuestService` — nothing else mutates this field.
+    var xpBanked: Int = 0
+
     var rarity: QuestRarity {
         QuestRarity.from(xp: xpReward)
     }
@@ -83,6 +92,7 @@ struct Quest: Identifiable, Equatable, Sendable {
 
         goldReward = try record.extract("goldReward")
         xpReward = try record.extract("xpReward")
+        xpBanked = record.extractOptional("xpBanked") ?? 0
 
         let scheduleRaw = record.extractOptional("scheduleType") ?? QuestSchedule.weeklyFlexible.rawValue
         scheduleType = QuestSchedule(rawValue: scheduleRaw) ?? .weeklyFlexible
@@ -125,6 +135,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         record["assignee"] = assignee as CKRecordValue
         record["goldReward"] = goldReward as CKRecordValue
         record["xpReward"] = xpReward as CKRecordValue
+        record["xpBanked"] = xpBanked as CKRecordValue
         record["scheduleType"] = scheduleType.rawValue as CKRecordValue
         record["targetCount"] = targetCount as CKRecordValue
         record["isAllOrNothing"] = isAllOrNothing as CKRecordValue
@@ -155,6 +166,7 @@ struct Quest: Identifiable, Equatable, Sendable {
          family: CKRecord.Reference,
          name: String? = nil,
          descriptionText: String? = nil,
+         xpBanked: Int = 0,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -162,6 +174,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         self.assignee = assignee
         self.goldReward = goldReward
         self.xpReward = xpReward
+        self.xpBanked = xpBanked
         self.scheduleType = scheduleType
         self.targetCount = targetCount
         self.isAllOrNothing = isAllOrNothing

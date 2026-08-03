@@ -174,6 +174,95 @@ struct CacheConversionsTests {
     }
 
     @Test
+    func `questCache rarityEnum derives from xpReward when stored rarity is stale`() {
+        // A row whose stored rarity string predates an XP↔rarity constants change
+        // must still report the rarity derived from its current xpReward.
+        let weekOf = Date(timeIntervalSince1970: 1_749_950_000)
+        let cache = QuestCache(
+            recordName: "quest_stale_rarity",
+            familyRecordName: "fam_1",
+            assigneeRecordName: "hero_1",
+            templateRecordName: "tpl_1",
+            weekOf: weekOf,
+            questName: "Tidy Room",
+            isActive: true,
+            goldReward: 5.0,
+            xpReward: 100,
+            rarity: QuestRarity.common.rawValue, // stale: 100 XP maps to Rare today
+            scheduleType: QuestSchedule.weeklyFlexible.rawValue,
+            isAllOrNothing: false,
+            approvalMode: ApprovalMode.parentVerify.rawValue,
+            descriptionText: "Tidy up",
+            createdByRecordName: "creator_1"
+        )
+
+        #expect(cache.rarity == QuestRarity.common.rawValue)
+        #expect(cache.rarityEnum == .rare)
+    }
+
+    @Test
+    func `questCache rarityEnum falls back to stored string for legacy rows`() {
+        // Legacy rows that predate a meaningful xpReward (0) fall back to the
+        // stored raw string instead of degrading to the zero-XP derivation.
+        let weekOf = Date(timeIntervalSince1970: 1_749_950_000)
+        let cache = QuestCache(
+            recordName: "quest_legacy_rarity",
+            familyRecordName: "fam_1",
+            assigneeRecordName: "hero_1",
+            templateRecordName: "tpl_1",
+            weekOf: weekOf,
+            questName: "Legacy Quest",
+            isActive: true,
+            goldReward: 5.0,
+            xpReward: 0,
+            rarity: QuestRarity.legendary.rawValue,
+            scheduleType: QuestSchedule.weeklyFlexible.rawValue,
+            isAllOrNothing: false,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            descriptionText: nil,
+            createdByRecordName: "creator_1"
+        )
+
+        #expect(cache.rarityEnum == .legendary)
+    }
+
+    @Test
+    func `questCache update preserves stored rarity string as legacy fallback`() {
+        // The write path no longer re-stamps the derived rarity into the stored
+        // string; rarityEnum keeps deriving from xpReward at read time.
+        let weekOf = Date(timeIntervalSince1970: 1_749_950_000)
+        let cache = questCacheFixture(
+            recordName: "quest_1",
+            familyRecordName: "fam_1",
+            assigneeRecordName: "hero_1",
+            templateRecordName: "tpl_1",
+            weekOf: weekOf,
+            questName: "Tidy Room",
+            approvalMode: ApprovalMode.parentVerify.rawValue
+        )
+        // fixture: xpReward 50, stored rarity "common"
+
+        let epicQuest = Quest(
+            template: ref("tpl_1"),
+            assignee: ref("hero_1"),
+            goldReward: 5.0,
+            xpReward: 250,
+            scheduleType: .weeklyFlexible,
+            weekOf: weekOf,
+            createdBy: ref("creator_1"),
+            family: ref("fam_1"),
+            name: "Tidy Room",
+            descriptionText: "Tidy up",
+            id: id("quest_1")
+        )
+        cache.update(from: epicQuest)
+
+        #expect(cache.xpReward == 250)
+        #expect(cache.rarity == QuestRarity.common.rawValue) // unchanged legacy fallback
+        #expect(cache.rarityEnum == .epic)
+    }
+
+    @Test
     func `questTemplateCache toQuestTemplate produces expected domain fields`() {
         let cache = QuestTemplateCache(
             recordName: "tpl_1",
@@ -283,7 +372,7 @@ struct CacheConversionsTests {
             isActive: true,
             goldReward: 5.0,
             xpReward: 50,
-            rarity: "common",
+            rarity: QuestRarity.common.rawValue,
             scheduleType: QuestSchedule.weeklyFlexible.rawValue,
             isAllOrNothing: false,
             approvalMode: approvalMode,

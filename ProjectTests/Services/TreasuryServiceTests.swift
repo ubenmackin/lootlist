@@ -166,6 +166,9 @@ struct TreasuryServiceTests {
 
         cache.upsertQuest(quest)
         cache.upsertQuestCompletions([completion])
+        // A completed sync pass stamped this family's completion cache fresh,
+        // so weeklyBreakdown's cache-first gates trust the partial cache.
+        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, weekOf: monday)
 

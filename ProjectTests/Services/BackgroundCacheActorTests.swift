@@ -303,6 +303,52 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(FamilyCache.self, in: container) == 0)
     }
 
+    // MARK: D1 — Purge family-scope guard
+
+    @Test
+    func `purge with nil family does not delete rows of a different family`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        // Two families' quest rows share the store; the purge must be
+        // family-scoped per D1 — calling purge with nil scope must be a
+        // no-op, never a global delete that would wipe another family's rows.
+        let now = Date()
+        let ctx = ModelContext(container)
+        ctx.insert(QuestCache(
+            recordName: "q_a", familyRecordName: "fam_a", assigneeRecordName: "hero",
+            templateRecordName: "tpl", weekOf: now, questName: "Q-A", isActive: true,
+            goldReward: 1, xpReward: 10, rarity: "common", scheduleType: "weeklyFlexible",
+            isAllOrNothing: false, approvalMode: "autoApprove", descriptionText: nil,
+            createdByRecordName: "user1"
+        ))
+        ctx.insert(QuestCache(
+            recordName: "q_b", familyRecordName: "fam_b", assigneeRecordName: "hero",
+            templateRecordName: "tpl", weekOf: now, questName: "Q-B", isActive: true,
+            goldReward: 1, xpReward: 10, rarity: "common", scheduleType: "weeklyFlexible",
+            isAllOrNothing: false, approvalMode: "autoApprove", descriptionText: nil,
+            createdByRecordName: "user1"
+        ))
+        try ctx.save()
+
+        #expect(try remainingCount(QuestCache.self, in: container) == 2)
+
+        // D1: a nil scope must be a no-op.
+        await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: nil)
+        #expect(try remainingCount(QuestCache.self, in: container) == 2)
+
+        // D1: an empty scope must also be a no-op.
+        await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: "")
+        #expect(try remainingCount(QuestCache.self, in: container) == 2)
+
+        // Sanity: an explicitly scoped purge still works — scope fam_a with
+        // empty valid set deletes only fam_a's row, leaving fam_b intact.
+        await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: "fam_a")
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+        let remaining = try fetchAll(QuestCache.self, in: container)
+        #expect(remaining.first?.familyRecordName == "fam_b")
+    }
+
     // MARK: Quests
 
     @Test
@@ -379,7 +425,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(QuestCache.self, in: container) == 2)
 
         let actor = BackgroundCacheActor(container: container)
-        await actor.purgeMissingQuests(validRecordNames: ["a_quest"])
+        await actor.purgeMissingQuests(validRecordNames: ["a_quest"], familyRecordName: "fam")
 
         #expect(try remainingCount(QuestCache.self, in: container) == 1)
     }
@@ -427,7 +473,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(QuestTemplateCache.self, in: container) == 2)
 
         let actor = BackgroundCacheActor(container: container)
-        await actor.purgeMissingQuestTemplates(validRecordNames: ["a_questTemplate"])
+        await actor.purgeMissingQuestTemplates(validRecordNames: ["a_questTemplate"], familyRecordName: "fam")
 
         #expect(try remainingCount(QuestTemplateCache.self, in: container) == 1)
     }
@@ -472,7 +518,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 2)
 
         let actor = BackgroundCacheActor(container: container)
-        await actor.purgeMissingQuestCompletions(validRecordNames: ["a_questCompletion"])
+        await actor.purgeMissingQuestCompletions(validRecordNames: ["a_questCompletion"], familyRecordName: "fam")
 
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 1)
     }
@@ -512,7 +558,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(ProfileCache.self, in: container) == 2)
 
         let actor = BackgroundCacheActor(container: container)
-        await actor.purgeMissingProfiles(validRecordNames: ["a_profile"])
+        await actor.purgeMissingProfiles(validRecordNames: ["a_profile"], familyRecordName: "fam")
 
         #expect(try remainingCount(ProfileCache.self, in: container) == 1)
     }

@@ -213,7 +213,7 @@ final class AchievementService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchAchievements(family: familyName)
-            if !cached.isEmpty {
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .achievement) {
                 return cached.map { $0.toAchievement(zoneID: cloudKit.resolvedZoneID) }
             }
         }
@@ -227,8 +227,9 @@ final class AchievementService {
     func fetchEarned(profile: Profile) async throws -> [ProfileAchievement] {
         if let cache = cacheService {
             let profileName = profile.id.recordName
+            let familyName = profile.family.recordID.recordName
             let cached = cache.fetchProfileAchievements(profileRecordName: profileName)
-            if !cached.isEmpty {
+            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .profileAchievement) {
                 return cached.map { $0.toProfileAchievement(zoneID: cloudKit.resolvedZoneID) }
                     .sorted { $0.earnedDate > $1.earnedDate }
             }
@@ -281,10 +282,15 @@ final class AchievementService {
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotPA: ProfileAchievement? = snapshot?.toProfileAchievement(zoneID: cloudKit.resolvedZoneID)
 
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
         cacheService?.upsertProfileAchievement(row)
         do {
             let saved = try await cloudKit.save(row)
             cacheService?.upsertProfileAchievement(saved)
+            await registry?.deregister(name)
             return saved
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
@@ -317,6 +323,7 @@ final class AchievementService {
                     ?? error.localizedDescription
                 toastManager?.show(message: message, type: .error)
             }
+            await registry?.deregister(name)
             throw error
         }
     }
