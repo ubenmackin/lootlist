@@ -26,6 +26,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
     var iCloudUserRecordName: String
     var avatarClass: String?
     var payoutPolicy: String
+    var payoutDay: String?
     var changeTag: String?
 
     var roleEnum: UserRole? {
@@ -40,6 +41,10 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         PayoutPolicy(rawValue: payoutPolicy)
     }
 
+    var payoutDayEnum: PayoutDay? {
+        payoutDay.flatMap { PayoutDay(rawValue: $0) }
+    }
+
     init(recordName: String,
          familyRecordName: String,
          displayName: String,
@@ -52,6 +57,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
          iCloudUserRecordName: String,
          avatarClass: String?,
          payoutPolicy: String,
+         payoutDay: String? = nil,
          changeTag: String? = nil)
     {
         self.recordName = recordName
@@ -66,6 +72,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         self.iCloudUserRecordName = iCloudUserRecordName
         self.avatarClass = avatarClass
         self.payoutPolicy = payoutPolicy
+        self.payoutDay = payoutDay
         self.changeTag = changeTag
     }
 
@@ -83,6 +90,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
             iCloudUserRecordName: profile.iCloudUserID.recordName,
             avatarClass: profile.avatarClass?.rawValue,
             payoutPolicy: profile.payoutPolicy.rawValue,
+            payoutDay: profile.payoutDay?.rawValue,
             changeTag: profile.changeTag
         )
     }
@@ -101,6 +109,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         iCloudUserRecordName = profile.iCloudUserID.recordName
         avatarClass = profile.avatarClass?.rawValue
         payoutPolicy = profile.payoutPolicy.rawValue
+        payoutDay = profile.payoutDay?.rawValue
         changeTag = profile.changeTag
     }
 

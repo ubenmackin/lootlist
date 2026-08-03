@@ -54,7 +54,9 @@ final class AppDependencies {
         let toast = ToastManager()
 
         quest.cacheService = cache
+        quest.treasuryService = treasury
         treasury.cacheService = cache
+
         family.cacheService = cache
         achievement.cacheService = cache
         app.cacheService = cache
@@ -226,7 +228,7 @@ struct LootListApp: App {
                     // ONLY the currently resolved family zone — there is no
                     // unscoped cross-family pull, and the purge paths are
                     // scoped to that family so other families' cached rows are
-                    // never deleted (D1).
+                    // never deleted.
                     await syncEngine?.syncAllForActiveZone()
 
                     if let zoneID = appState.familyZoneID {

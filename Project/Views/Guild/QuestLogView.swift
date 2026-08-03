@@ -170,41 +170,97 @@ struct QuestLogView: View {
 
     // MARK: - Quest Rows
 
+    @ViewBuilder
     private var questRows: some View {
-        ForEach(viewModel?.displayedQuests ?? []) { row in
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(row.heroName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(row.heroIsActive ? .primary : .secondary)
-                    if !row.heroIsActive {
-                        Text("Removed")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(.red.opacity(0.15)))
-                            .foregroundStyle(.red)
+        if let vm = viewModel {
+            ForEach(vm.displayedQuests) { row in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(row.heroName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(row.heroIsActive ? .primary : .secondary)
+                        if !row.heroIsActive {
+                            Text("Removed")
+                                .font(.caption2.weight(.bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.red.opacity(0.15)))
+                                .foregroundStyle(.red)
+                        }
+                        Spacer()
+                        Text(row.quest.weekOf, format: .dateTime.month().day())
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    Spacer()
-                    Text(row.quest.weekOf, format: .dateTime.month().day())
+
+                    Text(row.quest.questName)
+                        .font(.body)
+
+                    HStack {
+                        completionBadge(row.completionStatus)
+                        Spacer()
+                        Text(
+                            "💰 \(String(format: "%.0f", row.quest.goldReward)) / ⭐ \(row.quest.xpReward)"
+                        )
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
+                    }
 
-                Text(row.quest.questName)
-                    .font(.body)
+                    if case .pending = row.completionStatus, appState.currentProfile?.role != .hero {
+                        HStack(spacing: 12) {
+                            Spacer()
+                            Button {
+                                Task {
+                                    let questName = row.quest.recordName
+                                    if let pendingLog = cachedCompletions
+                                        .first(where: { $0.questRecordName == questName && $0.verificationStatus == VerificationStatus.pending.rawValue })
+                                    {
+                                        let zoneID = questService.cloudKitReference.resolvedZoneID
+                                        let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
+                                        if let parent = appState.currentProfile {
+                                            _ = try? await questService.reject(questLog: domainLog, by: parent)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Text("Reject")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.red)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Capsule().fill(Color.red.opacity(0.12)))
+                            }
+                            .buttonStyle(.plain)
 
-                HStack {
-                    completionBadge(row.completionStatus)
-                    Spacer()
-                    Text(
-                        "💰 \(String(format: "%.0f", row.quest.goldReward)) / ⭐ \(row.quest.xpReward)"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                            Button {
+                                Task {
+                                    let questName = row.quest.recordName
+                                    if let pendingLog = cachedCompletions
+                                        .first(where: { $0.questRecordName == questName && $0.verificationStatus == VerificationStatus.pending.rawValue })
+                                    {
+                                        let zoneID = questService.cloudKitReference.resolvedZoneID
+                                        let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
+                                        if let parent = appState.currentProfile {
+                                            _ = try? await questService.verify(questLog: domainLog, by: parent)
+                                        }
+                                    }
+                                }
+                            }
+                            label: {
+                                Text("Approve")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .background(Capsule().fill(Color.green))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.top, 4)
+                    }
                 }
+                .padding(.vertical, 2)
             }
-            .padding(.vertical, 2)
         }
     }
 

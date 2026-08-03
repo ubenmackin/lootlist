@@ -96,6 +96,9 @@ struct GuildSettingsView: View {
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         familyNameSection(vm: vm)
         inviteLinkSection
+        if appState.currentProfile?.role == .guildMaster {
+            payoutSettingsSection
+        }
         membersSection(vm: vm)
         if let currentRole = appState.currentProfile?.role, currentRole != .guildMaster {
             leaveFamilySection
@@ -197,6 +200,68 @@ private extension GuildSettingsView {
 
     private var shareInviteItems: [Any] {
         appState.shareInviteItems
+    }
+
+    private var payoutSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Allowance & Payout Defaults")
+                .font(.headline)
+                .padding(.horizontal, 4)
+
+            VStack(alignment: .leading, spacing: 14) {
+                // Payout Day Picker
+                HStack {
+                    Label("Weekly Payout Day", systemImage: "calendar.badge.clock")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Picker("Payout Day", selection: Binding(
+                        get: { appState.family?.payoutDay ?? .sunday },
+                        set: { newDay in
+                            if let family = appState.family {
+                                Task {
+                                    try? await familyService.updatePayoutDay(family: family, day: newDay)
+                                }
+                            }
+                        }
+                    )) {
+                        ForEach(PayoutDay.allCases) { day in
+                            Text(day.displayName).tag(day)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                Divider()
+
+                // Default Payout Policy
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Default Payout Policy")
+                        .font(.subheadline.weight(.semibold))
+                    Text("New heroes added to the guild will inherit this policy by default.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Picker("Payout Policy", selection: Binding(
+                        get: { appState.family?.payoutPolicy ?? .perQuest },
+                        set: { newPolicy in
+                            if let family = appState.family {
+                                Task {
+                                    try? await familyService.updatePayoutPolicy(family: family, policy: newPolicy)
+                                }
+                            }
+                        }
+                    )) {
+                        ForEach(PayoutPolicy.allCases, id: \.self) { policy in
+                            Text(policy.displayName).tag(policy)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            .padding(14)
+            .background(cardBackground)
+        }
+        .padding(.horizontal)
     }
 
     private func membersSection(vm: FamilyDashboardViewModel) -> some View {

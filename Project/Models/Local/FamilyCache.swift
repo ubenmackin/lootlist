@@ -22,6 +22,9 @@ final class FamilyCache: CacheMergeable {
     var createdByRecordName: String
     var createdAt: Date
     var payoutPolicy: String
+    /// Declaration-level default mirrors the init default so the V2 → V3
+    /// lightweight migration can backfill legacy rows with the app fallback.
+    var payoutDay: String = PayoutDay.sunday.rawValue
     var changeTag: String?
 
     /// `FamilyCache` is the root record and is never family-scoped.
@@ -33,11 +36,16 @@ final class FamilyCache: CacheMergeable {
         PayoutPolicy(rawValue: payoutPolicy)
     }
 
+    var payoutDayEnum: PayoutDay? {
+        PayoutDay(rawValue: payoutDay)
+    }
+
     init(recordName: String,
          name: String,
          createdByRecordName: String,
          createdAt: Date,
          payoutPolicy: String,
+         payoutDay: String = PayoutDay.sunday.rawValue,
          changeTag: String? = nil)
     {
         self.recordName = recordName
@@ -45,6 +53,7 @@ final class FamilyCache: CacheMergeable {
         self.createdByRecordName = createdByRecordName
         self.createdAt = createdAt
         self.payoutPolicy = payoutPolicy
+        self.payoutDay = payoutDay
         self.changeTag = changeTag
     }
 
@@ -55,6 +64,7 @@ final class FamilyCache: CacheMergeable {
             createdByRecordName: family.createdBy.recordName,
             createdAt: family.createdAt,
             payoutPolicy: family.payoutPolicy.rawValue,
+            payoutDay: family.payoutDay.rawValue,
             changeTag: family.changeTag
         )
     }
@@ -66,6 +76,7 @@ final class FamilyCache: CacheMergeable {
         createdByRecordName = family.createdBy.recordName
         createdAt = family.createdAt
         payoutPolicy = family.payoutPolicy.rawValue
+        payoutDay = family.payoutDay.rawValue
         changeTag = family.changeTag
     }
 

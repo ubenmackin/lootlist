@@ -16,12 +16,14 @@ struct HeroSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedPolicy: PayoutPolicy
+    @State private var selectedDayOverride: PayoutDay?
     @State private var isSaving: Bool = false
     @State private var actionError: String?
 
     init(hero: Profile) {
         self.hero = hero
         _selectedPolicy = State(initialValue: hero.payoutPolicy)
+        _selectedDayOverride = State(initialValue: hero.payoutDay)
     }
 
     var body: some View {
@@ -31,7 +33,10 @@ struct HeroSettingsView: View {
                     // Hero Header Card
                     heroHeaderCard
 
-                    // Payout Policy Section with Radio Buttons
+                    // Payout Day Override
+                    payoutDayOverrideSection
+
+                    // Payout Policy Section with Radio Cards
                     payoutPolicySection
 
                     if let actionError {
@@ -94,26 +99,65 @@ struct HeroSettingsView: View {
         .padding(.horizontal)
     }
 
+    // MARK: - Payout Day Override Section
+
+    private var payoutDayOverrideSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Weekly Payout Day")
+                .font(.headline)
+                .padding(.horizontal, 4)
+
+            HStack {
+                Label("Hero Payout Day", systemImage: "calendar.badge.clock")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Picker("Payout Day", selection: Binding(
+                    get: { selectedDayOverride },
+                    set: { newDay in
+                        let previous = selectedDayOverride
+                        selectedDayOverride = newDay
+                        actionError = nil
+                        Task {
+                            do {
+                                _ = try await familyService.updateProfilePayoutDay(profile: hero, day: newDay)
+                            } catch {
+                                selectedDayOverride = previous
+                                actionError = "Could not update payout day: \(error.localizedDescription)"
+                            }
+                        }
+                    }
+                )) {
+                    Text("Inherit Family Default (\(appState.family?.payoutDay.displayName ?? "Sunday"))").tag(PayoutDay?.none)
+                    Divider()
+                    ForEach(PayoutDay.allCases) { day in
+                        Text(day.displayName).tag(PayoutDay?.some(day))
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            .padding(14)
+            .background(cardBackground)
+        }
+        .padding(.horizontal)
+    }
+
     // MARK: - Payout Policy Radio Section
 
     private var payoutPolicySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Weekly Allowance Payout Rule")
+            Text("Allowance Payout Rule")
                 .font(.headline)
                 .padding(.horizontal, 4)
 
             VStack(spacing: 12) {
-                payoutPolicyOptionRow(
-                    policy: .perQuest,
-                    title: "Pay Per Quest (Standard)",
-                    description: "Hero earns gold for every individual quest they complete each week."
-                )
-
-                payoutPolicyOptionRow(
-                    policy: .allOrNothing,
-                    title: "All-or-Nothing (Strict 100%)",
-                    description: "Hero must complete 100% of their assigned quests for the week to receive their Sunday allowance payout. Tracked independently per hero."
-                )
+                ForEach(PayoutPolicy.allCases, id: \.self) { policy in
+                    payoutPolicyOptionRow(
+                        policy: policy,
+                        title: policy.displayName,
+                        description: policy.subtitle,
+                        icon: policy.iconSystemName
+                    )
+                }
             }
         }
         .padding(.horizontal)
@@ -121,12 +165,12 @@ struct HeroSettingsView: View {
 
     private func payoutPolicyOptionRow(policy: PayoutPolicy,
                                        title: String,
-                                       description: String) -> some View
+                                       description: String,
+                                       icon: String) -> some View
     {
         let isSelected = selectedPolicy == policy
         return Button {
             if !isSelected {
-                // Instant 0ms optimistic UI state update
                 let previousPolicy = selectedPolicy
                 selectedPolicy = policy
                 actionError = nil
@@ -142,16 +186,19 @@ struct HeroSettingsView: View {
             }
         } label: {
             HStack(alignment: .top, spacing: 14) {
-                // Radio Button
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                     .padding(.top, 2)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.primary)
+                    HStack(spacing: 6) {
+                        Image(systemName: icon)
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        Text(title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color.primary)
+                    }
 
                     Text(description)
                         .font(.subheadline)

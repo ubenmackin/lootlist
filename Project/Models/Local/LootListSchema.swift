@@ -49,9 +49,30 @@ enum LootListSchemaV2: VersionedSchema {
     }
 }
 
+enum LootListSchemaV3: VersionedSchema {
+    static var versionIdentifier: Schema.Version {
+        Schema.Version(3, 0, 0)
+    }
+
+    static var models: [any PersistentModel.Type] {
+        [
+            FamilyCache.self,
+            ProfileCache.self,
+            QuestCache.self,
+            QuestTemplateCache.self,
+            QuestCompletionCache.self,
+            AllowancePeriodCache.self,
+            LedgerEntryCache.self,
+            AchievementCache.self,
+            ProfileAchievementCache.self,
+            NotificationPreferenceCache.self
+        ]
+    }
+}
+
 enum LootListMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [LootListSchemaV1.self, LootListSchemaV2.self]
+        [LootListSchemaV1.self, LootListSchemaV2.self, LootListSchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
@@ -60,9 +81,18 @@ enum LootListMigrationPlan: SchemaMigrationPlan {
             // (non-optional `Int` with a default of 0) and
             // `QuestCompletionCache.xpCredited` (optional `Int`, nil default).
             // Both are additive — SwiftData lightweight-migrates new attributes
-            // with defaults / optionals, so no custom stage is required (D8:
-            // schema bump is the sanctioned path for stored-attribute changes).
-            .lightweight(fromVersion: LootListSchemaV1.self, toVersion: LootListSchemaV2.self)
+            // with defaults / optionals, so no custom stage is required. Schema
+            // bumps are the sanctioned path for stored-attribute changes.
+            .lightweight(fromVersion: LootListSchemaV1.self, toVersion: LootListSchemaV2.self),
+
+            // V2 → V3 adds two stored attributes: `FamilyCache.payoutDay`
+            // (non-optional `String` with a declaration default of
+            // `PayoutDay.sunday.rawValue`, mirroring the app fallback) and
+            // `ProfileCache.payoutDay` (optional `String`, nil default).
+            // Both are additive — SwiftData lightweight-migrates new attributes
+            // with defaults / optionals, so no custom stage is required. Schema
+            // bumps are the sanctioned path for stored-attribute changes.
+            .lightweight(fromVersion: LootListSchemaV2.self, toVersion: LootListSchemaV3.self)
         ]
     }
 }
