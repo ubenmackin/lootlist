@@ -197,4 +197,108 @@ struct FamilyDashboardViewModelTests {
         #expect(summary.currentStreak == 2)
         #expect(summary.trophiesEarned == 2)
     }
+
+    @Test
+    func `rebuildLists differentiates gold and task counts between multiple heroes`() throws {
+        let sut = makeSUT()
+        let calendar = Calendar.iso8601UTC
+        let today = calendar.startOfDay(for: Date())
+        let currentWeek = WeekMath.weekOf(date: Date())
+        let familyName = "TestFamily"
+
+        let hero1 = ProfileCache(
+            recordName: "hero1",
+            familyRecordName: familyName,
+            displayName: "Hero One",
+            role: "hero",
+            xpTotal: 100,
+            avatarName: nil,
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 5,
+            iCloudUserRecordName: "u1",
+            avatarClass: nil,
+            payoutPolicy: "standard"
+        )
+        let hero2 = ProfileCache(
+            recordName: "hero2",
+            familyRecordName: familyName,
+            displayName: "Hero Two",
+            role: "hero",
+            xpTotal: 50,
+            avatarName: nil,
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 2,
+            iCloudUserRecordName: "u2",
+            avatarClass: nil,
+            payoutPolicy: "standard"
+        )
+
+        let quest1 = QuestCache(
+            recordName: "quest1",
+            familyRecordName: familyName,
+            assigneeRecordName: "hero1",
+            templateRecordName: "tmpl1",
+            weekOf: currentWeek,
+            questName: "Hero 1 Quest",
+            isActive: true,
+            goldReward: 20.0,
+            xpReward: 50,
+            rarity: "common",
+            scheduleType: "daily",
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: "autoApprove",
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+        let quest2 = QuestCache(
+            recordName: "quest2",
+            familyRecordName: familyName,
+            assigneeRecordName: "hero2",
+            templateRecordName: "tmpl2",
+            weekOf: currentWeek,
+            questName: "Hero 2 Quest",
+            isActive: true,
+            goldReward: 50.0,
+            xpReward: 100,
+            rarity: "rare",
+            scheduleType: "daily",
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: "autoApprove",
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+
+        let logHero1 = QuestCompletionCache(
+            recordName: "log1",
+            questRecordName: "quest1",
+            familyRecordName: familyName,
+            completerRecordName: "hero1",
+            completedDate: today,
+            weekOf: currentWeek,
+            verificationStatus: VerificationStatus.autoApproved.rawValue,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+
+        sut.vm.rebuildLists(
+            profiles: [hero1, hero2],
+            quests: [quest1, quest2],
+            logs: [logHero1],
+            ledgers: [],
+            allowancePeriods: [],
+            profileAchievements: [],
+            achievements: []
+        )
+
+        let hero1Summary = try #require(sut.vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero1" }))
+        let hero2Summary = try #require(sut.vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero2" }))
+
+        #expect(hero1Summary.weeklyGoldEarned == 20.0)
+        #expect(hero2Summary.weeklyGoldEarned == 0.0)
+    }
 }

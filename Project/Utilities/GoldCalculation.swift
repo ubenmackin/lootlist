@@ -230,4 +230,38 @@ enum GoldCalculation: Sendable {
         }
         return total
     }
+
+    static func netWeeklyGold(
+        quests: [QuestCache],
+        logs: [QuestCompletionCache],
+        profileRecordName: String,
+        payoutPolicy: PayoutPolicy?,
+        weekRange: Range<Date>
+    ) -> Double {
+        let heroLogs = logs.filter { $0.completerRecordName == profileRecordName }
+        let approvedLogs = heroLogs.filter {
+            ($0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified) &&
+                (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
+        }
+
+        var totalEarned = totalGold(for: quests, approvedLogs: approvedLogs)
+
+        let assignedQuests = quests.filter {
+            $0.assigneeRecordName == profileRecordName && weekRange.contains($0.weekOf)
+        }
+
+        let fullyCompletedCount = assignedQuests.filter { quest in
+            let qLogs = approvedLogs.filter { $0.questRecordName == quest.recordName }
+            return qLogs.count >= quest.targetCount
+        }.count
+
+        if payoutPolicy == .allOrNothing,
+           !assignedQuests.isEmpty,
+           fullyCompletedCount < assignedQuests.count
+        {
+            totalEarned = 0
+        }
+
+        return totalEarned
+    }
 }

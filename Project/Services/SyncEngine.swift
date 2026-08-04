@@ -19,7 +19,7 @@ final class SyncEngine {
         category: "SyncEngine"
     )
 
-    private let cloudKit: CloudKitService
+    private let cloudKit: any CloudKitServiceProtocol
     private let cacheService: CacheService
     private let backgroundCache: BackgroundCacheActor
     private let syncCoordinator: AppSyncCoordinator
@@ -30,15 +30,15 @@ final class SyncEngine {
     private(set) var lastSyncedAt: Date?
     var syncError: String?
 
-    /// Zone names (== family record names, TASK-001) flagged for a full re-sync
-    /// because a prior incremental pass hit records it could not parse (S3).
+    /// Zone names (== family record names) flagged for a full re-sync
+    /// because a prior incremental pass hit records it could not parse.
     /// Consumed by the next `syncAll`/`incrementalSync`; never persisted across
     /// launches — the deliberately un-advanced change token already forces the
     /// full-sync fallback there.
     private(set) var needsFullResyncZoneNames: Set<String> = []
 
     /// Record names that failed to parse during the current incremental sync
-    /// pass (S3). The set is count-limited so a pathological zone cannot grow
+    /// pass. The set is count-limited so a pathological zone cannot grow
     /// memory without bound; `failedRecordCount` stays exact and non-zero is
     /// the signal that the zone change token must not advance.
     private static let maxTrackedFailedRecords = 100
@@ -47,7 +47,7 @@ final class SyncEngine {
 
     private let syncTaskMutex = Mutex<Task<Void, Never>?>(nil)
 
-    init(cloudKit: CloudKitService,
+    init(cloudKit: any CloudKitServiceProtocol,
          cacheService: CacheService,
          backgroundCache: BackgroundCacheActor,
          syncCoordinator: AppSyncCoordinator)
@@ -77,14 +77,14 @@ final class SyncEngine {
     /// no "all families" bootstrap, because the active zone is the single
     /// source of family data this device serves at any one time. The purge
     /// paths are scoped to that family so other families' cached rows are never
-    /// deleted (D1).
+    /// deleted.
     func syncAllForActiveZone() async {
         await _syncAll(familyRecordName: cloudKit.resolvedZoneID.zoneName)
     }
 
     /// Shared implementation for scoped full syncs.
     ///
-    /// D1 guard: the purge path MUST always be scoped to a concrete
+    /// The purge path MUST always be scoped to a concrete
     /// `familyRecordName`. When the caller supplies nil (or an empty scope),
     /// derive the effective scope from `cloudKit.resolvedZoneID.zoneName`
     /// (the zone is named after the Family record) BEFORE any fetch, so a
@@ -104,7 +104,7 @@ final class SyncEngine {
         // concrete scope — never a nil that could purge another family's rows.
         let resolvedFamilyRecordName = resolveFamilyRecordName(familyRecordName)
 
-        // S3: a prior incremental pass could not parse a record in this zone and
+        // A prior incremental pass could not parse a record in this zone and
         // deliberately did not advance the change token. This full re-sync
         // re-reads every record, so consuming the flag here satisfies the
         // "full re-sync on the next opportunity" contract.
@@ -401,7 +401,7 @@ final class SyncEngine {
         }
     }
 
-    private func processIncrementalChanges(_ result: CloudKitService.ZoneChangesResult) async -> Set<CachedRecordType> {
+    private func processIncrementalChanges(_ result: ZoneChangesResult) async -> Set<CachedRecordType> {
         var touchedTypes = Set<CachedRecordType>()
         for record in result.changedRecords {
             if let type = CachedRecordType.recordType(for: record.recordType) {

@@ -155,4 +155,15 @@ extension CacheService {
     func fetchNotificationPreferences(profileRecordName: String) -> [NotificationPreferenceCache] {
         fetch(NotificationPreferenceCache.self, predicate: #Predicate { $0.profileRecordName == profileRecordName })
     }
+
+    func fetchNotificationPreference(profileRecordName: String, familyRecordName: String, eventType: String) -> NotificationPreferenceCache? {
+        fetch(
+            NotificationPreferenceCache.self,
+            predicate: #Predicate {
+                $0.profileRecordName == profileRecordName
+                    && $0.familyRecordName == familyRecordName
+                    && $0.eventType == eventType
+            }
+        ).first
+    }
 }

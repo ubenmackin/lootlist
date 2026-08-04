@@ -104,7 +104,7 @@ actor BackgroundCacheActor {
     /// background actor so the per-template await does not contend with the
     /// cache-hit read path. Returns a new array with stamped names where
     /// available; callers must use the returned array for subsequent upsert.
-    func backfillQuestNames(_ quests: [Quest], cloudKit: CloudKitService) async -> [Quest] {
+    func backfillQuestNames(_ quests: [Quest], cloudKit: any CloudKitServiceProtocol) async -> [Quest] {
         let nameless = quests.filter { $0.name == nil }
         guard !nameless.isEmpty else { return quests }
         let recordNames = Set(nameless.map(\.template.recordID))

@@ -171,35 +171,13 @@ final class HeroDashboardViewModel {
     ) -> Double {
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
         let weekRange = WeekMath.weekRange(starting: weekOf)
-
-        let approvedWeekLogs = logs.filter {
-            ($0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified)
-                && (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
-        }
-
-        var totalEarned = GoldCalculation.totalGold(for: quests, approvedLogs: approvedWeekLogs)
-
-        let assignedQuests = quests.filter {
-            $0.assigneeRecordName == profileRecordName && weekRange.contains($0.weekOf)
-        }
-
-        let fullyCompletedCount = assignedQuests.filter { quest in
-            let qLogs = logs.filter {
-                $0.questRecordName == quest.recordName &&
-                    ($0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved) &&
-                    (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
-            }
-            return qLogs.count >= quest.targetCount
-        }.count
-
-        if payoutPolicy == .allOrNothing,
-           !assignedQuests.isEmpty,
-           fullyCompletedCount < assignedQuests.count
-        {
-            totalEarned = 0
-        }
-
-        return totalEarned
+        return GoldCalculation.netWeeklyGold(
+            quests: quests,
+            logs: logs,
+            profileRecordName: profileRecordName,
+            payoutPolicy: payoutPolicy,
+            weekRange: weekRange
+        )
     }
 
     nonisolated static func computeStreak(from logs: [QuestCompletionCache]) -> Int {
@@ -285,38 +263,32 @@ final class HeroDashboardViewModel {
         logsByQuestRecordName[quest.recordName]
     }
 
-    static func todayWeekdayCode() -> String {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = .current
-
-        let weekdayIndex = cal.component(.weekday, from: Date()) - 1
+    static func todayWeekdayCode(calendar: Calendar = .iso8601UTC) -> String {
+        let weekdayIndex = calendar.component(.weekday, from: Date()) - 1
         let codes = AppConstants.weekdayCodes
         let safe = max(0, min(codes.count - 1, weekdayIndex))
         return codes[safe]
     }
 
-    static func currentWeekDays(for date: Date = Date()) -> [DayInfo] {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = .current
-
-        let weekday = cal.component(.weekday, from: date) // 1 (Sun) to 7 (Sat)
+    static func currentWeekDays(for date: Date = Date(), calendar: Calendar = .iso8601UTC) -> [DayInfo] {
+        let weekday = calendar.component(.weekday, from: date) // 1 (Sun) to 7 (Sat)
         let daysToSunday = 1 - weekday
-        guard let sundayDate = cal.date(byAdding: .day, value: daysToSunday, to: cal.startOfDay(for: date)) else {
+        guard let sundayDate = calendar.date(byAdding: .day, value: daysToSunday, to: calendar.startOfDay(for: date)) else {
             return []
         }
 
         let codes = AppConstants.weekdayCodes
         let shortNames = AppConstants.weekdayShort
 
-        let todayStart = cal.startOfDay(for: date)
+        let todayStart = calendar.startOfDay(for: date)
 
         return (0 ..< 7).compactMap { offset in
-            guard let dayDate = cal.date(byAdding: .day, value: offset, to: sundayDate) else { return nil }
-            let dayStart = cal.startOfDay(for: dayDate)
-            let isToday = cal.isDate(dayStart, inSameDayAs: todayStart)
+            guard let dayDate = calendar.date(byAdding: .day, value: offset, to: sundayDate) else { return nil }
+            let dayStart = calendar.startOfDay(for: dayDate)
+            let isToday = calendar.isDate(dayStart, inSameDayAs: todayStart)
             let isPast = dayStart < todayStart
             let isFuture = dayStart > todayStart
-            let dayNum = cal.component(.day, from: dayDate)
+            let dayNum = calendar.component(.day, from: dayDate)
 
             return DayInfo(
                 id: codes[offset],
