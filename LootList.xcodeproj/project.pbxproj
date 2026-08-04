@@ -120,6 +120,7 @@
 		B9F8BA2484D5ABF19D74DFB1 /* iCloudStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55D9B190E857B276A4369A5D /* iCloudStatusView.swift */; };
 		BFCD2529C42237485D89FE2D /* SyncEngineTests+Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9A95EEE884FD975C9F7AD5 /* SyncEngineTests+Helpers.swift */; };
 		C1918099647CCE0351E916E4 /* NotificationEventType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11F43417D2F508F010B5411F /* NotificationEventType.swift */; };
+		C33DCB3037CB75202C0E828F /* ScenarioMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */; };
 		C631317D746E8FA61D9FFD57 /* SpendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */; };
 		C858F8205B3AADAE18F68327 /* Achievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB74BA7516355BF020EC5048 /* Achievement.swift */; };
 		C8CD8FF93EA85F62F2D74717 /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA32A99EF7AD83493CB7E19 /* SampleData.swift */; };
@@ -256,6 +257,7 @@
 		793AE042C54685940F7C3EF1 /* QuestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestService.swift; sourceTree = "<group>"; };
 		7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastManager.swift; sourceTree = "<group>"; };
 		7B3C3019E643E8C293E764E6 /* AllowancePeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllowancePeriod.swift; sourceTree = "<group>"; };
+		7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenarioMatrixTests.swift; sourceTree = "<group>"; };
 		7CE3059DE9424EEBF9EAD434 /* OnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViewModel.swift; sourceTree = "<group>"; };
 		7EA257916025679E0AA31706 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
 		80AA429949DE95170513B347 /* LootListSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListSchema.swift; sourceTree = "<group>"; };
@@ -489,6 +491,7 @@
 				FE146AF998123F6F9E4FB25B /* QuestServiceTests.swift */,
 				FFEA73D94DB7183AB2335A52 /* QuestServiceTests+Helpers.swift */,
 				026B781537DB7624C07CE555 /* QuestServiceTests+Queries.swift */,
+				7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */,
 				C9799CCBFD103072155F0E97 /* SyncEngineTests.swift */,
 				6F9A95EEE884FD975C9F7AD5 /* SyncEngineTests+Helpers.swift */,
 				6A2AAC490D4CDE90DD9CBAA9 /* SyncEngineTests+Notifications.swift */,
@@ -960,6 +963,7 @@
 				E20E04569DFB597642DEBCDC /* QuestServiceTests+Helpers.swift in Sources */,
 				6352FD719D25CFF60020D9E7 /* QuestServiceTests+Queries.swift in Sources */,
 				843998266FDE8735965AEE0C /* QuestServiceTests.swift in Sources */,
+				C33DCB3037CB75202C0E828F /* ScenarioMatrixTests.swift in Sources */,
 				BFCD2529C42237485D89FE2D /* SyncEngineTests+Helpers.swift in Sources */,
 				DCB57D128F107948F356B06E /* SyncEngineTests+Notifications.swift in Sources */,
 				D5B845D468788F9358A0A7F4 /* SyncEngineTests.swift in Sources */,

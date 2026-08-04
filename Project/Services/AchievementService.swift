@@ -53,12 +53,12 @@ final class AchievementService {
 
     var toastManager: ToastManager?
 
-    init(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
+    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
     }
 
-    private let cloudKit: CloudKitService
+    private let cloudKit: any CloudKitServiceProtocol
 
     func seedDefaultAchievements(family: Family) async throws {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
