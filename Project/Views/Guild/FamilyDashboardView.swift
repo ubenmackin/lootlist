@@ -110,11 +110,10 @@ struct FamilyDashboardView: View {
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 rebuild()
-                Task { await viewModel?.refresh() }
             }
-            .onChange(of: scenePhase) { _, newPhase in
-                if newPhase == .active {
-                    Task { await viewModel?.refresh() }
+            .task(id: scenePhase) {
+                if scenePhase == .active {
+                    await viewModel?.refresh()
                 }
             }
             .onChange(of: cachedProfiles) { _, _ in rebuild() }

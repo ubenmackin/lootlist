@@ -32,13 +32,13 @@ protocol FamilyProfileFetching: Sendable {
 final class FamilyService: FamilyProfileFetching {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
-    let cloudKit: CloudKitService
+    let cloudKit: any CloudKitServiceProtocol
     let appState: AppState
     private let questService: QuestService
 
     var cacheService: CacheService?
 
-    var cloudKitReference: CloudKitService {
+    var cloudKitReference: any CloudKitServiceProtocol {
         cloudKit
     }
 
@@ -52,7 +52,7 @@ final class FamilyService: FamilyProfileFetching {
     /// sync and duplicate server-derived writes.
     private let refreshInFlightKeys = Mutex<Set<String>>([])
 
-    init(cloudKit: CloudKitService, appState: AppState, questService: QuestService, cacheService: CacheService? = nil) {
+    init(cloudKit: any CloudKitServiceProtocol, appState: AppState, questService: QuestService, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.appState = appState
         self.questService = questService

@@ -7,11 +7,16 @@
 
 import CloudKit
 import Foundation
+import os
 import Synchronization
 
 // MARK: - Quest Completions & Verification
 
 extension QuestService {
+    private var logger: Logger {
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
+    }
+
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
         let questName = quest.id.recordName
@@ -69,8 +74,12 @@ extension QuestService {
                 if let notificationService,
                    let parent = try? await cloudKit.fetch(Profile.self, id: quest.createdBy.recordID)
                 {
-                    Task { @Sendable in
-                        try? await notificationService.sendQuestNeedsReview(questLog: saved, to: parent)
+                    Task { @Sendable [logger] in
+                        do {
+                            try await notificationService.sendQuestNeedsReview(questLog: saved, to: parent)
+                        } catch {
+                            logger.error("Failed to send quest review notification: \(error, privacy: .public)")
+                        }
                     }
                 }
             }
@@ -126,15 +135,19 @@ extension QuestService {
             let creditedGold = try await applyReward(for: quest, to: hero, completion: saved)
 
             if let notificationService {
-                Task { @Sendable in
+                Task { @Sendable [logger] in
                     let goldText = NumberFormatter.goldFormatter
                         .string(from: NSNumber(value: creditedGold)) ?? "\(creditedGold)"
-                    try? await notificationService.send(
-                        .questCompleted,
-                        to: hero,
-                        title: "🏆 Quest Verified!",
-                        body: "Your quest was verified! You earned \(goldText) gold."
-                    )
+                    do {
+                        try await notificationService.send(
+                            .questCompleted,
+                            to: hero,
+                            title: "🏆 Quest Verified!",
+                            body: "Your quest was verified! You earned \(goldText) gold."
+                        )
+                    } catch {
+                        logger.error("Failed to send quest completion notification: \(error, privacy: .public)")
+                    }
                 }
             }
 
@@ -453,9 +466,12 @@ extension QuestService {
 
         if hero.payoutPolicy == .realTime, creditedGold > 0, let treasuryService {
             let questFamilyID = quest.family.recordID
-            Task {
-                if let family = try? await cloudKit.fetch(Family.self, id: questFamilyID) {
-                    _ = try? await treasuryService.processRealTimeSettlement(profile: hero, family: family)
+            Task { [logger] in
+                do {
+                    let family = try await cloudKit.fetch(Family.self, id: questFamilyID)
+                    _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: family)
+                } catch {
+                    logger.error("Failed to process real-time settlement for hero \(hero.id.recordName, privacy: .private): \(error, privacy: .public)")
                 }
             }
         }

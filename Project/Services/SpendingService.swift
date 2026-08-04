@@ -49,12 +49,12 @@ extension SpendingService {
 
 @MainActor
 final class ManualSpendingService: SpendingService {
-    private let cloudKit: CloudKitService
+    private let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService?
 
     var toastManager: ToastManager?
 
-    init(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
+    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
     }
@@ -179,7 +179,7 @@ final class ManualSpendingService: SpendingService {
 
         cacheService?.invalidateLedgerEntry(recordName: name)
         do {
-            try await cloudKit.delete(entry.id)
+            try await cloudKit.delete(entry.id, in: nil, using: nil)
             await registry?.deregister(name)
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(

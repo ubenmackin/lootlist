@@ -39,7 +39,7 @@ final class AppDependencies {
         } catch {
             cache = nil
             if !isTest {
-                app.cacheInitError = "Failed to initialize the local cache: \(error.localizedDescription)"
+                app.cacheInitError = .cacheInitializationFailed(error.localizedDescription)
             }
         }
 
@@ -201,70 +201,70 @@ struct LootListApp: App {
 
     @ViewBuilder
     private var rootViewContent: some View {
-        let baseRoot = RootView(pendingShareMetadata: pendingShareMetadata)
-            .environment(appState)
-            .environment(cloudKitService)
-            .environment(familyService)
-            .environment(xpService)
-            .environment(questService)
-            .environment(treasuryService)
-            .environment(achievementService)
-            .environment(avatarService)
-            .environment(notificationService)
-            .environment(appSyncCoordinator)
-            .environment(cacheService)
-            .environment(syncEngine)
-            .environment(toastManager)
-            .task {
-                if !TestEnvironment.isRunningUnitOrUITests {
-                    await checkCloudKitAvailability()
-                    await cloudKitService.processAbandonedZonesQueue(appState: appState)
-                    await appState.restoreSession(cloudKit: cloudKitService)
+        if let error = appState.cacheInitError {
+            FatalCacheErrorView(message: error.localizedDescription)
+        } else {
+            let baseRoot = RootView(pendingShareMetadata: pendingShareMetadata)
+                .environment(appState)
+                .environment(cloudKitService)
+                .environment(familyService)
+                .environment(xpService)
+                .environment(questService)
+                .environment(treasuryService)
+                .environment(achievementService)
+                .environment(avatarService)
+                .environment(notificationService)
+                .environment(appSyncCoordinator)
+                .environment(cacheService)
+                .environment(syncEngine)
+                .environment(toastManager)
+                .task {
+                    if !TestEnvironment.isRunningUnitOrUITests {
+                        await checkCloudKitAvailability()
+                        await cloudKitService.processAbandonedZonesQueue(appState: appState)
+                        await appState.restoreSession(cloudKit: cloudKitService)
 
-                    // Bootstrap full sync: initial app launch after session
-                    // restoration. The CloudKit zone is named after the
-                    // Family record, so the resolved zone's name is the
-                    // concrete family scope. syncAllForActiveZone() hydrates
-                    // ONLY the currently resolved family zone — there is no
-                    // unscoped cross-family pull, and the purge paths are
-                    // scoped to that family so other families' cached rows are
-                    // never deleted.
-                    await syncEngine?.syncAllForActiveZone()
+                        // Bootstrap full sync: initial app launch after session
+                        // restoration. The CloudKit zone is named after the
+                        // Family record, so the resolved zone's name is the
+                        // concrete family scope. syncAllForActiveZone() hydrates
+                        // ONLY the currently resolved family zone — there is no
+                        // unscoped cross-family pull, and the purge paths are
+                        // scoped to that family so other families' cached rows are
+                        // never deleted.
+                        await syncEngine?.syncAllForActiveZone()
 
-                    if let zoneID = appState.familyZoneID {
+                        if let zoneID = appState.familyZoneID {
+                            let db = cloudKitService.database(isOwner: appState.isZoneOwner)
+                            await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
+                        }
+
+                        // Run data migrations
+                        await dataMigrationsCoordinator.runPendingMigrations()
+                    }
+                }
+                .onOpenURL { url in
+                    handleIncomingShareURL(url)
+                }
+                .onChange(of: appState.familyZoneID) { _, newZoneID in
+                    guard let zoneID = newZoneID, !TestEnvironment.isRunningUnitOrUITests else { return }
+                    Task {
                         let db = cloudKitService.database(isOwner: appState.isZoneOwner)
                         await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
+                        await dataMigrationsCoordinator.runPendingMigrations()
                     }
-
-                    // Run data migrations
-                    await dataMigrationsCoordinator.runPendingMigrations()
                 }
-            }
-            .onOpenURL { url in
-                handleIncomingShareURL(url)
-            }
-            .onChange(of: appState.familyZoneID) { _, newZoneID in
-                guard let zoneID = newZoneID, !TestEnvironment.isRunningUnitOrUITests else { return }
-                Task {
-                    let db = cloudKitService.database(isOwner: appState.isZoneOwner)
-                    await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
-                    await dataMigrationsCoordinator.runPendingMigrations()
-                }
-            }
-            // Toast banner overlay sits above all RootView states (splash,
-            // onboarding, authenticated) so services can surface errors
-            // universally. Hung on `baseRoot` so both branch consumers inherit it.
-            .overlay(alignment: .top) { ToastView(toastManager: toastManager) }
+                // Toast banner overlay sits above all RootView states (splash,
+                // onboarding, authenticated) so services can surface errors
+                // universally. Hung on `baseRoot` so both branch consumers inherit it.
+                .overlay(alignment: .top) { ToastView(toastManager: toastManager) }
 
-        if appState.cacheInitError != nil {
-            // a required layer; surface the error as a controlled launch failure rather
-            // than rendering blank `@Query *.Cache` views forever.
-            FatalCacheErrorView(message: appState.cacheInitError ?? "Unknown cache initialization failure.")
-        } else if let container = cacheService?.container {
-            baseRoot.modelContainer(container)
-        } else {
-            // Render `baseRoot` directly without a model container (test environment path).
-            baseRoot
+            if let container = cacheService?.container {
+                baseRoot.modelContainer(container)
+            } else {
+                // Render `baseRoot` directly without a model container (test environment path).
+                baseRoot
+            }
         }
     }
 
@@ -351,9 +351,15 @@ private struct RootView: View {
                         .background(Color(.systemBackground))
                 }
             case .authenticated:
-                TabBarView(spending: spendingService ?? ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(.systemBackground))
+                if let spendingService {
+                    TabBarView(spending: spendingService)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(.systemBackground))
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(.systemBackground))
+                }
             case .offlineEmptyCache:
                 VStack(spacing: 16) {
                     Image(systemName: "wifi.slash")

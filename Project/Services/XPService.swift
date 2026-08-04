@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 @MainActor
 protocol CloudKitServicing {
@@ -43,6 +44,7 @@ struct LevelProgress: Equatable, Sendable {
 @MainActor
 @Observable
 final class XPService {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "XPService")
     static let stepBase: Int = AppConstants.Experience.stepBase
 
     static let accessoryCadence: Int = AppConstants.Experience.accessoryCadence
@@ -118,13 +120,17 @@ final class XPService {
 
             if saved.level > oldLevel, let notificationService {
                 let newLevel = saved.level
-                Task {
-                    try? await notificationService.send(
-                        .levelUp,
-                        to: saved,
-                        title: "🎉 Level Up!",
-                        body: "\(saved.displayName) reached Level \(newLevel)!"
-                    )
+                Task { [logger] in
+                    do {
+                        try await notificationService.send(
+                            .levelUp,
+                            to: saved,
+                            title: "🎉 Level Up!",
+                            body: "\(saved.displayName) reached Level \(newLevel)!"
+                        )
+                    } catch {
+                        logger.error("Failed to send level-up notification: \(error, privacy: .public)")
+                    }
                 }
             }
             await registry?.deregister(name)

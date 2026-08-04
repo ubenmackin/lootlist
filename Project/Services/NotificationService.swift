@@ -23,7 +23,7 @@ final class NotificationService {
     static let verificationApproveActionID = "questLog.verification.approve"
     static let verificationRejectActionID = "questLog.verification.reject"
 
-    private let cloudKit: CloudKitService
+    private let cloudKit: any CloudKitServiceProtocol
     private let appState: AppState
 
     var cacheService: CacheService?
@@ -33,7 +33,7 @@ final class NotificationService {
 
     var weeklySummaryProvider: (@Sendable (Profile, Family, Date) async -> String?)?
 
-    init(cloudKit: CloudKitService,
+    init(cloudKit: any CloudKitServiceProtocol,
          appState: AppState,
          cacheService: CacheService? = nil)
     {
@@ -84,17 +84,11 @@ final class NotificationService {
               let profile = appState.currentProfile,
               let family = appState.family
         else { return nil }
-        let profileName = profile.id.recordName
-        let familyName = family.id.recordName
-        let eventTypeRaw = eventType.rawValue
-        let descriptor = FetchDescriptor<NotificationPreferenceCache>(
-            predicate: #Predicate {
-                $0.profileRecordName == profileName
-                    && $0.familyRecordName == familyName
-                    && $0.eventType == eventTypeRaw
-            }
+        return cacheService.fetchNotificationPreference(
+            profileRecordName: profile.id.recordName,
+            familyRecordName: family.id.recordName,
+            eventType: eventType.rawValue
         )
-        return try? cacheService.container?.mainContext.fetch(descriptor).first
     }
 
     private func userDefaultsFallback(for eventType: NotificationEventType) -> Bool {

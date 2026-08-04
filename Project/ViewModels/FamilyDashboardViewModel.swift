@@ -97,35 +97,19 @@ final class FamilyDashboardViewModel {
             let heroWeekRange = WeekMath.weekRange(starting: heroWeekOf)
 
             let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
-
             let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && (heroWeekRange.contains($0.weekOf) || heroWeekRange.contains($0.completedDate)) }
 
             let completed = heroLogs.filter {
                 $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
             }
 
-            let weekLogs = heroLogs
-            let completedLogs = completed
-            var goldFromQuests = GoldCalculation.totalGold(for: quests, approvedLogs: completedLogs)
-
-            let assignedQuests = quests.filter {
-                $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf)
-            }
-
-            let fullyCompletedCount = assignedQuests.filter { quest in
-                let approvedLogs = weekLogs.filter {
-                    $0.questRecordName == quest.recordName &&
-                        ($0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved)
-                }
-                return approvedLogs.count >= quest.targetCount
-            }.count
-
-            if hero.payoutPolicyEnum == .allOrNothing,
-               !assignedQuests.isEmpty,
-               fullyCompletedCount < assignedQuests.count
-            {
-                goldFromQuests = 0
-            }
+            let goldFromQuests = GoldCalculation.netWeeklyGold(
+                quests: quests,
+                logs: logs,
+                profileRecordName: hero.recordName,
+                payoutPolicy: hero.payoutPolicyEnum,
+                weekRange: heroWeekRange
+            )
 
             let heroLedgers = ledgers.filter {
                 $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)

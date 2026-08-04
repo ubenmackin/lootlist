@@ -7,17 +7,19 @@
 
 import CloudKit
 import Foundation
+import os
 
 @MainActor
 @Observable
 final class TreasuryService {
-    private let cloudKit: CloudKitService
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TreasuryService")
+    private let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
     var cacheService: CacheService?
 
     var toastManager: ToastManager?
 
-    init(cloudKit: CloudKitService, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
+    init(cloudKit: any CloudKitServiceProtocol, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
         self.cacheService = cacheService
@@ -266,7 +268,7 @@ final class TreasuryService {
             updated.totalEarned = breakdown.totalEarned
             updated.questsCompleted = breakdown.questsCount
         } else {
-            guard (updated.totalEarned ?? 0) > 0 else {
+            guard (updated.totalEarned) > 0 else {
                 return
             }
         }
@@ -291,11 +293,13 @@ final class TreasuryService {
             cacheService?.upsertAllowancePeriod(saved)
 
             if let notificationService {
-                Task {
-                    if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
-                       let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
-                    {
-                        try? await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
+                Task { [logger] in
+                    do {
+                        let profile = try await cloudKit.fetch(Profile.self, id: period.profile.recordID)
+                        let family = try await cloudKit.fetch(Family.self, id: period.family.recordID)
+                        try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
+                    } catch {
+                        logger.error("Failed to send weekly summary notification: \(error, privacy: .public)")
                     }
                 }
             }
