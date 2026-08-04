@@ -364,9 +364,9 @@ struct FamilyDashboardView: View {
                         }
                         Button("Cancel", role: .cancel) {}
                     } message: {
-                        let amountStr = String(format: "%.2f", summary.totalEarned)
+                        let amountStr = CurrencyFormatter.string(summary.totalEarned)
                         Text(
-                            "Process payout of \(amountStr) gold across all heroes with completed quests? " +
+                            "Process payout of \(amountStr) across all heroes with completed quests? " +
                                 "This will settle earnings for quests completed so far this week."
                         )
                     }
@@ -401,9 +401,9 @@ struct FamilyDashboardView: View {
     private func totalsRow(summary: WeekendSummary) -> some View {
         HStack(spacing: 16) {
             statBlock(
-                icon: "circle.hexagongrid.fill",
-                value: String(format: "%.2f", summary.totalEarned),
-                label: "Gold Earned",
+                icon: "banknote",
+                value: CurrencyFormatter.string(summary.totalEarned),
+                label: "Earned",
                 tint: .gold
             )
             Divider()
@@ -463,7 +463,7 @@ struct FamilyDashboardView: View {
                         Text("\(hero.weeklyQuestsCompleted) quests")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text(String(format: "%.2f gold", hero.weeklyGoldEarned))
+                        Text(CurrencyFormatter.string(hero.weeklyGoldEarned))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Color.gold)
                     }

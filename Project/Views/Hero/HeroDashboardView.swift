@@ -104,14 +104,14 @@ struct HeroDashboardView: View {
 
     private var goldBalanceCard: some View {
         HStack(spacing: 12) {
-            Image(systemName: "dollarsign.circle.fill")
+            Image(systemName: "banknote")
                 .font(.system(size: 36))
                 .foregroundStyle(.yellow)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Gold This Week")
+                Text("Earned This Week")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text(viewModel.map { String(format: "%.2f", $0.earnedThisWeek) } ?? "0.00")
+                Text(viewModel.map { CurrencyFormatter.string($0.earnedThisWeek) } ?? CurrencyFormatter.string(0))
                     .font(.title.bold())
                     .monospacedDigit()
             }

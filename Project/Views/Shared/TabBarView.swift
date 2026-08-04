@@ -122,7 +122,7 @@ struct TabBarView: View {
 
         TreasuryView(spending: spending, familyRecordName: familyName)
             .tabItem {
-                Label("Gold", systemImage: "circle.hexagongrid.fill")
+                Label("Money", systemImage: "banknote")
             }
             .tag(RootTab.gold)
 

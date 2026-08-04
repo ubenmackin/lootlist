@@ -2,14 +2,14 @@
 
 ## Project Soul
 
-Loot List is a family chore and allowance tracker for iOS, themed as a fantasy RPG. Parents ("Guild Masters") assign quests to their kids ("Heroes"), who complete them to earn gold (allowance). The app uses iCloud sync so the entire family sees the same data in real time, with a local SwiftData cache so the app remains usable offline.
+Loot List is a family chore and allowance tracker for iOS, themed as a fantasy RPG. Parents ("Guild Masters") assign quests to their kids ("Heroes"), who complete them to earn money (allowance). The app uses iCloud sync so the entire family sees the same data in real time, with a local SwiftData cache so the app remains usable offline.
 
 **Why this architecture:**
 - **CloudKit is the only viable native sync mechanism for a family app on Apple's ecosystem.** It provides real-time push updates, offline queueing, and zero server cost. The Guild Master owns the family data in their private database and shares it with Heroes via `CKShare`; Heroes read/write through the shared database after accepting the invite.
 - **A local SwiftData cache sits in front of CloudKit for reads.** CloudKit fetches are async and network-bound; the cache lets the UI hydrate instantly and lets the app launch offline. CloudKit remains the source of truth; the cache is a derived, write-through read store.
 - **SwiftUI + MVVM** is the modern Apple standard. Combined with the iOS 26 SDK, we use the latest APIs and patterns (`@Observable`, `NavigationStack`, SF Symbols 6+).
 - **Protocol-based service layer** allows us to swap implementations (e.g., manual ledger → FinanceKit) without touching views or models. The primary CloudKit seam is `CloudKitServiceProtocol` (a `@MainActor`, `AnyObject & Sendable` protocol in `Project/Services/CloudKitServiceProtocol.swift`) declaring the full surface the service layer consumes — database selection, zone management, record CRUD, zone-change fetches, share lifecycle, abandoned-zone processing. Every service (`QuestService`, `TreasuryService`, `FamilyService`, `NotificationService`, `SyncEngine`, `SpendingService`) and `AppState` depend on `any CloudKitServiceProtocol`; `CloudKitService` (production) and `MockCloudKitService` (unit tests) are its conformers. `CloudKitServicing` remains a narrower `@MainActor` seam defined alongside `XPService` that abstracts `CloudKitService.save/fetch` specifically for `XPService`'s unit tests.
-- **RPG theming is not cosmetic — it's core.** Every user-facing term, every screen, every notification uses the game vocabulary. This drives engagement for the kids.
+- **RPG theming is not cosmetic — it's core.** Every user-facing term, every screen, every notification uses the game vocabulary — with one deliberate exception: **money**. Allowance is real local currency and is always displayed in the user's region currency (§7.1), never as a fictional in-game currency. This split (game vocabulary for engagement, real-money presentation for financial literacy) drives the product.
 
 ---
 
@@ -130,7 +130,7 @@ enum PayoutPolicy: String, Codable {
 
 - Lives on **`Family`** (family-wide default) **and** on **`Profile`** (per-hero override).
 - `FamilyService` exposes `updatePayoutPolicy` (family) and `updateProfilePayoutPolicy` (per-hero).
-- `allOrNothing` means the hero earns the week's gold **only if** 100% of assigned quests are completed; otherwise the period pays nothing.
+- `allOrNothing` means the hero earns the week's money **only if** 100% of assigned quests are completed; otherwise the period pays nothing.
 - `realTime` means each quest completion is settled immediately: `QuestService.applyReward` calls `TreasuryService.processRealTimeSettlement` when the hero's `payoutPolicy == .realTime`. Settlement credits the allowance period's totals (`totalEarned` / `questsCompleted`) and `paidAmount` **without closing the period** — the period's `status` is left untouched so it stays open; closing happens via `runPayout`.
 - **(Half-open `[start, end)` week ranges)** Every "this week" boundary is routed through `WeekMath.weekRange(starting:) -> Range<Date>`, which produces a HALF-OPEN range whose upper bound is *exclusive* (`end == start + secondsInWeek`). `QuestService`, `TreasuryService`, `CacheService.fetchQuests(family:weekInRange:)`, and `FamilyDashboardViewModel` all share this single definition via `WeekMath` (which also owns `mondayOfWeek(for:)` / `weekOf(date:payoutDay:)` / `startOfWeek(for:payoutDay:)`, consolidated from the prior QuestService ↔ TreasuryService duplication). **The week cycle is payout-day-aware:** `WeekMath.startOfWeek(for:payoutDay:)` anchors the cycle on the configured payout day (with `payoutDay == .sunday` the cycle starts the following Monday), and the effective payout day resolves as **profile override → family → `.sunday` fallback** (`QuestService.effectivePayoutDay(for:)`; `TreasuryService` mirrors it via `profile.payoutDay ?? family.payoutDay` / `profile.payoutDay ?? .sunday`), so reads bucket by the same cycle the stored `weekOf` values were normalized to. This removes the prior divergence where `TreasuryService` used a CLOSED `DateInterval` (`end = start + secondsInWeek - 1`) while `QuestService` used a half-open range — a divergence that could disagree by exactly one quest on edge weeks (a completion timestamped Sunday 23:59 → Monday 00:00 falling on the seam). With `end` EXCLUSIVE, a `Date` equal to `end` belongs to the *following* week on both sides.
 
@@ -150,7 +150,7 @@ Each rarity maps to an XP reward (`AppConstants.Rarity.*XP`), a color, and an SF
 |---|---|
 | Chores | Quests |
 | Completed | Completed |
-| Allowance | Gold |
+| Allowance | Money |
 | Ledger | Scroll of Spending |
 | Streak | Combo Streak 🔥 |
 | Bonus | Loot Drop 🎁 |
@@ -161,6 +161,16 @@ Each rarity maps to an XP reward (`AppConstants.Rarity.*XP`), a color, and an SF
 | Kids | Heroes |
 | Profiles | Characters |
 | Weekly payout | Sunday Loot Day |
+
+#### 7.1 Money Display (Locale-Aware Currency)
+
+Money is **real local currency**, not a fictional in-game currency. This drives two cross-cutting constraints:
+
+- **One canonical formatter.** Every user-facing money amount — badges, balances, payouts, breakdowns, notification bodies, trophy requirement text — must render through `CurrencyFormatter` (`Project/Views/Shared/NumberFormatter+Gold.swift`; the file name is legacy), which resolves the symbol, grouping, and decimal separators from `Locale.current` at call time (`$10.00`, `£10.00`, `10,00 €`, `¥1,000`). Never hardcode a currency symbol (`"$"`) and never format money with a bare `String(format: "%.2f", …)`. `TreasuryView`'s `GoldFormat` (signed `+`/`−` ledger variants) is a thin wrapper on top of it.
+- **"Money" is the universal noun.** "Gold" is retired from user-facing copy. Stat headers use "Earned"/"Earnings" ("Earned This Week", "Total Earned"); form labels use "Reward"/"Amount" ("Default Reward", "Reward Override"). "\(x) gold" suffixes are banned. Currency-neutral SF Symbol `banknote` replaces coin/currency-specific icons (`circle.hexagongrid.fill`, `dollarsign.circle.fill`) in money-display and money-action contexts (never 💰/💵 emoji — they render a literal dollar sign on Apple platforms). Trophy names "Fortune Hoarder"/"Fortune Magnate" (formerly "Gold Hoarder"/"Gold Magnate").
+- **Internal identifiers keep the `gold` prefix** (`goldReward`, `GoldCalculation`, `GoldFormat`, `Color.gold`, `AchievementCategory.gold`, `AchievementRequirement.gold100/gold500`, `NotificationEventType.goldEarned`) — they are invisible to users and are decoupled from user-facing terms by this table. Do not rename them; renaming shipped CloudKit-backed fields would force a schema migration for zero user benefit.
+- **Trophy currency text is computed at render time.** `TrophyCardView` builds the requirement hint and detail description for `.gold100`/`.gold500` from `requirementValue` via `CurrencyFormatter`, never from the stored `achievementDescription` (legacy records carry stale text).
+- **Inputs stay plain-numeric.** Amount TextFields accept bare numbers; currency formatting is a display-boundary concern only.
 
 ### 8. Auth & Session State Machine
 
@@ -204,7 +214,7 @@ Incoming share URLs are captured in `LootListApp.handleIncomingShareURL` and pas
 
 ### 10. Notification System
 
-Every notification type is individually toggleable per user, stored as `NotificationPreference` records (one row per `profile + eventType`). `NotificationEventType` enumerates the app's events (quest lifecycle, level-up, gold earned, spending logged, trophy earned, streak milestone) — the canonical list lives in `Project/Models/Enums/NotificationEventType.swift`, not here, since it changes as features ship.
+Every notification type is individually toggleable per user, stored as `NotificationPreference` records (one row per `profile + eventType`). `NotificationEventType` enumerates the app's events (quest lifecycle, level-up, money earned, spending logged, trophy earned, streak milestone) — the canonical list lives in `Project/Models/Enums/NotificationEventType.swift`, not here, since it changes as features ship.
 
 **Cross-device source of truth:** `NotificationPreferenceCache` (SwiftData) is the per-device render cache backing `NotificationPreference` (CloudKit, system of record). `NotificationService.isNotificationEnabled(for:)` reads cache-first (filtered by `profileRecordName + familyRecordName + eventType`); `UserDefaults.standard.bool(for:)` is a **first-launch-only** fallback used solely when the SwiftData cache is cold (brand-new install before the first `syncAllForActiveZone` populates it) — this is the sanctioned strictly-subordinate-fallback category of the UserDefaults Policy (§2). `NotificationSettingsView` toggles write-through optimistically via `NotificationService.updatePreference(event:enabled:)` (optimistic upsert → CK save → re-upsert → catch-invalidate / snapshot-rollback) and keeps a `UserDefaults` mirror write for backward-compat. Bulk-write paths on `BackgroundCacheActor` — `batchUpsertNotificationPreferences` and `purgeMissingNotificationPreferences` — handle full-sync hydration and stale-row purge; `SyncEngine.processSecondaryRecord` routes incoming `NotificationPreference` records to `batchUpsertNotificationPreferences`. Cross-device propagation flows through the existing `CKSubscription` → `SyncEngine.incrementalSync` → SwiftData mutation → view's `.onChange(of: cachedNotificationPreferences)`.
 
@@ -230,7 +240,7 @@ The repo follows the MVVM/Services layout below. The exact file listing is inten
 - **`Project/ViewModels/`** — screen ViewModels (`@Observable`): hero & family dashboards, quest manager, treasury, trophy room, onboarding, and quest log. ViewModels read `*Cache` models directly and never depend on CloudKit types.
 - **`Project/Services/`** — the protocol/concrete service layer: `CloudKitServiceProtocol` (the `@MainActor` seam consumed across the service layer and `AppState`), `CloudKitService` (owner/participant DB split, retry, share, zones, subscriptions), `FamilyService`, `QuestService`, `TreasuryService`, `SpendingService` (protocol; `ManualSpendingService` is the sole conformer today, `FinanceKitSpendingService` planned — §3), `AchievementService`, `NotificationService`, `AvatarService`, `XPService` (declaration site of the narrower `CloudKitServicing` protocol), `CacheService` (+ `CacheService+Fetches` / `CacheService+Invalidation` extensions), `BackgroundCacheActor`, `SyncEngine`, `AppSyncCoordinator`, `CacheConversions`, `ConcurrentEditDetector` (the `detectConcurrentEdit` guard and the actor-isolated `InFlightMutationRegistry` — see §2 and §Conflict), `ToastManager` (shared in-app/toast surface), and `DataMigrationsCoordinator`.
 - **`Project/Views/`** — SwiftUI screens grouped by feature: `Onboarding/`, `Hero/`, `Treasury/`, `Trophies/`, `Profile/`, `Guild/`, `Shared/`. `Shared/` holds cross-cutting components (splash, settings, share sheet, presets, badges, progress bar, toast view, validation rows, etc.).
-- **`Project/Utilities/`** — app-wide constants, ISO8601-UTC calendar helpers, `WeekMath` (half-open week ranges — see §5), gold calculation, sample/seed data, and test-environment detection.
+- **`Project/Utilities/`** — app-wide constants, ISO8601-UTC calendar helpers, `WeekMath` (half-open week ranges — see §5), reward proration, sample/seed data, and test-environment detection.
 - **`Project/Resources/`** — asset catalogs (AppIcon + avatar imagesets, AchievementIcons).
 - **`ProjectTests/`** — unit tests; **`ProjectUITests/`** — UI + snapshot tests (`SnapshotHelper`).
 
@@ -238,7 +248,7 @@ The repo follows the MVVM/Services layout below. The exact file listing is inten
 
 ## Achievement List (V1)
 
-The 12 launch trophies and their unlock criteria. This is a **product spec**, not code detail — the enum that implements it (`AchievementService.AchievementRequirement`) must keep-to this list.
+The 12 launch trophies and their unlock criteria. This is a **product spec**, not code detail — the enum that implements it (`AchievementService.AchievementRequirement`) must keep-to this list. Currency thresholds are stored as plain numbers (100 / 500) and rendered through `CurrencyFormatter` (§7.1) at display time, so a UK user sees "Earn £100.00 lifetime" and a US user sees "Earn $100.00 lifetime".
 
 | Name | Description | Requirement |
 |---|---|---|
@@ -249,8 +259,8 @@ The 12 launch trophies and their unlock criteria. This is a **product spec**, no
 | Week Warrior | Complete all quests in a week | 100% weekly completion |
 | Iron Will | 7-day streak | 7 consecutive days |
 | Unstoppable | 30-day streak | 30 consecutive days |
-| Gold Hoarder | Earn $100 lifetime | $100 total earned |
-| Gold Magnate | Earn $500 lifetime | $500 total earned |
+| Fortune Hoarder | Earn 100 lifetime (local currency) | 100 total earned (local currency) |
+| Fortune Magnate | Earn 500 lifetime (local currency) | 500 total earned (local currency) |
 | Chronicler | Log 10 spending entries | 10 ledger entries |
 | Wise Spender | Log spending for 4 weeks | 4 weeks of entries |
 | Early Bird | Complete a quest before 9 AM | 1 quest before 9 AM |

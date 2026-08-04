@@ -8,10 +8,8 @@
 import SwiftUI
 
 enum GoldFormat {
-    static let coinSystemName = "circle.hexagongrid.fill"
-
     static func magnitude(_ amount: Double) -> String {
-        NumberFormatter.goldFormatter.string(from: NSNumber(value: abs(amount))) ?? "\(abs(amount))"
+        CurrencyFormatter.magnitude(amount)
     }
 
     static func signed(_ amount: Double) -> String {
@@ -35,17 +33,13 @@ struct BalanceCardView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            coinGlyph
-                .font(.system(size: 64))
-                .foregroundStyle(Color.gold)
-
             Text(amountText)
                 .font(.system(size: 48, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(balance == nil ? .secondary : .primary)
                 .contentTransition(.numericText())
 
-            Text("Gold")
+            Text("Money")
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
@@ -69,11 +63,7 @@ struct BalanceCardView: View {
         )
         .padding(.horizontal)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Current gold balance \(balance.map { GoldFormat.magnitude($0) } ?? "loading")")
-    }
-
-    private var coinGlyph: some View {
-        Image(systemName: GoldFormat.coinSystemName)
+        .accessibilityLabel("Current balance \(balance.map { GoldFormat.magnitude($0) } ?? "loading")")
     }
 
     private var amountText: String {

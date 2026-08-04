@@ -106,7 +106,7 @@ struct LedgerEntryRow: View {
         VStack(spacing: 4) {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: entry.amount >= 0
-                    ? GoldFormat.coinSystemName
+                    ? "banknote"
                     : "arrow.down.circle.fill")
                     .font(.title2)
                     .foregroundStyle(entry.amount >= 0 ? Color.gold : .red)

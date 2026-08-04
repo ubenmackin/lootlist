@@ -31,19 +31,19 @@ struct LogSpendingView: View {
                 } header: {
                     Text("Chronicle Entry")
                 } footer: {
-                    Text("Tell the tale of where your gold went — a short memory like \"Snack at the market.\"")
+                    Text("Tell the tale of where your money went — a short memory like \"Snack at the market.\"")
                 }
 
                 Section {
                     HStack {
-                        Image(systemName: GoldFormat.coinSystemName)
+                        Image(systemName: "banknote")
                             .foregroundStyle(Color.gold)
                         TextField("2.50", text: $amountText)
                             .keyboardType(.decimalPad)
                             .font(.body.monospacedDigit())
                     }
                 } header: {
-                    Text("Gold Amount")
+                    Text("Amount")
                 } footer: {
                     Text("Enter a positive number — this becomes a debit against your balance.")
                 }
