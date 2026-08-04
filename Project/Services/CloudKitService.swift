@@ -117,7 +117,7 @@ actor SubscriptionManager {
 
 @MainActor
 @Observable
-class CloudKitService {
+class CloudKitService: CloudKitServiceProtocol {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CloudKitService")
 
     private var containerStorage: CKContainer?
@@ -395,13 +395,6 @@ class CloudKitService {
             }
         }
         return try records.map { try T(record: $0) }
-    }
-
-    struct ZoneChangesResult: Sendable {
-        let changedRecords: [CKRecord]
-        let deletedRecordIDs: [(recordID: CKRecord.ID, recordType: String)]
-        let newToken: CKServerChangeToken?
-        let moreComing: Bool
     }
 
     func fetchZoneChanges(

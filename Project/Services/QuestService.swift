@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 import Synchronization
 
 enum QuestServiceError: Error, Equatable, Sendable {
@@ -24,7 +25,8 @@ enum QuestServiceError: Error, Equatable, Sendable {
 @MainActor
 @Observable
 final class QuestService {
-    let cloudKit: CloudKitService
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
+    let cloudKit: any CloudKitServiceProtocol
 
     let xpService: XPService
     let notificationService: NotificationService?
@@ -34,7 +36,7 @@ final class QuestService {
 
     var toastManager: ToastManager?
 
-    var cloudKitReference: CloudKitService {
+    var cloudKitReference: any CloudKitServiceProtocol {
         cloudKit
     }
 
@@ -47,7 +49,7 @@ final class QuestService {
     /// before the optimistic write and released when the save settles.
     let inFlightCompletions = Mutex<Set<String>>([])
 
-    init(cloudKit: CloudKitService,
+    init(cloudKit: any CloudKitServiceProtocol,
          xpService: XPService,
          notificationService: NotificationService? = nil)
     {
@@ -508,13 +510,17 @@ final class QuestService {
 
     func sendAssignmentNotification(to assignee: Profile, questName: String) {
         guard let notificationService else { return }
-        Task { @Sendable in
-            try? await notificationService.send(
-                .questAssigned,
-                to: assignee,
-                title: "⚔️ New Quest Assigned!",
-                body: "You have been assigned '\(questName)'."
-            )
+        Task { @Sendable [logger] in
+            do {
+                try await notificationService.send(
+                    .questAssigned,
+                    to: assignee,
+                    title: "⚔️ New Quest Assigned!",
+                    body: "You have been assigned '\(questName)'."
+                )
+            } catch {
+                logger.error("Failed to send assignment notification: \(error, privacy: .public)")
+            }
         }
     }
 

@@ -23,6 +23,17 @@ final class AppState {
         case offlineEmptyCache
     }
 
+    enum AppStateError: Error, Equatable, Sendable, LocalizedError {
+        case cacheInitializationFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .cacheInitializationFailed(message):
+                "Failed to initialize the local cache: \(message)"
+            }
+        }
+    }
+
     var authStatus: AuthStatus
 
     var currentProfile: Profile?
@@ -33,7 +44,7 @@ final class AppState {
     var isZoneOwner: Bool = false
     var activeShareURL: URL?
     var cacheService: CacheService?
-    var cacheInitError: String?
+    var cacheInitError: AppStateError?
 
     // MARK: - Session Persistence Keys
 
@@ -96,7 +107,7 @@ final class AppState {
         signOutInternal()
     }
 
-    func restoreSession(cloudKit: CloudKitService) async {
+    func restoreSession(cloudKit: any CloudKitServiceProtocol) async {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: Self.hasSessionKey),
               let profileRecordName = defaults.string(forKey: Self.profileIDKey),
@@ -169,7 +180,7 @@ final class AppState {
 
     // CloudKit discoverability logic requires branching over known containers; refactoring would be a behavioral change outside lint scope.
     // swiftlint:disable:next cyclomatic_complexity
-    func discoverExistingCloudState(cloudKit: CloudKitService) async {
+    func discoverExistingCloudState(cloudKit: any CloudKitServiceProtocol) async {
         guard authStatus == .checkingCloudData else { return }
 
         logger.info("Starting iCloud family discovery...")
@@ -288,7 +299,7 @@ final class AppState {
         authStatus = .onboarding
     }
 
-    func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) async {
+    func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
         saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: isOwner)
         familyZoneID = zoneID
         isZoneOwner = isOwner
@@ -306,7 +317,7 @@ final class AppState {
         authStatus = .authenticated
     }
 
-    func rejectDetectedFamily(family _: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: CloudKitService) async {
+    func rejectDetectedFamily(family _: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
         if isOwner {
             addAbandonedZoneID(zoneID.zoneName)
             do {
