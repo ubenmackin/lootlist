@@ -53,19 +53,13 @@ enum BadgeSize: Sendable {
     }
 }
 
-struct GoldBadge: View {
+struct MoneyBadge: View {
     let amount: Double?
 
     var size: BadgeSize = .medium
 
-    var format: ((Double) -> String)?
-
     var body: some View {
         HStack(spacing: size.spacing) {
-            Image(systemName: Self.coinSystemName)
-                .font(.system(size: size.glyphSize, weight: .bold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color.gold)
             Text(amountText)
                 .font(size.valueFont)
                 .monospacedDigit()
@@ -85,19 +79,13 @@ struct GoldBadge: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
-    static let coinSystemName = "circle.hexagongrid.fill"
-
     private var amountText: String {
         guard let amount else { return "—" }
-        return format?(amount) ?? Self.defaultFormat(amount)
+        return CurrencyFormatter.magnitude(amount)
     }
 
     private var accessibilityLabel: String {
-        guard amount != nil else { return "Gold loading" }
-        return "Gold \(amountText)"
-    }
-
-    private static func defaultFormat(_ amount: Double) -> String {
-        NumberFormatter.goldFormatter.string(from: NSNumber(value: abs(amount))) ?? "0.00"
+        guard amount != nil else { return "Money loading" }
+        return "Money \(amountText)"
     }
 }

@@ -131,8 +131,8 @@ struct QuestDetailView: View {
 
     private var rewardsCard: some View {
         HStack(spacing: 18) {
-            rewardPill(icon: "dollarsign.circle.fill",
-                       label: String(format: "%.2f Gold", quest.goldReward),
+            rewardPill(icon: "banknote",
+                       label: CurrencyFormatter.string(quest.goldReward),
                        tint: .yellow)
             rewardPill(icon: quest.rarity.iconSystemName,
                        label: "\(quest.rarity.rawValue) (\(quest.xpReward) XP)",
@@ -308,8 +308,8 @@ struct QuestDetailView: View {
 
     private func statusLabel(_ status: VerificationStatus) -> String {
         switch status {
-        case .autoApproved: "Auto-approved — gold & XP earned"
-        case .verified: "Verified by parent — gold & XP earned"
+        case .autoApproved: "Auto-approved — money & XP earned"
+        case .verified: "Verified by parent — money & XP earned"
         case .pending: "Awaiting parent verification"
         case .rejected: "Rejected by parent — try again"
         }

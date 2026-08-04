@@ -49,7 +49,7 @@ struct WelcomeView: View {
                     )
             }
 
-            Text("Your quest for gold and glory begins here. "
+            Text("Your quest for glory begins here. "
                 + "Found a guild or join one to start earning loot.")
                 .font(.body)
                 .multilineTextAlignment(.center)

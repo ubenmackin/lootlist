@@ -22,7 +22,7 @@ enum PayoutPolicy: String, Codable, CaseIterable, Sendable {
 
     var subtitle: String {
         switch self {
-        case .perQuest: "Gold is earned per quest and settled in one batched weekly payout."
+        case .perQuest: "Money is earned per quest and settled in one batched weekly payout."
         case .allOrNothing: "Hero must complete 100% of assigned weekly quests to receive their allowance."
         case .realTime: "Each quest completion is settled and ready for payout immediately."
         }
@@ -30,7 +30,7 @@ enum PayoutPolicy: String, Codable, CaseIterable, Sendable {
 
     var iconSystemName: String {
         switch self {
-        case .perQuest: "dollarsign.circle.fill"
+        case .perQuest: "banknote"
         case .allOrNothing: "trophy.fill"
         case .realTime: "bolt.circle.fill"
         }

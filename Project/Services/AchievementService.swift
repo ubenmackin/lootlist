@@ -157,8 +157,8 @@ final class AchievementService {
     private func financialAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         [
             Achievement(
-                name: "Gold Hoarder",
-                description: "Earn $100 lifetime",
+                name: "Fortune Hoarder",
+                description: "Earn \(CurrencyFormatter.string(100)) lifetime",
                 iconSystemName: "coins",
                 category: AchievementCategory.gold,
                 requirementType: AchievementRequirement.gold100,
@@ -166,9 +166,9 @@ final class AchievementService {
                 family: familyRef
             ),
             Achievement(
-                name: "Gold Magnate",
-                description: "Earn $500 lifetime",
-                iconSystemName: "dollarsign.circle.fill",
+                name: "Fortune Magnate",
+                description: "Earn \(CurrencyFormatter.string(500)) lifetime",
+                iconSystemName: "banknote",
                 category: AchievementCategory.gold,
                 requirementType: AchievementRequirement.gold500,
                 requirementValue: 500,

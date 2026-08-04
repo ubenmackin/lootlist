@@ -220,8 +220,7 @@ struct QuestManagerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(quest.questName)
                         .font(.subheadline.bold())
-                    Text(String(format: "%.2f gold · %@ (%d XP) · %@",
-                                quest.goldReward, rarity.rawValue, quest.xpReward, approvalMode.displayName))
+                    Text("\(CurrencyFormatter.string(quest.goldReward)) · \(rarity.rawValue) (\(quest.xpReward) XP) · \(approvalMode.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -286,9 +285,7 @@ struct QuestManagerView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(template.name)
                     .font(.subheadline.bold())
-                Text(String(format: "%.2f gold · %@ (%d XP) · %@",
-                            template.goldReward, rarity.rawValue, template.xpReward,
-                            scheduleType.displayName))
+                Text("\(CurrencyFormatter.string(template.goldReward)) · \(rarity.rawValue) (\(template.xpReward) XP) · \(scheduleType.displayName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !template.isActive {

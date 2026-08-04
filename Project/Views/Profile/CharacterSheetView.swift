@@ -123,8 +123,8 @@ struct CharacterSheetView: View {
                          title: "Combo Streak",
                          value: streak.map { "\($0) days" } ?? "—",
                          accent: .red)
-                statTile(symbol: "circle.hexagongrid.fill",
-                         title: "Gold",
+                statTile(symbol: "banknote",
+                         title: "Money",
                          value: goldBalance.map { Self.formatGold($0) } ?? "—",
                          accent: Color.gold)
             }
@@ -371,7 +371,7 @@ struct CharacterSheetView: View {
     }
 
     private static func formatGold(_ amount: Double) -> String {
-        NumberFormatter.goldFormatter.string(from: NSNumber(value: abs(amount))) ?? "\(amount)"
+        CurrencyFormatter.magnitude(amount)
     }
 
     private static func accessoryTitle(for id: String) -> String {

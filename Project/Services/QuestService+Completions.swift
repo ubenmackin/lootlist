@@ -136,14 +136,13 @@ extension QuestService {
 
             if let notificationService {
                 Task { @Sendable [logger] in
-                    let goldText = NumberFormatter.goldFormatter
-                        .string(from: NSNumber(value: creditedGold)) ?? "\(creditedGold)"
+                    let goldText = CurrencyFormatter.string(creditedGold)
                     do {
                         try await notificationService.send(
                             .questCompleted,
                             to: hero,
                             title: "🏆 Quest Verified!",
-                            body: "Your quest was verified! You earned \(goldText) gold."
+                            body: "Your quest was verified! You earned \(goldText)."
                         )
                     } catch {
                         logger.error("Failed to send quest completion notification: \(error, privacy: .public)")

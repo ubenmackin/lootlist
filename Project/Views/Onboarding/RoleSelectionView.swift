@@ -36,7 +36,7 @@ struct RoleSelectionView: View {
                 roleCard(
                     role: .hero,
                     title: "I'm a Hero",
-                    subtitle: "Join an existing guild to complete quests for gold.",
+                    subtitle: "Join an existing guild to complete quests and earn money.",
                     icon: "figure.and.child.holdinghands",
                     gradient: [.blue, .purple]
                 )

@@ -63,7 +63,7 @@ struct QuestCardView: View {
                     }
 
                     HStack(spacing: 10) {
-                        Label(String(format: "%.2f", quest.goldReward), systemImage: "dollarsign.circle.fill")
+                        Label(CurrencyFormatter.string(quest.goldReward), systemImage: "banknote")
                             .labelStyle(.titleAndIcon)
                             .font(.subheadline)
                             .foregroundStyle(.yellow)
