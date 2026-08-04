@@ -396,4 +396,108 @@ struct FamilyServiceTests {
         #expect(profiles.count == 1)
         #expect(profiles.first?.recordName == "hero-ck")
     }
+
+    // MARK: - Profile Payout Policy Override, Membership Removal & Empty Roster
+
+    @Test
+    func `updateProfilePayoutPolicy persists profile override`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
+
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            payoutPolicy: .perQuest,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let hero = Profile(
+            displayName: "Override Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            payoutPolicy: .perQuest,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        cache.upsertFamily(family)
+        cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([family, hero])
+
+        let saved = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
+
+        // (a) The returned profile carries the profile-level override.
+        #expect(saved.payoutPolicy == .allOrNothing)
+
+        // (b) The cache reflects the override for the hero.
+        let cached = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cached?.payoutPolicyEnum == .allOrNothing)
+
+        // (c) Precedence contract: the profile-level override wins over the
+        // family-level policy (`profile ?? family` resolves to the override).
+        #expect((cached?.payoutPolicyEnum ?? family.payoutPolicy) == .allOrNothing)
+    }
+
+    @Test
+    func `kickMember removes hero from active roster`() async throws {
+        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let cache = try CacheService(inMemory: true)
+        familyService.cacheService = cache
+
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let hero = Profile(
+            displayName: "Kicked Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        cache.upsertFamily(family)
+        cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([family, hero])
+        appState.family = family
+
+        try await familyService.kickMember(profile: hero)
+
+        // (a) The hero is deactivated — persisted in the CloudKit mock and
+        // reflected by the cache write-through.
+        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
+        #expect(freshHero.isActive == false)
+        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.isActive == false)
+
+        // (b) The active roster no longer contains the removed hero.
+        let heroes = try await familyService.fetchHeroes(for: family)
+        #expect(!heroes.contains { $0.id == hero.id })
+    }
+
+    @Test
+    func `fetchHeroes on empty family returns empty array`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
+
+        // Empty family: no profiles seeded in the cache or the CloudKit mock.
+        let family = Family(
+            name: "Empty Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+
+        let heroes = try await familyService.fetchHeroes(for: family)
+
+        #expect(heroes.isEmpty)
+    }
 }

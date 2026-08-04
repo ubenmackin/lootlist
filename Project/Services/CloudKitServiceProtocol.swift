@@ -16,7 +16,7 @@ struct ZoneChangesResult: Sendable {
 }
 
 @MainActor
-protocol CloudKitServiceProtocol: AnyObject, Sendable {
+protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
     static var defaultContainer: CKContainer { get }
     var container: CKContainer { get }
 
