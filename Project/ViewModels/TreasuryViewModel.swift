@@ -165,7 +165,7 @@ final class TreasuryViewModel {
             return false
         }
         guard amount.isFinite, amount > 0 else {
-            errorMessage = "Enter a positive gold amount."
+            errorMessage = "Enter a positive amount."
             return false
         }
         guard let profile = appState.currentProfile,

@@ -200,7 +200,7 @@ struct QuestLogView: View {
                         completionBadge(row.completionStatus)
                         Spacer()
                         Text(
-                            "💰 \(String(format: "%.0f", row.quest.goldReward)) / ⭐ \(row.quest.xpReward)"
+                            "\(CurrencyFormatter.string(row.quest.goldReward)) / ⭐ \(row.quest.xpReward)"
                         )
                         .font(.caption)
                         .foregroundStyle(.secondary)

@@ -105,11 +105,25 @@ struct TrophyCardView: View {
     }
 
     private var detailMessage: String {
-        var message = achievement.achievementDescription
+        var message = displayDescription
         if !isEarned {
             message += "\n\nNeed: \(requirementHint)"
         }
         return message
+    }
+
+    /// Currency trophies render from requirementValue via CurrencyFormatter so
+    /// stale stored descriptions on legacy CloudKit records never surface.
+    private var displayDescription: String {
+        guard let req = achievement.requirementTypeEnum else {
+            return achievement.achievementDescription
+        }
+        switch req {
+        case .gold100, .gold500:
+            return "Earn \(CurrencyFormatter.string(Double(achievement.requirementValue))) lifetime"
+        default:
+            return achievement.achievementDescription
+        }
     }
 
     private var statusHint: String {
@@ -130,7 +144,7 @@ struct TrophyCardView: View {
         case .streak7, .streak30:
             return "\(achievement.requirementValue)-day combo streak"
         case .gold100, .gold500:
-            return "$\(achievement.requirementValue) gold earned"
+            return "\(CurrencyFormatter.string(Double(achievement.requirementValue))) earned"
         case .ledgerCount10:
             return "\(achievement.requirementValue) ledger entries"
         case .ledgerWeeks4:

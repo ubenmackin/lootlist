@@ -173,7 +173,7 @@ struct TreasuryView: View {
         Button {
             isShowingLogSpending = true
         } label: {
-            Label("Log Spending", systemImage: GoldFormat.coinSystemName)
+            Label("Log Spending", systemImage: "banknote")
                 .font(.headline)
                 .foregroundStyle(.black)
                 .frame(maxWidth: .infinity)
@@ -204,9 +204,9 @@ struct WeeklyBreakdownCard: View {
                              value: "\(breakdown.questsCount)",
                              icon: "checkmark.seal.fill",
                              tint: .green)
-                BreakdownRow(label: "Gold from Quests",
+                BreakdownRow(label: "Earned from Quests",
                              value: GoldFormat.signed(breakdown.goldFromQuests),
-                             icon: GoldFormat.coinSystemName,
+                             icon: "banknote",
                              tint: .gold)
                 BreakdownRow(label: "Bonus Loot Drop",
                              value: GoldFormat.signed(breakdown.bonusGold),

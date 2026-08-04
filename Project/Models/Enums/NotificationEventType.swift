@@ -39,7 +39,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         case .questNeedsReview: "checkmark.shield.fill"
         case .questMissed: "exclamationmark.triangle.fill"
         case .levelUp: "star.fill"
-        case .goldEarned: "circle.hexagongrid.fill"
+        case .goldEarned: "banknote"
         case .spendingLogged: "receipt.fill"
         case .trophyEarned: "trophy.fill"
         case .streakMilestone: "flame.fill"

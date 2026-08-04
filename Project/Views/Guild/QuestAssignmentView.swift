@@ -243,13 +243,13 @@ struct QuestAssignmentView: View {
 
         Section {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Gold Override")
+                Text("Reward Override")
                     .foregroundStyle(.secondary)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
                             PresetPill(
-                                text: "$\(preset)",
+                                text: CurrencyFormatter.string(Double(preset) ?? 0),
                                 isSelected: goldOverrideText == preset,
                                 action: { goldOverrideText = preset }
                             )
@@ -302,12 +302,12 @@ struct QuestAssignmentView: View {
 
         Section("Rewards") {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Gold Reward")
+                Text("Reward")
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
                             PresetPill(
-                                text: "$\(preset)",
+                                text: CurrencyFormatter.string(Double(preset) ?? 0),
                                 isSelected: quickGoldText == preset,
                                 action: { quickGoldText = preset }
                             )
@@ -425,7 +425,7 @@ struct QuestAssignmentView: View {
 
         Section("Rewards") {
             HStack {
-                Text("Gold Reward")
+                Text("Reward")
                     .foregroundStyle(editHasLogs ? .secondary : .primary)
                 Spacer()
                 TextField("0", text: $editGoldText)
@@ -647,7 +647,7 @@ struct QuestAssignmentView: View {
             return
         }
         guard let gold = Double(quickGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
-            validationError = "Gold reward must be a valid non-negative number."
+            validationError = "Reward must be a valid non-negative number."
             return
         }
 
@@ -694,7 +694,7 @@ struct QuestAssignmentView: View {
         }
 
         guard let gold = Double(editGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
-            validationError = "Gold reward must be a valid non-negative number."
+            validationError = "Reward must be a valid non-negative number."
             return
         }
         guard let xp = Int(editXpText.trimmingCharacters(in: .whitespaces)), xp >= 0 else {

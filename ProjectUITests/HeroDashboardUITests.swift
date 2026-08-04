@@ -28,7 +28,7 @@ final class HeroDashboardUITests: XCTestCase {
         let trophiesTab = tabBar.buttons.element(boundBy: 2)
 
         XCTAssertTrue(questsTab.exists, "Quests tab should exist")
-        XCTAssertTrue(goldTab.exists, "Gold/Treasury tab should exist")
+        XCTAssertTrue(goldTab.exists, "Money/Treasury tab should exist")
         XCTAssertTrue(trophiesTab.exists, "Trophies tab should exist")
     }
 
@@ -38,7 +38,7 @@ final class HeroDashboardUITests: XCTestCase {
 
         // Tap Treasury tab
         tabBar.buttons.element(boundBy: 1).tap()
-        let treasuryHeader = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Scroll' OR label CONTAINS[c] 'Treasury' OR label CONTAINS[c] 'Gold'")).firstMatch
+        let treasuryHeader = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Scroll' OR label CONTAINS[c] 'Treasury' OR label CONTAINS[c] 'Money'")).firstMatch
         XCTAssertTrue(treasuryHeader.waitForExistence(timeout: 3.0), "Treasury view header should appear after switching tabs")
 
         // Tap Trophies tab

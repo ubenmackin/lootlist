@@ -73,11 +73,11 @@ struct TreasuryViewModelTests {
 
         let successNegative = await viewModel.logSpending(description: "Spellbook", amount: -5.0)
         #expect(successNegative == false)
-        #expect(viewModel.errorMessage == "Enter a positive gold amount.")
+        #expect(viewModel.errorMessage == "Enter a positive amount.")
 
         let successZero = await viewModel.logSpending(description: "Potion", amount: 0)
         #expect(successZero == false)
-        #expect(viewModel.errorMessage == "Enter a positive gold amount.")
+        #expect(viewModel.errorMessage == "Enter a positive amount.")
     }
 
     private struct TestAppState {

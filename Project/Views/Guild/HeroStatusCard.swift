@@ -102,7 +102,7 @@ struct HeroStatusCard: View {
 
     private var footerRow: some View {
         HStack(spacing: 10) {
-            GoldBadge(amount: summary.weeklyGoldEarned, size: .small)
+            MoneyBadge(amount: summary.weeklyGoldEarned, size: .small)
             Spacer()
             trophyChip
         }
@@ -199,10 +199,10 @@ struct HeroStatusCard: View {
     private var accessibilityLabel: String {
         let name = summary.profile.displayName
         let ratio = "\(summary.weeklyQuestsCompleted) of \(summary.weeklyQuestsTotal) quests completed"
-        let gold = String(format: "%.2f gold", summary.weeklyGoldEarned)
+        let earned = CurrencyFormatter.string(summary.weeklyGoldEarned)
         let streak = "Streak \(summary.currentStreak) days"
         let trophies = "\(summary.trophiesEarned) trophies"
-        return [name, ratio, gold, streak, trophies].joined(separator: ", ")
+        return [name, ratio, earned, streak, trophies].joined(separator: ", ")
     }
 
     private static func fallbackSpec(for profileCache: ProfileCache) -> AvatarRenderSpec {

@@ -26,9 +26,9 @@ final class LootListScreenshotTests: XCTestCase {
 
         let tabBar = app.tabBars.firstMatch
         if tabBar.waitForExistence(timeout: 5) {
-            let goldTab = tabBar.buttons["Gold"]
-            if goldTab.exists {
-                goldTab.tap()
+            let moneyTab = tabBar.buttons["Money"]
+            if moneyTab.exists {
+                moneyTab.tap()
                 sleep(2)
                 snapshot("02TreasuryView")
             }

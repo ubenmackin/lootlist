@@ -15,7 +15,7 @@ enum QuestEditLockedError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .lockedFields:
-            "This quest has log entries. Gold, XP, schedule, and assignee are locked."
+            "This quest has log entries. Reward, XP, schedule, and assignee are locked."
         }
     }
 }

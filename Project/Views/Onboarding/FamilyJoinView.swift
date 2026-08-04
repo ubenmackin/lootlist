@@ -108,7 +108,7 @@ struct FamilyJoinView: View {
                 )
             Text("Join Your Party")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
-            Text("Heroes partake in quests to earn gold and glory.")
+            Text("Heroes partake in quests to earn money and glory.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)

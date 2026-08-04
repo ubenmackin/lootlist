@@ -331,8 +331,8 @@ enum SampleData {
             ),
             Achievement(
                 name: "Treasure Hoarder",
-                description: "Earn 100 total gold",
-                iconSystemName: "dollarsign.circle.fill",
+                description: "Earn \(CurrencyFormatter.string(100)) lifetime",
+                iconSystemName: "banknote",
                 category: .gold,
                 requirementType: .gold100,
                 requirementValue: 100,

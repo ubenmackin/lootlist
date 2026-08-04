@@ -139,7 +139,7 @@ struct NotificationSettingsView: View {
                 .disabled(!masterNotificationsEnabled)
 
                 Toggle(isOn: toggleBinding(for: .goldEarned)) {
-                    Label("Sunday Loot Day Payouts", systemImage: "circle.hexagongrid.fill")
+                    Label("Sunday Loot Day Payouts", systemImage: "banknote")
                 }
                 .disabled(!masterNotificationsEnabled)
             } header: {

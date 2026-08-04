@@ -40,14 +40,14 @@ struct TemplateManagerView: View {
 
                 Section("Default Rewards") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Default Gold")
+                        Text("Default Reward")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
                                     PresetPill(
-                                        text: "$\(preset)",
+                                        text: CurrencyFormatter.string(Double(preset) ?? 0),
                                         isSelected: defaultGoldText == preset,
                                         action: { defaultGoldText = preset }
                                     )
@@ -181,7 +181,7 @@ struct TemplateManagerView: View {
         guard let gold = Double(defaultGoldText.trimmingCharacters(in: .whitespaces)),
               gold >= 0
         else {
-            validationError = "Gold must be a non-negative number."
+            validationError = "Reward must be a non-negative number."
             return
         }
         let xp = selectedRarity.xpReward
