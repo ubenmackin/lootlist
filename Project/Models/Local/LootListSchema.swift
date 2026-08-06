@@ -70,9 +70,30 @@ enum LootListSchemaV3: VersionedSchema {
     }
 }
 
+enum LootListSchemaV4: VersionedSchema {
+    static var versionIdentifier: Schema.Version {
+        Schema.Version(4, 0, 0)
+    }
+
+    static var models: [any PersistentModel.Type] {
+        [
+            FamilyCache.self,
+            ProfileCache.self,
+            QuestCache.self,
+            QuestTemplateCache.self,
+            QuestCompletionCache.self,
+            AllowancePeriodCache.self,
+            LedgerEntryCache.self,
+            AchievementCache.self,
+            ProfileAchievementCache.self,
+            NotificationPreferenceCache.self
+        ]
+    }
+}
+
 enum LootListMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [LootListSchemaV1.self, LootListSchemaV2.self, LootListSchemaV3.self]
+        [LootListSchemaV1.self, LootListSchemaV2.self, LootListSchemaV3.self, LootListSchemaV4.self]
     }
 
     static var stages: [MigrationStage] {
@@ -92,7 +113,14 @@ enum LootListMigrationPlan: SchemaMigrationPlan {
             // Both are additive — SwiftData lightweight-migrates new attributes
             // with defaults / optionals, so no custom stage is required. Schema
             // bumps are the sanctioned path for stored-attribute changes.
-            .lightweight(fromVersion: LootListSchemaV2.self, toVersion: LootListSchemaV3.self)
+            .lightweight(fromVersion: LootListSchemaV2.self, toVersion: LootListSchemaV3.self),
+
+            // V3 → V4 adds `FamilyCache.creatorUserRecordName` (optional `String`,
+            // nil default). Additive — SwiftData lightweight-migrates new
+            // attributes with defaults / optionals, so no custom stage is
+            // required. Schema bumps are the sanctioned path for stored-attribute
+            // changes.
+            .lightweight(fromVersion: LootListSchemaV3.self, toVersion: LootListSchemaV4.self)
         ]
     }
 }

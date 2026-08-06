@@ -49,18 +49,26 @@ struct ProfileStats: Sendable {
 @MainActor
 @Observable
 final class AchievementService {
-    var cacheService: CacheService?
+    let cacheService: CacheService?
 
-    var toastManager: ToastManager?
+    let toastManager: ToastManager?
 
-    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil) {
+    var appState: AppState?
+
+    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil, toastManager: ToastManager? = nil, appState: AppState? = nil) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
+        self.toastManager = toastManager
+        self.appState = appState
     }
 
     private let cloudKit: any CloudKitServiceProtocol
 
     func seedDefaultAchievements(family: Family) async throws {
+        guard let acting = appState?.currentProfile, acting.role.isParent else {
+            return
+        }
+
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let existing = try await fetchAllDefinitions(family: family)
         let existingNames = Set(existing.map(\.name))
@@ -247,6 +255,10 @@ final class AchievementService {
     }
 
     func evaluateAll(for profile: Profile, family: Family) async throws -> [Achievement] {
+        guard let acting = appState?.currentProfile, acting.id == profile.id || acting.role.isParent else {
+            return []
+        }
+
         let definitions = try await fetchAllDefinitions(family: family)
         guard !definitions.isEmpty else { return [] }
 
@@ -269,6 +281,10 @@ final class AchievementService {
                to profile: Profile,
                family: Family) async throws -> ProfileAchievement
     {
+        guard let acting = appState?.currentProfile, acting.id == profile.id || acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let row = ProfileAchievement(
             achievement: CKRecord.Reference(recordID: achievement.id, action: .none),

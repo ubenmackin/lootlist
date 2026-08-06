@@ -35,7 +35,8 @@ struct AvatarServiceTests {
     @Test
     func `avatarRenderSpec generation from Profile`() {
         let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: dummyZone)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = dummyZone
         let xpService = XPService(cloudKit: cloudKit)
         let avatarService = AvatarService(xp: xpService)
 

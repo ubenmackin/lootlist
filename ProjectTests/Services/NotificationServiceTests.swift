@@ -60,7 +60,8 @@ struct NotificationServiceTests {
     func `updatePreference writes through to cache and cloudkit`() async throws {
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let ck = CloudKitService(zoneID: zoneID)
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let app = AppState()
         app.currentProfile = makeProfile(zoneID: zoneID)
@@ -100,7 +101,8 @@ struct NotificationServiceTests {
     func `isNotificationEnabled reflects remote preference change via backgroundCache upsert`() async throws {
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let ck = CloudKitService(zoneID: zoneID)
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let app = AppState()
         app.currentProfile = makeProfile(zoneID: zoneID)
@@ -142,7 +144,8 @@ struct NotificationServiceTests {
     func `isNotificationEnabled falls back to userDefaults when cache is empty`() throws {
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let ck = CloudKitService(zoneID: zoneID)
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let app = AppState()
         app.currentProfile = makeProfile(zoneID: zoneID)

@@ -17,12 +17,25 @@ final class TreasuryService {
     let notificationService: NotificationService?
     var cacheService: CacheService?
 
-    var toastManager: ToastManager?
+    /// The active session's app state, used to resolve the acting profile for
+    /// privileged payout finalization. Wired by `AppDependencies`; optional so
+    /// read-only callers (tests, real-time settlement) need not set it.
+    var appState: AppState?
 
-    init(cloudKit: any CloudKitServiceProtocol, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
+    let toastManager: ToastManager?
+
+    init(
+        cloudKit: any CloudKitServiceProtocol,
+        notificationService: NotificationService? = nil,
+        cacheService: CacheService? = nil,
+        toastManager: ToastManager? = nil,
+        appState: AppState? = nil
+    ) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
         self.cacheService = cacheService
+        self.appState = appState
+        self.toastManager = toastManager
     }
 
     func currentBalance(for profile: Profile) async throws -> Double {
@@ -55,9 +68,10 @@ final class TreasuryService {
     }
 
     func weeklyBreakdown(profile: Profile,
+                         family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown
     {
-        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? .sunday)
+        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? family.payoutDay)
         let weekRange = TreasuryService.weekRange(starting: startOfWeek)
 
         let logs = try await fetchQuestLogs(profile: profile,
@@ -99,6 +113,14 @@ final class TreasuryService {
                                     weekOf: Date,
                                     family: Family) async throws -> AllowancePeriod
     {
+        // Internal settlement helper: actor must be the target hero (self-settlement)
+        // or a parent acting on the hero's behalf.
+        guard let acting = appState?.currentProfile,
+              acting.id == profile.id || acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? family.payoutDay)
 
         let existing = try await fetchAllowancePeriod(profile: profile,
@@ -175,10 +197,21 @@ final class TreasuryService {
                          questsCompleted: Int? = nil,
                          questsTotal: Int? = nil) async throws -> AllowancePeriod
     {
+        // Internal settlement helper: actor must own the period (hero
+        // self-settlement) or be a parent (parent override).
+        guard let acting = appState?.currentProfile,
+              acting.id == period.profile.recordID || acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = period
 
-        if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID) {
+        if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
+           let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
+        {
             let breakdown = try await weeklyBreakdown(profile: profile,
+                                                      family: family,
                                                       weekOf: period.weekOf)
             updated.totalEarned = totalEarned ?? breakdown.totalEarned
             updated.questsCompleted = questsCompleted ?? breakdown.questsCount
@@ -257,10 +290,17 @@ final class TreasuryService {
     }
 
     func runPayout(period: AllowancePeriod) async throws {
+        // Privileged mutation: finalizing a hero's payout is parent-only.
+        guard appState?.currentProfile?.role.isParent == true else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = period
 
-        if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID) {
-            let breakdown = try await weeklyBreakdown(profile: profile, weekOf: period.weekOf)
+        if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
+           let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
+        {
+            let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
                 // Do not prematurely close allowance periods for heroes with $0 earnings.
                 return
@@ -340,11 +380,19 @@ final class TreasuryService {
     /// Process real-time settlement for heroes with `.realTime` payout policy.
     @discardableResult
     func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
+        // Real-time settlement is a self-action: the hero who completed the
+        // quest triggers this on their own profile. Identity-only check; we
+        // return nil so the real-time Task in QuestService.applyReward
+        // gracefully no-ops on identity mismatch (defense-in-depth alongside
+        // the markComplete parent-role guard).
+        guard let acting = appState?.currentProfile,
+              acting.id == profile.id else { return nil }
+
         guard profile.payoutPolicy == .realTime else { return nil }
         let weekOf = WeekMath.startOfWeek(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
         let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
 
-        let breakdown = try await weeklyBreakdown(profile: profile, weekOf: weekOf)
+        let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: weekOf)
 
         var updated = period
         updated.paidAmount = breakdown.totalEarned

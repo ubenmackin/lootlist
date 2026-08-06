@@ -10,12 +10,30 @@ import Foundation
 import os
 import Synchronization
 
-enum FamilyServiceError: Error, Equatable, Sendable {
+enum FamilyServiceError: Error, LocalizedError, Equatable, Sendable {
     case invalidInviteCode
-    case joinFailed(String)
-    case creationFailed(String)
-    case persistenceFailed(String)
+    case joinFailed
+    case creationFailed
+    case persistenceFailed
     case accountUnavailable
+    case unauthorized
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidInviteCode:
+            "This invitation code is invalid."
+        case .joinFailed:
+            "Could not join the family. Please try again."
+        case .creationFailed:
+            "Could not create the family. Please try again."
+        case .persistenceFailed:
+            "Could not save your changes. Please try again."
+        case .accountUnavailable:
+            "Your iCloud account is unavailable. Sign in and try again."
+        case .unauthorized:
+            "You don't have permission to do that."
+        }
+    }
 }
 
 // MARK: - Protocol for testable injection into ViewModels
@@ -42,7 +60,7 @@ final class FamilyService: FamilyProfileFetching {
         cloudKit
     }
 
-    var toastManager: ToastManager?
+    let toastManager: ToastManager?
 
     /// Keys of immediate profile refreshes currently in flight, formatted as
     /// `"<operation>|<familyRecordName>"`. Actor-isolated dedupe guard: when a
@@ -52,11 +70,12 @@ final class FamilyService: FamilyProfileFetching {
     /// sync and duplicate server-derived writes.
     private let refreshInFlightKeys = Mutex<Set<String>>([])
 
-    init(cloudKit: any CloudKitServiceProtocol, appState: AppState, questService: QuestService, cacheService: CacheService? = nil) {
+    init(cloudKit: any CloudKitServiceProtocol, appState: AppState, questService: QuestService, cacheService: CacheService? = nil, toastManager: ToastManager? = nil) {
         self.cloudKit = cloudKit
         self.appState = appState
         self.questService = questService
         self.cacheService = cacheService
+        self.toastManager = toastManager
     }
 
     // MARK: - Family Creation (Guild Master Flow)
@@ -66,7 +85,7 @@ final class FamilyService: FamilyProfileFetching {
                       ownerProfile: Profile) async throws -> (family: Family, profile: Profile, shareURL: URL?) // swiftlint:disable:this large_tuple
     {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else {
-            throw FamilyServiceError.creationFailed("Family name cannot be empty.")
+            throw FamilyServiceError.creationFailed
         }
 
         let familyID = CKRecord.ID(recordName: UUID().uuidString)
@@ -77,9 +96,7 @@ final class FamilyService: FamilyProfileFetching {
         do {
             try await cloudKit.ensureZoneExists(zoneID)
         } catch {
-            throw FamilyServiceError.creationFailed(
-                "Could not create family zone: \(error)"
-            )
+            throw FamilyServiceError.creationFailed
         }
 
         var family = Family(name: name,
@@ -93,9 +110,7 @@ final class FamilyService: FamilyProfileFetching {
             family = try await cloudKit.save(family, in: zoneID, using: pvtDB)
             cacheService?.upsertFamily(family)
         } catch {
-            throw FamilyServiceError.creationFailed(
-                "Could not save family record: \(error)"
-            )
+            throw FamilyServiceError.creationFailed
         }
 
         // Step 3: Create a CKShare for the Family record.
@@ -118,9 +133,7 @@ final class FamilyService: FamilyProfileFetching {
             savedOwner = try await cloudKit.save(owner, in: zoneID, using: pvtDB)
             cacheService?.upsertProfile(savedOwner)
         } catch {
-            throw FamilyServiceError.creationFailed(
-                "Could not save guild master profile: \(error)"
-            )
+            throw FamilyServiceError.creationFailed
         }
 
         // Update AppState and CloudKitService with zone ownership info.
@@ -143,9 +156,7 @@ final class FamilyService: FamilyProfileFetching {
         do {
             try await cloudKit.acceptShare(metadata: metadata)
         } catch {
-            throw FamilyServiceError.joinFailed(
-                "Could not accept share invitation: \(error)"
-            )
+            throw FamilyServiceError.joinFailed
         }
 
         // Step 2: Discover the shared zone.
@@ -153,15 +164,11 @@ final class FamilyService: FamilyProfileFetching {
         do {
             sharedZones = try await cloudKit.fetchSharedZones()
         } catch {
-            throw FamilyServiceError.joinFailed(
-                "Could not discover shared zones: \(error)"
-            )
+            throw FamilyServiceError.joinFailed
         }
 
         guard let familyZone = sharedZones.first else {
-            throw FamilyServiceError.joinFailed(
-                "No shared family zone found after accepting invitation."
-            )
+            throw FamilyServiceError.joinFailed
         }
 
         let sharedDB = cloudKit.sharedDatabase
@@ -183,9 +190,7 @@ final class FamilyService: FamilyProfileFetching {
             family = try await cloudKit.fetch(Family.self, id: sharedFamilyID, using: sharedDB)
             cacheService?.upsertFamily(family)
         } catch {
-            throw FamilyServiceError.joinFailed(
-                "Could not fetch family record in shared zone: \(error)"
-            )
+            throw FamilyServiceError.joinFailed
         }
 
         // Step 4: Save the Hero profile in the shared zone.
@@ -199,9 +204,7 @@ final class FamilyService: FamilyProfileFetching {
             savedHero = try await cloudKit.save(hero, in: zoneID, using: sharedDB)
             cacheService?.upsertProfile(savedHero)
         } catch {
-            throw FamilyServiceError.joinFailed(
-                "Could not save hero profile: \(error)"
-            )
+            throw FamilyServiceError.joinFailed
         }
 
         // Update AppState and CloudKitService with zone participant info.
@@ -228,7 +231,16 @@ final class FamilyService: FamilyProfileFetching {
     func updateFamilyName(family: Family, newName: String) async throws -> Family {
         let trimmed = newName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
-            throw FamilyServiceError.persistenceFailed("Family name cannot be empty.")
+            throw FamilyServiceError.persistenceFailed
+        }
+        // Privileged mutation: a parent (Guild Master / Ranger) may rename the
+        // family, or the owner anchor may grant it even for a non-parent role.
+        guard let acting = appState.currentProfile else {
+            throw FamilyServiceError.unauthorized
+        }
+        let isAuthorized = acting.role.isParent ? true : await isFamilyOwner(family)
+        guard isAuthorized else {
+            throw FamilyServiceError.unauthorized
         }
 
         var updated = family
@@ -296,9 +308,7 @@ final class FamilyService: FamilyProfileFetching {
                 toastManager?.show(message: message, type: .error)
             }
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update family name: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
@@ -361,6 +371,21 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     func updateMemberRole(profile: Profile, newRole: UserRole) async throws {
+        // Privileged mutation: only the owner anchor (server-authenticated
+        // family owner) may promote, demote, or reassign a member's role.
+        // Legacy families without an owner anchor fall back to the parent-role
+        // check (Guild Master / Ranger).
+        let family = await family(for: profile)
+        if let family, family.creatorUserRecordName != nil {
+            guard await isFamilyOwner(family) else {
+                throw FamilyServiceError.unauthorized
+            }
+        } else {
+            guard let acting = appState.currentProfile, acting.role.isParent else {
+                throw FamilyServiceError.unauthorized
+            }
+        }
+
         var updated = profile
         updated.role = newRole
 
@@ -423,23 +448,55 @@ final class FamilyService: FamilyProfileFetching {
                 toastManager?.show(message: message, type: .error)
             }
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update role: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
     func leaveFamily(profile: Profile) async throws {
         await unassignActiveQuests(for: profile)
-        try await deactivateProfile(profile, errorMessage: "Could not leave family")
+        try await deactivateProfile(profile)
     }
 
     func kickMember(profile: Profile) async throws {
+        // Privileged mutation: removing a member from the guild is reserved for
+        // the owner anchor (server-authenticated family owner). Legacy families
+        // without an owner anchor fall back to the parent-role check.
+        let family = await family(for: profile)
+        if let family, family.creatorUserRecordName != nil {
+            guard await isFamilyOwner(family) else {
+                throw FamilyServiceError.unauthorized
+            }
+        } else {
+            guard let acting = appState.currentProfile, acting.role.isParent else {
+                throw FamilyServiceError.unauthorized
+            }
+        }
         await unassignActiveQuests(for: profile)
-        try await deactivateProfile(profile, errorMessage: "Could not remove member")
+        try await deactivateProfile(profile)
     }
 
     // MARK: - Private Helpers
+
+    /// Server-authenticated owner check, anchored on CloudKit's read-only
+    /// `creatorUserRecordID`. Returns false when the creator is unresolved
+    /// (nil) — callers handle the nil (legacy) case.
+    func isFamilyOwner(_ family: Family) async -> Bool {
+        guard let anchor = family.creatorUserRecordName else { return false }
+        return await (try? cloudKit.currentUserRecordID())?.recordName == anchor
+    }
+
+    /// Resolves the Family for a member profile (cache-first, then CloudKit) so
+    /// owner-anchor authorization can be evaluated without threading a `family`
+    /// parameter through `updateMemberRole` / `kickMember`. Returns nil when the
+    /// family cannot be resolved — callers treat that as unauthorized.
+    private func family(for profile: Profile) async -> Family? {
+        let familyID = profile.family.recordID
+        if let cached = cacheService?.fetchFamily(recordName: familyID.recordName) {
+            return cached.toFamily(zoneID: cloudKit.resolvedZoneID)
+        }
+        let (_, db) = familyContext(for: familyID)
+        return try? await cloudKit.fetch(Family.self, id: familyID, using: db)
+    }
 
     /// Immediately re-queries a family's profiles from CloudKit and
     /// write-throughs the cache via this service's own write path. Deduped by
@@ -499,7 +556,16 @@ final class FamilyService: FamilyProfileFetching {
         return (zoneID, db)
     }
 
-    private func deactivateProfile(_ profile: Profile, errorMessage: String) async throws {
+    private func deactivateProfile(_ profile: Profile) async throws {
+        // Privileged mutation: a parent may deactivate any member. A member may
+        // only deactivate their own profile (self-service leave); deactivating
+        // another member's profile is parent-only.
+        let actingProfile = appState.currentProfile
+        let isSelfDeactivation = actingProfile?.id == profile.id
+        guard isSelfDeactivation || actingProfile?.role.isParent == true else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = profile
         updated.isActive = false
 
@@ -562,13 +628,26 @@ final class FamilyService: FamilyProfileFetching {
                 toastManager?.show(message: message, type: .error)
             }
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed("\(errorMessage): \(error)")
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
     func deleteFamilyAndReset(family: Family) async throws {
+        // Privileged mutation: irreversible — deleting the family is reserved
+        // for the owner anchor (server-authenticated family owner). Legacy
+        // families without an owner anchor fall back to the zone-owner +
+        // parent-role check.
+        if family.creatorUserRecordName != nil {
+            guard await isFamilyOwner(family) else {
+                throw FamilyServiceError.unauthorized
+            }
+        } else {
+            guard appState.isZoneOwner, let acting = appState.currentProfile, acting.role.isParent else {
+                throw FamilyServiceError.unauthorized
+            }
+        }
         // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
-        if appState.isZoneOwner, let zoneID = appState.familyZoneID {
+        if let zoneID = appState.familyZoneID {
             do {
                 try await cloudKit.deleteZone(zoneID)
             } catch {
@@ -586,8 +665,8 @@ final class FamilyService: FamilyProfileFetching {
         let familyRecordName = family.id.recordName
         if !familyRecordName.isEmpty {
             cacheService?.purgeFamily(recordName: familyRecordName)
-        } else {
-            cacheService?.clearAll()
+        } else if let cacheService {
+            try cacheService.clearAll()
         }
 
         appState.clearSession()

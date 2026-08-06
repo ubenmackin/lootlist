@@ -21,6 +21,15 @@ struct Family: Identifiable, Equatable, Sendable {
 
     var createdBy: CKRecord.ID
 
+    /// The iCloud user record name of the family's founding user, read from the
+    /// server-owned `CKRecord.creatorUserRecordID` on the read path. Anchors
+    /// owner-gated mutations (delete, role change, member removal) on CloudKit's
+    /// read-only creator identity rather than the forgeable `Profile.role` field.
+    /// Not authored locally — `toRecord()` never stamps this field. Nil for
+    /// legacy families / records where the creator is unresolved — those fall
+    /// back to the legacy parent-role check.
+    var creatorUserRecordName: String?
+
     var createdAt: Date
 
     var payoutPolicy: PayoutPolicy
@@ -60,6 +69,8 @@ struct Family: Identifiable, Equatable, Sendable {
         } else {
             payoutDay = .sunday
         }
+
+        creatorUserRecordName = record.creatorUserRecordID?.recordName
     }
 
     func toRecord() -> CKRecord {
@@ -76,6 +87,7 @@ struct Family: Identifiable, Equatable, Sendable {
          createdBy: CKRecord.ID,
          payoutPolicy: PayoutPolicy = .perQuest,
          payoutDay: PayoutDay = .sunday,
+         creatorUserRecordName: String? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -84,5 +96,6 @@ struct Family: Identifiable, Equatable, Sendable {
         createdAt = Date()
         self.payoutPolicy = payoutPolicy
         self.payoutDay = payoutDay
+        self.creatorUserRecordName = creatorUserRecordName
     }
 }

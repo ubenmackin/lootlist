@@ -54,9 +54,12 @@ final class ManualSpendingService: SpendingService {
 
     var toastManager: ToastManager?
 
-    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil) {
+    var appState: AppState?
+
+    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil, appState: AppState? = nil) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
+        self.appState = appState
     }
 
     func isAvailable() -> Bool {
@@ -104,6 +107,10 @@ final class ManualSpendingService: SpendingService {
                    amount: Double,
                    date: Date = Date()) async throws -> LedgerEntry
     {
+        guard let acting = appState?.currentProfile, acting.id == profile.id else {
+            throw FamilyServiceError.unauthorized
+        }
+
         guard amount.isFinite else {
             throw SpendingServiceError.invalidAmount
         }
@@ -166,6 +173,12 @@ final class ManualSpendingService: SpendingService {
     }
 
     func delete(_ entry: LedgerEntry) async throws {
+        guard let acting = appState?.currentProfile,
+              entry.profile.recordID == acting.id || acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let name = entry.id.recordName
         let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName)
             .first(where: { $0.recordName == name })

@@ -24,6 +24,7 @@ struct TreasuryServiceRealTimeTests {
         let zoneID: CKRecordZone.ID
         let cloudKit: CloudKitService
         let cache: CacheService
+        let appState: AppState
         let treasury: TreasuryService
         let profile: Profile
         let family: Family
@@ -33,7 +34,11 @@ struct TreasuryServiceRealTimeTests {
             zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
             cloudKit = CloudKitService(zoneID: zoneID)
             cache = try CacheService(inMemory: true)
-            treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
+            appState = AppState()
+            // The real-time settlement guard is identity-only: the acting
+            // profile must match the target hero (this is the hero
+            // self-settling their own reward).
+            treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
             let familyRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
@@ -58,6 +63,7 @@ struct TreasuryServiceRealTimeTests {
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
             cloudKit.seedMockRecords([profile])
+            appState.currentProfile = profile
         }
 
         func quest(goldReward: Double = 25.0) -> Quest {
