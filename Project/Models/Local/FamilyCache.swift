@@ -26,6 +26,10 @@ final class FamilyCache: CacheMergeable {
     /// lightweight migration can backfill legacy rows with the app fallback.
     var payoutDay: String = PayoutDay.sunday.rawValue
     var changeTag: String?
+    /// iCloud user record name of the family's founding user, mirrored from
+    /// `Family.creatorUserRecordName` (server-stamped `creatorUserRecordID`).
+    /// Optional so legacy rows predating the anchor migrate in cleanly with nil.
+    var creatorUserRecordName: String?
 
     /// `FamilyCache` is the root record and is never family-scoped.
     var familyRecordName: String {
@@ -46,7 +50,8 @@ final class FamilyCache: CacheMergeable {
          createdAt: Date,
          payoutPolicy: String,
          payoutDay: String = PayoutDay.sunday.rawValue,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         creatorUserRecordName: String? = nil)
     {
         self.recordName = recordName
         self.name = name
@@ -55,6 +60,7 @@ final class FamilyCache: CacheMergeable {
         self.payoutPolicy = payoutPolicy
         self.payoutDay = payoutDay
         self.changeTag = changeTag
+        self.creatorUserRecordName = creatorUserRecordName
     }
 
     convenience init(from family: Family) {
@@ -65,7 +71,8 @@ final class FamilyCache: CacheMergeable {
             createdAt: family.createdAt,
             payoutPolicy: family.payoutPolicy.rawValue,
             payoutDay: family.payoutDay.rawValue,
-            changeTag: family.changeTag
+            changeTag: family.changeTag,
+            creatorUserRecordName: family.creatorUserRecordName
         )
     }
 
@@ -78,6 +85,7 @@ final class FamilyCache: CacheMergeable {
         payoutPolicy = family.payoutPolicy.rawValue
         payoutDay = family.payoutDay.rawValue
         changeTag = family.changeTag
+        creatorUserRecordName = family.creatorUserRecordName
     }
 
     static func fetchDescriptor(familyRecordName _: String?) -> FetchDescriptor<FamilyCache> {

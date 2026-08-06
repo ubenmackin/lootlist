@@ -180,6 +180,7 @@ extension FamilyCache {
             createdBy: CKRecord.ID(recordName: createdByRecordName, zoneID: zoneID),
             payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
             payoutDay: PayoutDay(rawValue: payoutDay) ?? .sunday,
+            creatorUserRecordName: creatorUserRecordName,
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
         // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.

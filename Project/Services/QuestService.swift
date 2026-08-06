@@ -34,7 +34,12 @@ final class QuestService {
     var cacheService: CacheService?
     var treasuryService: TreasuryService?
 
-    var toastManager: ToastManager?
+    /// The active session's app state, used to resolve the acting profile for
+    /// privileged quest verification. Wired by `AppDependencies`; optional so
+    /// read-only callers (tests) need not set it.
+    var appState: AppState?
+
+    let toastManager: ToastManager?
 
     var cloudKitReference: any CloudKitServiceProtocol {
         cloudKit
@@ -51,11 +56,19 @@ final class QuestService {
 
     init(cloudKit: any CloudKitServiceProtocol,
          xpService: XPService,
-         notificationService: NotificationService? = nil)
+         notificationService: NotificationService? = nil,
+         cacheService: CacheService? = nil,
+         treasuryService: TreasuryService? = nil,
+         toastManager: ToastManager? = nil,
+         appState: AppState? = nil)
     {
         self.cloudKit = cloudKit
         self.xpService = xpService
         self.notificationService = notificationService
+        self.cacheService = cacheService
+        self.treasuryService = treasuryService
+        self.appState = appState
+        self.toastManager = toastManager
     }
 
     // MARK: - Quest Templates
@@ -73,6 +86,17 @@ final class QuestService {
                         createdBy: Profile,
                         family: Family) async throws -> QuestTemplate
     {
+        // Privileged mutation: a QuestTemplate is a parent-authored artifact.
+        // The acting profile resolved from the authenticated session must
+        // match the caller-supplied creator's identity AND hold a parent
+        // role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.id == createdBy.id,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let template = QuestTemplate(
             name: name,
             description: description,
@@ -105,6 +129,15 @@ final class QuestService {
 
     @discardableResult
     func updateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
+        // Privileged mutation: editing a QuestTemplate is parent-only. The
+        // acting profile resolved from the authenticated session must hold a
+        // parent role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let name = template.id.recordName
         let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
 
@@ -141,6 +174,15 @@ final class QuestService {
 
     @discardableResult
     func deactivateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
+        // Privileged mutation: deactivating a QuestTemplate is parent-only.
+        // The acting profile resolved from the authenticated session must
+        // hold a parent role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var deactivated = template
         deactivated.isActive = false
 
@@ -208,6 +250,17 @@ final class QuestService {
                      createdBy: Profile,
                      family: Family) async throws -> Quest
     {
+        // Privileged mutation: assigning a quest grants future gold/XP to
+        // another profile. The acting profile resolved from the authenticated
+        // session must match the caller-supplied creator's identity AND hold
+        // a parent role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.id == createdBy.id,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let payoutDay = assignee.payoutDay ?? family.payoutDay
         let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
 
@@ -259,6 +312,15 @@ final class QuestService {
 
     @discardableResult
     func updateQuest(_ quest: Quest) async throws -> Quest {
+        // Privileged mutation: editing a quest's assignments is parent-only.
+        // The acting profile resolved from the authenticated session must
+        // hold a parent role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let name = quest.id.recordName
         let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
             .first(where: { $0.recordName == name })
@@ -308,6 +370,17 @@ final class QuestService {
                           createdBy: Profile,
                           family: Family) async throws -> Quest
     {
+        // Privileged mutation: assigning a quick quest grants future gold/XP
+        // to another profile. The acting profile resolved from the
+        // authenticated session must match the caller-supplied creator's
+        // identity AND hold a parent role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.id == createdBy.id,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         // Generate ad-hoc inactive template so it doesn't clutter routine template list
         let adhocTemplate = try await createTemplate(
             name: name,
@@ -374,6 +447,16 @@ final class QuestService {
     }
 
     func unassignQuest(_ quest: Quest) async throws {
+        // Privileged mutation: removing a quest is parent-only, except the
+        // quest's own assignee may unassign their assignment (self-service
+        // cleanup when a hero leaves the family). A non-parent stranger
+        // cannot unassign another hero's quest.
+        guard let acting = appState?.currentProfile,
+              acting.role.isParent || acting.id == quest.assignee.recordID
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let name = quest.id.recordName
         let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
             .first(where: { $0.recordName == name })

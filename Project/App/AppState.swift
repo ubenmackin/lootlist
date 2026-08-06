@@ -160,12 +160,7 @@ final class AppState {
                     familyZoneID = zoneID
                     isZoneOwner = isOwner
                     // Restore Profile and Family from cache
-                    family = Family(
-                        name: cachedFamily.name,
-                        createdBy: CKRecord.ID(recordName: cachedFamily.createdByRecordName),
-                        payoutPolicy: PayoutPolicy(rawValue: cachedFamily.payoutPolicy) ?? .perQuest,
-                        id: CKRecord.ID(recordName: cachedFamily.recordName, zoneID: zoneID)
-                    )
+                    family = cachedFamily.toFamily(zoneID: zoneID)
                     currentProfile = cachedProfile.toProfile(zoneID: zoneID)
                     authStatus = .authenticated
                     logger.info("Session restored from local cache (offline mode)")

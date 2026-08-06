@@ -17,7 +17,7 @@ final class CacheService {
     let container: ModelContainer?
     var initializationError: Error?
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
+    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var isBatching = false
 
     /// Shared in-flight mutation registry. Mutation services

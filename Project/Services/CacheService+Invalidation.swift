@@ -107,7 +107,7 @@ extension CacheService {
 
     // MARK: - Bulk Clear
 
-    func clearAll() {
+    func clearAll() throws {
         guard let context else { return }
         try? context.delete(model: QuestCache.self)
         try? context.delete(model: QuestTemplateCache.self)
@@ -119,9 +119,17 @@ extension CacheService {
         try? context.delete(model: AchievementCache.self)
         try? context.delete(model: ProfileAchievementCache.self)
         try? context.delete(model: NotificationPreferenceCache.self)
-        try? context.save()
 
-        // A wiped cache must never serve a stale freshness watermark (D8).
+        // A swallowed save failure would leave phantom rows persisting past the
+        // invalidate-everything wipe — so the save is explicit and rethrown.
+        do {
+            try trySaveContext()
+        } catch {
+            logger.error("Failed to save after clearing cache: \(error, privacy: .private)")
+            throw error
+        }
+
+        // A wiped cache must never serve a stale freshness watermark.
         invalidateAllFreshness()
     }
 }

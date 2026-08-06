@@ -169,6 +169,7 @@ final class QuestManagerViewModel {
                      goldReward: Double,
                      xpReward: Int,
                      scheduleType: QuestSchedule,
+                     specificDays: [String] = [],
                      targetCount: Int = 1,
                      isAllOrNothing: Bool,
                      approvalMode: ApprovalMode,
@@ -206,6 +207,14 @@ final class QuestManagerViewModel {
         updated.assignee = CKRecord.Reference(recordID: assignee.id, action: .none)
 
         _ = try await questService.updateQuest(updated)
+
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        if let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
+            var template = templateCache.toQuestTemplate(zoneID: zoneID)
+            template.scheduleType = scheduleType
+            template.specificDays = scheduleType.requiresSpecificDays ? specificDays : []
+            _ = try? await questService.updateTemplate(template)
+        }
     }
 
     func unassignQuest(_ quest: Quest) async throws {

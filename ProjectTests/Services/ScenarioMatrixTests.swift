@@ -32,11 +32,11 @@ struct ScenarioMatrixTests {
         let xp = XPService(cloudKit: ck, notificationService: notif)
         xp.cacheService = cache
 
-        let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notif)
+        let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notif, appState: appState)
         quest.cacheService = cache
 
         let family = FamilyService(cloudKit: ck, appState: appState, questService: quest, cacheService: cache)
-        let treasury = TreasuryService(cloudKit: ck, notificationService: notif)
+        let treasury = TreasuryService(cloudKit: ck, notificationService: notif, appState: appState)
         treasury.cacheService = cache
         quest.treasuryService = treasury
 
@@ -474,10 +474,26 @@ struct ScenarioMatrixTests {
         )
         _ = try await sut.cloudKit.save(quest)
 
+        // markComplete is a hero self-action — the acting session must match
+        // the completer's identity.
+        sut.appState.currentProfile = hero
         let completion = try await sut.questService.markComplete(quest: quest, by: hero)
         #expect(completion.verificationStatus == .pending)
 
-        let rejected = try await sut.questService.reject(questLog: completion, by: hero)
+        // Rejection is parent-only at the service layer, so the acting profile
+        // passed as the verifier must be a parent (Guild Master / Ranger).
+        let parent = Profile(
+            displayName: "Guild Master",
+            avatarClass: .knight,
+            avatarPresetID: "warrior_01",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
+        // The authenticated session is the guild master performing the reject.
+        sut.appState.currentProfile = parent
+        let rejected = try await sut.questService.reject(questLog: completion, by: parent)
         #expect(rejected.verificationStatus == .rejected)
 
         let freshHero = try await sut.cloudKit.fetch(Profile.self, id: hero.id)
@@ -561,7 +577,8 @@ struct ScenarioMatrixTests {
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
-        let spendingService = ManualSpendingService(cloudKit: sut.cloudKit, cacheService: sut.cache)
+        let spendingService = ManualSpendingService(cloudKit: sut.cloudKit, cacheService: sut.cache, appState: sut.appState)
+        sut.appState.currentProfile = hero
 
         _ = try await spendingService.logManual(profile: hero, family: family, description: "Bought Sword", amount: 50.0)
 
@@ -615,6 +632,10 @@ struct ScenarioMatrixTests {
         sut.cache.upsertQuestCompletions([completion])
         sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
 
+        // Real-time settlement is a self-action — the hero settles their own
+        // reward, so the acting profile must match the target.
+        sut.appState.currentProfile = hero
+
         // First settlement pays out the earned gold...
         let firstResult = try await sut.treasuryService.processRealTimeSettlement(profile: hero, family: family)
         let first = try #require(firstResult)
@@ -667,6 +688,18 @@ struct ScenarioMatrixTests {
 
         // unassignActiveQuests guards on appState.family being set.
         sut.appState.family = family
+
+        // The acting profile must be a parent for the service-layer
+        // authorization guard to let the kick proceed.
+        sut.appState.currentProfile = Profile(
+            displayName: "Guild Master",
+            avatarClass: .knight,
+            avatarPresetID: "warrior_01",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
 
         // Sanity: the hero is an active roster member before the kick.
         let heroesBefore = try await sut.familyService.fetchHeroes(for: family)

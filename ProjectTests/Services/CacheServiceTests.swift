@@ -242,10 +242,67 @@ struct CacheServiceTests {
         service.upsertFamily(family)
         #expect(service.fetchQuests(family: "fam").count == 1)
 
-        service.clearAll()
+        try service.clearAll()
 
         #expect(service.fetchQuests(family: "fam").count == 0)
         #expect(service.fetchFamily(recordName: "fam") == nil)
+    }
+
+    @Test
+    func `clearAll scrubs every cache model descriptor on happy path`() throws {
+        let service = try makeService()
+        let family = Family(
+            name: "Dragons",
+            createdBy: CKRecord.ID(recordName: "user1"),
+            id: CKRecord.ID(recordName: "fam")
+        )
+        let quest = Quest(
+            template: ref("tpl"),
+            assignee: ref("hero"),
+            goldReward: 5.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            approvalMode: .autoApprove,
+            weekOf: Date(),
+            createdBy: ref("user1"),
+            family: ref("fam"),
+            name: "Q",
+            id: CKRecord.ID(recordName: "q1")
+        )
+        let profile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "icloud1"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "profile1")
+        )
+
+        // Seed across three distinct cache model types before the wipe.
+        service.upsertFamily(family)
+        service.upsertQuest(quest)
+        service.upsertProfile(profile)
+        #expect(service.fetchFamily(recordName: "fam") != nil)
+        #expect(service.fetchQuests(family: "fam").count == 1)
+        #expect(service.fetchProfiles(family: "fam").count == 1)
+
+        // Happy path: clearAll() completes without throwing.
+        try service.clearAll()
+
+        // Every cache model descriptor must report zero rows after the wipe.
+        guard let container = service.container else { return }
+        func count<T: PersistentModel>(_: T.Type) -> Int {
+            (try? container.mainContext.fetch(FetchDescriptor<T>()))?.count ?? -1
+        }
+        #expect(count(QuestCache.self) == 0)
+        #expect(count(QuestTemplateCache.self) == 0)
+        #expect(count(ProfileCache.self) == 0)
+        #expect(count(QuestCompletionCache.self) == 0)
+        #expect(count(FamilyCache.self) == 0)
+        #expect(count(LedgerEntryCache.self) == 0)
+        #expect(count(AllowancePeriodCache.self) == 0)
+        #expect(count(AchievementCache.self) == 0)
+        #expect(count(ProfileAchievementCache.self) == 0)
+        #expect(count(NotificationPreferenceCache.self) == 0)
     }
 
     // MARK: - Notification Preference ChangeTag
@@ -489,7 +546,7 @@ struct CacheServiceTests {
         #expect(cached?.name == "Dragons")
     }
 
-    // MARK: - Freshness Watermark (D8)
+    // MARK: - Freshness Watermark
 
     // NOTE: these tests use family names unique to this file ("fresh-fam-*").
     // Stamps live in UserDefaults.standard and persist for the process, so the
@@ -518,7 +575,7 @@ struct CacheServiceTests {
         service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion)
         service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .profile)
 
-        service.clearAll()
+        try service.clearAll()
 
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == false)
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion) == false)
@@ -537,7 +594,7 @@ struct CacheServiceTests {
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .quest) == true)
     }
 
-    // MARK: - Background → Main Propagation (C2 / D6)
+    // MARK: - Background → Main Propagation
 
     @Test
     func `background save becomes visible to main context via didSave observer`() async throws {

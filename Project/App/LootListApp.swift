@@ -44,24 +44,18 @@ final class AppDependencies {
         }
 
         let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
-        let xp = XPService(cloudKit: ck, notificationService: notification)
-        let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification)
-        let family = FamilyService(cloudKit: ck, appState: app, questService: quest)
-        let treasury = TreasuryService(cloudKit: ck, notificationService: notification)
-        let achievement = AchievementService(cloudKit: ck)
+        let toast = ToastManager()
+        let xp = XPService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
+        let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
+        let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification, cacheService: cache, treasuryService: treasury, toastManager: toast, appState: app)
+        let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast)
+        let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app)
         let avatar = AvatarService(xp: xp)
         let appSync = AppSyncCoordinator()
-        let toast = ToastManager()
 
-        quest.cacheService = cache
-        quest.treasuryService = treasury
-        treasury.cacheService = cache
-
-        family.cacheService = cache
-        achievement.cacheService = cache
+        // AppState keeps a late-bound cache reference: it is constructed before the
+        // cache exists and reads it only during session restoration at launch.
         app.cacheService = cache
-        xp.cacheService = cache
-
         toastManager = toast
 
         if let cache, let container = cache.container {
@@ -120,12 +114,6 @@ final class AppDependencies {
         appSyncCoordinator = appSync
         dataMigrationsCoordinator = migrations
         cacheService = cache
-
-        quest.toastManager = toastManager
-        family.toastManager = toastManager
-        treasury.toastManager = toastManager
-        achievement.toastManager = toastManager
-        xp.toastManager = toastManager
     }
 }
 
@@ -318,7 +306,7 @@ private struct RootView: View {
     @Environment(ToastManager.self) private var toastManager
 
     @State private var onboardingVM: OnboardingViewModel?
-    @State private var spendingService: ManualSpendingService?
+    @State private var spendingService: (any SpendingService)?
 
     var body: some View {
         Group {
@@ -388,7 +376,7 @@ private struct RootView: View {
                 spendingService = nil
             case .authenticated:
                 onboardingVM = nil
-                let spending = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService)
+                let spending = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService, appState: appState)
                 spending.toastManager = toastManager
                 spendingService = spending
             case .restoringSession, .checkingCloudData, .detectedPreviousFamily, .offlineEmptyCache:

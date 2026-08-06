@@ -13,24 +13,69 @@ import Testing
 
 @MainActor
 struct FamilyServiceTests {
-    private func makeDependencies() -> (FamilyService, CloudKitService, AppState, QuestService) { // swiftlint:disable:this large_tuple
+    func makeDependencies() -> (FamilyService, MockCloudKitService, AppState, QuestService) { // swiftlint:disable:this large_tuple
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
         let appState = AppState()
-        let xpService = XPService(cloudKit: cloudKit)
-        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
+        appState.isZoneOwner = true
+        let xpService = XPService(cloudKit: cloudKit, appState: appState)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
         let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: questService)
         return (familyService, cloudKit, appState, questService)
+    }
+
+    func makeStandardFixtures(zoneName: String = "TestZone") -> ( // swiftlint:disable:this large_tuple
+        zoneID: CKRecordZone.ID,
+        familyRef: CKRecord.Reference,
+        family: Family,
+        hero: Profile,
+        parent: Profile
+    ) {
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let hero = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        let parent = Profile(
+            displayName: "Guild Master",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
+        return (zoneID, familyRef, family, hero, parent)
     }
 
     @Test
     func `family service error equality`() {
         #expect(FamilyServiceError.invalidInviteCode == FamilyServiceError.invalidInviteCode)
         #expect(FamilyServiceError.accountUnavailable == FamilyServiceError.accountUnavailable)
-        #expect(FamilyServiceError.joinFailed("e1") == FamilyServiceError.joinFailed("e1"))
-        #expect(FamilyServiceError.joinFailed("e1") != FamilyServiceError.joinFailed("e2"))
-        #expect(FamilyServiceError.creationFailed("c1") == FamilyServiceError.creationFailed("c1"))
-        #expect(FamilyServiceError.persistenceFailed("p1") == FamilyServiceError.persistenceFailed("p1"))
+        #expect(FamilyServiceError.joinFailed == FamilyServiceError.joinFailed)
+        #expect(FamilyServiceError.creationFailed == FamilyServiceError.creationFailed)
+        #expect(FamilyServiceError.persistenceFailed == FamilyServiceError.persistenceFailed)
+        #expect(FamilyServiceError.creationFailed != FamilyServiceError.persistenceFailed)
+    }
+
+    @Test
+    func `family service errors expose user-presentable descriptions`() {
+        #expect(FamilyServiceError.invalidInviteCode.errorDescription != nil)
+        #expect(FamilyServiceError.joinFailed.errorDescription != nil)
+        #expect(FamilyServiceError.creationFailed.errorDescription != nil)
+        #expect(FamilyServiceError.persistenceFailed.errorDescription != nil)
+        #expect(FamilyServiceError.accountUnavailable.errorDescription != nil)
+        #expect(!(FamilyServiceError.creationFailed.errorDescription ?? "").isEmpty)
     }
 
     @Test
@@ -51,15 +96,15 @@ struct FamilyServiceTests {
             _ = try await familyService.createFamily(name: "   ", ownerProfile: profile)
             #expect(Bool(false), "Expected empty name error")
         } catch let error as FamilyServiceError {
-            #expect(error == FamilyServiceError.creationFailed("Family name cannot be empty."))
+            #expect(error == FamilyServiceError.creationFailed)
         } catch {
             #expect(Bool(false), "Unexpected error type: \(error)")
         }
     }
 
-    // MARK: - Freshness-Aware Cache Reads (D4)
+    // MARK: - Freshness-Aware Cache Reads
 
-    private func makeFamilyServiceWithCache(cloudKit: CloudKitService,
+    private func makeFamilyServiceWithCache(cloudKit: any CloudKitServiceProtocol,
                                             cache: CacheService) -> FamilyService
     {
         let appState = AppState()
@@ -76,7 +121,8 @@ struct FamilyServiceTests {
     @Test
     func `fetchHeroes falls back to CloudKit when cache is stale`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
@@ -122,7 +168,8 @@ struct FamilyServiceTests {
     @Test
     func `fetchHeroes serves partial cache when freshness stamp is fresh`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
@@ -163,7 +210,7 @@ struct FamilyServiceTests {
         #expect(heroes.count == 1)
         #expect(heroes.first?.displayName == "Cached Hero")
 
-        // R2: the cache-hit path must not fire a detached background refresh —
+        // The cache-hit path must not fire a detached background refresh —
         // CloudKit truth must NOT be written through into the cache.
         #expect(
             !cache.fetchProfiles(family: "fam1").contains { $0.recordName == "hero-ck" },
@@ -171,7 +218,7 @@ struct FamilyServiceTests {
         )
     }
 
-    // MARK: - R2: No Detached Refresh on Cache-Hit / Deduped Immediate Refresh
+    // MARK: - Cache Reads & Immediate Refresh Deduplication
 
     /// Counts CloudKit `query` calls (mock-backed, no network) so tests can
     /// assert a fresh-cache read issues zero queries and concurrent immediate
@@ -268,7 +315,7 @@ struct FamilyServiceTests {
         cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
 
         // CloudKit holds a DIFFERENT hero — the removed detached refresh would
-        // have queried it and written it through on every cache hit (R2).
+        // have queried it and written it through on every cache hit.
         let ckHero = Profile(
             displayName: "CK Hero",
             role: .hero,
@@ -284,7 +331,7 @@ struct FamilyServiceTests {
         #expect(heroes.first?.displayName == "Cached Hero")
         #expect(
             cloudKit.queryCallCount == 0,
-            "A fresh cache hit must not issue a background CloudKit refresh (R2)"
+            "A fresh cache hit must not issue a background CloudKit refresh"
         )
         #expect(
             !cache.fetchProfiles(family: "fam1").contains { $0.recordName == "hero-ck" },
@@ -329,7 +376,7 @@ struct FamilyServiceTests {
         cloudKit.seedMockRecords([ckHero])
 
         // Two concurrent callers on a fresh cache: both must be served from
-        // cache and neither may fire the removed detached refresh (R2).
+        // cache and neither may fire the removed detached refresh.
         let service = familyService
         let first = Task { try await service.fetchHeroes(for: family) }
         let second = Task { try await service.fetchAllProfilesForFamily(family) }
@@ -402,7 +449,8 @@ struct FamilyServiceTests {
     @Test
     func `updateProfilePayoutPolicy persists profile override`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
@@ -426,6 +474,7 @@ struct FamilyServiceTests {
         cache.upsertFamily(family)
         cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
+        familyService.appState.currentProfile = hero
 
         let saved = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
 
@@ -463,10 +512,20 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
+        // The acting profile must be a parent (Guild Master / Ranger) — the
+        // service-layer authorization guard rejects non-parent actors.
+        let guildMaster = Profile(
+            displayName: "Guild Master",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
         cache.upsertFamily(family)
         cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
+        appState.currentProfile = guildMaster
 
         try await familyService.kickMember(profile: hero)
 
@@ -483,9 +542,66 @@ struct FamilyServiceTests {
     }
 
     @Test
+    func `hero self-leave unassigns their active quests instead of orphaning them`() async throws {
+        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let hero = Profile(
+            displayName: "Leaving Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        // A quest assigned to the hero in the current week, persisted to the
+        // CloudKit mock so `unassignActiveQuests` can find and purge it.
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 10.0,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: WeekMath.startOfWeek(for: Date()),
+            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: "gm1", zoneID: zoneID), action: .none),
+            family: familyRef,
+            name: "Active Quest",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        )
+
+        cloudKit.seedMockRecords([family, hero, quest])
+        // unassignActiveQuests guards on appState.family being set.
+        appState.family = family
+        // The acting profile is the hero performing self-service leave.
+        appState.currentProfile = hero
+
+        try await familyService.leaveFamily(profile: hero)
+
+        // (a) The hero's profile is deactivated.
+        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
+        #expect(freshHero.isActive == false)
+
+        // (b) The hero's active quest was unassigned (deleted) from CloudKit —
+        // not orphaned to a now-inactive profile.
+        await #expect(throws: CloudKitServiceError.self) {
+            _ = try await cloudKit.fetch(Quest.self, id: quest.id)
+        }
+    }
+
+    @Test
     func `fetchHeroes on empty family returns empty array`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
 
@@ -499,5 +615,165 @@ struct FamilyServiceTests {
         let heroes = try await familyService.fetchHeroes(for: family)
 
         #expect(heroes.isEmpty)
+    }
+
+    // MARK: - Error-Path Coverage
+
+    /// Subclass of `CloudKitService` that always throws on `save`, exercising
+    /// the standard rollback path of the optimistic-write mutations.
+    private final class FailingCloudKitService: CloudKitService {
+        override func save<T: CloudKitRecord>(
+            _: T,
+            in _: CKRecordZone.ID? = nil,
+            using _: CKDatabase? = nil
+        ) async throws -> T {
+            throw TestSaveError.saveFailed
+        }
+    }
+
+    private enum TestSaveError: Error, Equatable {
+        case saveFailed
+    }
+
+    @Test
+    func `updateFamilyName with empty name throws persistenceFailed`() async {
+        let (familyService, _, appState, _) = makeDependencies()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let parent = Profile(
+            displayName: "Guild Master",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
+        appState.currentProfile = parent
+
+        do {
+            _ = try await familyService.updateFamilyName(family: family, newName: "   ")
+            #expect(Bool(false), "Expected empty-name persistence error")
+        } catch let error as FamilyServiceError {
+            #expect(error == .persistenceFailed)
+        } catch {
+            #expect(Bool(false), "Unexpected error type: \(error)")
+        }
+    }
+
+    @Test
+    func `updateProfileDisplayName with empty name throws persistenceFailed`() async {
+        let (familyService, _, appState, _) = makeDependencies()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let hero = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        appState.currentProfile = hero
+
+        do {
+            _ = try await familyService.updateProfileDisplayName(profile: hero, newName: "  ")
+            #expect(Bool(false), "Expected empty-name persistence error")
+        } catch let error as FamilyServiceError {
+            #expect(error == .persistenceFailed)
+        } catch {
+            #expect(Bool(false), "Unexpected error type: \(error)")
+        }
+    }
+
+    @Test
+    func `updateProfilePayoutPolicy on save failure throws persistenceFailed and rolls back`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = FailingCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
+
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let hero = Profile(
+            displayName: "Override Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            payoutPolicy: .perQuest,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        cache.upsertProfile(hero)
+        familyService.appState.currentProfile = hero
+
+        do {
+            _ = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
+            #expect(Bool(false), "Expected save failure")
+        } catch let error as FamilyServiceError {
+            #expect(error == .persistenceFailed)
+        }
+
+        // Rollback: the pre-mutation snapshot survives in the cache.
+        let cached = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cached?.payoutPolicyEnum == .perQuest)
+    }
+
+    @Test
+    func `kickMember on save failure throws persistenceFailed`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = FailingCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let xpService = XPService(cloudKit: cloudKit)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
+        let familyService = FamilyService(
+            cloudKit: cloudKit,
+            appState: appState,
+            questService: questService,
+            cacheService: cache
+        )
+
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let hero = Profile(
+            displayName: "Kicked Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        // The acting profile must be a parent for the kick to proceed to the
+        // save step (service-layer authorization guard).
+        let guildMaster = Profile(
+            displayName: "Guild Master",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
+        cache.upsertFamily(family)
+        cache.upsertProfile(hero)
+        appState.family = family
+        appState.currentProfile = guildMaster
+
+        do {
+            try await familyService.kickMember(profile: hero)
+            #expect(Bool(false), "Expected save failure")
+        } catch let error as FamilyServiceError {
+            #expect(error == .persistenceFailed)
+        }
     }
 }
