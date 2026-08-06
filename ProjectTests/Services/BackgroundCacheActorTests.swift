@@ -303,7 +303,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(FamilyCache.self, in: container) == 0)
     }
 
-    // MARK: D1 — Purge family-scope guard
+    // MARK: - Purge family-scope guard
 
     @Test
     func `purge with nil family does not delete rows of a different family`() async throws {
@@ -311,7 +311,7 @@ struct BackgroundCacheActorTests {
         let actor = BackgroundCacheActor(container: container)
 
         // Two families' quest rows share the store; the purge must be
-        // family-scoped per D1 — calling purge with nil scope must be a
+        // family-scoped — calling purge with nil scope must be a
         // no-op, never a global delete that would wipe another family's rows.
         let now = Date()
         let ctx = ModelContext(container)
@@ -333,11 +333,11 @@ struct BackgroundCacheActorTests {
 
         #expect(try remainingCount(QuestCache.self, in: container) == 2)
 
-        // D1: a nil scope must be a no-op.
+        // A nil scope must be a no-op.
         await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: nil)
         #expect(try remainingCount(QuestCache.self, in: container) == 2)
 
-        // D1: an empty scope must also be a no-op.
+        // An empty scope must also be a no-op.
         await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: "")
         #expect(try remainingCount(QuestCache.self, in: container) == 2)
 

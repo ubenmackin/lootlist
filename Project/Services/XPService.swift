@@ -53,12 +53,22 @@ final class XPService {
     let notificationService: NotificationService?
     var cacheService: CacheService?
 
-    var toastManager: ToastManager?
+    let toastManager: ToastManager?
 
-    init(cloudKit: any CloudKitServicing, notificationService: NotificationService? = nil, cacheService: CacheService? = nil) {
+    var appState: AppState?
+
+    init(
+        cloudKit: any CloudKitServicing,
+        notificationService: NotificationService? = nil,
+        cacheService: CacheService? = nil,
+        toastManager: ToastManager? = nil,
+        appState: AppState? = nil
+    ) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
         self.cacheService = cacheService
+        self.toastManager = toastManager
+        self.appState = appState
     }
 
     static func cumulativeXPForLevel(_ targetLevel: Int) -> Int {
@@ -88,6 +98,10 @@ final class XPService {
 
     @discardableResult
     func addXP(_ amount: Int, to profile: Profile) async throws -> Profile {
+        guard let acting = appState?.currentProfile, acting.id == profile.id || acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let gained = max(amount, 0)
         let oldLevel = profile.level
         var updated = profile

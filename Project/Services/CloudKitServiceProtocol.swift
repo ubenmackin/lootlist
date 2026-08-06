@@ -50,8 +50,10 @@ protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
     func fetchPrivateZones() async throws -> [CKRecordZone]
     func fetchSharedZones() async throws -> [CKRecordZone]
     func deleteZone(_ zoneID: CKRecordZone.ID) async throws
+    func seedMockRecords(_ models: [any CloudKitRecord])
 }
 
+/// Convenience overloads; protocol requirements live above.
 extension CloudKitServiceProtocol {
     func save<T: CloudKitRecord>(
         _ entity: T,

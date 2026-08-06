@@ -259,7 +259,7 @@ struct iCloudStatusView: View {
                 // full refresh of the currently resolved family zone. The
                 // zone is named after the Family record, so the resolved
                 // zone's name is the family scope; purges are scoped to it
-                // so other families' cached rows are never deleted (D1).
+                // so other families' cached rows are never deleted.
                 Task { await syncEngine?.syncAllForActiveZone() }
             } label: {
                 HStack {

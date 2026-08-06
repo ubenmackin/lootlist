@@ -632,13 +632,26 @@ final class SyncEngine {
                 case let .shareAccepted(shareID):
                     let acceptedZoneID = shareID.zoneID
                     UserDefaults.standard.removeObject(forKey: tokenKey(for: acceptedZoneID, isShared: true))
-                    cacheService.clearAll()
+                    do {
+                        try cacheService.clearAll()
+                    } catch {
+                        logger.error("Failed to clear cache on share accept \(acceptedZoneID.zoneName, privacy: .private): \(error, privacy: .private)")
+                        // A failed invalidation leaves the cache partially wiped;
+                        // re-hydrating atop it could repopulate stale rows, so
+                        // skip this event.
+                        continue
+                    }
                     cloudKit.activeFamilyZoneID = acceptedZoneID
                     cloudKit.activeIsOwner = false
                     await syncAll(familyRecordName: acceptedZoneID.zoneName)
                 case .zoneReset:
                     UserDefaults.standard.removeObject(forKey: tokenKey(for: cloudKit.resolvedZoneID, isShared: !cloudKit.activeIsOwner))
-                    cacheService.clearAll()
+                    do {
+                        try cacheService.clearAll()
+                    } catch {
+                        logger.error("Failed to clear cache on zone reset: \(error, privacy: .private)")
+                        continue
+                    }
                     if let familyRecordName = cloudKit.activeFamilyZoneID?.zoneName {
                         await syncAll(familyRecordName: familyRecordName)
                     } else {

@@ -33,7 +33,7 @@ struct QuestServiceTests {
 
         // CloudKit truth: a verified log for this quest. The cache is empty so
         // the local gate cannot see it — the pre-write path must NOT query
-        // CloudKit to reconcile (D3). Reconciliation is best-effort and
+        // CloudKit to reconcile. Reconciliation is best-effort and
         // post-save only, so the local completion proceeds.
         scaffold.cloudKit.seedMockRecords([scaffold.completion(status: .verified)])
 
@@ -53,7 +53,7 @@ struct QuestServiceTests {
         let scaffold = try MarkCompleteScaffold()
 
         // A rejected log in cache does not count toward the target, and the
-        // pre-write path must not reconcile against CloudKit (D3) — so the
+        // pre-write path must not reconcile against CloudKit — so the
         // completion proceeds and a fresh log is written.
         scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
         scaffold.cloudKit.seedMockRecords([scaffold.completion(status: .pending)])
@@ -75,7 +75,7 @@ struct QuestServiceTests {
         let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
 
         // A rejected log keeps the local alreadyCompleted check below the
-        // target; the pre-write cache read is strictly local (D3).
+        // target; the pre-write cache read is strictly local.
         scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
 
         // First tap: parks inside cloudKit.save while the guard is active.
@@ -124,7 +124,7 @@ struct QuestServiceTests {
         await cloudKit.waitForParked(count: 1)
 
         // While the save is in flight, zero CloudKit reads have occurred — the
-        // pre-write critical path is fully local (D3).
+        // pre-write critical path is fully local.
         #expect(
             cloudKit.readCallCount == 0,
             "markComplete must not query/fetch CloudKit before the save"
@@ -133,7 +133,7 @@ struct QuestServiceTests {
         cloudKit.releaseSaves()
         _ = try await first.value
         // The post-save cache read is served from cache once the family's
-        // completion cache is stamped fresh (TASK-004 watermark).
+        // completion cache is stamped fresh.
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         let writtenLogs = try await scaffold.questService.fetchQuestLogs(
             forQuest: scaffold.quest,
@@ -149,7 +149,7 @@ struct QuestServiceTests {
     func `over-completion beyond targetCount grants zero additional XP`() async throws {
         // targetCount=2 quest whose bounty has already been fully earned by
         // two auto-approved completions on the server ("another device"). This
-        // device's cache is stale (empty), so the strictly-local D3 guard lets
+        // device's cache is stale (empty), so the strictly-local guard lets
         // a third completion through; the post-save reward step must cap XP so
         // the third completion mints no additional XP.
         let scaffold = try MarkCompleteScaffold(
@@ -730,5 +730,244 @@ struct QuestServiceTests {
         await registry.deregister(questRecordName)
         #expect(await registry.contains(questRecordName) == false)
         #expect(await registry.activeRecordNames().isEmpty)
+    }
+
+    // MARK: - Cache-first family fetch in real-time settlement
+
+    /// Bounded poll for the fire-and-forget settlement Task to land its
+    /// allowance period in the cache before the test asserts on it.
+    private func waitForAllowancePeriod(_ cache: CacheService, familyName: String) async -> AllowancePeriodCache? {
+        for _ in 0 ..< 500 {
+            if let period = cache.fetchAllowancePeriods(family: familyName).first {
+                return period
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return nil
+    }
+
+    @Test
+    func `real time settlement after markComplete resolves the family from cache`() async throws {
+        // A `.realTime` hero + family wired to a shared CloudKit mock in which
+        // the Family record is intentionally ABSENT. The settlement tile spawned
+        // by `markComplete` must resolve the family from the fresh cache — if it
+        // instead fell through to `cloudKit.fetch(Family...)`, that fetch would
+        // throw `notFound` and silently abort settlement.
+        let zoneID = CKRecordZone.ID(zoneName: "RealtimeZone", ownerName: "RealtimeOwner")
+        let cloudKit = MockCloudKitService()
+        let cache = try CacheService(inMemory: true)
+
+        let xp = XPService(cloudKit: cloudKit)
+        xp.cacheService = cache
+        let questService = QuestService(cloudKit: cloudKit, xpService: xp)
+        questService.cacheService = cache
+        let treasury = TreasuryService(cloudKit: cloudKit)
+        treasury.cacheService = cache
+        questService.treasuryService = treasury
+        // markComplete is a hero self-action — wire the hero as the acting
+        // profile so the identity guard passes.
+        let appState = AppState()
+        questService.appState = appState
+        xp.appState = appState
+        treasury.appState = appState
+
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let parentID = CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let hero = Profile(
+            displayName: "RealTime Hero",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .hero,
+            iCloudUserID: heroID,
+            family: familyRef,
+            payoutPolicy: .realTime,
+            id: heroID
+        )
+        let family = Family(
+            name: "RealTime Guild",
+            createdBy: parentID,
+            payoutPolicy: .realTime,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let weekOf = WeekMath.mondayOfWeek(for: Date())
+        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: parentID, action: .none),
+            family: familyRef,
+            name: "Settle Quest",
+            id: questID
+        )
+
+        // Seed the local cache (all layers fresh + non-empty) so every read on
+        // the reward path — including the settlement's family lookup — is served
+        // locally. The Family record is deliberately NOT saved to CloudKit so a
+        // cache miss would abort the settlement.
+        cache.upsertFamily(family)
+        cache.upsertProfile(hero)
+        cache.upsertQuest(quest)
+        // A rejected pre-existing log keeps the double-submit gate open while
+        // still priming the completion cache non-empty.
+        var rejectedLog = QuestCompletion(
+            quest: CKRecord.Reference(recordID: questID, action: .none),
+            completedBy: CKRecord.Reference(recordID: heroID, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "log_seed", zoneID: zoneID)
+        )
+        rejectedLog.verificationStatus = .rejected
+        cache.upsertQuestCompletions([rejectedLog])
+        for type in [
+            CachedRecordType.family,
+            CachedRecordType.profile,
+            CachedRecordType.quest,
+            CachedRecordType.questCompletion
+        ] {
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: type)
+        }
+        // Seed only the hero into CloudKit; the family must remain absent.
+        _ = try await cloudKit.save(hero)
+        appState.currentProfile = hero
+
+        let saved = try await questService.markComplete(quest: quest, by: hero)
+        #expect(saved.verificationStatus == .autoApproved)
+
+        // The fire-and-forget settlement Task resolves the family from the fresh
+        // cache (no CloudKit Family fetch) and lands an allowance period settled
+        // against that cache-sourced family. If the Task had hit CloudKit for the
+        // absent family, settlement would have aborted and no period would exist.
+        let periodCache = await waitForAllowancePeriod(cache, familyName: family.id.recordName)
+        let period = try #require(
+            periodCache,
+            "Settlement must use the cache-sourced family and persist an allowance period"
+        )
+        #expect(period.totalEarned == 25.0, "Fresh quest gold must be settled onto the period")
+        #expect(period.questsCompleted == 1)
+    }
+
+    // MARK: - Parent-verified completions mint XP (Finding: applyReward parent guard)
+
+    @Test
+    func `parent-verified completion mints XP to the hero and stamps xpCredited`() async throws {
+        // A `.parentVerify` quest: the hero marks done → pending (no reward on
+        // `markComplete`), then the parent approves via `verify`. Prior to the
+        // fix, `applyReward`'s identity guard (`acting.id == hero.id`) failed
+        // for the parent acting profile, so `bankXP`/`addXP` were skipped and
+        // the hero earned no XP. The guard must authorize the acting parent and
+        // mint the full XP to the credited hero.
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .parentVerify,
+            goldReward: 25.0,
+            xpReward: 50,
+            targetCount: 1
+        )
+
+        // Seed quest + hero into the shared CloudKit mock and the local cache,
+        // and stamp the family caches fresh so verify's post-save reward
+        // resolution and the reward-step recount are served deterministically.
+        var hero = scaffold.hero
+        hero.xp = 0
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+        scaffold.cache.upsertQuest(scaffold.quest)
+        scaffold.cloudKit.seedMockRecords([scaffold.quest, hero])
+
+        let pending = scaffold.completion(status: .pending)
+        scaffold.cache.upsertQuestCompletion(pending)
+        for type in [
+            CachedRecordType.quest,
+            CachedRecordType.profile,
+            CachedRecordType.questCompletion
+        ] {
+            scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: type)
+        }
+
+        // The parent is the authenticated session verifying the hero's pending completion.
+        scaffold.appState.currentProfile = scaffold.parent
+
+        let saved = try await scaffold.questService.verify(questLog: pending, by: scaffold.parent)
+        #expect(saved.verificationStatus == .verified)
+
+        // The parent-verified completion mints the full XP bounty to the hero.
+        let finalHero = try await scaffold.cloudKit.fetch(Profile.self, id: scaffold.hero.id)
+        #expect(
+            finalHero.xp == 50,
+            "A parent-verified completion must mint the full XP to the credited hero"
+        )
+
+        // The per-record idempotency marker is stamped exactly once on the verified log.
+        let stamped = try await scaffold.cloudKit.fetch(QuestCompletion.self, id: saved.id)
+        #expect(
+            stamped.xpCredited == 50,
+            "The verified completion must stamp xpCredited once with the minted XP"
+        )
+
+        // The server-authoritative per-quest banked total holds exactly one bounty.
+        let finalQuest = try await scaffold.cloudKit.fetch(Quest.self, id: scaffold.quest.id)
+        #expect(finalQuest.xpBanked == 50, "Quest.xpBanked must hold exactly one XP bounty")
+    }
+
+    @Test
+    func `applyReward mints nothing when a non-parent stranger acts on the hero`() async throws {
+        // The authorization relaxation must NOT weaken the rejection of a
+        // non-parent, non-self stranger. A hero with no relation to the quest's
+        // credited hero who bypasses the guarded `verify` entry and calls
+        // `applyReward` directly must still receive zero — no XP, no banked
+        // credit, no idempotency stamp.
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .parentVerify,
+            goldReward: 25.0,
+            xpReward: 50,
+            targetCount: 1
+        )
+
+        var hero = scaffold.hero
+        hero.xp = 0
+        hero.level = 1
+        scaffold.cache.upsertProfile(hero)
+        scaffold.cache.upsertQuest(scaffold.quest)
+        let completion = scaffold.completion(status: .pending)
+        scaffold.cache.upsertQuestCompletion(completion)
+        scaffold.cloudKit.seedMockRecords([scaffold.quest, hero, completion])
+
+        // The authenticated session is a stranger hero (not the credited hero,
+        // not a parent).
+        let stranger = Profile(
+            displayName: "Stranger Hero",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "stranger", zoneID: scaffold.zoneID),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "stranger1", zoneID: scaffold.zoneID)
+        )
+        scaffold.appState.currentProfile = stranger
+
+        let gold = try await scaffold.questService.applyReward(
+            for: scaffold.quest,
+            to: hero,
+            completion: completion
+        )
+
+        #expect(gold == 0, "A non-parent stranger must earn zero from applyReward")
+        let finalHero = try await scaffold.cloudKit.fetch(Profile.self, id: hero.id)
+        #expect(finalHero.xp == 0, "A stranger must not mint XP to the hero")
+        let finalQuest = try await scaffold.cloudKit.fetch(Quest.self, id: scaffold.quest.id)
+        #expect(finalQuest.xpBanked == 0, "A stranger must not bank XP")
+        let finalCompletion = try await scaffold.cloudKit.fetch(QuestCompletion.self, id: completion.id)
+        #expect(
+            finalCompletion.xpCredited == nil,
+            "A stranger must not stamp the idempotency marker"
+        )
     }
 }

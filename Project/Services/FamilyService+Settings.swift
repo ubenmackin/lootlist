@@ -11,6 +11,16 @@ import Foundation
 extension FamilyService {
     @discardableResult
     func updatePayoutPolicy(family: Family, policy: PayoutPolicy) async throws -> Family {
+        // Privileged mutation: a parent (Guild Master / Ranger) may change the
+        // family payout policy, or the owner anchor may grant it.
+        guard let acting = appState.currentProfile else {
+            throw FamilyServiceError.unauthorized
+        }
+        let isAuthorized = acting.role.isParent ? true : await isFamilyOwner(family)
+        guard isAuthorized else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = family
         updated.payoutPolicy = policy
 
@@ -45,14 +55,22 @@ extension FamilyService {
                 error: error
             )
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update payout policy: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
     @discardableResult
     func updatePayoutDay(family: Family, day: PayoutDay) async throws -> Family {
+        // Privileged mutation: a parent (Guild Master / Ranger) may change the
+        // family payout day, or the owner anchor may grant it.
+        guard let acting = appState.currentProfile else {
+            throw FamilyServiceError.unauthorized
+        }
+        let isAuthorized = acting.role.isParent ? true : await isFamilyOwner(family)
+        guard isAuthorized else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = family
         updated.payoutDay = day
 
@@ -87,14 +105,17 @@ extension FamilyService {
                 error: error
             )
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update payout day: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
     @discardableResult
     func updateProfilePayoutPolicy(profile: Profile, policy: PayoutPolicy) async throws -> Profile {
+        // A parent may adjust any hero's profile payout settings; a hero may adjust only their own.
+        guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = profile
         updated.payoutPolicy = policy
 
@@ -135,14 +156,17 @@ extension FamilyService {
                 error: error
             )
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update profile payout policy: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
     @discardableResult
     func updateProfilePayoutDay(profile: Profile, day: PayoutDay?) async throws -> Profile {
+        // A parent may adjust any hero's profile payout day; a hero may adjust only their own.
+        guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = profile
         updated.payoutDay = day
 
@@ -183,9 +207,7 @@ extension FamilyService {
                 error: error
             )
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update profile payout day: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
@@ -193,7 +215,12 @@ extension FamilyService {
     func updateProfileDisplayName(profile: Profile, newName: String) async throws -> Profile {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw FamilyServiceError.persistenceFailed("Character name cannot be empty.")
+            throw FamilyServiceError.persistenceFailed
+        }
+
+        // Self-action: hero or member updates their own display name.
+        guard let acting = appState.currentProfile, acting.id == profile.id else {
+            throw FamilyServiceError.unauthorized
         }
 
         var updated = profile
@@ -236,9 +263,7 @@ extension FamilyService {
                 error: error
             )
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update character name: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
@@ -248,6 +273,11 @@ extension FamilyService {
                              avatarPresetID: String?,
                              customAvatarImageData: Data?) async throws -> Profile
     {
+        // Self-action: hero or member updates their own profile avatar.
+        guard let acting = appState.currentProfile, acting.id == profile.id else {
+            throw FamilyServiceError.unauthorized
+        }
+
         var updated = profile
         updated.avatarClass = avatarClass
         updated.avatarPresetID = avatarPresetID
@@ -293,9 +323,7 @@ extension FamilyService {
                 error: error
             )
             await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed(
-                "Could not update avatar: \(error)"
-            )
+            throw FamilyServiceError.persistenceFailed
         }
     }
 

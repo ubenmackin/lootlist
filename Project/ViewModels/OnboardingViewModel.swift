@@ -157,8 +157,8 @@ final class OnboardingViewModel {
             shareURL = result.shareURL
             familyName = trimmed
             push(.done)
-        } catch let FamilyServiceError.creationFailed(message) {
-            error = message
+        } catch let familyError as FamilyServiceError {
+            error = familyError.localizedDescription
         } catch {
             self.error = "Could not found your guild: \(error)"
         }
@@ -232,8 +232,8 @@ final class OnboardingViewModel {
             builtProfile = result.profile
             pendingShareMetadata = nil
             push(.done)
-        } catch let FamilyServiceError.joinFailed(message) {
-            error = message
+        } catch let familyError as FamilyServiceError {
+            error = familyError.localizedDescription
         } catch {
             self.error = "Could not join the guild: \(error)"
         }

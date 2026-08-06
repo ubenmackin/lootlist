@@ -167,10 +167,12 @@ struct XPServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let service = XPService(cloudKit: cloudKit, cacheService: cache)
+        let appState = AppState()
+        let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID: zoneID, xp: 100, level: 1)
         cache.upsertProfile(hero)
+        appState.currentProfile = hero
 
         let saved = try await service.addXP(50, to: hero)
 
@@ -188,10 +190,12 @@ struct XPServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = FailingCloudKitService()
         let cache = try CacheService(inMemory: true)
-        let service = XPService(cloudKit: cloudKit, cacheService: cache)
+        let appState = AppState()
+        let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID: zoneID, xp: 100, level: 1)
         cache.upsertProfile(hero)
+        appState.currentProfile = hero
 
         let returned = try await service.addXP(50, to: hero)
 
@@ -212,10 +216,12 @@ struct XPServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = FailingCloudKitService()
         let cache = try CacheService(inMemory: true)
-        let service = XPService(cloudKit: cloudKit, cacheService: cache)
+        let appState = AppState()
+        let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID: zoneID, xp: 100, level: 1)
         // Note: deliberately NOT seeded into the cache → no snapshot available.
+        appState.currentProfile = hero
 
         let returned = try await service.addXP(50, to: hero)
 
@@ -227,5 +233,70 @@ struct XPServiceTests {
         // (b) cache is invalidated (no prior state to roll back to).
         let cached = cache.fetchProfile(recordName: hero.id.recordName)
         #expect(cached == nil, "invalidate-on-failure should remove the optimistically-written profile")
+    }
+
+    // MARK: - Identity guard
+
+    @Test
+    func `addXP throws unauthorized when acting profile differs from target`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
+            action: .none
+        )
+        let actor = Profile(
+            displayName: "Actor",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        let victim = Profile(
+            displayName: "Victim",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero2", zoneID: zoneID)
+        )
+        cache.upsertProfile(victim)
+        appState.currentProfile = actor
+
+        do {
+            _ = try await service.addXP(50, to: victim)
+            #expect(Bool(false), "Expected addXP to throw unauthorized")
+        } catch {
+            #expect(error as? FamilyServiceError == .unauthorized)
+        }
+
+        // Cache must remain untouched — identity guard fires before any mutation.
+        let cached = cache.fetchProfile(recordName: victim.id.recordName)
+        #expect(cached?.xpTotal == 0, "addXP must not mutate the cache when the actor is not the target profile")
+    }
+
+    @Test
+    func `addXP throws unauthorized when no appState is set`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let service = XPService(cloudKit: cloudKit, cacheService: cache)
+
+        let hero = makeHero(zoneID: zoneID, xp: 0, level: 1)
+        cache.upsertProfile(hero)
+
+        do {
+            _ = try await service.addXP(50, to: hero)
+            #expect(Bool(false), "Expected addXP to throw unauthorized when appState is nil")
+        } catch {
+            #expect(error as? FamilyServiceError == .unauthorized)
+        }
     }
 }

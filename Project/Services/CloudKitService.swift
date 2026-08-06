@@ -118,35 +118,32 @@ actor SubscriptionManager {
 @MainActor
 @Observable
 class CloudKitService: CloudKitServiceProtocol {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CloudKitService")
+    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CloudKitService")
 
     private var containerStorage: CKContainer?
+
+    static var defaultContainer: CKContainer {
+        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+    }
 
     var container: CKContainer {
         if let containerStorage {
             return containerStorage
         }
-        if TestEnvironment.isRunningUnitOrUITests {
-            let defaultContainer = CKContainer.default()
-            containerStorage = defaultContainer
-            return defaultContainer
-        }
-        let customContainer = CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
-        containerStorage = customContainer
-        return customContainer
+        let targetContainer = CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+        containerStorage = targetContainer
+        return targetContainer
     }
 
-    private var cachedDatabase: CKDatabase?
     private var cachedPrivateDatabase: CKDatabase?
     private var cachedSharedDatabase: CKDatabase?
 
+    var isTestingOrMocking: Bool {
+        TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty
+    }
+
     var database: CKDatabase {
-        if let cachedDatabase {
-            return cachedDatabase
-        }
-        let db = container.privateCloudDatabase
-        cachedDatabase = db
-        return db
+        privateDatabase
     }
 
     var privateDatabase: CKDatabase {
@@ -169,11 +166,7 @@ class CloudKitService: CloudKitServiceProtocol {
 
     let defaultZoneID: CKRecordZone.ID
 
-    private let subscriptionManager = SubscriptionManager()
-
-    static var defaultContainer: CKContainer {
-        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
-    }
+    let subscriptionManager = SubscriptionManager()
 
     var activeSubscriptions: Set<String> {
         get async {
@@ -189,7 +182,6 @@ class CloudKitService: CloudKitServiceProtocol {
             containerStorage = container
             cachedPrivateDatabase = container.privateCloudDatabase
             cachedSharedDatabase = container.sharedCloudDatabase
-            cachedDatabase = container.privateCloudDatabase
         }
         defaultZoneID = zoneID
     }
@@ -213,7 +205,7 @@ class CloudKitService: CloudKitServiceProtocol {
 
     // MARK: - In-Memory Mock Record Storage for Testing & Screenshots
 
-    private var mockRecords: [String: CKRecord] = [:]
+    var mockRecords: [String: CKRecord] = [:]
 
     func seedMockRecords(_ models: [any CloudKitRecord]) {
         for model in models {
@@ -226,7 +218,7 @@ class CloudKitService: CloudKitServiceProtocol {
                                  in zoneID: CKRecordZone.ID? = nil,
                                  using db: CKDatabase? = nil) async throws -> T
     {
-        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+        if isTestingOrMocking {
             let source = model.toRecord()
             let recordToSave = CKRecord(recordType: T.recordType, recordID: source.recordID)
             for key in source.allKeys() {
@@ -304,7 +296,7 @@ class CloudKitService: CloudKitServiceProtocol {
                                   id: CKRecord.ID,
                                   using db: CKDatabase? = nil) async throws -> T
     {
-        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+        if isTestingOrMocking {
             if let record = mockRecords[id.recordName] {
                 return try T(record: record)
             }
@@ -322,7 +314,7 @@ class CloudKitService: CloudKitServiceProtocol {
                 in zoneID: CKRecordZone.ID? = nil,
                 using db: CKDatabase? = nil) async throws
     {
-        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+        if isTestingOrMocking {
             mockRecords.removeValue(forKey: recordID.recordName)
             return
         }
@@ -341,7 +333,7 @@ class CloudKitService: CloudKitServiceProtocol {
                                   sortDescriptors: [NSSortDescriptor]? = nil,
                                   using db: CKDatabase? = nil) async throws -> [T]
     {
-        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+        if isTestingOrMocking {
             let matching = mockRecords.values.filter { record in
                 guard record.recordType == T.recordType else { return false }
                 return evaluateMockPredicate(predicate, record: record)
@@ -376,11 +368,6 @@ class CloudKitService: CloudKitServiceProtocol {
                                            resultsLimit: maximumResults)
             }
             allMatchResults.append(contentsOf: pageResults)
-            // CloudKit returns a non-nil cursor iff more pages exist; a nil
-            // cursor terminates the loop here automatically. Do NOT gate this on
-            // the page size heuristic — a short final page still carries a nil
-            // cursor, while a non-nil cursor on a sub-`maximumResults` page
-            // (server-side limits, filtered retries) means data would be lost.
             cursor = nextPageCursor
             pageCount += 1
         }
@@ -402,7 +389,7 @@ class CloudKitService: CloudKitServiceProtocol {
         since token: CKServerChangeToken? = nil,
         using db: CKDatabase? = nil
     ) async throws -> ZoneChangesResult {
-        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
+        if isTestingOrMocking {
             return ZoneChangesResult(
                 changedRecords: Array(mockRecords.values),
                 deletedRecordIDs: [],
@@ -471,36 +458,15 @@ class CloudKitService: CloudKitServiceProtocol {
             return true
         }
 
-        if fmt.contains("family ==") || fmt.contains("family =") {
-            if let ref = record["family"] as? CKRecord.Reference {
-                return fmt.contains(ref.recordID.recordName)
+        let referenceKeys = ["family", "profile", "assignee", "completedBy", "template", "quest"]
+        for key in referenceKeys {
+            if fmt.contains("\(key) ==") || fmt.contains("\(key) =") {
+                if let ref = record[key] as? CKRecord.Reference {
+                    return fmt.contains(ref.recordID.recordName)
+                }
             }
         }
-        if fmt.contains("profile ==") || fmt.contains("profile =") {
-            if let ref = record["profile"] as? CKRecord.Reference {
-                return fmt.contains(ref.recordID.recordName)
-            }
-        }
-        if fmt.contains("assignee ==") || fmt.contains("assignee =") {
-            if let ref = record["assignee"] as? CKRecord.Reference {
-                return fmt.contains(ref.recordID.recordName)
-            }
-        }
-        if fmt.contains("completedBy ==") || fmt.contains("completedBy =") {
-            if let ref = record["completedBy"] as? CKRecord.Reference {
-                return fmt.contains(ref.recordID.recordName)
-            }
-        }
-        if fmt.contains("template ==") || fmt.contains("template =") {
-            if let ref = record["template"] as? CKRecord.Reference {
-                return fmt.contains(ref.recordID.recordName)
-            }
-        }
-        if fmt.contains("quest ==") || fmt.contains("quest =") {
-            if let ref = record["quest"] as? CKRecord.Reference {
-                return fmt.contains(ref.recordID.recordName)
-            }
-        }
+
         if fmt.contains("recordID IN") {
             return fmt.contains(record.recordID.recordName)
         }
@@ -534,324 +500,8 @@ class CloudKitService: CloudKitServiceProtocol {
         return result
     }
 
-    func deleteZone(_ zoneID: CKRecordZone.ID) async throws {
-        let pvtDB = privateDatabase
-        _ = try await retrying {
-            try await pvtDB.deleteRecordZone(withID: zoneID)
-        }
-    }
-
-    func ensureZoneExists(_ zoneID: CKRecordZone.ID) async throws {
-        let pvtDB = privateDatabase
-        do {
-            _ = try await retrying {
-                try await pvtDB.recordZone(for: zoneID)
-            }
-
-        } catch let error as CloudKitServiceError {
-            switch error {
-            case .notFound:
-                let zone = CKRecordZone(zoneID: zoneID)
-                do {
-                    _ = try await retrying { () -> CKRecordZone in
-                        try await withCheckedThrowingContinuation { continuation in
-                            pvtDB.save(zone) { zone, error in
-                                if let error {
-                                    continuation.resume(throwing: error)
-                                } else {
-                                    guard let zone else {
-                                        continuation.resume(throwing: CKError(.internalError))
-                                        return
-                                    }
-                                    continuation.resume(returning: zone)
-                                }
-                            }
-                        }
-                    }
-                } catch {
-                    throw CloudKitServiceError.zoneSetupFailed(
-                        "Failed to create zone \(zoneID.zoneName): \(error)"
-                    )
-                }
-            default:
-                throw error
-            }
-        }
-    }
-
-    // MARK: - CKShare Support
-
-    func createShare(for rootRecordID: CKRecord.ID) async throws -> CKShare {
-        let pvtDB = privateDatabase
-        let serverRoot = try await retrying {
-            try await pvtDB.record(for: rootRecordID)
-        }
-
-        let share = CKShare(rootRecord: serverRoot)
-        share[CKShare.SystemFieldKey.title] = (serverRoot["name"] as? String) ?? "Family Guild"
-        share.publicPermission = .readWrite
-
-        let operation = CKModifyRecordsOperation(
-            recordsToSave: [serverRoot, share],
-            recordIDsToDelete: nil
-        )
-        operation.isAtomic = true
-
-        return try await withCheckedThrowingContinuation { continuation in
-            operation.modifyRecordsResultBlock = { result in
-                switch result {
-                case .success:
-                    continuation.resume(returning: share)
-                case let .failure(error):
-                    continuation.resume(throwing: CloudKitServiceError.shareFailed(
-                        "Failed to create share: \(error)"
-                    ))
-                }
-            }
-            pvtDB.add(operation)
-        }
-    }
-
-    func fetchOrCreateShareURL(in zoneID: CKRecordZone.ID, rootRecordID: CKRecord.ID) async throws -> URL {
-        if TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty {
-            return URL(string: "https://www.icloud.com/share/test-mock-share")!
-        }
-        let pvtDB = privateDatabase
-        let targetID = CKRecord.ID(recordName: rootRecordID.recordName, zoneID: zoneID)
-
-        do {
-            let rootRecord = try await pvtDB.record(for: targetID)
-            if let shareRef = rootRecord.share,
-               let existingShare = try await pvtDB.record(for: shareRef.recordID) as? CKShare
-            {
-                if existingShare.publicPermission != .readWrite {
-                    existingShare.publicPermission = .readWrite
-                    _ = try await pvtDB.save(existingShare)
-                }
-                if let existingURL = existingShare.url {
-                    logger.info("Found existing CKShare URL via rootRecord.share: \(existingURL, privacy: .private)")
-                    return existingURL
-                }
-            }
-        } catch let error as CKError where error.code == .unknownItem {
-            // Fall through to check via query or create a new one
-        } catch {
-            throw error
-        }
-
-        if let existingURL = try await fetchShareURL(in: zoneID) {
-            return existingURL
-        }
-
-        logger.info("No existing CKShare found for zone '\(zoneID.zoneName, privacy: .private)'. Creating new share...")
-        let share = try await createShare(for: rootRecordID)
-        guard let url = share.url else {
-            throw CloudKitServiceError.shareFailed("Share created but URL was nil")
-        }
-        return url
-    }
-
-    func acceptShare(metadata: CKShare.Metadata) async throws {
-        let operation = CKAcceptSharesOperation(shareMetadatas: [metadata])
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            operation.acceptSharesResultBlock = { result in
-                switch result {
-                case .success:
-                    continuation.resume()
-                case let .failure(error):
-                    continuation.resume(throwing: CloudKitServiceError.shareFailed(
-                        "Failed to accept share: \(error)"
-                    ))
-                }
-            }
-            container.add(operation)
-        }
-    }
-
-    func fetchPrivateZones() async throws -> [CKRecordZone] {
-        try await privateDatabase.allRecordZones()
-    }
-
-    func fetchSharedZones() async throws -> [CKRecordZone] {
-        let sharedDB = sharedDatabase
-        return try await sharedDB.allRecordZones()
-    }
-
-    func processAbandonedZonesQueue(appState: AppState) async {
-        let queuedNames = appState.abandonedZoneIDs
-        guard !queuedNames.isEmpty else { return }
-
-        for zoneName in queuedNames {
-            let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
-            do {
-                try await deleteZone(zoneID)
-                appState.removeAbandonedZoneID(zoneName)
-                logger.info("Successfully processed abandoned zone deletion: \(zoneName, privacy: .private)")
-            } catch {
-                logger.error("Retrying abandoned zone deletion failed for \(zoneName, privacy: .private): \(error, privacy: .private)")
-            }
-        }
-    }
-
-    func fetchShareURL(in zoneID: CKRecordZone.ID) async throws -> URL? {
-        let pvtDB = privateDatabase
-        let predicate = NSPredicate(value: true)
-        let query = CKQuery(recordType: "cloudkit.share", predicate: predicate)
-
-        let (matchResults, _) = try await pvtDB.records(
-            matching: query,
-            inZoneWith: zoneID,
-            resultsLimit: 1
-        )
-
-        for (_, result) in matchResults {
-            if case let .success(record) = result,
-               let share = record as? CKShare
-            {
-                return share.url
-            }
-        }
-        return nil
-    }
-
     func currentUserRecordID() async throws -> CKRecord.ID {
         try await container.userRecordID()
-    }
-
-    func setupSubscriptions(for recordTypes: [String],
-                            in zoneID: CKRecordZone.ID,
-                            using db: CKDatabase? = nil) async throws
-    {
-        let targetDB = db ?? activeFamilyDatabase
-        var failures: [String: String] = [:]
-
-        let existing = await subscriptionManager.activeSubscriptions
-
-        for recordType in recordTypes {
-            let subID = stableSubscriptionID(for: recordType, in: zoneID)
-            if existing.contains(subID) {
-                continue
-            }
-
-            let predicate = NSPredicate(value: true)
-            let subscription = CKQuerySubscription(recordType: recordType,
-                                                   predicate: predicate,
-                                                   subscriptionID: subID)
-
-            let info = CKSubscription.NotificationInfo()
-            info.alertBody = "New \(recordType) activity in your family"
-            info.shouldBadge = false
-            info.shouldSendContentAvailable = true
-            info.desiredKeys = ["family"]
-            subscription.notificationInfo = info
-
-            do {
-                _ = try await retrying { () -> CKSubscription in
-                    try await withCheckedThrowingContinuation { continuation in
-                        targetDB.save(subscription) { subscription, error in
-                            if let error {
-                                continuation.resume(throwing: error)
-                            } else {
-                                guard let subscription else {
-                                    continuation.resume(throwing: CKError(.internalError))
-                                    return
-                                }
-                                continuation.resume(returning: subscription)
-                            }
-                        }
-                    }
-                }
-                await subscriptionManager.addSubscription(subID)
-            } catch {
-                failures[recordType] = "\(error)"
-            }
-        }
-
-        if !failures.isEmpty {
-            throw CloudKitServiceError.subscriptionSetupFailed(failures)
-        }
-    }
-
-    func tearDownSubscription(for recordType: String,
-                              in zoneID: CKRecordZone.ID,
-                              using db: CKDatabase? = nil) async throws
-    {
-        let targetDB = db ?? activeFamilyDatabase
-        let subID = stableSubscriptionID(for: recordType, in: zoneID)
-        do {
-            _ = try await retrying {
-                try await targetDB.deleteSubscription(withID: subID)
-            }
-            await subscriptionManager.removeSubscription(subID)
-        } catch let error as CloudKitServiceError {
-            switch error {
-            case .notFound:
-                await subscriptionManager.removeSubscription(subID)
-            default:
-                throw error
-            }
-        }
-    }
-
-    private func stableSubscriptionID(for recordType: String,
-                                      in zoneID: CKRecordZone.ID) -> String
-    {
-        "\(recordType):\(zoneID.zoneName):\(zoneID.ownerName)"
-    }
-
-    func changes(for recordType: String) async -> AsyncStream<[CKRecord]> {
-        let (stream, continuation) = AsyncStream<[CKRecord]>.makeStream()
-
-        let consumerID = UUID()
-        let manager = subscriptionManager
-
-        // to broadcastChange before the stream is returned to the caller.
-        await manager.registerContinuation(continuation, for: recordType, consumerID: consumerID)
-
-        continuation.onTermination = { @Sendable _ in
-            Task {
-                await manager.unregisterContinuation(for: recordType, consumerID: consumerID)
-            }
-        }
-
-        return stream
-    }
-
-    func broadcastChange(for recordType: String,
-                         in zoneID: CKRecordZone.ID? = nil,
-                         using db: CKDatabase? = nil) async
-    {
-        let continuations = await subscriptionManager.continuations(for: recordType)
-        guard !continuations.isEmpty else {
-            return
-        }
-
-        let targetDB = db ?? activeFamilyDatabase
-        do {
-            let zone = zoneID ?? resolvedZoneID
-            let query = CKQuery(recordType: recordType,
-                                predicate: NSPredicate(value: true))
-            let (matchResults, _) = try await retrying {
-                try await targetDB.records(matching: query,
-                                           inZoneWith: zone,
-                                           resultsLimit: CKQueryOperation.maximumResults)
-            }
-            let records: [CKRecord] = matchResults.compactMap { match in
-                if case let .success(record) = match.1 {
-                    return record
-                }
-                return nil
-            }
-            for continuation in continuations {
-                continuation.yield(records)
-            }
-        } catch {
-            for continuation in continuations {
-                continuation.finish()
-            }
-            await subscriptionManager.clearContinuations(for: recordType)
-        }
     }
 
     func accountStatus() async throws -> CKAccountStatus {
@@ -876,7 +526,7 @@ class CloudKitService: CloudKitServiceProtocol {
         4_000_000_000
     ]
 
-    private func retrying<T>(_ operation: () async throws -> T) async throws -> T {
+    func retrying<T>(_ operation: () async throws -> T) async throws -> T {
         var lastWrappedError: CloudKitServiceError?
 
         for attempt in 1 ... Self.maxRetries {

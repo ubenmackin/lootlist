@@ -331,6 +331,37 @@ These remain tracked as hardening items:
 
 ---
 
+## CloudKit Share Permission (load-bearing — do not change)
+
+`CKShare.publicPermission` is set to `.readWrite` in `CloudKitService.createShare` and `fetchOrCreateShareURL`. This is **REQUIRED**, not a misconfiguration:
+
+- The public share link is the **only** family-join mechanism. Users are never added as explicit participants.
+- A user who accepts a share via the public link becomes a participant whose permission mirrors the share's `publicPermission`. With `.readOnly` they would be read-only and every hero write (profile save, quest completion, spending, payout) would fail — the app would be unusable for non-owners.
+- The share URL is a **bearer credential** for family membership (read **and** write). Treat it as sensitive. If it leaks, create a new share to rotate it.
+- Role-based rules are enforced client-side only; CloudKit provides no server-side business-rule validation. See §Authorization Model below.
+
+---
+
+## Authorization Model
+
+Privileged mutations — role changes, member removal, payout finalization, quest verification — are enforced at the service layer by verifying the acting profile's role (parent role) before mutating; unauthorized callers get `FamilyServiceError.unauthorized`. This is defense-in-depth against in-app callers (deep links, shortcuts, accidental callers).
+
+It does **not** by itself stop a malicious CloudKit participant from forging raw `CKRecord` writes directly into the shared zone. The owner anchor hardens the highest-privilege, irreversible operations (see below); reward minting and other remaining client-side operations are documented accepted residual risk.
+
+## Authorization owner anchor
+
+Role field alone is forgeable — a malicious participant who accepts the public `readWrite` share link can issue a raw `CKRecord` write creating a `Profile` with `role = .guildMaster` bound to their own iCloud user ID, and every parent-role guard would then pass. To close this, the highest-privilege, irreversible family operations are anchored on the **server-authenticated CloudKit identity** rather than the forgeable `Profile.role` field:
+
+- **`Family.creatorUserRecordName`** mirrors CloudKit's server-stamped, read-only `CKRecord.creatorUserRecordID` — the iCloud user record name of the user who created the family record. It is decoded **only** on the read path in `init(record:)` (from `record.creatorUserRecordID?.recordName`) and is **never authored locally**: `toRecord()` does not write the field, exactly mirroring the `changeTag` precedent for server-owned fields. Because CloudKit itself controls the creator stamp (saves cannot spoof it), a participant cannot rewrite the anchor — unlike a locally-authored field. The value is mirrored into `FamilyCache` for cache-first reads.
+- **Irreversible owner-gated operations** — `deleteFamilyAndReset`, `updateMemberRole`, `kickMember` — require the server-authenticated user to equal the family's creator (`isFamilyOwner`), evaluated against `currentUserRecordID()` at enforcement time. Deny-by-default when the creator is unresolved: a nil `creatorUserRecordName` (record not yet stamped, or legacy row) never grants ownership on its own.
+- **Reversible owner-OR-parent operations** — `updateFamilyName`, `updatePayoutPolicy`, `updatePayoutDay` — remain available to any parent (Guild Master / Ranger) *or* the owner anchor, so a Ranger can still manage family settings while only the founding owner can perform irreversible membership/role/deletion actions.
+- **Legacy fallback:** families predating the anchor (nil `creatorUserRecordName` — the creator is unresolved) fall back to the legacy check — parent-role for `updateMemberRole`/`kickMember`, and zone-owner + parent-role for `deleteFamilyAndReset`. This keeps existing families fully functional without a backfill.
+- **Profile self-service operations** (`updateProfilePayoutPolicy`, `updateProfilePayoutDay`, `updateProfileDisplayName`, `updateProfileAvatar`) are unchanged — they gate on self/Parent and are not owner-anchored.
+
+**Accepted residual risk:** reward minting (quest verify/reject, `runPayout`, `applyReward`) runs client-side and remains forgeable by a participant; fully closing it requires a server-side validation layer. **V2 note:** replace the public bearer-URL share link with explicit per-participant invites and integrate FinanceKit (both already planned for V2) to shrink the remaining attack surface.
+
+---
+
 ## Key Patterns
 
 ### MVVM + Protocol Services

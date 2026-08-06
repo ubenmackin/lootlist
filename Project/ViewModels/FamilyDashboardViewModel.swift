@@ -120,7 +120,7 @@ final class FamilyDashboardViewModel {
             let earned = goldFromQuests + bonusGold
 
             let streakLogs = logs.filter { $0.completerRecordName == hero.recordName }
-            let streak = HeroDashboardViewModel.computeStreak(from: streakLogs)
+            let streak = StreakCalculator.computeStreak(from: streakLogs)
             let trophies = profileAchievements
                 .filter { $0.profileRecordName == hero.recordName }
                 .count

@@ -172,7 +172,7 @@ final class AlwaysConflictQuestCloudKitService: CloudKitService {
 /// (incrementing a counter before doing anything else) and parks the caller
 /// until released, without touching the network. Used to prove `markComplete`
 /// does NOT spawn a fire-and-forget `Task { fetchQuestLogs(useCache: false) }`
-/// after the save (D5: services must not issue ad-hoc CloudKit refreshes).
+/// after the save — services must not issue ad-hoc CloudKit refreshes.
 /// The count is bumped on entry so a test can yield the runloop and assert it
 /// stays 0; `releaseQueries` releases any (none, post-remediation) parked
 /// caller so the test tears down cleanly.
@@ -225,9 +225,10 @@ final class QueryParkingCloudKitService: CloudKitService {
 // MARK: - Test Helpers Extension
 
 extension QuestServiceTests {
-    func makeTestData() -> (CloudKitService, Profile, Profile, Family) { // swiftlint:disable:this large_tuple
+    func makeTestData() -> (MockCloudKitService, Profile, Profile, Family) { // swiftlint:disable:this large_tuple
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let userID = CKRecord.ID(recordName: "user1", zoneID: zoneID)
 
@@ -264,6 +265,7 @@ extension QuestServiceTests {
         let cloudKit: CloudKitService
         let cache: CacheService
         let questService: QuestService
+        let appState: AppState
         let familyRef: CKRecord.Reference
         let parent: Profile
         let hero: Profile
@@ -292,6 +294,12 @@ extension QuestServiceTests {
             )
             questService.cacheService = cache
             questService.xpService.cacheService = cache
+            // Verify/reject resolve the acting profile from the authenticated
+            // session. The scaffold's default acting profile is the hero, so a
+            // `markComplete(quest:by:hero)` self-completion passes the identity
+            // guard without further setup; verify/reject callers must override
+            // `appState.currentProfile` to the parent (or ranger) acting profile.
+            appState = AppState()
 
             familyRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
@@ -305,6 +313,8 @@ extension QuestServiceTests {
                 iCloudUserID: parentID,
                 family: familyRef
             )
+            questService.appState = appState
+            questService.xpService.appState = appState
             // One hero record shared by every scaffold: `hero.id` must be the
             // deterministic "hero1" record — the same one `quest.assignee`
             // references below — NOT a fresh UUID per scaffold. Cross-device
@@ -320,6 +330,14 @@ extension QuestServiceTests {
                 family: familyRef,
                 id: heroID
             )
+            // markComplete mints rewards to the caller-supplied `by` profile,
+            // guarded by identity against the authenticated session, so the
+            // scaffold's acting session defaults to the hero (the only
+            // identity allowed to complete the scaffold's quest in tests that
+            // exercise markComplete directly). Tests that exercise verify or
+            // reject (parent-only) override `appState.currentProfile` to the
+            // parent (or ranger) profile before calling those methods.
+            appState.currentProfile = hero
 
             let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
             let templateRef = CKRecord.Reference(

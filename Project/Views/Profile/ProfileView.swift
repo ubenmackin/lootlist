@@ -521,7 +521,7 @@ final class ProfileViewModel {
         let profileName = profile.id.recordName
 
         let heroCompletions = completions.filter { $0.completerRecordName == profileName }
-        streak = HeroDashboardViewModel.computeStreak(from: heroCompletions)
+        streak = StreakCalculator.computeStreak(from: heroCompletions)
 
         let completedLogs = heroCompletions.filter {
             $0.verificationStatus == VerificationStatus.autoApproved.rawValue

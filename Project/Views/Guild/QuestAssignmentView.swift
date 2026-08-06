@@ -62,6 +62,7 @@ struct QuestAssignmentView: View {
     @State private var editGoldText: String = ""
     @State private var editXpText: String = ""
     @State private var editSchedule: QuestSchedule = .weeklyFlexible
+    @State private var editSpecificDays: Set<String> = []
     @State private var editTargetCount: Int = 1
     @State private var editIsAllOrNothing: Bool = false
     @State private var editApproval: ApprovalMode = .autoApprove
@@ -424,14 +425,25 @@ struct QuestAssignmentView: View {
         }
 
         Section("Rewards") {
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Reward")
                     .foregroundStyle(editHasLogs ? .secondary : .primary)
-                Spacer()
-                TextField("0", text: $editGoldText)
+                if !editHasLogs {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
+                                PresetPill(
+                                    text: CurrencyFormatter.string(Double(preset) ?? 0),
+                                    isSelected: editGoldText == preset,
+                                    action: { editGoldText = preset }
+                                )
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                TextField("1.00", text: $editGoldText)
                     .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 80)
                     .disabled(editHasLogs)
             }
 
@@ -460,6 +472,33 @@ struct QuestAssignmentView: View {
             if editSchedule == .weeklyFlexible {
                 Stepper("Required Times Per Week: \(editTargetCount)", value: $editTargetCount, in: 1 ... 7)
                     .disabled(editHasLogs)
+            }
+
+            if editSchedule == .specificDays {
+                VStack(alignment: .leading) {
+                    Text("Repeat On")
+                        .foregroundStyle(editHasLogs ? .secondary : .primary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(Self.weekdayCodes.indices), id: \.self) { idx in
+                                let code = Self.weekdayCodes[idx]
+                                PresetPill(
+                                    text: AppConstants.weekdayAbbreviated[idx],
+                                    isSelected: editSpecificDays.contains(code),
+                                    action: {
+                                        if editSpecificDays.contains(code) {
+                                            editSpecificDays.remove(code)
+                                        } else {
+                                            editSpecificDays.insert(code)
+                                        }
+                                    }
+                                )
+                                .disabled(editHasLogs)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
             }
 
             Picker("Approval", selection: $editApproval) {
@@ -565,6 +604,12 @@ struct QuestAssignmentView: View {
         editTargetCount = quest.targetCount
         editIsAllOrNothing = quest.isAllOrNothing
         editApproval = quest.approvalModeEnum ?? .autoApprove
+
+        if let template = viewModel.templates.first(where: { $0.recordName == quest.templateRecordName }) {
+            editSpecificDays = Set(template.specificDays ?? [])
+        } else {
+            editSpecificDays = []
+        }
 
         // Resolve assignee from heroes list
         editAssignee = viewModel.heroes.first { $0.recordName == quest.assigneeRecordName }
@@ -702,6 +747,11 @@ struct QuestAssignmentView: View {
             return
         }
 
+        if editSchedule == .specificDays, editSpecificDays.isEmpty {
+            validationError = "Select at least one day for specific-days schedule."
+            return
+        }
+
         let name = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
         let description = editQuestDescription.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestDescription
 
@@ -716,6 +766,7 @@ struct QuestAssignmentView: View {
                     goldReward: gold,
                     xpReward: xp,
                     scheduleType: editSchedule,
+                    specificDays: Array(editSpecificDays),
                     targetCount: editSchedule == .weeklyFlexible ? max(1, editTargetCount) : 1,
                     isAllOrNothing: editIsAllOrNothing,
                     approvalMode: editApproval,

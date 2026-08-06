@@ -19,6 +19,17 @@ extension QuestService {
 
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
+        // Hero self-action: the acting profile resolved from the authenticated
+        // session must match the caller-supplied completer's identity. A hero
+        // may mint rewards only for their own quest completions; attribution
+        // (`completedBy`) is mutated in every completion mode, so the identity
+        // guard runs before any completion logic.
+        guard let acting = appState?.currentProfile,
+              acting.id == profile.id
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+
         let questName = quest.id.recordName
 
         // Local double-submit guard: NO CloudKit round-trip on the
@@ -103,6 +114,15 @@ extension QuestService {
 
     @discardableResult
     func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
+        // Privileged mutation: the acting profile is resolved from the
+        // authenticated session, must match the caller-supplied verifier's
+        // identity, and must hold a parent role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.id == parent.id,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
         guard questLog.verificationStatus == .pending else {
             throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
         }
@@ -171,6 +191,15 @@ extension QuestService {
 
     @discardableResult
     func reject(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
+        // Privileged mutation: the acting profile is resolved from the
+        // authenticated session, must match the caller-supplied verifier's
+        // identity, and must hold a parent role (Guild Master / Ranger).
+        guard let acting = appState?.currentProfile,
+              acting.id == parent.id,
+              acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
         guard questLog.verificationStatus == .pending else {
             throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
         }
@@ -437,6 +466,20 @@ extension QuestService {
     /// security audit requires; no UserDefaults ledger exists anywhere.
     @discardableResult
     func applyReward(for quest: Quest, to hero: Profile, completion: QuestCompletion) async throws -> Double {
+        // Internal-only authorization guard: the reward step is invoked after
+        // a caller path has already validated authorization (`markComplete`
+        // for an auto-approved self-completion, or `verify` for a
+        // parent-verified completion). The acting session must be the credited
+        // hero theirself OR a parent acting on the hero's behalf (the
+        // established `acting.id == profile.id || acting.role.isParent`
+        // pattern); an unrelated, non-parent stranger (or a direct call
+        // bypassing the guarded entry points) returns zero rather than minting
+        // rewards to a profile it is not authenticated as.
+        guard let acting = appState?.currentProfile,
+              acting.id == hero.id || acting.role.isParent
+        else {
+            return 0
+        }
         // Read existing logs cache-first to compute the approved count for the
         // prorated gold AND the capped XP delta. This read runs POST-save
         // (never on the pre-write critical path). The save just succeeded,
@@ -467,7 +510,20 @@ extension QuestService {
             let questFamilyID = quest.family.recordID
             Task { [logger] in
                 do {
-                    let family = try await cloudKit.fetch(Family.self, id: questFamilyID)
+                    // Cache-first family fetch: the real-time settlement hot path
+                    // is served from the family's cached record when its cache is
+                    // fresh, so no CloudKit round-trip is issued for a record the
+                    // cache already holds. A stale or absent family cache falls
+                    // through to a single fetch that write-throughs the cache.
+                    let family: Family
+                    if let cached = cacheService?.fetchFamily(recordName: questFamilyID.recordName),
+                       cacheService?.isCacheFresh(familyRecordName: questFamilyID.recordName, type: .family) == true
+                    {
+                        family = cached.toFamily(zoneID: cloudKit.resolvedZoneID)
+                    } else {
+                        family = try await cloudKit.fetch(Family.self, id: questFamilyID)
+                        cacheService?.upsertFamily(family)
+                    }
                     _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: family)
                 } catch {
                     logger.error("Failed to process real-time settlement for hero \(hero.id.recordName, privacy: .private): \(error, privacy: .public)")

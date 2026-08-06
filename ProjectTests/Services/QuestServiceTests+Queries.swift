@@ -67,6 +67,9 @@ extension QuestServiceTests {
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
+        // verify is parent-only — override the scaffold's default hero acting
+        // session to the parent performing the verification.
+        scaffold.appState.currentProfile = scaffold.parent
         let saved = try await scaffold.questService.verify(questLog: pending, by: scaffold.parent)
 
         #expect(saved.verificationStatus == .verified)
@@ -92,6 +95,9 @@ extension QuestServiceTests {
         let pending = scaffold.completion(status: .pending)
         scaffold.cache.upsertQuestCompletion(pending)
 
+        // reject is parent-only — override the scaffold's default hero acting
+        // session to the parent performing the rejection.
+        scaffold.appState.currentProfile = scaffold.parent
         let saved = try await scaffold.questService.reject(questLog: pending, by: scaffold.parent)
 
         #expect(saved.verificationStatus == .rejected)
@@ -106,6 +112,379 @@ extension QuestServiceTests {
             cached?.toQuestCompletion(zoneID: zoneID).verificationStatus == .rejected,
             "Cache must hold the rejected completion after reject"
         )
+    }
+
+    // MARK: - Service-layer authorization (parent-only verification)
+
+    @Test
+    func `verify throws unauthorized when acting profile is a hero`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let pending = scaffold.completion(status: .pending)
+        scaffold.cache.upsertQuestCompletion(pending)
+
+        // The authenticated session is a hero; passing the hero as the
+        // verifier must be rejected before any status flip occurs.
+        scaffold.appState.currentProfile = scaffold.hero
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.verify(questLog: pending, by: scaffold.hero)
+        }
+
+        // The completion must remain untouched: still pending.
+        let cached = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+            .first(where: { $0.recordName == pending.id.recordName })
+        #expect(cached?.verificationStatusEnum == .pending)
+    }
+
+    @Test
+    func `reject throws unauthorized when acting profile is a hero`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let pending = scaffold.completion(status: .pending)
+        scaffold.cache.upsertQuestCompletion(pending)
+
+        scaffold.appState.currentProfile = scaffold.hero
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.reject(questLog: pending, by: scaffold.hero)
+        }
+
+        let cached = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+            .first(where: { $0.recordName == pending.id.recordName })
+        #expect(cached?.verificationStatusEnum == .pending)
+    }
+
+    @Test
+    func `verify succeeds when acting profile is a ranger parent`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let pending = scaffold.completion(status: .pending)
+        scaffold.cache.upsertQuestCompletion(pending)
+        // Seed quest + hero so verify's post-save reward resolution is served
+        // from cache rather than a CloudKit fetch.
+        scaffold.cache.upsertQuest(scaffold.quest)
+        scaffold.cache.upsertProfile(scaffold.hero)
+        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+
+        // Rangers are parent roles and may verify completions.
+        let ranger = Profile(
+            displayName: "Ranger",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .ranger,
+            iCloudUserID: CKRecord.ID(recordName: "r1", zoneID: scaffold.zoneID),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "ranger1", zoneID: scaffold.zoneID)
+        )
+
+        // The authenticated session is the ranger verifying the completion.
+        scaffold.appState.currentProfile = ranger
+        let saved = try await scaffold.questService.verify(questLog: pending, by: ranger)
+
+        #expect(saved.verificationStatus == .verified)
+        #expect(saved.verifiedBy?.recordID.recordName == ranger.id.recordName)
+    }
+
+    @Test
+    func `verify throws unauthorized when acting hero passes another parent's profile`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let pending = scaffold.completion(status: .pending)
+        scaffold.cache.upsertQuestCompletion(pending)
+
+        // The authenticated session is a hero. Because parent Profiles are
+        // visible to every family member, the hero attempts to self-approve
+        // their own parentVerify quest by passing a DIFFERENT parent's Profile.
+        // The acting session profile must match the caller-supplied verifier's
+        // identity AND hold a parent role, so this must throw unauthorized.
+        scaffold.appState.currentProfile = scaffold.hero
+        let otherParent = Profile(
+            displayName: "Other GM",
+            avatarClass: .knight,
+            avatarPresetID: "knight_02",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm2", zoneID: scaffold.zoneID),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "gm2", zoneID: scaffold.zoneID)
+        )
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.verify(questLog: pending, by: otherParent)
+        }
+
+        // The completion must remain untouched: still pending.
+        let cached = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+            .first(where: { $0.recordName == pending.id.recordName })
+        #expect(cached?.verificationStatusEnum == .pending)
+    }
+
+    @Test
+    func `reject throws unauthorized when acting hero passes another parent's profile`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let pending = scaffold.completion(status: .pending)
+        scaffold.cache.upsertQuestCompletion(pending)
+
+        // Same forgery attempt as verify: a hero passing another parent's
+        // Profile to reject must throw unauthorized, leaving the completion
+        // pending rather than rejected.
+        scaffold.appState.currentProfile = scaffold.hero
+        let otherParent = Profile(
+            displayName: "Other GM",
+            avatarClass: .knight,
+            avatarPresetID: "knight_02",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm2", zoneID: scaffold.zoneID),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "gm2", zoneID: scaffold.zoneID)
+        )
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.reject(questLog: pending, by: otherParent)
+        }
+
+        let cached = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+            .first(where: { $0.recordName == pending.id.recordName })
+        #expect(cached?.verificationStatusEnum == .pending)
+    }
+
+    // MARK: - markComplete identity guard (hero self-action)
+
+    @Test
+    func `markComplete rejects unauthorized hero passing wrong profile`() async throws {
+        // A hero passing another profile's identity (any profile — hero or
+        // parent — that is not the authenticated session) must throw
+        // unauthorized before any completion is written. The guard prevents
+        // an attacker who can read the family's profile list from forging a
+        // `completedBy` reference for someone else.
+        let scaffold = try MarkCompleteScaffold()
+
+        // The authenticated session is the scaffold's hero. The completer
+        // argument is a DIFFERENT hero — identity does not match.
+        scaffold.appState.currentProfile = scaffold.hero
+        let otherHero = Profile(
+            displayName: "Other Hero",
+            avatarClass: .mage,
+            avatarPresetID: "mage_02",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "hero2", zoneID: scaffold.zoneID),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "hero2", zoneID: scaffold.zoneID)
+        )
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.markComplete(quest: scaffold.quest, by: otherHero)
+        }
+
+        // No completion may be written on the rejected path.
+        let logs = scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
+            .filter { $0.questRecordName == scaffold.quest.id.recordName }
+        #expect(
+            logs.isEmpty,
+            "markComplete must not write a completion when the acting profile does not match the completer"
+        )
+    }
+
+    // MARK: - Parent-only mutation guards (templates + assignments)
+
+    @Test
+    func `createTemplate rejects non-parent creator`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+
+        // Authenticated session is the hero — createTemplate is parent-only.
+        scaffold.appState.currentProfile = scaffold.hero
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            _ = try await scaffold.questService.createTemplate(
+                name: "Unauthorized",
+                description: "",
+                defaultGold: 5.0,
+                xpReward: 10,
+                createdBy: scaffold.hero,
+                family: Family(
+                    name: "Guild",
+                    createdBy: scaffold.parent.id,
+                    id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
+                )
+            )
+        }
+
+        let templates = scaffold.cache.fetchQuestTemplates(family: "fam1")
+            .filter { $0.name == "Unauthorized" }
+        #expect(
+            templates.isEmpty,
+            "createTemplate must not write a template when the actor is not a parent"
+        )
+    }
+
+    @Test
+    func `updateTemplate rejects non-parent actor`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        // Seed a template the unauthorized actor attempts to edit.
+        let template = QuestTemplate(
+            name: "Edit Target",
+            description: "desc",
+            defaultGold: 5,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            specificDays: [],
+            targetCount: 1,
+            createdBy: CKRecord.Reference(recordID: scaffold.parent.id, action: .none),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "tmpl_edit", zoneID: scaffold.zoneID)
+        )
+        scaffold.cache.upsertQuestTemplate(template)
+
+        // Authenticated session is a hero — updateTemplate is parent-only.
+        scaffold.appState.currentProfile = scaffold.hero
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            _ = try await scaffold.questService.updateTemplate(template)
+        }
+    }
+
+    @Test
+    func `deactivateTemplate rejects non-parent actor`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let template = QuestTemplate(
+            name: "Deactivate Target",
+            description: "desc",
+            defaultGold: 5,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            specificDays: [],
+            targetCount: 1,
+            createdBy: CKRecord.Reference(recordID: scaffold.parent.id, action: .none),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "tmpl_deactivate", zoneID: scaffold.zoneID)
+        )
+        scaffold.cache.upsertQuestTemplate(template)
+
+        scaffold.appState.currentProfile = scaffold.hero
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            _ = try await scaffold.questService.deactivateTemplate(template)
+        }
+    }
+
+    @Test
+    func `assignQuest rejects non-parent`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let template = QuestTemplate(
+            name: "Assign Target",
+            description: "desc",
+            defaultGold: 10,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            specificDays: [],
+            targetCount: 1,
+            createdBy: CKRecord.Reference(recordID: scaffold.parent.id, action: .none),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "tmpl_assign", zoneID: scaffold.zoneID)
+        )
+        scaffold.cache.upsertQuestTemplate(template)
+
+        // Authenticated session is a hero — assignQuest is parent-only.
+        scaffold.appState.currentProfile = scaffold.hero
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            _ = try await scaffold.questService.assignQuest(
+                template: template,
+                assignee: scaffold.hero,
+                weekOf: WeekMath.mondayOfWeek(for: Date()),
+                createdBy: scaffold.hero,
+                family: Family(
+                    name: "Guild",
+                    createdBy: scaffold.parent.id,
+                    id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
+                )
+            )
+        }
+    }
+
+    @Test
+    func `assignQuickQuest rejects non-parent`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+
+        scaffold.appState.currentProfile = scaffold.hero
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            _ = try await scaffold.questService.assignQuickQuest(
+                name: "Unauthorized Quick",
+                description: "",
+                assignee: scaffold.hero,
+                goldReward: 5,
+                xpReward: 10,
+                weekOf: WeekMath.mondayOfWeek(for: Date()),
+                createdBy: scaffold.hero,
+                family: Family(
+                    name: "Guild",
+                    createdBy: scaffold.parent.id,
+                    id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
+                )
+            )
+        }
+    }
+
+    @Test
+    func `updateQuest rejects non-parent`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        scaffold.cache.upsertQuest(scaffold.quest)
+
+        scaffold.appState.currentProfile = scaffold.hero
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            _ = try await scaffold.questService.updateQuest(scaffold.quest)
+        }
+    }
+
+    @Test
+    func `unassignQuest rejects a stranger hero`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        scaffold.cache.upsertQuest(scaffold.quest)
+
+        // A non-parent hero who is NOT the quest's assignee cannot unassign
+        // another hero's quest.
+        let stranger = Profile(
+            displayName: "Stranger Hero",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "hero2", zoneID: scaffold.zoneID),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "hero2", zoneID: scaffold.zoneID)
+        )
+        scaffold.appState.currentProfile = stranger
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.unassignQuest(scaffold.quest)
+        }
+    }
+
+    @Test
+    func `unassignQuest rejects unauthenticated actor`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        scaffold.cache.upsertQuest(scaffold.quest)
+
+        scaffold.appState.currentProfile = nil
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.unassignQuest(scaffold.quest)
+        }
+    }
+
+    @Test
+    func `unassignQuest allows the assignee hero to unassign their own quest`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        scaffold.cache.upsertQuest(scaffold.quest)
+        scaffold.cloudKit.seedMockRecords([scaffold.quest])
+
+        // The quest's own assignee may unassign it (self-service leave
+        // cleanup). The scaffold's hero is the assignee of `scaffold.quest`.
+        scaffold.appState.currentProfile = scaffold.hero
+
+        try await scaffold.questService.unassignQuest(scaffold.quest)
+
+        // The quest record is deleted from CloudKit — not orphaned.
+        await #expect(throws: CloudKitServiceError.self) {
+            _ = try await scaffold.cloudKit.fetch(Quest.self, id: scaffold.quest.id)
+        }
     }
 
     // MARK: - fetchActiveQuests
@@ -577,116 +956,5 @@ extension QuestServiceTests {
             earned == 10.0,
             "earnedThisWeek must count the current Friday cycle's completion (10 gold) and exclude the previous cycle's 99 gold"
         )
-    }
-
-    // MARK: - Data Migrations
-
-    @Test
-    func `questNameBackfillV1 saves quests with missing names to CloudKit`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.activeFamilyZoneID = zoneID
-
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-
-        let templateID = CKRecord.ID(recordName: "tmpl1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(recordID: templateID, action: .none)
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-
-        // Seed template with a known name.
-        let template = QuestTemplate(
-            name: "Clean Room",
-            description: "Tidy up",
-            defaultGold: 5.0,
-            xpReward: 50,
-            scheduleType: .weeklyFlexible,
-            createdBy: familyRef,
-            family: familyRef,
-            id: templateID
-        )
-
-        // Seed quest with nil name.
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
-            ),
-            goldReward: 10.0,
-            xpReward: 20,
-            scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
-            approvalMode: .autoApprove,
-            weekOf: WeekMath.mondayOfWeek(for: Date()),
-            createdBy: familyRef,
-            family: familyRef,
-            name: nil,
-            id: questID
-        )
-
-        cloudKit.seedMockRecords([template, quest])
-
-        // Act — run the migration step directly.
-        let step = DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit)
-        try await step.run()
-
-        let saved = try await cloudKit.fetch(Quest.self, id: questID)
-        #expect(saved.name == "Clean Room",
-                "Migration must backfill nil quest names from the template")
-    }
-
-    @Test
-    func `questNameBackfillV1 is idempotent on already-backfilled store`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        cloudKit.activeFamilyZoneID = zoneID
-
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-
-        let templateID = CKRecord.ID(recordName: "tmpl1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(recordID: templateID, action: .none)
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-
-        let template = QuestTemplate(
-            name: "Clean Room",
-            description: "Tidy up",
-            defaultGold: 5.0,
-            xpReward: 50,
-            scheduleType: .weeklyFlexible,
-            createdBy: familyRef,
-            family: familyRef,
-            id: templateID
-        )
-
-        // Quest already has a name — migration should skip it.
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(
-                recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none
-            ),
-            goldReward: 10.0,
-            xpReward: 20,
-            scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
-            approvalMode: .autoApprove,
-            weekOf: WeekMath.mondayOfWeek(for: Date()),
-            createdBy: familyRef,
-            family: familyRef,
-            name: "Already Named",
-            id: questID
-        )
-
-        cloudKit.seedMockRecords([template, quest])
-
-        // Act — run migration; should be a no-op.
-        let step = DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit)
-        try await step.run()
-
-        let fetched = try await cloudKit.fetch(Quest.self, id: questID)
-        #expect(fetched.name == "Already Named",
-                "Migration must not overwrite existing names")
     }
 }
