@@ -145,7 +145,6 @@ struct FamilyDashboardView: View {
         )
     }
 
-    @State private var showEarlyPayoutConfirm: Bool = false
     @State private var isProcessingPayout: Bool = false
 
     private var pendingCompletions: [QuestCompletionCache] {
@@ -333,43 +332,11 @@ struct FamilyDashboardView: View {
                 totalsRow(summary: summary)
 
                 if summary.totalEarned > 0, appState.currentProfile?.role != .hero {
-                    Button {
-                        showEarlyPayoutConfirm = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "banknote.fill")
-                            Text("Process Payout Now 🎁")
-                                .font(.subheadline.weight(.bold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Capsule().fill(Color.gold.opacity(0.20)))
-                        .foregroundStyle(Color.gold)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isProcessingPayout)
-                    .alert("Process Payout Now?", isPresented: $showEarlyPayoutConfirm) {
-                        Button("Confirm Payout", role: .destructive) {
-                            Task {
-                                isProcessingPayout = true
-                                defer { isProcessingPayout = false }
-                                if let family = appState.family {
-                                    let periods = await treasury.fetchAllowancePeriods(family: family)
-                                    let activePeriods = periods.filter { $0.status == .active || $0.status == .payoutPending }
-                                    for period in activePeriods {
-                                        _ = try? await treasury.runPayout(period: period)
-                                    }
-                                }
-                            }
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        let amountStr = CurrencyFormatter.string(summary.totalEarned)
-                        Text(
-                            "Process payout of \(amountStr) across all heroes with completed quests? " +
-                                "This will settle earnings for quests completed so far this week."
-                        )
-                    }
+                    ProcessPayoutButtonView(
+                        summary: summary,
+                        isProcessingPayout: isProcessingPayout,
+                        onConfirmPayout: processPayout
+                    )
                 }
 
                 Divider()
@@ -550,5 +517,56 @@ struct FamilyDashboardView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func processPayout() async {
+        isProcessingPayout = true
+        defer { isProcessingPayout = false }
+        guard appState.family != nil else { return }
+        let zoneID = appState.family?.id.zoneID ?? familyService.cloudKitReference.resolvedZoneID
+        let matchingPeriods = cachedAllowancePeriods.filter { period in
+            let status = period.statusEnum
+            return status == .active || status == .payoutPending
+        }
+        let activePeriods = matchingPeriods.map { $0.toAllowancePeriod(zoneID: zoneID) }
+        for period in activePeriods {
+            _ = try? await treasury.runPayout(period: period)
+        }
+    }
+}
+
+private struct ProcessPayoutButtonView: View {
+    let summary: WeekendSummary
+    let isProcessingPayout: Bool
+    let onConfirmPayout: () async -> Void
+
+    @State private var showEarlyPayoutConfirm: Bool = false
+
+    var body: some View {
+        Button {
+            showEarlyPayoutConfirm = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "banknote.fill")
+                Text("Process Payout Now 🎁")
+                    .font(.subheadline.weight(.bold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color.gold.opacity(0.20)))
+            .foregroundStyle(Color.gold)
+        }
+        .buttonStyle(.plain)
+        .disabled(isProcessingPayout)
+        .alert("Process Payout Now?", isPresented: $showEarlyPayoutConfirm) {
+            Button("Confirm Payout", role: .destructive) {
+                Task { await onConfirmPayout() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let amountStr = CurrencyFormatter.string(summary.totalEarned)
+            let text = "Process payout of \(amountStr) across all heroes with completed quests? This will settle earnings for quests completed so far this week."
+            Text(text)
+        }
     }
 }

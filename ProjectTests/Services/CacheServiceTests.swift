@@ -546,6 +546,61 @@ struct CacheServiceTests {
         #expect(cached?.name == "Dragons")
     }
 
+    // MARK: - Payout Day Stamp on Existing-Row Upsert (V3 schema regression)
+
+    @Test
+    func `upsert profile stamps payoutDay on existing row`() throws {
+        // Seed a row with payoutDay = .monday, then upsert the same record with
+        // payoutDay = .wednesday. The existing-row branch must stamp the new
+        // payoutDay; before the fix it left the stale .monday in place.
+        let service = try makeService()
+        let family = Family(
+            name: "Dragons",
+            createdBy: CKRecord.ID(recordName: "user1"),
+            id: CKRecord.ID(recordName: "fam")
+        )
+        service.upsertFamily(family)
+
+        var profile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "icloud1"),
+            family: ref("fam"),
+            payoutDay: .monday,
+            id: CKRecord.ID(recordName: "profile1")
+        )
+        service.upsertProfile(profile)
+        #expect(service.fetchProfiles(family: "fam").first?.payoutDayEnum == .monday)
+
+        profile.payoutDay = .wednesday
+        service.upsertProfile(profile)
+
+        let updated = service.fetchProfiles(family: "fam").first
+        #expect(updated?.payoutDayEnum == .wednesday)
+    }
+
+    @Test
+    func `upsert family stamps payoutDay on existing row`() throws {
+        // Seed a row with payoutDay = .monday, then upsert the same record with
+        // payoutDay = .wednesday. The existing-row branch must stamp the new
+        // payoutDay; before the fix it left the stale .monday in place.
+        let service = try makeService()
+        var family = Family(
+            name: "Dragons",
+            createdBy: CKRecord.ID(recordName: "user1"),
+            payoutDay: .monday,
+            id: CKRecord.ID(recordName: "fam1")
+        )
+        service.upsertFamily(family)
+        #expect(service.fetchFamily(recordName: "fam1")?.payoutDayEnum == .monday)
+
+        family.payoutDay = .wednesday
+        service.upsertFamily(family)
+
+        let cached = service.fetchFamily(recordName: "fam1")
+        #expect(cached?.payoutDayEnum == .wednesday)
+    }
+
     // MARK: - Freshness Watermark
 
     // NOTE: these tests use family names unique to this file ("fresh-fam-*").

@@ -580,7 +580,7 @@ struct ScenarioMatrixTests {
         let spendingService = ManualSpendingService(cloudKit: sut.cloudKit, cacheService: sut.cache, appState: sut.appState)
         sut.appState.currentProfile = hero
 
-        _ = try await spendingService.logManual(profile: hero, family: family, description: "Bought Sword", amount: 50.0)
+        _ = try await spendingService.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Bought Sword", amount: 50.0)
 
         let entries = sut.cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
         let balance = entries.reduce(0.0) { $0 + $1.amount }

@@ -322,6 +322,8 @@ struct QuestDetailView: View {
         let templateName = quest.template.recordID.recordName
         if let cached = cachedTemplates.first(where: { $0.recordName == templateName }) {
             template = cached.toQuestTemplate(zoneID: questService.cloudKitReference.resolvedZoneID)
+        } else if let cachedDeactivated = questService.cacheService?.fetchQuestTemplate(recordName: templateName) {
+            template = cachedDeactivated.toQuestTemplate(zoneID: questService.cloudKitReference.resolvedZoneID)
         } else {
             do {
                 template = try await questService.cloudKitReference.fetch(

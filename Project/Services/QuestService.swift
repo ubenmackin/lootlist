@@ -501,7 +501,7 @@ final class QuestService {
             let profileName = profile.id.recordName
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuests(family: familyName, weekInRange: range)
-                .filter { $0.assigneeRecordName == profileName && $0.isActive }
+                .filter { $0.assigneeRecordName == profileName && $0.isActive && range.contains($0.weekOf) }
             if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
                 return cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
             }
@@ -526,7 +526,7 @@ final class QuestService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuests(family: familyName, weekInRange: range)
-                .filter(\.isActive)
+                .filter { $0.isActive && range.contains($0.weekOf) }
             if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
                 return cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
             }
@@ -616,43 +616,17 @@ final class QuestService {
         invalidate: (String) -> Void,
         error: Error
     ) async {
-        // A `.notFound` from `cloudKit.save` is definitive evidence of a
-        // concurrent delete — CloudKitService wraps `CKError.unknownItem`
-        // (and zone/constraint variants) into `.notFound` when the record no
-        // longer exists server-side. Restoring the pre-mutation snapshot would
-        // resurrect a record that another device deleted ("zombie quest"), so
-        // invalidate instead; the next sync pass confirms the absence. This
-        // branch runs BEFORE the changeTag-based detector because a concurrent
-        // deletion also removes the cached row, making `fetchCurrentTag` nil
-        // and signal 2 silently false — `.notFound` is the unambiguous signal.
-        if let serviceError = error as? CloudKitServiceError,
-           case .notFound = serviceError
-        {
-            invalidate(recordID.recordName)
-            showErrorToast(error)
-            return
-        }
-
-        if handleConcurrentEdit(
+        await OptimisticFailureHandler.handleSaveFailure(
+            recordID: recordID,
             preMutationChangeTag: preMutationChangeTag,
-            fetchCurrent: fetchCurrentTag,
+            snapshot: snapshot,
+            cloudKit: cloudKit,
+            toastManager: toastManager,
+            fetchCurrentTag: fetchCurrentTag,
+            upsert: upsert,
+            invalidate: invalidate,
             error: error
-        ) {
-            if let fresh = try? await cloudKit.fetch(T.self, id: recordID) {
-                upsert(fresh)
-            } else if let snapshot {
-                upsert(snapshot)
-            } else {
-                invalidate(recordID.recordName)
-            }
-        } else {
-            if let snapshot {
-                upsert(snapshot)
-            } else {
-                invalidate(recordID.recordName)
-            }
-            showErrorToast(error)
-        }
+        )
     }
 
     static func startOfWeek(for date: Date, payoutDay: PayoutDay = .sunday) -> Date {

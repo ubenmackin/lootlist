@@ -104,7 +104,7 @@ extension SyncEngineTests {
 
     struct SUT {
         let engine: SyncEngine
-        let cloudKit: CloudKitService
+        let cloudKit: any CloudKitServiceProtocol
         let cacheService: CacheService
         let coordinator: AppSyncCoordinator
         let backgroundContainer: ModelContainer
@@ -117,10 +117,8 @@ extension SyncEngineTests {
         activeFamilyZoneID: CKRecordZone.ID? = nil,
         existingBgContainer: ModelContainer? = nil
     ) throws -> SUT {
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        if let activeFamilyZoneID {
-            cloudKit.activeFamilyZoneID = activeFamilyZoneID
-        }
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = activeFamilyZoneID ?? zoneID
 
         if !seedRecords.isEmpty {
             cloudKit.seedMockRecords(seedRecords)

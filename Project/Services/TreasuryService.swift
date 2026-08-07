@@ -207,8 +207,11 @@ final class TreasuryService {
 
         var updated = period
 
-        if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
-           let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
+        // Cache-first profile/family resolution mirrors QuestService's
+        // settlement hot path: serve the family's cached records when fresh
+        // (no CloudKit round-trip), else fall through to a single fetch.
+        if let profile = try? await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName),
+           let family = try? await resolveFamily(recordID: period.family.recordID)
         {
             let breakdown = try await weeklyBreakdown(profile: profile,
                                                       family: family,
@@ -297,8 +300,10 @@ final class TreasuryService {
 
         var updated = period
 
-        if let profile = try? await cloudKit.fetch(Profile.self, id: period.profile.recordID),
-           let family = try? await cloudKit.fetch(Family.self, id: period.family.recordID)
+        // Cache-first profile/family resolution so the payout finalization
+        // read path skips CloudKit when the family's cache is fresh.
+        if let profile = try? await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName),
+           let family = try? await resolveFamily(recordID: period.family.recordID)
         {
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
@@ -335,8 +340,11 @@ final class TreasuryService {
             if let notificationService {
                 Task { [logger] in
                     do {
-                        let profile = try await cloudKit.fetch(Profile.self, id: period.profile.recordID)
-                        let family = try await cloudKit.fetch(Family.self, id: period.family.recordID)
+                        // Cache-first profile/family resolution for the weekly
+                        // summary notification. Backed by the same read-first
+                        // gate as the settlement path.
+                        let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
+                        let family = try await resolveFamily(recordID: period.family.recordID)
                         try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
                     } catch {
                         logger.error("Failed to send weekly summary notification: \(error, privacy: .public)")
@@ -480,15 +488,11 @@ final class TreasuryService {
     }
 
     /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
-    private func fetchLedgerEntries(profile: Profile,
-                                    in dateRange: Range<Date>) async throws -> [LedgerEntry]
-    {
+    private func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
         if let cache = cacheService {
+            let profileName = profile.id.recordName
             let familyName = profile.family.recordID.recordName
-            let cached = cache.fetchLedgerEntries(
-                profileRecordName: profile.id.recordName,
-                family: familyName
-            )
+            let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
             if !filtered.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
                 return filtered.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
@@ -578,6 +582,34 @@ final class TreasuryService {
                                                predicate: predicate)
         cacheService?.upsertAllowancePeriods(periods)
         return periods.first
+    }
+
+    /// Cache-first profile read for the settlement/payout paths. Serves the
+    /// profile from the family's cached rows when that family's profile
+    /// freshness stamp is set, else falls through to a single CloudKit fetch.
+    /// The freshness gate is keyed by the family (profiles are family-scoped
+    /// cache rows), while the lookup uses the profile's own record name.
+    private func resolveProfile(recordID: CKRecord.ID, familyRecordName: String) async throws -> Profile {
+        if let cache = cacheService,
+           cache.isCacheFresh(familyRecordName: familyRecordName, type: .profile),
+           let cached = cache.fetchProfile(recordName: recordID.recordName)
+        {
+            return cached.toProfile(zoneID: cloudKit.resolvedZoneID)
+        }
+        return try await cloudKit.fetch(Profile.self, id: recordID)
+    }
+
+    /// Cache-first family read for the settlement/payout paths. Serves the
+    /// family's cached record when its freshness stamp is set, else falls
+    /// through to a single CloudKit fetch.
+    private func resolveFamily(recordID: CKRecord.ID) async throws -> Family {
+        if let cache = cacheService,
+           cache.isCacheFresh(familyRecordName: recordID.recordName, type: .family),
+           let cached = cache.fetchFamily(recordName: recordID.recordName)
+        {
+            return cached.toFamily(zoneID: cloudKit.resolvedZoneID)
+        }
+        return try await cloudKit.fetch(Family.self, id: recordID)
     }
 
     private func sumGold(for logs: [QuestCompletion]) async throws -> Double {

@@ -28,6 +28,8 @@ final class NotificationService {
 
     var cacheService: CacheService?
 
+    var toastManager: ToastManager?
+
     private(set) var deviceToken: Data?
     private(set) var verificationCategoryRegistered = false
 
@@ -35,11 +37,13 @@ final class NotificationService {
 
     init(cloudKit: any CloudKitServiceProtocol,
          appState: AppState,
-         cacheService: CacheService? = nil)
+         cacheService: CacheService? = nil,
+         toastManager: ToastManager? = nil)
     {
         self.cloudKit = cloudKit
         self.appState = appState
         self.cacheService = cacheService
+        self.toastManager = toastManager
     }
 
     @discardableResult
@@ -117,6 +121,7 @@ final class NotificationService {
         let zoneID = family.id.zoneID
 
         let snapshot = cachedPreference(for: event)
+        let preMutationChangeTag = snapshot?.changeTag
         let recordID = if let existingName = snapshot?.recordName {
             CKRecord.ID(recordName: existingName, zoneID: zoneID)
         } else {
@@ -146,14 +151,57 @@ final class NotificationService {
             await registry?.deregister(recordID.recordName)
             return saved
         } catch {
-            if let snapshot {
-                // Update path — restore the pre-mutation cached value.
-                cacheService?.upsertNotificationPreference(
-                    snapshot.toNotificationPreference(zoneID: zoneID)
-                )
-            } else {
-                // Brand-new preference with no prior cached row — invalidate.
+            // A `.notFound` from `cloudKit.save` is definitive evidence of a
+            // concurrent delete — the record no longer exists server-side.
+            // Restoring the pre-mutation snapshot would resurrect a row that
+            // another device deleted, so invalidate instead; the next sync
+            // pass confirms the absence. This branch runs before the
+            // changeTag-based detector because a concurrent deletion also
+            // removes the cached row, making the detector's `fetchCurrent`
+            // nil and silently false.
+            if let serviceError = error as? CloudKitServiceError,
+               case .notFound = serviceError
+            {
                 cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
+                await registry?.deregister(recordID.recordName)
+                throw error
+            }
+
+            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+                preMutationChangeTag: preMutationChangeTag,
+                fetchCurrent: {
+                    self.cachedPreference(for: event)?.changeTag
+                },
+                error: error
+            )
+
+            if concurrentEditDetected {
+                toastManager?.show(
+                    message: "Data was modified by another device. Refresh to see the latest.",
+                    type: .warning
+                )
+                if let fresh = try? await cloudKit.fetch(NotificationPreference.self, id: recordID) {
+                    cacheService?.upsertNotificationPreference(fresh)
+                } else if let snapshot {
+                    cacheService?.upsertNotificationPreference(
+                        snapshot.toNotificationPreference(zoneID: cloudKit.resolvedZoneID)
+                    )
+                } else {
+                    cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
+                }
+            } else {
+                if let snapshot {
+                    // Update path — restore the pre-mutation cached value.
+                    cacheService?.upsertNotificationPreference(
+                        snapshot.toNotificationPreference(zoneID: cloudKit.resolvedZoneID)
+                    )
+                } else {
+                    // Brand-new preference with no prior cached row — invalidate.
+                    cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
+                }
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                toastManager?.show(message: message, type: .error)
             }
             await registry?.deregister(recordID.recordName)
             throw error

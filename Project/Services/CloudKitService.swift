@@ -214,241 +214,7 @@ class CloudKitService: CloudKitServiceProtocol {
         }
     }
 
-    func save<T: CloudKitRecord>(_ model: T,
-                                 in zoneID: CKRecordZone.ID? = nil,
-                                 using db: CKDatabase? = nil) async throws -> T
-    {
-        if isTestingOrMocking {
-            let source = model.toRecord()
-            let recordToSave = CKRecord(recordType: T.recordType, recordID: source.recordID)
-            for key in source.allKeys() {
-                recordToSave[key] = source[key]
-            }
-            mockRecords[source.recordID.recordName] = recordToSave
-            return try T(record: recordToSave)
-        }
-
-        let zone = zoneID ?? resolvedZoneID
-        let targetDB = db ?? activeFamilyDatabase
-
-        let source = model.toRecord()
-        let targetID: CKRecord.ID = {
-            if source.recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
-                return source.recordID
-            }
-            return CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
-        }()
-
-        let recordToSave: CKRecord
-        do {
-            recordToSave = try await targetDB.record(for: targetID)
-        } catch let error as CKError where error.code == .unknownItem {
-            recordToSave = CKRecord(recordType: T.recordType, recordID: targetID)
-        } catch {
-            throw error // Propagate network errors rather than silently creating duplicates
-        }
-
-        if T.recordType != Family.recordType {
-            if let familyRef = source["family"] as? CKRecord.Reference {
-                let parentID = CKRecord.ID(recordName: familyRef.recordID.recordName, zoneID: zone)
-                recordToSave.setParent(parentID)
-            } else if let parent = source.parent {
-                let parentID = CKRecord.ID(recordName: parent.recordID.recordName, zoneID: zone)
-                recordToSave.setParent(parentID)
-            }
-        }
-
-        for key in source.allKeys() {
-            recordToSave[key] = source[key]
-        }
-
-        let dbLabel = targetDB == sharedDatabase ? "sharedDatabase" : "privateDatabase"
-        let zoneName = zone.zoneName
-        let ownerName = zone.ownerName
-        let parentName = recordToSave.parent?.recordID.recordName ?? "none"
-        logger.info("Save \(T.recordType, privacy: .public) id=\(recordToSave.recordID.recordName, privacy: .private) zone=\(zoneName, privacy: .private)")
-        logger.info("owner=\(ownerName, privacy: .private) db=\(dbLabel, privacy: .public) parent=\(parentName, privacy: .private)")
-
-        let saved: CKRecord
-        do {
-            saved = try await retrying {
-                try await withCheckedThrowingContinuation { continuation in
-                    targetDB.save(recordToSave) { record, error in
-                        if let error {
-                            continuation.resume(throwing: error)
-                        } else if let record {
-                            continuation.resume(returning: record)
-                        } else {
-                            continuation.resume(throwing: CKError(.internalError))
-                        }
-                    }
-                }
-            }
-        } catch {
-            logger.error("Save failed for \(T.recordType, privacy: .public) (\(recordToSave.recordID.recordName, privacy: .private)): \(error, privacy: .private)")
-            throw error
-        }
-        logger.info("Saved \(T.recordType, privacy: .public) (\(saved.recordID.recordName, privacy: .private))")
-        return try T(record: saved)
-    }
-
-    func fetch<T: CloudKitRecord>(_: T.Type,
-                                  id: CKRecord.ID,
-                                  using db: CKDatabase? = nil) async throws -> T
-    {
-        if isTestingOrMocking {
-            if let record = mockRecords[id.recordName] {
-                return try T(record: record)
-            }
-            throw CloudKitServiceError.notFound(id.recordName)
-        }
-
-        let targetDB = db ?? activeFamilyDatabase
-        let record = try await retrying {
-            try await targetDB.record(for: id)
-        }
-        return try T(record: record)
-    }
-
-    func delete(_ recordID: CKRecord.ID,
-                in zoneID: CKRecordZone.ID? = nil,
-                using db: CKDatabase? = nil) async throws
-    {
-        if isTestingOrMocking {
-            mockRecords.removeValue(forKey: recordID.recordName)
-            return
-        }
-
-        let targetDB = db ?? activeFamilyDatabase
-        let id = CKRecord.ID(recordName: recordID.recordName,
-                             zoneID: zoneID ?? recordID.zoneID)
-        _ = try await retrying {
-            try await targetDB.deleteRecord(withID: id)
-        }
-    }
-
-    func query<T: CloudKitRecord>(_ type: T.Type,
-                                  predicate: NSPredicate,
-                                  in zoneID: CKRecordZone.ID? = nil,
-                                  sortDescriptors: [NSSortDescriptor]? = nil,
-                                  using db: CKDatabase? = nil) async throws -> [T]
-    {
-        if isTestingOrMocking {
-            let matching = mockRecords.values.filter { record in
-                guard record.recordType == T.recordType else { return false }
-                return evaluateMockPredicate(predicate, record: record)
-            }
-            let sorted = sortMockRecords(Array(matching), sortDescriptors: sortDescriptors)
-            return try sorted.map { try T(record: $0) }
-        }
-
-        let zone = zoneID ?? resolvedZoneID
-        let targetDB = db ?? activeFamilyDatabase
-        let query = CKQuery(recordType: type.recordType, predicate: predicate)
-        query.sortDescriptors = sortDescriptors
-
-        var allMatchResults: [(CKRecord.ID, Result<CKRecord, Error>)] = []
-        let maximumResults = CKQueryOperation.maximumResults
-
-        let (firstPageResults, firstCursor) = try await retrying {
-            try await targetDB.records(matching: query,
-                                       inZoneWith: zone,
-                                       resultsLimit: maximumResults)
-        }
-        allMatchResults.append(contentsOf: firstPageResults)
-        var cursor: CKQueryOperation.Cursor? = firstCursor
-
-        var pageCount = 1
-        while let nextCursor = cursor {
-            guard pageCount < Self.maxFetchPages else {
-                throw CloudKitServiceError.paginationExhausted(pageBudget: Self.maxFetchPages)
-            }
-            let (pageResults, nextPageCursor) = try await retrying {
-                try await targetDB.records(continuingMatchFrom: nextCursor,
-                                           resultsLimit: maximumResults)
-            }
-            allMatchResults.append(contentsOf: pageResults)
-            cursor = nextPageCursor
-            pageCount += 1
-        }
-
-        var records: [CKRecord] = []
-        for match in allMatchResults {
-            switch match.1 {
-            case let .success(record):
-                records.append(record)
-            case let .failure(error):
-                throw wrapError(error)
-            }
-        }
-        return try records.map { try T(record: $0) }
-    }
-
-    func fetchZoneChanges(
-        in zoneID: CKRecordZone.ID? = nil,
-        since token: CKServerChangeToken? = nil,
-        using db: CKDatabase? = nil
-    ) async throws -> ZoneChangesResult {
-        if isTestingOrMocking {
-            return ZoneChangesResult(
-                changedRecords: Array(mockRecords.values),
-                deletedRecordIDs: [],
-                newToken: nil,
-                moreComing: false
-            )
-        }
-
-        let zone = zoneID ?? resolvedZoneID
-        let targetDB = db ?? activeFamilyDatabase
-
-        return try await retrying {
-            var changedRecords: [CKRecord] = []
-            var deletedRecordIDs: [(recordID: CKRecord.ID, recordType: String)] = []
-            var newToken: CKServerChangeToken?
-            var moreComing = false
-
-            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
-            config.previousServerChangeToken = token
-
-            let op = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zone], configurationsByRecordZoneID: [zone: config])
-
-            op.recordWasChangedBlock = { _, result in
-                if case let .success(record) = result {
-                    changedRecords.append(record)
-                }
-            }
-
-            op.recordWithIDWasDeletedBlock = { recordID, recordType in
-                deletedRecordIDs.append((recordID, recordType))
-            }
-
-            op.recordZoneFetchResultBlock = { _, result in
-                if case let .success((serverChangeToken, _, hasMoreComing)) = result {
-                    newToken = serverChangeToken
-                    moreComing = hasMoreComing
-                }
-            }
-
-            return try await withCheckedThrowingContinuation { continuation in
-                op.fetchRecordZoneChangesResultBlock = { result in
-                    switch result {
-                    case .success:
-                        continuation.resume(returning: ZoneChangesResult(
-                            changedRecords: changedRecords,
-                            deletedRecordIDs: deletedRecordIDs,
-                            newToken: newToken,
-                            moreComing: moreComing
-                        ))
-                    case let .failure(error):
-                        continuation.resume(throwing: error)
-                    }
-                }
-                targetDB.add(op)
-            }
-        }
-    }
-
-    private func evaluateMockPredicate(_ predicate: NSPredicate, record: CKRecord) -> Bool {
+    func evaluateMockPredicate(_ predicate: NSPredicate, record: CKRecord) -> Bool {
         let fmt = predicate.predicateFormat
         if fmt == "TRUEPRED" || fmt == "1 == 1" {
             return true
@@ -473,7 +239,7 @@ class CloudKitService: CloudKitServiceProtocol {
         return true
     }
 
-    private func sortMockRecords(_ records: [CKRecord], sortDescriptors: [NSSortDescriptor]?) -> [CKRecord] {
+    func sortMockRecords(_ records: [CKRecord], sortDescriptors: [NSSortDescriptor]?) -> [CKRecord] {
         guard let sortDescriptors, !sortDescriptors.isEmpty else { return records }
         var result = records
         for descriptor in sortDescriptors.reversed() {
@@ -500,25 +266,13 @@ class CloudKitService: CloudKitServiceProtocol {
         return result
     }
 
-    func currentUserRecordID() async throws -> CKRecord.ID {
-        try await container.userRecordID()
-    }
-
-    func accountStatus() async throws -> CKAccountStatus {
-        do {
-            return try await container.accountStatus()
-        } catch {
-            throw wrapError(error)
-        }
-    }
-
     private static let maxRetries = 3
 
     /// Defensive upper bound on cursor pagination. CloudKit's contract is that a
     /// non-nil cursor always means more results exist, but if the server ever
     /// returns a non-nil cursor alongside an empty page we abort here rather
     /// than loop indefinitely.
-    private static let maxFetchPages = 10000
+    static let maxFetchPages = 10000
 
     private static let backoffSchedule: [UInt64] = [
         500_000_000,
@@ -582,7 +336,7 @@ class CloudKitService: CloudKitServiceProtocol {
         throw lastWrappedError ?? CloudKitServiceError.exhaustedBudget(attempt: Self.maxRetries)
     }
 
-    private func wrapError(_ error: Error) -> CloudKitServiceError {
+    func wrapError(_ error: Error) -> CloudKitServiceError {
         if let ckError = error as? CKError {
             return wrapCKError(ckError)
         }

@@ -16,21 +16,27 @@ struct TabBarView: View {
     @Environment(NotificationService.self) private var notificationService
 
     private let spending: any SpendingService
+    private let familyRecordName: String?
 
     @Query private var cachedCompletions: [QuestCompletionCache]
 
     @State private var selectedTab: RootTab = .family
 
-    init(spending: any SpendingService) {
+    init(spending: any SpendingService, familyRecordName: String? = nil) {
         self.spending = spending
+        self.familyRecordName = familyRecordName
+
+        let targetFamily = familyRecordName ?? ""
+        let pendingStatus = VerificationStatus.pending.rawValue
+        let completionFilter = #Predicate<QuestCompletionCache> {
+            $0.familyRecordName == targetFamily &&
+                $0.verificationStatus == pendingStatus
+        }
+        _cachedCompletions = Query(filter: completionFilter)
     }
 
     private var pendingCount: Int {
-        guard let familyName = appState.family?.id.recordName else { return 0 }
-        return cachedCompletions.filter {
-            $0.familyRecordName == familyName &&
-                $0.verificationStatus == VerificationStatus.pending.rawValue
-        }.count
+        cachedCompletions.count
     }
 
     var body: some View {

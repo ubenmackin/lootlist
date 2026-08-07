@@ -22,7 +22,7 @@ struct TreasuryServiceRealTimeTests {
     @MainActor
     struct SettlementScaffold {
         let zoneID: CKRecordZone.ID
-        let cloudKit: CloudKitService
+        let cloudKit: any CloudKitServiceProtocol
         let cache: CacheService
         let appState: AppState
         let treasury: TreasuryService
@@ -32,7 +32,9 @@ struct TreasuryServiceRealTimeTests {
 
         init() throws {
             zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-            cloudKit = CloudKitService(zoneID: zoneID)
+            let mock = MockCloudKitService()
+            mock.activeFamilyZoneID = zoneID
+            cloudKit = mock
             cache = try CacheService(inMemory: true)
             appState = AppState()
             // The real-time settlement guard is identity-only: the acting
