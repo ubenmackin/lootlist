@@ -183,7 +183,10 @@ private extension GuildSettingsView {
                 }
                 Spacer()
                 Button {
-                    showShareSheet = true
+                    Task {
+                        await viewModel?.ensureActiveShareURL()
+                        showShareSheet = true
+                    }
                 } label: {
                     Label("Share Link", systemImage: "square.and.arrow.up")
                         .font(.caption.weight(.semibold))
@@ -233,7 +236,6 @@ private extension GuildSettingsView {
 
                 Divider()
 
-                // Default Payout Policy
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Default Payout Policy")
                         .font(.subheadline.weight(.semibold))
@@ -241,21 +243,39 @@ private extension GuildSettingsView {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Picker("Payout Policy", selection: Binding(
-                        get: { appState.family?.payoutPolicy ?? .perQuest },
-                        set: { newPolicy in
-                            if let family = appState.family {
-                                Task {
-                                    try? await familyService.updatePayoutPolicy(family: family, policy: newPolicy)
+                    ForEach(PayoutPolicy.allCases, id: \.self) { policy in
+                        Button {
+                            Task {
+                                if let family = appState.family {
+                                    try? await familyService.updatePayoutPolicy(family: family, policy: policy)
                                 }
                             }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: policy.iconSystemName)
+                                    .foregroundStyle(.tint)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(policy.displayName)
+                                        .font(.body.weight(.semibold))
+                                    Text(policy.subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if policy == (appState.family?.payoutPolicy ?? .perQuest) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.tint)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .padding(.vertical, 10)
                         }
-                    )) {
-                        ForEach(PayoutPolicy.allCases, id: \.self) { policy in
-                            Text(policy.displayName).tag(policy)
+                        .buttonStyle(.plain)
+
+                        if policy != PayoutPolicy.allCases.last {
+                            Divider()
                         }
                     }
-                    .pickerStyle(.segmented)
                 }
             }
             .padding(14)
