@@ -223,7 +223,12 @@ struct FamilyServiceTests {
     /// Counts CloudKit `query` calls (mock-backed, no network) so tests can
     /// assert a fresh-cache read issues zero queries and concurrent immediate
     /// refreshes collapse to one.
-    private final class QueryCountingCloudKitService: CloudKitService {
+    private final class QueryCountingCloudKitService: MockCloudKitService {
+        init(zoneID: CKRecordZone.ID? = nil) {
+            super.init()
+            self.activeFamilyZoneID = zoneID
+        }
+
         private(set) var queryCallCount = 0
 
         override func query<T: CloudKitRecord>(
@@ -241,7 +246,12 @@ struct FamilyServiceTests {
     /// Parks `query` calls until released, opening a deterministic in-flight
     /// window so a second concurrent immediate refresh can be observed
     /// collapsing onto the first (actor-isolated in-flight guard).
-    private final class GatedQueryCloudKitService: CloudKitService {
+    private final class GatedQueryCloudKitService: MockCloudKitService {
+        init(zoneID: CKRecordZone.ID? = nil) {
+            super.init()
+            self.activeFamilyZoneID = zoneID
+        }
+
         private let gate = QueryGate()
         private(set) var queryCallCount = 0
 
@@ -621,7 +631,12 @@ struct FamilyServiceTests {
 
     /// Subclass of `CloudKitService` that always throws on `save`, exercising
     /// the standard rollback path of the optimistic-write mutations.
-    private final class FailingCloudKitService: CloudKitService {
+    private final class FailingCloudKitService: MockCloudKitService {
+        init(zoneID: CKRecordZone.ID? = nil) {
+            super.init()
+            self.activeFamilyZoneID = zoneID
+        }
+
         override func save<T: CloudKitRecord>(
             _: T,
             in _: CKRecordZone.ID? = nil,

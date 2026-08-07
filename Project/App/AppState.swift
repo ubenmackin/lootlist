@@ -98,6 +98,14 @@ final class AppState {
 
     func clearSession() {
         let defaults = UserDefaults.standard
+
+        // Purge the previous family's cache before its record name is wiped
+        // below. sign-out → sign-into-different-family must not leave the
+        // previous family's rows behind for the new family to read.
+        if let previousFamilyRecordName = defaults.string(forKey: Self.familyIDKey) {
+            cacheService?.purgeFamily(recordName: previousFamilyRecordName)
+        }
+
         defaults.removeObject(forKey: Self.profileIDKey)
         defaults.removeObject(forKey: Self.familyIDKey)
         defaults.removeObject(forKey: Self.zoneNameKey)

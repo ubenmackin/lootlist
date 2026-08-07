@@ -30,6 +30,22 @@ final class CacheService {
     @ObservationIgnored
     let inFlightRegistry = InFlightMutationRegistry()
 
+    // Test-only observation hook: records the `family` scope of every
+    // `fetchLedgerEntries(profileRecordName:family:)` call so tests can assert
+    // a mutation's optimistic snapshot and rollback re-fetch stay scoped to
+    // the active family. Production code never reads this; it exists so the
+    // family-scoping of the ledger snapshot can be verified rather than
+    // inferred from cache contents (the snapshot is keyed by a freshly
+    // generated record name, which no pre-existing row can match).
+    // `@ObservationIgnored` because it is test infrastructure, not
+    // observable UI state. Compiled out of release builds so a shipped app
+    // never allocates it; it is only ever appended to and reset by
+    // debug-build tests.
+    #if DEBUG
+        @ObservationIgnored
+        var ledgerEntryFetchScopes: [String?] = []
+    #endif
+
     /// Cancellable handle for the `ModelContext.didSave` observer task.
     /// Wrapped in a `Mutex` so `nonisolated deinit` can cancel the
     /// listener without touching main-actor-isolated state (same pattern as
@@ -43,7 +59,7 @@ final class CacheService {
     }
 
     init(inMemory: Bool = false) throws {
-        let schema = Schema(LootListSchemaV2.models)
+        let schema = Schema(LootListSchemaV4.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
             container = try ModelContainer(
@@ -252,6 +268,7 @@ final class CacheService {
             existing.iCloudUserRecordName = profile.iCloudUserID.recordName
             existing.avatarClass = profile.avatarClass?.rawValue
             existing.payoutPolicy = profile.payoutPolicy.rawValue
+            existing.payoutDay = profile.payoutDay?.rawValue
             existing.changeTag = profile.changeTag
         } else {
             context.insert(ProfileCache(from: profile))
@@ -323,6 +340,7 @@ final class CacheService {
             existing.createdByRecordName = family.createdBy.recordName
             existing.createdAt = family.createdAt
             existing.payoutPolicy = family.payoutPolicy.rawValue
+            existing.payoutDay = family.payoutDay.rawValue
             existing.changeTag = family.changeTag
         } else {
             context.insert(FamilyCache(from: family))

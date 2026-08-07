@@ -16,7 +16,7 @@ extension QuestServiceTests {
     @Test
     func `questNameBackfillV1 saves quests with missing names to CloudKit`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
 
         let familyRef = CKRecord.Reference(
@@ -71,7 +71,7 @@ extension QuestServiceTests {
     @Test
     func `questNameBackfillV1 is idempotent on already-backfilled store`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
 
         let familyRef = CKRecord.Reference(

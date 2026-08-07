@@ -563,6 +563,14 @@ final class ProfileViewModel {
         achievementService: AchievementService
     ) {
         guard let profile else { return }
+        if let cache = achievementService.cacheService {
+            let familyName = profile.family.recordID.recordName
+            let profileFresh = cache.isCacheFresh(familyRecordName: familyName, type: .profileAchievement)
+            let achievementFresh = family.map { cache.isCacheFresh(familyRecordName: $0.id.recordName, type: .achievement) } ?? true
+            if profileFresh, achievementFresh {
+                return
+            }
+        }
         Task { _ = try? await achievementService.fetchEarned(profile: profile) }
         if let family {
             Task { _ = try? await achievementService.fetchAllDefinitions(family: family) }

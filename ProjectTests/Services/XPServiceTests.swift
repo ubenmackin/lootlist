@@ -23,8 +23,7 @@ struct XPServiceTests {
 
     @Test
     func `level determination for given XP amounts`() {
-        let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let service = XPService(cloudKit: CloudKitService(zoneID: dummyZone))
+        let service = XPService(cloudKit: MockCloudKitService())
 
         #expect(service.level(forXP: 0) == 1)
         #expect(service.level(forXP: 50) == 1)
@@ -37,7 +36,7 @@ struct XPServiceTests {
     @Test
     func `level progress calculations`() {
         let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let service = XPService(cloudKit: CloudKitService(zoneID: dummyZone))
+        let service = XPService(cloudKit: MockCloudKitService())
 
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam123", zoneID: dummyZone), action: .none)
         let userID = CKRecord.ID(recordName: "u123", zoneID: dummyZone)
@@ -78,7 +77,7 @@ struct XPServiceTests {
     @Test
     func `unlocked accessories cadence`() {
         let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let service = XPService(cloudKit: CloudKitService(zoneID: dummyZone))
+        let service = XPService(cloudKit: MockCloudKitService())
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam123", zoneID: dummyZone), action: .none)
         let userID = CKRecord.ID(recordName: "u123", zoneID: dummyZone)
 

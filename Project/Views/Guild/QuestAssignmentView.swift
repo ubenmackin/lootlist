@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct QuestAssignmentView: View {
@@ -14,6 +15,8 @@ struct QuestAssignmentView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(QuestService.self) private var questService
+
+    @Query private var cachedCompletions: [QuestCompletionCache]
 
     enum Mode: Equatable, Identifiable {
         case fromTemplate
@@ -614,15 +617,8 @@ struct QuestAssignmentView: View {
         // Resolve assignee from heroes list
         editAssignee = viewModel.heroes.first { $0.recordName == quest.assigneeRecordName }
 
-        // Check if quest has logs (determines locked fields)
-        Task {
-            do {
-                let logs = try await questService.fetchQuestLogs(forQuest: quest.toQuest(zoneID: zoneID))
-                editHasLogs = !logs.isEmpty
-            } catch {
-                editHasLogs = false
-            }
-        }
+        // Check if quest has logs (determines locked fields) synchronously from cache
+        editHasLogs = cachedCompletions.contains { $0.questRecordName == quest.recordName }
     }
 
     // MARK: - Submit

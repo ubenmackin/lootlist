@@ -24,7 +24,12 @@ struct SaveGateState {
 /// Counts CloudKit `query`/`fetch` calls and throws `networkUnavailable`
 /// for both, so tests can assert a mutation path performs zero CloudKit
 /// READS (the save path is left intact via the mock storage).
-class NetworkCountingCloudKitService: CloudKitService {
+class NetworkCountingCloudKitService: MockCloudKitService {
+    init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
     var readCallCount = 0
 
     override func query<T: CloudKitRecord>(
@@ -124,13 +129,14 @@ final class SaveGate: Sendable {
 /// deterministically: the first quest save (device A's bank) succeeds, the
 /// second (device B's stale attempt) is rejected, and the retry must re-fetch
 /// the authoritative quest and recompute the marginal to 0.
-final class OneShotQuestConflictCloudKitService: CloudKitService {
+final class OneShotQuestConflictCloudKitService: MockCloudKitService {
     private var questSaveCount = 0
     private let conflictOnQuestSave: Int
 
     init(zoneID: CKRecordZone.ID, conflictOnQuestSave: Int = 2) {
         self.conflictOnQuestSave = conflictOnQuestSave
-        super.init(zoneID: zoneID)
+        super.init()
+        self.activeFamilyZoneID = zoneID
     }
 
     override func save<T: CloudKitRecord>(
@@ -155,7 +161,12 @@ final class OneShotQuestConflictCloudKitService: CloudKitService {
 /// which loses the CAS race is NOT permanently marked settled
 /// (`QuestCompletion.xpCredited` stays `nil` → re-grantable on a future run),
 /// rather than being silently stamped with a `0` that suppresses re-grant.
-final class AlwaysConflictQuestCloudKitService: CloudKitService {
+final class AlwaysConflictQuestCloudKitService: MockCloudKitService {
+    init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
     override func save<T: CloudKitRecord>(
         _ model: T,
         in zoneID: CKRecordZone.ID? = nil,
@@ -176,7 +187,12 @@ final class AlwaysConflictQuestCloudKitService: CloudKitService {
 /// The count is bumped on entry so a test can yield the runloop and assert it
 /// stays 0; `releaseQueries` releases any (none, post-remediation) parked
 /// caller so the test tears down cleanly.
-final class QueryParkingCloudKitService: CloudKitService {
+final class QueryParkingCloudKitService: MockCloudKitService {
+    init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
     private let lock = Mutex<QueryGateState>(QueryGateState())
     private(set) var queryHitCount = 0
 
@@ -262,7 +278,7 @@ extension QuestServiceTests {
     @MainActor
     struct MarkCompleteScaffold {
         let zoneID: CKRecordZone.ID
-        let cloudKit: CloudKitService
+        let cloudKit: any CloudKitServiceProtocol
         let cache: CacheService
         let questService: QuestService
         let appState: AppState
@@ -274,14 +290,15 @@ extension QuestServiceTests {
 
         init(
             approvalMode: ApprovalMode = .parentVerify,
-            cloudKitOverride: CloudKitService? = nil,
+            cloudKitOverride: (any CloudKitServiceProtocol)? = nil,
             goldReward: Double = 10.0,
             xpReward: Int = 20,
             targetCount: Int = 1,
             isAllOrNothing: Bool = false
         ) throws {
             zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-            let resolvedCloudKit = cloudKitOverride ?? CloudKitService(zoneID: zoneID)
+            let resolvedCloudKit = cloudKitOverride ?? MockCloudKitService()
+            resolvedCloudKit.activeFamilyZoneID = zoneID
             cloudKit = resolvedCloudKit
             cache = try CacheService(inMemory: true)
             // The XP-credit ledger now lives on CloudKit records
@@ -359,6 +376,7 @@ extension QuestServiceTests {
                 name: "Guard Quest",
                 id: questID
             )
+            resolvedCloudKit.seedMockRecords([parent, hero, quest])
         }
 
         func completion(

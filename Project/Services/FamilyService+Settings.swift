@@ -357,30 +357,17 @@ extension FamilyService {
         error: Error
     ) async {
         let (_, db) = familyContext(for: recordID)
-        let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+        await OptimisticFailureHandler.handleSaveFailure(
+            recordID: recordID,
             preMutationChangeTag: preMutationChangeTag,
-            fetchCurrent: fetchCurrentTag,
-            error: error
+            snapshot: snapshot,
+            cloudKit: cloudKit,
+            toastManager: toastManager,
+            fetchCurrentTag: fetchCurrentTag,
+            upsert: restore,
+            invalidate: { _ in },
+            error: error,
+            db: db
         )
-
-        if concurrentEditDetected {
-            toastManager?.show(
-                message: "Data was modified by another device. Refresh to see the latest.",
-                type: .warning
-            )
-
-            if let fresh = try? await cloudKit.fetch(T.self, id: recordID, using: db) {
-                restore(fresh)
-            } else if let snapshot {
-                restore(snapshot)
-            }
-        } else {
-            if let snapshot {
-                restore(snapshot)
-            }
-            let message = (error as? LocalizedError)?.errorDescription
-                ?? error.localizedDescription
-            toastManager?.show(message: message, type: .error)
-        }
     }
 }

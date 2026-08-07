@@ -9,9 +9,15 @@ import CloudKit
 import Foundation
 
 @MainActor
-final class MockCloudKitService: CloudKitServiceProtocol {
+class MockCloudKitService: CloudKitServiceProtocol {
+    /// A real (lazily-created) container backing the mock's database accessors.
+    /// No network method is ever invoked on it — the mock overrides every
+    /// protocol method and consumers route only through those overrides — so
+    /// allocating it is safe for tests and never touches a live iCloud account.
+    private static let container: CKContainer = .init(identifier: "iCloud.com.volcrypt.lootlist")
+
     static var defaultContainer: CKContainer {
-        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+        container
     }
 
     /// The fixed current iCloud user the mock reports via `currentUserRecordID()`.
@@ -25,6 +31,12 @@ final class MockCloudKitService: CloudKitServiceProtocol {
     var activeIsOwner: Bool = true
     var mockRecords: [CKRecord.ID: CKRecord] = [:]
     var fetchError: Error?
+    /// Optional per-test injection: when set, `save` throws this error after
+    /// persisting the record's `CKRecord` form into the mock store. Mirrors
+    /// `fetchError` so tests can drive a save-time conflict (e.g.
+    /// `CloudKitServiceError.serverRecordChanged`) and still observe a
+    /// subsequent authoritative `fetch` against the seeded `mockRecords`.
+    var saveError: Error?
 
     /// Emulates CloudKit's server-side creator stamp. The SDK allows only the
     /// server to write `CKRecord.creatorUserRecordID`, so the mock mirrors that
@@ -60,19 +72,19 @@ final class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     var database: CKDatabase {
-        container.privateCloudDatabase
+        privateDatabase
     }
 
     var privateDatabase: CKDatabase {
-        container.privateCloudDatabase
+        Self.container.privateCloudDatabase
     }
 
     var sharedDatabase: CKDatabase {
-        container.sharedCloudDatabase
+        Self.container.sharedCloudDatabase
     }
 
     var activeFamilyDatabase: CKDatabase {
-        container.privateCloudDatabase
+        privateDatabase
     }
 
     func database(isOwner: Bool) -> CKDatabase {
@@ -80,6 +92,16 @@ final class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func save<T: CloudKitRecord>(_ entity: T, in _: CKRecordZone.ID?, using _: CKDatabase?) async throws -> T {
+        // Per-test save-time conflict injection (mirrors `fetchError` on the
+        // fetch path). Throw BEFORE persisting so a previously-seeded
+        // authoritative record in `mockRecords` survives — exactly the
+        // state a real CloudKit `serverRecordChanged` leaves behind
+        // (another device's record lives on, our rejected write never landed),
+        // which lets the rollback path's re-`fetch` retrieve that authoritative
+        // value rather than the optimistic state we attempted to push.
+        if let saveError {
+            throw saveError
+        }
         let record = entity.toRecord()
         // Emulate the server: stamp the creator only on creation, before
         // persisting and re-decoding (mirrors the real `CloudKitService.save`'s
@@ -106,25 +128,21 @@ final class MockCloudKitService: CloudKitServiceProtocol {
         return applyingCreatorStamp(for: id, on: decoded)
     }
 
-    func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?, using _: CKDatabase?) async throws -> [T] {
-        var matching = mockRecords.values.filter { $0.recordType == T.recordType }
-        if let zoneID {
-            matching = matching.filter { $0.recordID.zoneID == zoneID }
-        }
+    func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in _: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?, using _: CKDatabase?) async throws -> [T] {
+        var matching = Array(mockRecords.values.filter { $0.recordType == T.recordType })
         if predicate != NSPredicate(value: true) {
             matching = matching.filter { predicate.evaluate(with: $0) }
         }
-        var results = try matching.map { record -> T in
+        if let sortDescriptors, !sortDescriptors.isEmpty {
+            let nsArray = (matching as NSArray).sortedArray(using: sortDescriptors)
+            if let sortedMatching = nsArray as? [CKRecord] {
+                matching = sortedMatching
+            }
+        }
+        return try matching.map { record -> T in
             let decoded = try T(record: record)
             return applyingCreatorStamp(for: record.recordID, on: decoded)
         }
-        if let sortDescriptors, !sortDescriptors.isEmpty {
-            let nsArray = (results as NSArray).sortedArray(using: sortDescriptors)
-            if let sortedResults = nsArray as? [T] {
-                results = sortedResults
-            }
-        }
-        return results
     }
 
     func delete(_ recordID: CKRecord.ID, in _: CKRecordZone.ID?, using _: CKDatabase?) async throws {

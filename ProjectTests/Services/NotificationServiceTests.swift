@@ -170,4 +170,92 @@ struct NotificationServiceTests {
         #expect(service.isNotificationEnabled(for: .questAssigned) == false,
                 "master back on restores the per-event fallback value")
     }
+
+    // MARK: - Concurrent-edit (serverRecordChanged) failure path re-fetches + re-upserts authoritative
+
+    @Test
+    func `updatePreference re-fetches and re-upserts authoritative on serverRecordChanged save failure`() async throws {
+        resetUserDefaults()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        // Inject the canonical optimistic-concurrency conflict: the production
+        // `CloudKitService.save` wraps `CKError.serverRecordChanged` into
+        // `CloudKitServiceError.serverRecordChanged`, which is exactly the
+        // wrapped form `ConcurrentEditDetector` signal 1 matches on.
+        ck.saveError = CloudKitServiceError.serverRecordChanged
+        let cache = try CacheService(inMemory: true)
+        let app = AppState()
+        let profile = makeProfile(zoneID: zoneID)
+        let family = makeFamily(zoneID: zoneID)
+        app.currentProfile = profile
+        app.family = family
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+
+        // Pre-mutation cached preference — the snapshot the pre-fix failure
+        // path would restore. Record name hits the existing-row branch in
+        // `updatePreference` (snapshot.recordName), so the save targets THIS
+        // record rather than minting a fresh UUID.
+        let existingID = CKRecord.ID(recordName: "pref-hero1-questAssigned", zoneID: zoneID)
+        let snapshotPref = NotificationPreference(
+            profile: CKRecord.Reference(recordID: profile.id, action: .none),
+            eventType: .questAssigned,
+            enabled: false,
+            pushEnabled: false,
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: existingID
+        )
+        cache.upsertNotificationPreference(snapshotPref)
+
+        // Another device's authoritative version of the SAME record won the
+        // race and shipped to the server before our save landed. The mock
+        // store holds this record (the post-conflict server state a follow-up
+        // `fetch` returns). It differs from BOTH the snapshot (enabled=false)
+        // and the optimistic toggle we push (pushEnabled=true) so the cache
+        // after-the-fact can prove WHICH value landed.
+        let authoritative = NotificationPreference(
+            profile: CKRecord.Reference(recordID: profile.id, action: .none),
+            eventType: .questAssigned,
+            enabled: true,
+            pushEnabled: false,
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: existingID
+        )
+        ck.seedMockRecords([authoritative])
+
+        // Sanity: cache reflects the snapshot (pre-mutation) before the save.
+        let preRow = try #require(
+            cache.fetchNotificationPreferences(profileRecordName: "hero1")
+                .first(where: { $0.recordName == existingID.recordName })
+        )
+        #expect(preRow.enabled == false)
+        #expect(preRow.pushEnabled == false)
+
+        // The save fails with `serverRecordChanged`; signal 1 fires and the
+        // failure path must re-fetch + re-upsert the authoritative server
+        // record in place of either the snapshot OR the optimistic write.
+        do {
+            _ = try await service.updatePreference(event: .questAssigned, enabled: true)
+            #expect(Bool(false), "Expected save to throw on serverRecordChanged")
+        } catch {
+            #expect((error as? CloudKitServiceError) == .serverRecordChanged)
+        }
+
+        let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1")
+            .filter { $0.recordName == existingID.recordName }
+        #expect(
+            cachedRows.count == 1,
+            "Cache must hold exactly one row for the preference after the conflict re-upsert"
+        )
+        let cached = try #require(cachedRows.first)
+        #expect(
+            cached.enabled == true,
+            "Cache must hold the authoritative server value (enabled=true), not the stashed snapshot (enabled=false)"
+        )
+        #expect(
+            cached.pushEnabled == false,
+            "Cache must hold the authoritative server value (pushEnabled=false), not the optimistic write (pushEnabled=true)"
+        )
+    }
 }

@@ -86,7 +86,8 @@ extension CloudKitServiceProtocol {
     }
 
     func delete(_ entity: some CloudKitRecord, using db: CKDatabase? = nil) async throws {
-        try await delete(entity, using: db)
+        let record = entity.toRecord()
+        try await delete(record.recordID, in: record.recordID.zoneID, using: db)
     }
 
     func fetchZoneChanges(

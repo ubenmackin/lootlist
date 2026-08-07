@@ -94,11 +94,18 @@ extension CacheService {
         familyScopedFetch(QuestTemplateCache.self, family: family)
     }
 
+    func fetchQuestTemplate(recordName: String) -> QuestTemplateCache? {
+        fetch(QuestTemplateCache.self, predicate: #Predicate { $0.recordName == recordName }).first
+    }
+
     func fetchFamily(recordName: String) -> FamilyCache? {
         fetch(FamilyCache.self, predicate: #Predicate { $0.recordName == recordName }).first
     }
 
     func fetchLedgerEntries(profileRecordName: String, family: String? = nil) -> [LedgerEntryCache] {
+        #if DEBUG
+            ledgerEntryFetchScopes.append(family)
+        #endif
         if let family {
             return fetch(
                 LedgerEntryCache.self,
