@@ -95,6 +95,58 @@ struct CloudKitModelTests {
     }
 
     @Test
+    func `weekly flexible template omits empty specificDays from record`() {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let creatorRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "parent1", zoneID: zoneID), action: .none)
+
+        let template = QuestTemplate(
+            name: "Weekly Chore",
+            description: "Do it any day this week",
+            defaultGold: 5.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            specificDays: [],
+            approvalMode: .autoApprove,
+            createdBy: creatorRef,
+            family: familyRef
+        )
+
+        let record = template.toRecord()
+
+        // CloudKit rejects initializing a new field with an empty list, so a
+        // weekly-flexible template must not carry a `specificDays` key.
+        #expect(record["specificDays"] == nil)
+        #expect(record.allKeys().contains("specificDays") == false)
+    }
+
+    @Test
+    func `specificDays schedule round-trips through record`() {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let creatorRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "parent1", zoneID: zoneID), action: .none)
+
+        let template = QuestTemplate(
+            name: "Band Practice",
+            description: "Play any of the listed days",
+            defaultGold: 3.0,
+            xpReward: 30,
+            scheduleType: .specificDays,
+            specificDays: ["monday", "wednesday", "friday"],
+            approvalMode: .autoApprove,
+            createdBy: creatorRef,
+            family: familyRef
+        )
+
+        let record = template.toRecord()
+
+        #expect(record["specificDays"] as? [String] == ["monday", "wednesday", "friday"])
+
+        let decoded = try? QuestTemplate(record: record)
+        #expect(decoded?.specificDays == ["monday", "wednesday", "friday"])
+    }
+
+    @Test
     func `ledgerEntry spending vs earnings amount logic`() {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let profileRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none)

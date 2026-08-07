@@ -208,7 +208,10 @@ struct FamilyDashboardView: View {
 
     private var inviteButton: some View {
         Button {
-            showShareSheet = true
+            Task {
+                await viewModel?.ensureActiveShareURL()
+                showShareSheet = true
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "square.and.arrow.up")

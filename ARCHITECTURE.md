@@ -362,6 +362,40 @@ Role field alone is forgeable — a malicious participant who accepts the public
 
 ---
 
+## Security Audit: Accepted Risk Register (non-findings)
+
+This register codifies deliberate, load-bearing security decisions that are **accepted risk**, not defects. The security-audit gate must classify findings that merely restate the blast radius of an entry in this register — without introducing a new, concrete, in-scope exploit or a concrete alternative design — as **non-findings** and must NOT fail the build on them.
+
+### AR-001 — `CKShare.publicPermission = .readWrite` bearer share link
+
+**Location:** `Project/Services/CloudKitService+Sharing.swift` (`createShare` sets `share.publicPermission = .readWrite`; `fetchOrCreateShareURL` also enforces `existingShare.publicPermission = .readWrite` on the retrieve path).
+
+**Status:** ACCEPTED (load-bearing; do not alter).
+
+**Rationale:**
+
+a. The public share link is the **sole** family-join mechanism; participants join via `FamilyService.joinFamilyViaShare` → `CloudKitService.acceptShare`, never as explicit per-user `recordID` participants.
+
+b. CloudKit applies one `publicPermission` to **all** participants who accept via the public link. Setting `.readOnly` would strip write access for every Hero — profile saves, quest completions, spending logging, and payout would all fail, making the app unusable for every non-owner participant. The app currently has NO server-side business-rule layer where authenticated write-gating could be enforced.
+
+c. Highest-privilege irreversible operations are already defended against the read/write bearer link by the server-stamped `Family.creatorUserRecordName` owner anchor (see Authorization owner anchor): `deleteFamilyAndReset`, `updateMemberRole`, `kickMember` require the caller's server-authenticated identity to equal the family creator, so accepting the public readWrite link does not grant zone-deletion or role/kick powers.
+
+**Mitigations already in place:** client-side role gating in the service layer; the creator anchor above; share rotation (mint a new share to rotate a leaked URL).
+
+**Closure note:** the public bearer link is an accepted residual risk until V2 replaces it.
+
+**Security-audit directive:** A finding that merely restates the readWrite/read-only blast radius of this share WITHOUT introducing a new, concrete, in-scope exploit OR a concrete per-participant-write design must be classified as a NON-FINDING (matches this register) and must NOT fail the gate.
+
+### AR-002 — Local auth is client-side only; CloudKit provides no server-side business-rule validation
+
+**Status:** ACCEPTED (documented, defense-in-depth only).
+
+The absence of a CloudKit-side business-rule layer means authenticated write-gating happens in the service layer (client-side role checks) plus the `creatorUserRecordName` owner anchor for the highest-privilege operations, as documented in the Authorization owner anchor section.
+
+**Security-audit directive:** This is an accepted reverse residual risk; do not fail the gate on the absence of a server unless a concrete in-scope vulnerability is shown.
+
+---
+
 ## Key Patterns
 
 ### MVVM + Protocol Services
