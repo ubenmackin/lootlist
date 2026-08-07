@@ -27,7 +27,7 @@ final class MockSpendingService: SpendingService {
         return transactions
     }
 
-    func logManual(profile: Profile, family: Family, description: String, amount: Double, date: Date) async throws -> LedgerEntry {
+    func logManual(profile: Profile, family: Family, familyRecordName _: String, description: String, amount: Double, date: Date) async throws -> LedgerEntry {
         if shouldFail {
             throw SpendingServiceError.underlying("Mock error")
         }

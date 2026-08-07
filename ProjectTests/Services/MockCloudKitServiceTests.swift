@@ -26,7 +26,7 @@ struct MockCloudKitServiceTests {
 
     @Test
     func `cloud kit service returns a valid share URL on happy path`() async throws {
-        let cloudKit = CloudKitService()
+        let cloudKit = MockCloudKitService()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let rootID = CKRecord.ID(recordName: "root", zoneID: zoneID)
 

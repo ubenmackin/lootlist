@@ -18,7 +18,12 @@ enum MockError: Error, Equatable {
 
 /// Subclass of `CloudKitService` that always throws on `save`.
 /// Used to exercise the standard rollback (non-concurrent-edit) path.
-final class FailingCloudKitService: CloudKitService {
+final class FailingCloudKitService: MockCloudKitService {
+    init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
     override func save<T: CloudKitRecord>(
         _: T,
         in _: CKRecordZone.ID? = nil,
@@ -41,13 +46,14 @@ final class FailingCloudKitService: CloudKitService {
 /// mutations (e.g., `assignQuickQuest`) where intermediate saves such
 /// as `createTemplate` + `deactivateTemplate` must succeed before the
 /// final quest save is made to fail.
-final class FailingAfterNSavesCloudKitService: CloudKitService {
+final class FailingAfterNSavesCloudKitService: MockCloudKitService {
     private var saveCount = 0
     private let failAfterSaveCount: Int
 
     init(zoneID: CKRecordZone.ID, failAfterSaveCount: Int) {
         self.failAfterSaveCount = failAfterSaveCount
-        super.init(zoneID: zoneID)
+        super.init()
+        self.activeFamilyZoneID = zoneID
     }
 
     override func save<T: CloudKitRecord>(
@@ -68,7 +74,12 @@ final class FailingAfterNSavesCloudKitService: CloudKitService {
 /// `CKError.unknownItem` into when a record was deleted on the server
 /// while a mutation was in flight. `fetch` fails the same way, matching
 /// the real server state after a concurrent delete.
-final class NotFoundCloudKitService: CloudKitService {
+final class NotFoundCloudKitService: MockCloudKitService {
+    init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
     override func save<T: CloudKitRecord>(
         _: T,
         in _: CKRecordZone.ID? = nil,

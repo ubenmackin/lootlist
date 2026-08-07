@@ -25,6 +25,7 @@ protocol SpendingService: Sendable {
 
     func logManual(profile: Profile,
                    family: Family,
+                   familyRecordName: String,
                    description: String,
                    amount: Double,
                    date: Date) async throws -> LedgerEntry
@@ -35,6 +36,7 @@ protocol SpendingService: Sendable {
 extension SpendingService {
     func logManual(profile _: Profile,
                    family _: Family,
+                   familyRecordName _: String,
                    description _: String,
                    amount _: Double,
                    date _: Date) async throws -> LedgerEntry
@@ -103,6 +105,7 @@ final class ManualSpendingService: SpendingService {
 
     func logManual(profile: Profile,
                    family: Family,
+                   familyRecordName: String,
                    description: String,
                    amount: Double,
                    date: Date = Date()) async throws -> LedgerEntry
@@ -127,7 +130,9 @@ final class ManualSpendingService: SpendingService {
             family: CKRecord.Reference(recordID: family.id, action: .none)
         )
         let name = entry.id.recordName
-        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName)
+        // Scope the snapshot fetch to the active family so a profile that
+        // briefly existed in two families does not match rows from the other.
+        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
 
@@ -145,7 +150,7 @@ final class ManualSpendingService: SpendingService {
         } catch {
             let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName)
+                fetchCurrent: { self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
                 error: error

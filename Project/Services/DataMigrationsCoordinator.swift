@@ -52,7 +52,7 @@ final class DataMigrationsCoordinator {
 // MARK: - Migration Steps
 
 extension DataMigrationsCoordinator {
-    static func questNameBackfillV1(cloudKit: CloudKitService) -> MigrationStep {
+    static func questNameBackfillV1(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
         MigrationStep(id: "QuestNameBackfillV1", version: 1) {
             // Guard: Must have an active family zone to backfill quests from
             guard cloudKit.activeFamilyZoneID != nil else { return }

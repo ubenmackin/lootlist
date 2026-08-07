@@ -174,11 +174,13 @@ final class TreasuryViewModel {
             errorMessage = "No hero profile loaded."
             return false
         }
+        let familyRecordName = family.id.recordName
 
         do {
             _ = try await spending.logManual(
                 profile: profile,
                 family: family,
+                familyRecordName: familyRecordName,
                 description: trimmed,
                 amount: amount,
                 date: date

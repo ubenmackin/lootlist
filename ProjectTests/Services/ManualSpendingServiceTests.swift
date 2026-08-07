@@ -18,7 +18,12 @@ struct ManualSpendingServiceTests {
         case saveFailed
     }
 
-    private final class FailingCloudKitService: CloudKitService {
+    private final class FailingCloudKitService: MockCloudKitService {
+        init(zoneID: CKRecordZone.ID? = nil) {
+            super.init()
+            self.activeFamilyZoneID = zoneID
+        }
+
         override func save<T: CloudKitRecord>(
             _: T,
             in _: CKRecordZone.ID? = nil,
@@ -85,7 +90,7 @@ struct ManualSpendingServiceTests {
         appState.currentProfile = hero
 
         do {
-            _ = try await service.logManual(profile: hero, family: family, description: "Test Buy", amount: 10.0)
+            _ = try await service.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Test Buy", amount: 10.0)
             #expect(Bool(false), "Expected save to throw")
         } catch {
             #expect(error is MockError)
@@ -171,6 +176,7 @@ struct ManualSpendingServiceTests {
             _ = try await service.logManual(
                 profile: victim,
                 family: family,
+                familyRecordName: family.id.recordName,
                 description: "Should not save",
                 amount: 10.0
             )
@@ -270,5 +276,109 @@ struct ManualSpendingServiceTests {
 
         let cached = cache.fetchLedgerEntries(profileRecordName: heroID.recordName)
         #expect(cached.isEmpty, "parent should be able to delete a hero's ledger entry")
+    }
+
+    // MARK: - Snapshot fetch family scoping
+
+    /// `logManual` must scope its optimistic snapshot fetch to the active
+    /// family, and keep that scope through the rollback re-fetch the
+    /// save-failure path reaches. The snapshot lookup is keyed by the
+    /// freshly-generated `entry.id.recordName`, which no pre-existing row can
+    /// match, so the scoping is not observable through cache *contents* — a
+    /// prior attempt that forced the snapshot result to nothing could not tell
+    /// a scoped fetch from an unscoped one. This test therefore captures the
+    /// `family:` scope passed to `fetchLedgerEntries` during `logManual`, and
+    /// asserts both the pre-save snapshot fetch and the rollback
+    /// `fetchCurrent` were scoped to the active family. Removing the
+    /// family scoping flips the recorded scope to nil and fails the assertion.
+    @Test
+    func `logManual scopes optimistic snapshot fetch to active familyRecordName`() async throws {
+        let zoneID = makeZoneID()
+        // Force the rollback path so `logManual`'s snapshot fetch AND the
+        // rollback `fetchCurrent` re-fetch both run (the save-failure branch
+        // is the only path that consults the scoped re-fetch).
+        let cloudKit = FailingCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let familyA = Family(
+            name: "Family A",
+            createdBy: CKRecord.ID(recordName: "parentA", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "famA", zoneID: zoneID)
+        )
+        let familyB = Family(
+            name: "Family B",
+            createdBy: CKRecord.ID(recordName: "parentB", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "famB", zoneID: zoneID)
+        )
+        cache.upsertFamily(familyA)
+        cache.upsertFamily(familyB)
+
+        let heroRefA = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let familyRefA = CKRecord.Reference(recordID: familyA.id, action: .none)
+        let hero = Profile(
+            displayName: "Hero A",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .hero,
+            iCloudUserID: heroRefA,
+            family: familyRefA,
+            id: heroRefA
+        )
+        cache.upsertProfile(hero)
+
+        // Legacy ledger row from a prior cross-family race: the same
+        // `profileRecordName` also exists under familyB, so an unscoped
+        // snapshot fetch would span both families and an unscoped rollback
+        // re-fetch could restore/invalidate across the boundary.
+        let legacyFamilyB = LedgerEntryCache(
+            recordName: "legacy_famB_entry",
+            profileRecordName: hero.id.recordName,
+            familyRecordName: familyB.id.recordName,
+            amount: -7.5,
+            entryDescription: "Spent in the old family",
+            date: Date().addingTimeInterval(-3600),
+            source: "manual",
+            changeTag: "v1"
+        )
+        cache.upsertLedgerEntry(legacyFamilyB.toLedgerEntry(zoneID: zoneID))
+
+        appState.currentProfile = hero
+        appState.family = familyA
+        // Ignore the seeding fetches so only `logManual`'s own fetches count.
+        cache.ledgerEntryFetchScopes = []
+
+        // Both the pre-save snapshot capture and the rollback re-fetch must be
+        // scoped to the active family — never a nil/unscoped ledger fetch.
+        do {
+            _ = try await service.logManual(
+                profile: hero,
+                family: familyA,
+                familyRecordName: familyA.id.recordName,
+                description: "New sword",
+                amount: 12.0
+            )
+            #expect(Bool(false), "Expected save to throw")
+        } catch {
+            #expect(error is MockError)
+        }
+
+        let scopes = cache.ledgerEntryFetchScopes
+        #expect(scopes.count == 2, "snapshot + rollback re-fetch should each make one scoped ledger fetch")
+        #expect(scopes.allSatisfy { $0 == familyA.id.recordName },
+                "every logManual ledger fetch must be scoped to the active family, got \(scopes)")
+
+        // New manual landing is invalidated on failure; the optimistic write
+        // never lands in either family.
+        let familyARows = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: familyA.id.recordName)
+        #expect(familyARows.isEmpty, "failed manual entry must not persist in familyA")
+
+        // The other family's cache slice is untouched — neither the snapshot
+        // nor the rollback may read into familyB.
+        let familyBRows = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: familyB.id.recordName)
+        #expect(familyBRows.count == 1, "logManual must not touch the other family's cache slice")
+        #expect(familyBRows.first?.recordName == "legacy_famB_entry")
+        #expect(familyBRows.first?.changeTag == "v1")
     }
 }

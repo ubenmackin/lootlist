@@ -27,8 +27,8 @@ struct Quest: Identifiable, Equatable, Sendable {
     /// Monotonic per-quest total of XP already banked by the reward step.
     /// Server-authoritative and synced across family devices: the quest record
     /// is the shared XP-credit ledger, so two devices completing the same
-    /// quest concurrently are capped by the same banked total (security
-    /// remediation, finding 2). Written ONLY via the change-tag CAS path in
+    /// quest concurrently are capped by the same banked total. Written ONLY via
+    /// the change-tag CAS path in
     /// `QuestService` — nothing else mutates this field.
     var xpBanked: Int = 0
 

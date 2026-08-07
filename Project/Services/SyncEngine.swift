@@ -25,6 +25,10 @@ final class SyncEngine {
     private let syncCoordinator: AppSyncCoordinator
 
     private(set) var isSyncing: Bool = false
+
+    /// Priority-queued sync request when a new push notification or manual request
+    /// arrives while `isSyncing` is true (`.incremental < .full`).
+    /// All mutations to `pendingSync` are strictly `@MainActor`-isolated to prevent concurrent writes.
     private enum PendingSync: Comparable { case none, incremental, full }
     private var pendingSync: PendingSync = .none
     private(set) var lastSyncedAt: Date?
@@ -453,6 +457,7 @@ final class SyncEngine {
     }
 
     private func dispatchPendingSync(familyRecordName: String?) {
+        MainActor.assertIsolated()
         guard pendingSync != .none else { return }
         let pending = pendingSync
         pendingSync = .none

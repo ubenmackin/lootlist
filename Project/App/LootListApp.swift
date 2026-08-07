@@ -43,8 +43,8 @@ final class AppDependencies {
             }
         }
 
-        let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
         let toast = ToastManager()
+        let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache, toastManager: toast)
         let xp = XPService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
         let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification, cacheService: cache, treasuryService: treasury, toastManager: toast, appState: app)
@@ -340,7 +340,7 @@ private struct RootView: View {
                 }
             case .authenticated:
                 if let spendingService {
-                    TabBarView(spending: spendingService)
+                    TabBarView(spending: spendingService, familyRecordName: appState.family?.id.recordName)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color(.systemBackground))
                 } else {
