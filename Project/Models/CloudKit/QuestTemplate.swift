@@ -90,7 +90,11 @@ struct QuestTemplate: Identifiable, Equatable, Hashable, Sendable {
         record["defaultGold"] = defaultGold as CKRecordValue
         record["xpReward"] = xpReward as CKRecordValue
         record["scheduleType"] = scheduleType.rawValue as CKRecordValue
-        record["specificDays"] = specificDays as CKRecordValue
+        // CloudKit rejects initializing a new field with an empty list, so omit
+        // specificDays when empty to avoid `.invalidArguments` on weekly-flexible templates.
+        if !specificDays.isEmpty {
+            record["specificDays"] = specificDays as CKRecordValue
+        }
         record["targetCount"] = targetCount as CKRecordValue
         record["isAllOrNothing"] = isAllOrNothing as CKRecordValue
         record["approvalMode"] = approvalMode.rawValue as CKRecordValue

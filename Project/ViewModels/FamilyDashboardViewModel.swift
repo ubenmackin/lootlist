@@ -52,7 +52,7 @@ final class FamilyDashboardViewModel {
     }
 
     func refresh() async {
-        guard let family = appState.family else {
+        guard appState.family != nil else {
             heroes = []
             parents = []
             weekSummary = nil
@@ -62,10 +62,16 @@ final class FamilyDashboardViewModel {
         isLoading = true
         defer { isLoading = false }
 
+        await ensureActiveShareURL()
+    }
+
+    @MainActor
+    func ensureActiveShareURL() async {
+        guard appState.isZoneOwner else { return }
+        guard appState.activeShareURL == nil else { return }
+        guard let zoneID = appState.familyZoneID, let family = appState.family else { return }
         let cloudKit = questService.cloudKitReference
-        if appState.isZoneOwner, appState.activeShareURL == nil, let zoneID = appState.familyZoneID {
-            appState.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
-        }
+        appState.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
     }
 
     func rebuildLists(
