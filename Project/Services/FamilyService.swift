@@ -276,37 +276,21 @@ final class FamilyService: FamilyProfileFetching {
             await registry?.deregister(name)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: family.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchFamily(recordName: name)?.changeTag },
-                error: error
+                snapshot: snapshotFamily,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cacheService?.fetchFamily(recordName: name)?.changeTag },
+                upsert: { restored in
+                    self.cacheService?.upsertFamily(restored)
+                    self.appState.family = restored
+                },
+                invalidate: { _ in self.cacheService?.invalidateFamily(recordName: name) },
+                error: error,
+                db: db
             )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(Family.self, id: family.id, using: db) {
-                    cacheService?.upsertFamily(fresh)
-                    appState.family = fresh
-                } else if let snapshotFamily {
-                    cacheService?.upsertFamily(snapshotFamily)
-                    appState.family = snapshotFamily
-                }
-            } else {
-                if let snapshotFamily {
-                    cacheService?.upsertFamily(snapshotFamily)
-                    appState.family = snapshotFamily
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed
         }
@@ -414,39 +398,23 @@ final class FamilyService: FamilyProfileFetching {
             }
             await registry?.deregister(name)
         } catch {
-            if ConcurrentEditDetector.detectConcurrentEdit(
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: profile.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
+                snapshot: snapshotProfile,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cacheService?.fetchProfile(recordName: name)?.changeTag },
+                upsert: { restored in
+                    self.cacheService?.upsertProfile(restored)
+                    if self.appState.currentProfile?.id == restored.id {
+                        self.appState.currentProfile = restored
+                    }
                 },
-                error: error
-            ) {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
-                    cacheService?.upsertProfile(fresh)
-                    if appState.currentProfile?.id == fresh.id {
-                        appState.currentProfile = fresh
-                    }
-                } else if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == snapshotProfile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-            } else {
-                if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == snapshotProfile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
+                invalidate: { _ in self.cacheService?.invalidateProfile(recordName: name) },
+                error: error,
+                db: db
+            )
             await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed
         }
@@ -479,10 +447,23 @@ final class FamilyService: FamilyProfileFetching {
 
     /// Server-authenticated owner check, anchored on CloudKit's read-only
     /// `creatorUserRecordID`. Returns false when the creator is unresolved
+    /// Server-authenticated owner check, anchored on CloudKit's read-only
+    /// `creatorUserRecordID`. Returns false when the creator is unresolved
     /// (nil) — callers handle the nil (legacy) case.
     func isFamilyOwner(_ family: Family) async -> Bool {
-        guard let anchor = family.creatorUserRecordName else { return false }
-        return await (try? cloudKit.currentUserRecordID())?.recordName == anchor
+        if appState.isZoneOwner {
+            return true
+        }
+        guard let anchor = family.creatorUserRecordName else { return appState.isZoneOwner }
+        if anchor == "__defaultOwner__" || anchor == "_defaultOwner_" {
+            return appState.isZoneOwner
+        }
+        if let userRecordID = try? await cloudKit.currentUserRecordID() {
+            if userRecordID.recordName == anchor {
+                return true
+            }
+        }
+        return false
     }
 
     /// Resolves the Family for a member profile (cache-first, then CloudKit) so
@@ -550,7 +531,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase) {
+    func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase?) {
         let zoneID = cloudKit.resolvedZoneID // already set with correct ownerName
         let db = cloudKit.database(isOwner: appState.isZoneOwner)
         return (zoneID, db)
@@ -594,39 +575,23 @@ final class FamilyService: FamilyProfileFetching {
             }
             await registry?.deregister(name)
         } catch {
-            if ConcurrentEditDetector.detectConcurrentEdit(
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: profile.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
+                snapshot: snapshotProfile,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cacheService?.fetchProfile(recordName: name)?.changeTag },
+                upsert: { restored in
+                    self.cacheService?.upsertProfile(restored)
+                    if self.appState.currentProfile?.id == restored.id {
+                        self.appState.currentProfile = restored
+                    }
                 },
-                error: error
-            ) {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id, using: db) {
-                    cacheService?.upsertProfile(fresh)
-                    if appState.currentProfile?.id == fresh.id {
-                        appState.currentProfile = fresh
-                    }
-                } else if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == snapshotProfile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-            } else {
-                if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    if appState.currentProfile?.id == snapshotProfile.id {
-                        appState.currentProfile = snapshotProfile
-                    }
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
+                invalidate: { _ in self.cacheService?.invalidateProfile(recordName: name) },
+                error: error,
+                db: db
+            )
             await registry?.deregister(name)
             throw FamilyServiceError.persistenceFailed
         }
@@ -637,14 +602,10 @@ final class FamilyService: FamilyProfileFetching {
         // for the owner anchor (server-authenticated family owner). Legacy
         // families without an owner anchor fall back to the zone-owner +
         // parent-role check.
-        if family.creatorUserRecordName != nil {
-            guard await isFamilyOwner(family) else {
-                throw FamilyServiceError.unauthorized
-            }
-        } else {
-            guard appState.isZoneOwner, let acting = appState.currentProfile, acting.role.isParent else {
-                throw FamilyServiceError.unauthorized
-            }
+        let isOwner = await isFamilyOwner(family)
+        let isAuthorized = appState.isZoneOwner || isOwner
+        guard isAuthorized else {
+            throw FamilyServiceError.unauthorized
         }
         // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
         if let zoneID = appState.familyZoneID {

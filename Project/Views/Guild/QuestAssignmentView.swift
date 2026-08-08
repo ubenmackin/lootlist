@@ -13,6 +13,7 @@ struct QuestAssignmentView: View {
     var mode: Mode = .fromTemplate
     @Bindable var viewModel: QuestManagerViewModel
 
+    @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
     @Environment(QuestService.self) private var questService
 
@@ -71,12 +72,12 @@ struct QuestAssignmentView: View {
     @State private var editApproval: ApprovalMode = .autoApprove
     @State private var editAssignee: ProfileCache?
     @State private var allowLockedFieldsOverride: Bool = false
+    @State private var propagateToTemplate: Bool = false
     @State private var editQuest: Quest?
     @State private var editHasLogs: Bool = false
     @State private var showOverrideAlert: Bool = false
 
     // --- Shared ---
-    @State private var validationError: String?
     @State private var isSubmitting: Bool = false
     @State private var userEditedQuestName: Bool = false
 
@@ -131,14 +132,6 @@ struct QuestAssignmentView: View {
                                    displayedComponents: .date)
                     }
                 }
-
-                if let validationError {
-                    Section {
-                        Text(validationError)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
-                    }
-                }
             }
             .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -168,6 +161,7 @@ struct QuestAssignmentView: View {
             } message: {
                 Text("Hero has already started this quest. Changing the assignee will move this quest. Continue?")
             }
+            .toastOverlay()
         }
     }
 
@@ -512,6 +506,11 @@ struct QuestAssignmentView: View {
             .pickerStyle(.segmented)
         }
 
+        Section("Template Sync") {
+            Toggle("Also update parent template", isOn: $propagateToTemplate)
+                .help("Applies these schedule + day changes to the master template too, affecting future quests assigned from it.")
+        }
+
         if editHasLogs {
             Section {
                 Text("🔒 Locked — Hero has started this quest. Name and description remain editable.")
@@ -636,11 +635,11 @@ struct QuestAssignmentView: View {
 
     private func submitFromTemplate() {
         guard let hero = selectedHero else {
-            validationError = "Select a hero."
+            toastManager.show(message: "Select a hero.", type: .error)
             return
         }
         guard let template = selectedTemplate else {
-            validationError = "Select a template."
+            toastManager.show(message: "Select a template.", type: .error)
             return
         }
 
@@ -672,30 +671,30 @@ struct QuestAssignmentView: View {
                 dismiss()
             } catch {
                 isSubmitting = false
-                validationError = error.localizedDescription
+                toastManager.show(message: error.localizedDescription, type: .error)
             }
         }
     }
 
     private func submitQuickCreate() {
         guard let hero = selectedHero else {
-            validationError = "Select a hero."
+            toastManager.show(message: "Select a hero.", type: .error)
             return
         }
         let trimmedName = quickName.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else {
-            validationError = "Quest name is required."
+            toastManager.show(message: "Quest name is required.", type: .error)
             return
         }
         guard let gold = Double(quickGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
-            validationError = "Reward must be a valid non-negative number."
+            toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
 
         let xp = quickRarity.xpReward
 
         if quickSchedule == .specificDays, quickSpecificDays.isEmpty {
-            validationError = "Select at least one day for specific-days schedule."
+            toastManager.show(message: "Select at least one day for specific-days schedule.", type: .error)
             return
         }
 
@@ -719,32 +718,32 @@ struct QuestAssignmentView: View {
                 dismiss()
             } catch {
                 isSubmitting = false
-                validationError = error.localizedDescription
+                toastManager.show(message: error.localizedDescription, type: .error)
             }
         }
     }
 
     private func submitEdit() {
         guard let quest = editQuest else {
-            validationError = "No quest to edit."
+            toastManager.show(message: "No quest to edit.", type: .error)
             return
         }
         guard let hero = editAssignee else {
-            validationError = "Select a hero."
+            toastManager.show(message: "Select a hero.", type: .error)
             return
         }
 
         guard let gold = Double(editGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
-            validationError = "Reward must be a valid non-negative number."
+            toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
         guard let xp = Int(editXpText.trimmingCharacters(in: .whitespaces)), xp >= 0 else {
-            validationError = "XP reward must be a valid non-negative number."
+            toastManager.show(message: "XP reward must be a valid non-negative number.", type: .error)
             return
         }
 
         if editSchedule == .specificDays, editSpecificDays.isEmpty {
-            validationError = "Select at least one day for specific-days schedule."
+            toastManager.show(message: "Select at least one day for specific-days schedule.", type: .error)
             return
         }
 
@@ -767,13 +766,14 @@ struct QuestAssignmentView: View {
                     isAllOrNothing: editIsAllOrNothing,
                     approvalMode: editApproval,
                     assignee: hero.toProfile(zoneID: zoneID),
-                    allowLockedFieldsOverride: allowLockedFieldsOverride
+                    allowLockedFieldsOverride: allowLockedFieldsOverride,
+                    propagateToTemplate: propagateToTemplate
                 )
                 isSubmitting = false
                 dismiss()
             } catch {
                 isSubmitting = false
-                validationError = error.localizedDescription
+                toastManager.show(message: error.localizedDescription, type: .error)
             }
         }
     }

@@ -12,6 +12,9 @@ import SwiftUI
 struct HeroDashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
+    @Environment(ToastManager.self) private var toastManager
+    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
+    @Environment(\.scenePhase) private var scenePhase
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -46,7 +49,8 @@ struct HeroDashboardView: View {
             order: .reverse
         )
         _cachedTemplates = Query(
-            filter: templateFilter
+            filter: templateFilter,
+            sort: \QuestTemplateCache.name
         )
     }
 
@@ -66,6 +70,7 @@ struct HeroDashboardView: View {
             .navigationTitle("Quests")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
+                await syncEngine?.incrementalSync()
                 rebuildViewModel()
             }
             .task {
@@ -73,6 +78,11 @@ struct HeroDashboardView: View {
                     viewModel = HeroDashboardViewModel(appState: appState)
                 }
                 rebuildViewModel()
+            }
+            .task(id: scenePhase) {
+                if scenePhase == .active {
+                    await syncEngine?.incrementalSync()
+                }
             }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
@@ -278,7 +288,11 @@ struct HeroDashboardView: View {
                     Task {
                         defer { submittingQuestIDs.remove(qID) }
                         guard let profile = appState.currentProfile else { return }
-                        _ = try? await questService.markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile)
+                        do {
+                            _ = try await questService.markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile)
+                        } catch {
+                            toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                        }
                     }
                 }
             )

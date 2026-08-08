@@ -23,7 +23,7 @@ struct ToastView: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .frame(maxWidth: .infinity, alignment: .top)
-        .animation(.spring, value: toastManager.toasts)
+        .animation(.snappy, value: toastManager.toasts)
         .allowsHitTesting(!toastManager.toasts.isEmpty)
     }
 
@@ -90,5 +90,25 @@ private extension ToastType {
         case .success: "Success"
         case .info: "Info"
         }
+    }
+}
+
+extension View {
+    /// Attaches the top-anchored ToastView overlay to any view or modal sheet navigation stack.
+    func toastOverlay() -> some View {
+        modifier(ToastOverlayModifier())
+    }
+}
+
+struct ToastOverlayModifier: ViewModifier {
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let toastManager {
+                    ToastView(toastManager: toastManager)
+                }
+            }
     }
 }

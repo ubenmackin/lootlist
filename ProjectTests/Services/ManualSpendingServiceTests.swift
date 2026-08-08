@@ -93,7 +93,7 @@ struct ManualSpendingServiceTests {
             _ = try await service.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Test Buy", amount: 10.0)
             #expect(Bool(false), "Expected save to throw")
         } catch {
-            #expect(error is MockError)
+            #expect((error as? SpendingServiceError) == .persistenceFailed)
         }
 
         let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
@@ -126,7 +126,7 @@ struct ManualSpendingServiceTests {
             try await service.delete(entry)
             #expect(Bool(false), "Expected delete to throw")
         } catch {
-            #expect(error is MockError)
+            #expect((error as? SpendingServiceError) == .persistenceFailed)
         }
 
         let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
@@ -361,7 +361,7 @@ struct ManualSpendingServiceTests {
             )
             #expect(Bool(false), "Expected save to throw")
         } catch {
-            #expect(error is MockError)
+            #expect((error as? SpendingServiceError) == .persistenceFailed)
         }
 
         let scopes = cache.ledgerEntryFetchScopes

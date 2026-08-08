@@ -54,11 +54,40 @@ struct TabBarView: View {
         }
         .onAppear {
             reconcileDefaultSelection()
-            notificationService.updateAppBadgeCount(pendingCount: pendingCount)
+            Task {
+                await notificationService.updateAppBadgeCount(pendingCount: pendingCount)
+            }
         }
         .onChange(of: roleKind) { _, _ in reconcileDefaultSelection() }
         .onChange(of: pendingCount) { _, newCount in
-            notificationService.updateAppBadgeCount(pendingCount: newCount)
+            Task {
+                await notificationService.updateAppBadgeCount(pendingCount: newCount)
+            }
+        }
+        .onChange(of: appState.pendingQuickAction) { _, action in
+            guard let action else { return }
+            handleQuickAction(action)
+        }
+    }
+
+    private func handleQuickAction(_ action: QuickActionType) {
+        switch action {
+        case .processPayouts:
+            if roleKind == .parent {
+                selectedTab = .payouts
+                appState.pendingQuickAction = nil
+            }
+        case .addQuickQuest, .addTemplate:
+            if roleKind == .parent {
+                selectedTab = .manage
+            }
+        case .addTransaction:
+            if roleKind == .hero {
+                selectedTab = .gold
+            }
+        case .manageQuests:
+            selectedTab = (roleKind == .parent) ? .manage : .quests
+            appState.pendingQuickAction = nil
         }
     }
 

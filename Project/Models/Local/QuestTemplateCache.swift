@@ -66,7 +66,7 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
         self.xpReward = xpReward
         self.rarity = rarity
         self.specificDays = specificDays
-        self.targetCount = targetCount
+        self.targetCount = max(1, targetCount)
         self.templateDescription = templateDescription
         self.scheduleType = scheduleType
         self.isAllOrNothing = isAllOrNothing
@@ -106,7 +106,7 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
         rarity = template.rarity.rawValue
         specificDays = template.specificDays.isEmpty ? nil : template.specificDays
         templateDescription = template.description
-        targetCount = template.targetCount
+        targetCount = max(1, template.targetCount)
         scheduleType = template.scheduleType.rawValue
         isAllOrNothing = template.isAllOrNothing
         approvalMode = template.approvalMode.rawValue

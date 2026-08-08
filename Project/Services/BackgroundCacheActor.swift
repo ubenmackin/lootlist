@@ -85,6 +85,12 @@ actor BackgroundCacheActor {
         validRecordNames: Set<String>,
         familyRecordName: String?
     ) async {
+        // SAFETY GUARD: Never purge existing cached rows if validRecordNames is empty.
+        // An empty result set from CKQuery often occurs when record types lack QUERYABLE
+        // indexes in CloudKit Development schema or during network fallback. Purging on
+        // empty validRecordNames destroys valid local cached data.
+        guard !validRecordNames.isEmpty else { return }
+
         let inFlight = await inFlightRegistry?.activeRecordNames() ?? []
         let existing = (try? modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))) ?? []
         for cached in existing where !validRecordNames.contains(cached.recordName) && !inFlight.contains(cached.recordName) {
@@ -243,6 +249,20 @@ actor BackgroundCacheActor {
         }
 
         saveContext()
+
+        // Defense-in-depth: surface any rows that still carry a non-positive targetCount
+        // after the backfill sweep. The runtime GoldCalculation.isFullyCompleted guard
+        // tolerates a residual zero, but surfacing it here narrows the diagnostic window.
+        let zeroQuests = (try? modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.targetCount <= 0 }))) ?? []
+        for quest in zeroQuests {
+            logger.warning("QuestCache targetCount stuck at zero post-backfill: \(quest.recordName, privacy: .private)")
+        }
+        let zeroTemplates = (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.targetCount <= 0 }))) ?? []
+        for template in zeroTemplates {
+            logger.warning("QuestTemplateCache targetCount stuck at zero post-backfill: \(template.recordName, privacy: .private)")
+        }
+        assert(zeroQuests.isEmpty, "QuestCache has zero targetCount post-backfill")
+        assert(zeroTemplates.isEmpty, "QuestTemplateCache has zero targetCount post-backfill")
     }
 
     /// Incremental-sync deletion path. The typed `CachedRecordType`

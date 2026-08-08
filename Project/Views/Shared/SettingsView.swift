@@ -100,7 +100,7 @@ struct SettingsView: View {
                         Label("Realm", systemImage: "shield.fill")
                             .foregroundStyle(.yellow)
                         Spacer()
-                        Text("QuestLog for Families")
+                        Text("\(Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ?? "LootList") for Families")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }

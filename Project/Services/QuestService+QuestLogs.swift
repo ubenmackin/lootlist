@@ -47,51 +47,12 @@ extension QuestService {
 
         guard !logs.isEmpty else { return 0 }
 
-        let questIDs = Array(Set(logs.map(\.quest.recordID)))
-        var questMap: [CKRecord.ID: Quest] = [:]
-
-        // Cache-first: build a lookup dictionary from the family's cached
-        // quests.  Only quest IDs absent from the cache fall through to the
-        // per-ID CloudKit fetch below (genuine cache miss).
-        if let cache = cacheService,
-           let familyName = logs.first?.family.recordID.recordName
-        {
-            let zoneID = cloudKit.resolvedZoneID
-            for row in cache.fetchQuests(family: familyName) {
-                let quest = row.toQuest(zoneID: zoneID)
-                questMap[quest.id] = quest
-            }
-        }
-
-        let missingIDs = questIDs.filter { questMap[$0] == nil }
-
-        // CK fallback ONLY for cache-miss IDs (gracefully skipping deleted/missing quests).
-        for questID in missingIDs {
-            if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
-                questMap[questID] = fetched
-            }
-        }
-
-        // Group approved logs by quest and route gold credit through the
-        // shared `GoldCalculation` helper — the same one
-        // `TreasuryService.sumGold` uses — so this weekly total and the wallet
-        // never disagree on a partially completed quest. The proration is
-        // per-quest (approvedCount per quest * goldReward / targetCount,
-        // capped by `isAllOrNothing`), so the helper is invoked once per
-        // quest with the full approved count for that quest.
-        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
-        for log in logs {
-            approvedCountByQuest[log.quest.recordID, default: 0] += 1
-        }
-
-        var total: Double = 0
-        for (questID, questCount) in approvedCountByQuest {
-            if let quest = questMap[questID] {
-                total += GoldCalculation.creditAsDouble(for: quest,
-                                                        approvedCount: questCount)
-            }
-        }
-        return total
+        return await GoldCalculation.totalCredit(
+            logs: logs,
+            cacheService: cacheService,
+            cloudKit: cloudKit,
+            family: appState?.family
+        )
     }
 
     /// Cache-first read. Background refresh handled by SyncEngine via push notifications.

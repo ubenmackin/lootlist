@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import Observation
+import OSLog
 
 enum QuestEditLockedError: LocalizedError {
     case lockedFields
@@ -23,6 +24,7 @@ enum QuestEditLockedError: LocalizedError {
 @MainActor
 @Observable
 final class QuestManagerViewModel {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestManagerVM")
     private(set) var templates: [QuestTemplateCache] = []
 
     private(set) var activeAssignments: [QuestCache] = []
@@ -34,9 +36,6 @@ final class QuestManagerViewModel {
     private let questService: QuestService
     private let familyService: FamilyService
     private let appState: AppState
-
-    private var syncSubscriptionID: UUID?
-    private var syncTask: Task<Void, Never>?
 
     init(questService: QuestService, familyService: FamilyService, appState: AppState) {
         self.questService = questService
@@ -174,7 +173,8 @@ final class QuestManagerViewModel {
                      isAllOrNothing: Bool,
                      approvalMode: ApprovalMode,
                      assignee: Profile,
-                     allowLockedFieldsOverride: Bool) async throws
+                     allowLockedFieldsOverride: Bool,
+                     propagateToTemplate: Bool = false) async throws
     {
         guard appState.family != nil else {
             throw QuestServiceError.missingSession
@@ -189,6 +189,7 @@ final class QuestManagerViewModel {
                     || quest.scheduleType != scheduleType
                     || quest.targetCount != targetCount
                     || quest.assignee.recordID != assignee.id
+                    || quest.isAllOrNothing != isAllOrNothing
                 if fieldsChanged {
                     throw QuestEditLockedError.lockedFields
                 }
@@ -209,11 +210,15 @@ final class QuestManagerViewModel {
         _ = try await questService.updateQuest(updated)
 
         let zoneID = questService.cloudKitReference.resolvedZoneID
-        if let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
+        if propagateToTemplate, let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
             var template = templateCache.toQuestTemplate(zoneID: zoneID)
             template.scheduleType = scheduleType
             template.specificDays = scheduleType.requiresSpecificDays ? specificDays : []
-            _ = try? await questService.updateTemplate(template)
+            do {
+                _ = try await questService.updateTemplate(template)
+            } catch {
+                logger.error("Failed to propagate template update: \(error, privacy: .private)")
+            }
         }
     }
 
@@ -261,28 +266,5 @@ final class QuestManagerViewModel {
 
     func rebuildHeroes(profiles: [ProfileCache]) {
         heroes = profiles.filter { $0.role == UserRole.hero.rawValue }
-    }
-
-    func subscribeToSyncEvents(_ coordinator: AppSyncCoordinator) {
-        guard syncSubscriptionID == nil else { return }
-        let (stream, id) = coordinator.subscribe()
-        syncSubscriptionID = id
-        syncTask = Task {
-            for await _ in stream {
-                // view's `@Query *.Cache` re-fires `.onChange` → `rebuildLists`
-                // / `rebuildHeroes`. No explicit `load()`/`loadHeroes()` here —
-                // those duplicated the `.onChange` path (and `loadHeroes` was a
-                // duplicate of the view's `@Query cachedProfiles`).
-            }
-        }
-    }
-
-    func unsubscribeFromSyncEvents(_ coordinator: AppSyncCoordinator) {
-        syncTask?.cancel()
-        syncTask = nil
-        if let id = syncSubscriptionID {
-            coordinator.unsubscribe(id: id)
-            syncSubscriptionID = nil
-        }
     }
 }

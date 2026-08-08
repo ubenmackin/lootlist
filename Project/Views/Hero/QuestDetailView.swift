@@ -15,6 +15,7 @@ struct QuestDetailView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
@@ -22,8 +23,6 @@ struct QuestDetailView: View {
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
     @State private var isLoadingLog: Bool = false
-    @State private var error: String?
-    @State private var isErrorPresented: Bool = false
 
     private var targetCount: Int {
         max(1, quest.targetCount)
@@ -47,7 +46,7 @@ struct QuestDetailView: View {
     }
 
     private var isFullyCompleted: Bool {
-        approvedCount >= targetCount
+        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
     }
 
     init(quest: Quest, initialLog: QuestCompletion? = nil) {
@@ -98,13 +97,6 @@ struct QuestDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await load()
-        }
-        .alert("Couldn't update quest", isPresented: $isErrorPresented) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            if let error {
-                Text(error)
-            }
         }
     }
 
@@ -276,8 +268,7 @@ struct QuestDetailView: View {
             return true
         }
         if targetCount > 1 {
-            let nonRejected = allLogs.filter { $0.verificationStatus != .rejected }.count
-            return isCompleting || nonRejected >= targetCount
+            return canSubmitAnotherCompletion
         }
         if let log = latestLog {
             switch log.verificationStatus {
@@ -286,6 +277,17 @@ struct QuestDetailView: View {
             }
         }
         return isCompleting || (isLoadingLog && latestLog == nil)
+    }
+
+    /// Mirrors `QuestService.markComplete`'s pre-write gate so the button
+    /// disables exactly when the service would reject the tap: pending logs
+    /// hold a slot, rejected logs do not.
+    private var canSubmitAnotherCompletion: Bool {
+        isCompleting || GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejected)
+    }
+
+    private var nonRejected: Int {
+        allLogs.filter { $0.verificationStatus != .rejected }.count
     }
 
     private func statusIcon(_ status: VerificationStatus) -> String {
@@ -337,8 +339,7 @@ struct QuestDetailView: View {
 
     private func completeQuest() async {
         guard let profile = appState.currentProfile else {
-            error = "No active hero profile."
-            isErrorPresented = true
+            toastManager?.show(message: "No active hero profile.", type: .error)
             return
         }
         isCompleting = true
@@ -346,11 +347,9 @@ struct QuestDetailView: View {
         do {
             _ = try await questService.markComplete(quest: quest, by: profile)
         } catch let questError as QuestServiceError {
-            self.error = questError.localizedDescription
-            self.isErrorPresented = true
+            toastManager?.show(message: questError.localizedDescription, type: .error)
         } catch {
-            self.error = error.localizedDescription
-            isErrorPresented = true
+            toastManager?.show(message: error.localizedDescription, type: .error)
         }
     }
 }
