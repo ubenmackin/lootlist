@@ -13,6 +13,8 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppDependencies {
+    static var shared: AppDependencies?
+
     let appState: AppState
     let cloudKitService: CloudKitService
     let familyService: FamilyService
@@ -22,6 +24,7 @@ final class AppDependencies {
     let achievementService: AchievementService
     let avatarService: AvatarService
     let notificationService: NotificationService
+    let spendingService: any SpendingService
     let appSyncCoordinator: AppSyncCoordinator
     let dataMigrationsCoordinator: DataMigrationsCoordinator
     let cacheService: CacheService?
@@ -50,7 +53,12 @@ final class AppDependencies {
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification, cacheService: cache, treasuryService: treasury, toastManager: toast, appState: app)
         let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast)
         let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app)
+        quest.achievementService = achievement
         let avatar = AvatarService(xp: xp)
+        let manualSpending = ManualSpendingService(cloudKit: ck, cacheService: cache, appState: app)
+        manualSpending.toastManager = toast
+        spendingService = manualSpending
+
         let appSync = AppSyncCoordinator()
 
         // AppState keeps a late-bound cache reference: it is constructed before the
@@ -58,10 +66,13 @@ final class AppDependencies {
         app.cacheService = cache
         toastManager = toast
 
+        let sharedBgActor: BackgroundCacheActor?
         if let cache, let container = cache.container {
             let bgActor = BackgroundCacheActor(container: container, inFlightRegistry: cache.inFlightRegistry)
+            sharedBgActor = bgActor
             syncEngine = SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync)
         } else {
+            sharedBgActor = nil
             syncEngine = nil
         }
 
@@ -69,10 +80,9 @@ final class AppDependencies {
         migrations.register(
             DataMigrationsCoordinator.questNameBackfillV1(cloudKit: ck)
         )
-        if let cache, let container = cache.container {
-            let bgActor = BackgroundCacheActor(container: container, inFlightRegistry: cache.inFlightRegistry)
+        if let sharedBgActor {
             migrations.register(
-                DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: bgActor)
+                DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: sharedBgActor)
             )
         }
 
@@ -114,6 +124,8 @@ final class AppDependencies {
         appSyncCoordinator = appSync
         dataMigrationsCoordinator = migrations
         cacheService = cache
+
+        Self.shared = self
     }
 }
 
@@ -245,7 +257,7 @@ struct LootListApp: App {
                 // Toast banner overlay sits above all RootView states (splash,
                 // onboarding, authenticated) so services can surface errors
                 // universally. Hung on `baseRoot` so both branch consumers inherit it.
-                .overlay(alignment: .top) { ToastView(toastManager: toastManager) }
+                .toastOverlay()
 
             if let container = cacheService?.container {
                 baseRoot.modelContainer(container)

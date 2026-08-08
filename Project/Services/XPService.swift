@@ -29,6 +29,14 @@ extension CloudKitServicing {
     }
 }
 
+enum XPServiceError: Error, LocalizedError, Equatable, Sendable {
+    case persistenceFailed
+
+    var errorDescription: String? {
+        "Could not update XP. Please try again."
+    }
+}
+
 extension CloudKitService: CloudKitServicing {}
 
 struct LevelProgress: Equatable, Sendable {
@@ -49,7 +57,7 @@ final class XPService {
 
     static let accessoryCadence: Int = AppConstants.Experience.accessoryCadence
 
-    private let cloudKit: any CloudKitServicing
+    private let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
     var cacheService: CacheService?
 
@@ -58,7 +66,7 @@ final class XPService {
     var appState: AppState?
 
     init(
-        cloudKit: any CloudKitServicing,
+        cloudKit: any CloudKitServiceProtocol,
         notificationService: NotificationService? = nil,
         cacheService: CacheService? = nil,
         toastManager: ToastManager? = nil,
@@ -147,50 +155,28 @@ final class XPService {
                     }
                 }
             }
+
             await registry?.deregister(name)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: profile.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchProfile(recordName: name)?.changeTag },
+                snapshot: snapshotProfile,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cacheService?.fetchProfile(recordName: name)?.changeTag },
+                upsert: { restored in
+                    self.cacheService?.upsertProfile(restored)
+                    if restored.id == self.appState?.currentProfile?.id {
+                        self.appState?.currentProfile = restored
+                    }
+                },
+                invalidate: { _ in self.cacheService?.invalidateProfile(recordName: name) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(Profile.self, id: profile.id) {
-                    cacheService?.upsertProfile(fresh)
-                    await registry?.deregister(name)
-                    return fresh
-                } else if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    await registry?.deregister(name)
-                    return snapshotProfile
-                } else {
-                    cacheService?.invalidateProfile(recordName: name)
-                    await registry?.deregister(name)
-                    return profile
-                }
-            } else {
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-                if let snapshotProfile {
-                    cacheService?.upsertProfile(snapshotProfile)
-                    await registry?.deregister(name)
-                    return snapshotProfile
-                }
-                cacheService?.invalidateProfile(recordName: name)
-                await registry?.deregister(name)
-                return profile
-            }
+            await registry?.deregister(name)
+            throw error
         }
     }
 

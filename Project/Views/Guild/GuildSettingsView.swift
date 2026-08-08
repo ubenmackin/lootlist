@@ -9,6 +9,7 @@ import CloudKit
 import SwiftUI
 
 struct GuildSettingsView: View {
+    @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(TreasuryService.self) private var treasury
@@ -69,6 +70,12 @@ struct GuildSettingsView: View {
                         Task { await viewModel?.refresh() }
                     }
             }
+            .onChange(of: actionError) { _, newError in
+                if let error = newError {
+                    toastManager.show(message: error, type: .error)
+                    actionError = nil
+                }
+            }
             .alert("Transfer Guild Master Role?",
                    isPresented: Binding(
                        get: { showRoleTransferConfirm != nil },
@@ -105,12 +112,6 @@ struct GuildSettingsView: View {
         }
         if let currentRole = appState.currentProfile?.role, currentRole == .guildMaster {
             deleteFamilySection
-        }
-        if let error = actionError {
-            Text(error)
-                .font(.footnote)
-                .foregroundStyle(.red)
-                .padding(.horizontal)
         }
     }
 }
@@ -222,7 +223,11 @@ private extension GuildSettingsView {
                         set: { newDay in
                             if let family = appState.family {
                                 Task {
-                                    try? await familyService.updatePayoutDay(family: family, day: newDay)
+                                    do {
+                                        try await familyService.updatePayoutDay(family: family, day: newDay)
+                                    } catch {
+                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                    }
                                 }
                             }
                         }
@@ -247,7 +252,11 @@ private extension GuildSettingsView {
                         Button {
                             Task {
                                 if let family = appState.family {
-                                    try? await familyService.updatePayoutPolicy(family: family, policy: policy)
+                                    do {
+                                        _ = try await familyService.updatePayoutPolicy(family: family, policy: policy)
+                                    } catch {
+                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                    }
                                 }
                             }
                         } label: {
@@ -548,16 +557,17 @@ private extension GuildSettingsView {
 
     @MainActor
     private func deleteFamilyAndReset() async {
-        guard let family = appState.family else { return }
-        let zoneID = questService.cloudKitReference.resolvedZoneID
-
-        let vm = viewModel
-        let allMembers = (vm?.heroes ?? []) + (vm?.parents ?? [])
-        for member in allMembers {
-            try? await familyService.leaveFamily(profile: member.toProfile(zoneID: zoneID))
+        guard let family = appState.family else {
+            appState.clearSession()
+            return
         }
 
-        try? await familyService.deleteFamilyAndReset(family: family)
+        do {
+            try await familyService.deleteFamilyAndReset(family: family)
+        } catch {
+            print("Failed to delete family zone: \(error)")
+            appState.clearSession()
+        }
     }
 
     private var loadingPlaceholder: some View {

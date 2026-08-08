@@ -11,6 +11,7 @@ import SwiftUI
 struct HeroSettingsView: View {
     let hero: Profile
 
+    @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(\.dismiss) private var dismiss
@@ -38,13 +39,6 @@ struct HeroSettingsView: View {
 
                     // Payout Policy Section with Radio Cards
                     payoutPolicySection
-
-                    if let actionError {
-                        Text(actionError)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .padding(.horizontal)
-                    }
                 }
                 .padding(.vertical, 16)
             }
@@ -58,6 +52,13 @@ struct HeroSettingsView: View {
                     }
                 }
             }
+            .onChange(of: actionError) { _, newError in
+                if let error = newError {
+                    toastManager.show(message: error, type: .error)
+                    actionError = nil
+                }
+            }
+            .toastOverlay()
         }
     }
 

@@ -83,7 +83,13 @@ final class SyncEngine {
     /// paths are scoped to that family so other families' cached rows are never
     /// deleted.
     func syncAllForActiveZone() async {
-        await _syncAll(familyRecordName: cloudKit.resolvedZoneID.zoneName)
+        let zoneID = cloudKit.resolvedZoneID
+        let tokenKey = tokenKey(for: zoneID, isShared: !cloudKit.activeIsOwner)
+        if loadChangeToken(key: tokenKey) != nil {
+            await incrementalSync(familyRecordName: zoneID.zoneName)
+        } else {
+            await _syncAll(familyRecordName: zoneID.zoneName)
+        }
     }
 
     /// Shared implementation for scoped full syncs.
@@ -122,14 +128,16 @@ final class SyncEngine {
 
         defer {
             isSyncing = false
-            lastSyncedAt = Date()
-            let outcome: SyncOutcome = syncErrors.isEmpty ? (recordsChanged ? .changed : .noChange) : .failed
-            var userInfo: [String: Any] = [SyncOutcome.userInfoKey: outcome]
-            if !syncErrors.isEmpty {
-                userInfo["errors"] = syncErrors
+            if !Task.isCancelled {
+                lastSyncedAt = Date()
+                let outcome: SyncOutcome = syncErrors.isEmpty ? (recordsChanged ? .changed : .noChange) : .failed
+                var userInfo: [String: Any] = [SyncOutcome.userInfoKey: outcome]
+                if !syncErrors.isEmpty {
+                    userInfo["errors"] = syncErrors
+                }
+                NotificationCenter.default.post(name: .syncDidComplete, object: self, userInfo: userInfo)
+                dispatchPendingSync(familyRecordName: resolvedFamilyRecordName)
             }
-            NotificationCenter.default.post(name: .syncDidComplete, object: self, userInfo: userInfo)
-            dispatchPendingSync(familyRecordName: resolvedFamilyRecordName)
         }
 
         logger.info("Starting syncAll for familyRecordName=\(resolvedFamilyRecordName, privacy: .private)")
@@ -300,13 +308,19 @@ final class SyncEngine {
             // an empty zone IS a complete sync of that type.
             cacheService.markCacheFresh(familyRecordName: familyRecordName, type: cachedType)
         } catch {
+            if Task.isCancelled || (error as? CloudKitServiceError) == .underlying("operationCancelled") || (error as? CloudKitServiceError) == .underlying("20") {
+                logger.debug("Sync task cancelled for \(name, privacy: .public)")
+                return
+            }
             logger.error("Failed to sync \(name): \(error)")
             syncErrors.append("\(errorTag): \(error.localizedDescription)")
         }
     }
 
     /// Incremental delta sync using CKServerChangeToken for a specific family.
-    func incrementalSync(familyRecordName: String? = nil) async {
+    /// Set `forceFullFetch: true` to clear the change token checkpoint and fetch
+    /// all historical zone changes from scratch (e.g. during pull-to-refresh).
+    func incrementalSync(familyRecordName: String? = nil, forceFullFetch: Bool = false) async {
         if isSyncing {
             logger.info("Sync already in progress, skipping incremental sync (queued as pending)")
             if pendingSync < .full {
@@ -324,8 +338,8 @@ final class SyncEngine {
         var didDelegateToFullSync = false
 
         defer {
-            if !didDelegateToFullSync {
-                isSyncing = false
+            isSyncing = false
+            if !didDelegateToFullSync, !Task.isCancelled {
                 lastSyncedAt = Date()
                 let outcome: SyncOutcome = syncError == nil ? (recordsChanged ? .changed : .noChange) : .failed
                 NotificationCenter.default.post(name: .syncDidComplete, object: self, userInfo: [SyncOutcome.userInfoKey: outcome])
@@ -337,6 +351,11 @@ final class SyncEngine {
 
         let zoneID = cloudKit.resolvedZoneID
         let tokenKey = tokenKey(for: zoneID, isShared: !cloudKit.activeIsOwner)
+
+        if forceFullFetch {
+            logger.info("forceFullFetch requested — clearing change token for zone \(zoneID.zoneName, privacy: .private)")
+            UserDefaults.standard.removeObject(forKey: tokenKey)
+        }
 
         // A previous incremental pass hit unparseable records in this zone,
         // so the change token was deliberately not advanced — replaying it
@@ -350,13 +369,8 @@ final class SyncEngine {
             return
         }
 
-        guard let token = loadChangeToken(key: tokenKey) else {
-            logger.info("No server change token found, executing syncAll(familyRecordName: \(familyRecordName ?? "all", privacy: .private))")
-            isSyncing = false
-            didDelegateToFullSync = true
-            await dispatchFullSync(familyRecordName: familyRecordName)
-            return
-        }
+        let token = loadChangeToken(key: tokenKey)
+        logger.info("Starting incrementalSync with change token: \(token != nil ? "present" : "nil (initial)")")
 
         logger.info("Starting incrementalSync with change token")
         do {
@@ -407,11 +421,11 @@ final class SyncEngine {
 
     private func processIncrementalChanges(_ result: ZoneChangesResult) async -> Set<CachedRecordType> {
         var touchedTypes = Set<CachedRecordType>()
-        for record in result.changedRecords {
-            if let type = CachedRecordType.recordType(for: record.recordType) {
+        for parsed in result.changedRecords {
+            if let type = parsed.cachedRecordType {
                 touchedTypes.insert(type)
             }
-            await processChangedRecord(record)
+            await processChangedRecord(parsed)
         }
 
         for (deletedID, recordType) in result.deletedRecordIDs {
@@ -492,12 +506,8 @@ final class SyncEngine {
     }
 
     private func isTokenInvalidError(_ error: Error) -> Bool {
-        if let ckServiceError = error as? CloudKitServiceError {
-            if case let .notFound(detail) = ckServiceError,
-               detail == "15" || detail == "26" // CKError.changeTokenExpired=15, zoneNotFound=26
-            {
-                return true
-            }
+        if let svcErr = error as? CloudKitServiceError {
+            return svcErr == .changeTokenExpired || svcErr == .zoneNotFound
         }
         if let ckError = error as? CKError,
            ckError.code == .changeTokenExpired || ckError.code == .zoneNotFound
@@ -518,110 +528,37 @@ final class SyncEngine {
         return tokenKey(for: zoneID, isShared: isShared)
     }
 
-    private func processChangedRecord(_ record: CKRecord) async {
-        if await processCoreRecord(record) {
-            return
-        }
-        await processSecondaryRecord(record)
-    }
-
-    private func processCoreRecord(_ record: CKRecord) async -> Bool {
-        switch record.recordType {
-        case Family.recordType:
-            do {
-                let family = try Family(record: record)
-                await backgroundCache.batchUpsertFamilies([family])
-            } catch {
-                logger.error("Failed to parse Family record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-            return true
-        case Profile.recordType:
-            do {
-                let profile = try Profile(record: record)
-                await backgroundCache.batchUpsertProfiles([profile], familyRecordName: profile.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse Profile record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-            return true
-        case Quest.recordType:
-            do {
-                let quest = try Quest(record: record)
-                let stamped = await backgroundCache.backfillQuestNames([quest], cloudKit: cloudKit)
-                await backgroundCache.batchUpsertQuests(stamped, familyRecordName: quest.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse Quest record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-            return true
-        case QuestTemplate.recordType:
-            do {
-                let template = try QuestTemplate(record: record)
-                await backgroundCache.batchUpsertQuestTemplates([template], familyRecordName: template.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse QuestTemplate record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-            return true
-        case QuestCompletion.recordType:
-            do {
-                let completion = try QuestCompletion(record: record)
-                await backgroundCache.batchUpsertQuestCompletions([completion], familyRecordName: completion.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse QuestCompletion record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func processSecondaryRecord(_ record: CKRecord) async {
-        switch record.recordType {
-        case LedgerEntry.recordType:
-            do {
-                let entry = try LedgerEntry(record: record)
-                await backgroundCache.batchUpsertLedgerEntries([entry], familyRecordName: entry.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse LedgerEntry record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-        case AllowancePeriod.recordType:
-            do {
-                let period = try AllowancePeriod(record: record)
-                await backgroundCache.batchUpsertAllowancePeriods([period], familyRecordName: period.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse AllowancePeriod record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-        case Achievement.recordType:
-            do {
-                let achievement = try Achievement(record: record)
-                await backgroundCache.batchUpsertAchievements([achievement], familyRecordName: achievement.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse Achievement record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-        case ProfileAchievement.recordType:
-            do {
-                let pa = try ProfileAchievement(record: record)
-                await backgroundCache.batchUpsertProfileAchievements([pa], familyRecordName: pa.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse ProfileAchievement record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-        case NotificationPreference.recordType:
-            do {
-                let pref = try NotificationPreference(record: record)
-                await backgroundCache.batchUpsertNotificationPreferences([pref], familyRecordName: pref.family.recordID.recordName)
-            } catch {
-                logger.error("Failed to parse NotificationPreference record \(record.recordID.recordName, privacy: .private): \(error)")
-                recordParseFailure(recordName: record.recordID.recordName)
-            }
-        default:
-            break
+    /// Dispatches a pre-parsed domain model to the appropriate `backgroundCache`
+    /// batch upsert. Domain parsing happened on the `@MainActor` side inside
+    /// `CloudKitService+ZoneChanges`; this method only routes.
+    private func processChangedRecord(_ parsed: ParsedRecord) async {
+        switch parsed {
+        case let .family(family):
+            await backgroundCache.batchUpsertFamilies([family])
+        case let .profile(profile):
+            await backgroundCache.batchUpsertProfiles([profile], familyRecordName: profile.family.recordID.recordName)
+        case let .quest(quest):
+            let stamped = await backgroundCache.backfillQuestNames([quest], cloudKit: cloudKit)
+            await backgroundCache.batchUpsertQuests(stamped, familyRecordName: quest.family.recordID.recordName)
+        case let .questTemplate(template):
+            await backgroundCache.batchUpsertQuestTemplates([template], familyRecordName: template.family.recordID.recordName)
+        case let .questCompletion(completion):
+            await backgroundCache.batchUpsertQuestCompletions([completion], familyRecordName: completion.family.recordID.recordName)
+        case let .ledgerEntry(entry):
+            await backgroundCache.batchUpsertLedgerEntries([entry], familyRecordName: entry.family.recordID.recordName)
+        case let .allowancePeriod(period):
+            await backgroundCache.batchUpsertAllowancePeriods([period], familyRecordName: period.family.recordID.recordName)
+        case let .achievement(achievement):
+            await backgroundCache.batchUpsertAchievements([achievement], familyRecordName: achievement.family.recordID.recordName)
+        case let .profileAchievement(pa):
+            await backgroundCache.batchUpsertProfileAchievements([pa], familyRecordName: pa.family.recordID.recordName)
+        case let .notificationPreference(pref):
+            await backgroundCache.batchUpsertNotificationPreferences([pref], familyRecordName: pref.family.recordID.recordName)
+        case let .ignoredSystemRecord(recordType, recordName):
+            logger.debug("Skipping system record \(recordType, privacy: .public) \(recordName, privacy: .private)")
+        case let .parseFailure(recordType, recordName):
+            logger.error("Skipping unparseable \(recordType, privacy: .public) record \(recordName, privacy: .private)")
+            recordParseFailure(recordName: recordName)
         }
     }
 

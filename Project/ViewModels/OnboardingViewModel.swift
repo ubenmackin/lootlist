@@ -37,6 +37,8 @@ final class OnboardingViewModel {
 
     var shareURLString: String = ""
 
+    var sharedMetadata: CKShare.Metadata?
+
     var familyName: String = ""
 
     var path: [OnboardingStep] = []
@@ -158,8 +160,10 @@ final class OnboardingViewModel {
             familyName = trimmed
             push(.done)
         } catch let familyError as FamilyServiceError {
+            print("Failed to create family: \(familyError.localizedDescription)")
             error = familyError.localizedDescription
         } catch {
+            print("Failed to create family: \(error)")
             self.error = "Could not found your guild: \(error)"
         }
     }
@@ -182,8 +186,7 @@ final class OnboardingViewModel {
             let rawURL = shareURLString.trimmingCharacters(in: .whitespacesAndNewlines)
             if let url = URL(string: rawURL) {
                 do {
-                    let container = CloudKitService.defaultContainer
-                    let metadata = try await container.shareMetadata(for: url)
+                    let metadata = try await familyService.cloudKitReference.fetchShareMetadata(for: url)
                     pendingShareMetadata = metadata
                 } catch {
                     self.error = "Could not open share invitation: \(error.localizedDescription)"

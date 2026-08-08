@@ -10,6 +10,7 @@ import SwiftData
 import SwiftUI
 
 struct QuestManagerView: View {
+    @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(QuestService.self) private var questService
@@ -91,7 +92,6 @@ struct QuestManagerView: View {
                         appState: appState
                     )
                 }
-                viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 rebuildViewModel()
             }
             .refreshable {
@@ -101,9 +101,6 @@ struct QuestManagerView: View {
                 if newPhase == .active {
                     rebuildViewModel()
                 }
-            }
-            .onDisappear {
-                viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
             .onChange(of: cachedTemplates) { _, _ in
                 rebuildViewModel()
@@ -159,6 +156,28 @@ struct QuestManagerView: View {
                     TemplateManagerView(viewModel: vm, editing: nil)
                 }
             }
+            .onAppear {
+                checkPendingQuickAction(appState.pendingQuickAction)
+            }
+            .onChange(of: appState.pendingQuickAction) { _, action in
+                checkPendingQuickAction(action)
+            }
+        }
+    }
+
+    private func checkPendingQuickAction(_ action: QuickActionType?) {
+        guard let action else { return }
+        switch action {
+        case .addQuickQuest:
+            selectedTab = .assignments
+            showAssignSheet = true
+            appState.pendingQuickAction = nil
+        case .addTemplate:
+            selectedTab = .templates
+            showAddTemplateSheet = true
+            appState.pendingQuickAction = nil
+        default:
+            break
         }
     }
 
@@ -235,7 +254,11 @@ struct QuestManagerView: View {
                 isSubmitting = true
                 Task {
                     defer { isSubmitting = false }
-                    try? await vm.unassignQuest(quest.toQuest(zoneID: zoneID))
+                    do {
+                        try await vm.unassignQuest(quest.toQuest(zoneID: zoneID))
+                    } catch {
+                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                    }
                 }
             } label: {
                 Label("Unassign", systemImage: "trash")
@@ -308,7 +331,11 @@ struct QuestManagerView: View {
                     isSubmitting = true
                     Task {
                         defer { isSubmitting = false }
-                        try? await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                        do {
+                            try await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                        } catch {
+                            toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                        }
                     }
                 } label: {
                     Label("Deactivate", systemImage: "trash.slash")
@@ -321,7 +348,11 @@ struct QuestManagerView: View {
                     isSubmitting = true
                     Task {
                         defer { isSubmitting = false }
-                        try? await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                        do {
+                            try await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                        } catch {
+                            toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                        }
                     }
                 } label: {
                     Label("Activate", systemImage: "arrow.clockwise.circle.fill")

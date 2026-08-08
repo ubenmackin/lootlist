@@ -225,25 +225,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.familyRecordName = quest.family.recordID.recordName
-            existing.assigneeRecordName = quest.assignee.recordID.recordName
-            existing.templateRecordName = quest.template.recordID.recordName
-            existing.weekOf = quest.weekOf
-            existing.questName = quest.displayName
-            existing.isActive = quest.active
-            existing.goldReward = quest.goldReward
-            existing.xpReward = quest.xpReward
-            existing.xpBanked = quest.xpBanked
-            // `rarity` is intentionally NOT re-stamped: `rarityEnum` derives it
-            // from `xpReward` at read time; the stored string is only a legacy
-            // fallback for rows without a meaningful xpReward.
-            existing.scheduleType = quest.scheduleType.rawValue
-            existing.isAllOrNothing = quest.isAllOrNothing
-            existing.approvalMode = quest.approvalMode.rawValue
-            existing.descriptionText = quest.descriptionText
-            existing.targetCount = quest.targetCount
-            existing.createdByRecordName = quest.createdBy.recordID.recordName
-            existing.changeTag = quest.changeTag
+            QuestCache.apply(existing, from: quest)
         } else {
             context.insert(QuestCache(from: quest))
         }
@@ -257,19 +239,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.familyRecordName = profile.family.recordID.recordName
-            existing.displayName = profile.displayName
-            existing.role = profile.role.rawValue
-            existing.xpTotal = profile.xp
-            existing.avatarName = profile.avatarPresetID
-            existing.customAvatarImageData = profile.customAvatarImageData
-            existing.isActive = profile.isActive
-            existing.level = profile.level
-            existing.iCloudUserRecordName = profile.iCloudUserID.recordName
-            existing.avatarClass = profile.avatarClass?.rawValue
-            existing.payoutPolicy = profile.payoutPolicy.rawValue
-            existing.payoutDay = profile.payoutDay?.rawValue
-            existing.changeTag = profile.changeTag
+            ProfileCache.apply(existing, from: profile)
         } else {
             context.insert(ProfileCache(from: profile))
         }
@@ -283,19 +253,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.questRecordName = completion.quest.recordID.recordName
-            existing.familyRecordName = completion.family.recordID.recordName
-            existing.completerRecordName = completion.completedBy.recordID.recordName
-            existing.completedDate = completion.completedDate
-            existing.weekOf = completion.weekOf
-            existing.verificationStatus = completion.verificationStatus.rawValue
-            existing.approvalMode = (completion.verificationStatus == .autoApproved)
-                ? ApprovalMode.autoApprove.rawValue
-                : ApprovalMode.parentVerify.rawValue
-            existing.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
-            existing.verifiedDate = completion.verifiedDate
-            existing.xpCredited = completion.xpCredited
-            existing.changeTag = completion.changeTag
+            QuestCompletionCache.apply(existing, from: completion)
         } else {
             context.insert(QuestCompletionCache(from: completion))
         }
@@ -309,20 +267,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.familyRecordName = template.family.recordID.recordName
-            existing.name = template.name
-            existing.isActive = template.isActive
-            existing.goldReward = template.defaultGold
-            existing.xpReward = template.xpReward
-            existing.rarity = template.rarity.rawValue
-            existing.specificDays = template.specificDays.isEmpty ? nil : template.specificDays
-            existing.templateDescription = template.description
-            existing.targetCount = template.targetCount
-            existing.scheduleType = template.scheduleType.rawValue
-            existing.isAllOrNothing = template.isAllOrNothing
-            existing.approvalMode = template.approvalMode.rawValue
-            existing.createdByRecordName = template.createdBy.recordID.recordName
-            existing.changeTag = template.changeTag
+            QuestTemplateCache.apply(existing, from: template)
         } else {
             context.insert(QuestTemplateCache(from: template))
         }
@@ -336,12 +281,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.name = family.name
-            existing.createdByRecordName = family.createdBy.recordName
-            existing.createdAt = family.createdAt
-            existing.payoutPolicy = family.payoutPolicy.rawValue
-            existing.payoutDay = family.payoutDay.rawValue
-            existing.changeTag = family.changeTag
+            FamilyCache.apply(existing, from: family)
         } else {
             context.insert(FamilyCache(from: family))
         }
@@ -355,13 +295,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.profileRecordName = entry.profile.recordID.recordName
-            existing.familyRecordName = entry.family.recordID.recordName
-            existing.amount = entry.amount
-            existing.entryDescription = entry.description
-            existing.date = entry.date
-            existing.source = entry.source
-            existing.changeTag = entry.changeTag
+            LedgerEntryCache.apply(existing, from: entry)
         } else {
             context.insert(LedgerEntryCache(from: entry))
         }
@@ -375,16 +309,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.profileRecordName = period.profile.recordID.recordName
-            existing.familyRecordName = period.family.recordID.recordName
-            existing.weekOf = period.weekOf
-            existing.status = period.status.rawValue
-            existing.totalEarned = period.totalEarned
-            existing.questsCompleted = period.questsCompleted
-            existing.questsTotal = period.questsTotal
-            existing.paidDate = period.paidDate
-            existing.paidAmount = period.paidAmount
-            existing.changeTag = period.changeTag
+            AllowancePeriodCache.apply(existing, from: period)
         } else {
             context.insert(AllowancePeriodCache(from: period))
         }
@@ -398,14 +323,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.familyRecordName = achievement.family.recordID.recordName
-            existing.name = achievement.name
-            existing.achievementDescription = achievement.description
-            existing.iconSystemName = achievement.iconSystemName
-            existing.category = achievement.category.rawValue
-            existing.requirementType = achievement.requirementType.rawValue
-            existing.requirementValue = achievement.requirementValue
-            existing.changeTag = achievement.changeTag
+            AchievementCache.apply(existing, from: achievement)
         } else {
             context.insert(AchievementCache(from: achievement))
         }
@@ -419,12 +337,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.profileRecordName = pref.profile.recordID.recordName
-            existing.familyRecordName = pref.family.recordID.recordName
-            existing.eventType = pref.eventType.rawValue
-            existing.enabled = pref.enabled
-            existing.pushEnabled = pref.pushEnabled
-            existing.changeTag = pref.changeTag
+            NotificationPreferenceCache.apply(existing, from: pref)
         } else {
             context.insert(NotificationPreferenceCache(from: pref))
         }
@@ -438,11 +351,7 @@ final class CacheService {
             predicate: #Predicate { $0.recordName == name }
         )
         if let existing = try? context.fetch(descriptor).first {
-            existing.achievementRecordName = pa.achievement.recordID.recordName
-            existing.profileRecordName = pa.profile.recordID.recordName
-            existing.familyRecordName = pa.family.recordID.recordName
-            existing.earnedDate = pa.earnedDate
-            existing.changeTag = pa.changeTag
+            ProfileAchievementCache.apply(existing, from: pa)
         } else {
             context.insert(ProfileAchievementCache(from: pa))
         }
@@ -451,39 +360,19 @@ final class CacheService {
 
     // MARK: - Batch Upserts
 
+    private func existingByRecordName<T: CacheMergeable>(_: T.Type, family: String?) -> [String: T] {
+        guard let context else { return [:] }
+        let descriptor = T.fetchDescriptor(familyRecordName: family)
+        let existing = (try? context.fetch(descriptor)) ?? []
+        return Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { current, _ in current })
+    }
+
     func upsertQuests(_ quests: [Quest], family: String? = nil) {
         guard let context else { return }
-        let existing: [QuestCache] = if let family {
-            (try? context.fetch(FetchDescriptor<QuestCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<QuestCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(QuestCache.self, family: family)
         for quest in quests {
-            let name = quest.id.recordName
-            if let cached = existingMap[name] {
-                cached.familyRecordName = quest.family.recordID.recordName
-                cached.assigneeRecordName = quest.assignee.recordID.recordName
-                cached.templateRecordName = quest.template.recordID.recordName
-                cached.weekOf = quest.weekOf
-                cached.questName = quest.displayName
-                cached.isActive = quest.active
-                cached.goldReward = quest.goldReward
-                cached.xpReward = quest.xpReward
-                cached.xpBanked = quest.xpBanked
-                // `rarity` is intentionally NOT re-stamped: `rarityEnum` derives
-                // it from `xpReward` at read time; the stored string is only a
-                // legacy fallback for rows without a meaningful xpReward.
-                cached.scheduleType = quest.scheduleType.rawValue
-                cached.isAllOrNothing = quest.isAllOrNothing
-                cached.approvalMode = quest.approvalMode.rawValue
-                cached.descriptionText = quest.descriptionText
-                cached.targetCount = quest.targetCount
-                cached.createdByRecordName = quest.createdBy.recordID.recordName
-                cached.changeTag = quest.changeTag
+            if let cached = existingMap[quest.id.recordName] {
+                QuestCache.apply(cached, from: quest)
             } else {
                 context.insert(QuestCache(from: quest))
             }
@@ -493,30 +382,10 @@ final class CacheService {
 
     func upsertProfiles(_ profiles: [Profile], family: String? = nil) {
         guard let context else { return }
-        let existing: [ProfileCache] = if let family {
-            (try? context.fetch(FetchDescriptor<ProfileCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<ProfileCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(ProfileCache.self, family: family)
         for profile in profiles {
-            let name = profile.id.recordName
-            if let cached = existingMap[name] {
-                cached.familyRecordName = profile.family.recordID.recordName
-                cached.displayName = profile.displayName
-                cached.role = profile.role.rawValue
-                cached.xpTotal = profile.xp
-                cached.avatarName = profile.avatarPresetID
-                cached.customAvatarImageData = profile.customAvatarImageData
-                cached.isActive = profile.isActive
-                cached.level = profile.level
-                cached.iCloudUserRecordName = profile.iCloudUserID.recordName
-                cached.avatarClass = profile.avatarClass?.rawValue
-                cached.payoutPolicy = profile.payoutPolicy.rawValue
-                cached.changeTag = profile.changeTag
+            if let cached = existingMap[profile.id.recordName] {
+                ProfileCache.apply(cached, from: profile)
             } else {
                 context.insert(ProfileCache(from: profile))
             }
@@ -526,31 +395,10 @@ final class CacheService {
 
     func upsertQuestCompletions(_ completions: [QuestCompletion], family: String? = nil) {
         guard let context else { return }
-        let existing: [QuestCompletionCache] = if let family {
-            (try? context.fetch(FetchDescriptor<QuestCompletionCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<QuestCompletionCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(QuestCompletionCache.self, family: family)
         for completion in completions {
-            let name = completion.id.recordName
-            if let cached = existingMap[name] {
-                cached.questRecordName = completion.quest.recordID.recordName
-                cached.familyRecordName = completion.family.recordID.recordName
-                cached.completerRecordName = completion.completedBy.recordID.recordName
-                cached.completedDate = completion.completedDate
-                cached.weekOf = completion.weekOf
-                cached.verificationStatus = completion.verificationStatus.rawValue
-                cached.approvalMode = (completion.verificationStatus == .autoApproved)
-                    ? ApprovalMode.autoApprove.rawValue
-                    : ApprovalMode.parentVerify.rawValue
-                cached.verifiedByRecordName = completion.verifiedBy?.recordID.recordName
-                cached.verifiedDate = completion.verifiedDate
-                cached.xpCredited = completion.xpCredited
-                cached.changeTag = completion.changeTag
+            if let cached = existingMap[completion.id.recordName] {
+                QuestCompletionCache.apply(cached, from: completion)
             } else {
                 context.insert(QuestCompletionCache(from: completion))
             }
@@ -560,32 +408,10 @@ final class CacheService {
 
     func upsertQuestTemplates(_ templates: [QuestTemplate], family: String? = nil) {
         guard let context else { return }
-        let existing: [QuestTemplateCache] = if let family {
-            (try? context.fetch(FetchDescriptor<QuestTemplateCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(QuestTemplateCache.self, family: family)
         for template in templates {
-            let name = template.id.recordName
-            if let cached = existingMap[name] {
-                cached.familyRecordName = template.family.recordID.recordName
-                cached.name = template.name
-                cached.isActive = template.isActive
-                cached.goldReward = template.defaultGold
-                cached.xpReward = template.xpReward
-                cached.rarity = template.rarity.rawValue
-                cached.specificDays = template.specificDays.isEmpty ? nil : template.specificDays
-                cached.templateDescription = template.description
-                cached.targetCount = template.targetCount
-                cached.scheduleType = template.scheduleType.rawValue
-                cached.isAllOrNothing = template.isAllOrNothing
-                cached.approvalMode = template.approvalMode.rawValue
-                cached.createdByRecordName = template.createdBy.recordID.recordName
-                cached.changeTag = template.changeTag
+            if let cached = existingMap[template.id.recordName] {
+                QuestTemplateCache.apply(cached, from: template)
             } else {
                 context.insert(QuestTemplateCache(from: template))
             }
@@ -595,25 +421,10 @@ final class CacheService {
 
     func upsertLedgerEntries(_ entries: [LedgerEntry], family: String? = nil) {
         guard let context else { return }
-        let existing: [LedgerEntryCache] = if let family {
-            (try? context.fetch(FetchDescriptor<LedgerEntryCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<LedgerEntryCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(LedgerEntryCache.self, family: family)
         for entry in entries {
-            let name = entry.id.recordName
-            if let cached = existingMap[name] {
-                cached.profileRecordName = entry.profile.recordID.recordName
-                cached.familyRecordName = entry.family.recordID.recordName
-                cached.amount = entry.amount
-                cached.entryDescription = entry.description
-                cached.date = entry.date
-                cached.source = entry.source
-                cached.changeTag = entry.changeTag
+            if let cached = existingMap[entry.id.recordName] {
+                LedgerEntryCache.apply(cached, from: entry)
             } else {
                 context.insert(LedgerEntryCache(from: entry))
             }
@@ -623,28 +434,10 @@ final class CacheService {
 
     func upsertAllowancePeriods(_ periods: [AllowancePeriod], family: String? = nil) {
         guard let context else { return }
-        let existing: [AllowancePeriodCache] = if let family {
-            (try? context.fetch(FetchDescriptor<AllowancePeriodCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<AllowancePeriodCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(AllowancePeriodCache.self, family: family)
         for period in periods {
-            let name = period.id.recordName
-            if let cached = existingMap[name] {
-                cached.profileRecordName = period.profile.recordID.recordName
-                cached.familyRecordName = period.family.recordID.recordName
-                cached.weekOf = period.weekOf
-                cached.status = period.status.rawValue
-                cached.totalEarned = period.totalEarned
-                cached.questsCompleted = period.questsCompleted
-                cached.questsTotal = period.questsTotal
-                cached.paidDate = period.paidDate
-                cached.paidAmount = period.paidAmount
-                cached.changeTag = period.changeTag
+            if let cached = existingMap[period.id.recordName] {
+                AllowancePeriodCache.apply(cached, from: period)
             } else {
                 context.insert(AllowancePeriodCache(from: period))
             }
@@ -654,26 +447,10 @@ final class CacheService {
 
     func upsertAchievements(_ achievements: [Achievement], family: String? = nil) {
         guard let context else { return }
-        let existing: [AchievementCache] = if let family {
-            (try? context.fetch(FetchDescriptor<AchievementCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<AchievementCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(AchievementCache.self, family: family)
         for achievement in achievements {
-            let name = achievement.id.recordName
-            if let cached = existingMap[name] {
-                cached.familyRecordName = achievement.family.recordID.recordName
-                cached.name = achievement.name
-                cached.achievementDescription = achievement.description
-                cached.iconSystemName = achievement.iconSystemName
-                cached.category = achievement.category.rawValue
-                cached.requirementType = achievement.requirementType.rawValue
-                cached.requirementValue = achievement.requirementValue
-                cached.changeTag = achievement.changeTag
+            if let cached = existingMap[achievement.id.recordName] {
+                AchievementCache.apply(cached, from: achievement)
             } else {
                 context.insert(AchievementCache(from: achievement))
             }
@@ -683,23 +460,10 @@ final class CacheService {
 
     func upsertProfileAchievements(_ pas: [ProfileAchievement], family: String? = nil) {
         guard let context else { return }
-        let existing: [ProfileAchievementCache] = if let family {
-            (try? context.fetch(FetchDescriptor<ProfileAchievementCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<ProfileAchievementCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(ProfileAchievementCache.self, family: family)
         for pa in pas {
-            let name = pa.id.recordName
-            if let cached = existingMap[name] {
-                cached.achievementRecordName = pa.achievement.recordID.recordName
-                cached.profileRecordName = pa.profile.recordID.recordName
-                cached.familyRecordName = pa.family.recordID.recordName
-                cached.earnedDate = pa.earnedDate
-                cached.changeTag = pa.changeTag
+            if let cached = existingMap[pa.id.recordName] {
+                ProfileAchievementCache.apply(cached, from: pa)
             } else {
                 context.insert(ProfileAchievementCache(from: pa))
             }
@@ -709,24 +473,10 @@ final class CacheService {
 
     func upsertNotificationPreferences(_ prefs: [NotificationPreference], family: String? = nil) {
         guard let context else { return }
-        let existing: [NotificationPreferenceCache] = if let family {
-            (try? context.fetch(FetchDescriptor<NotificationPreferenceCache>(
-                predicate: #Predicate { $0.familyRecordName == family }
-            ))) ?? []
-        } else {
-            (try? context.fetch(FetchDescriptor<NotificationPreferenceCache>())) ?? []
-        }
-        let existingMap = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-
+        let existingMap = existingByRecordName(NotificationPreferenceCache.self, family: family)
         for pref in prefs {
-            let name = pref.id.recordName
-            if let cached = existingMap[name] {
-                cached.profileRecordName = pref.profile.recordID.recordName
-                cached.familyRecordName = pref.family.recordID.recordName
-                cached.eventType = pref.eventType.rawValue
-                cached.enabled = pref.enabled
-                cached.pushEnabled = pref.pushEnabled
-                cached.changeTag = pref.changeTag
+            if let cached = existingMap[pref.id.recordName] {
+                NotificationPreferenceCache.apply(cached, from: pref)
             } else {
                 context.insert(NotificationPreferenceCache(from: pref))
             }

@@ -14,7 +14,7 @@ import os
 final class AppState {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
-    enum AuthStatus: Equatable {
+    enum AuthStatus: Equatable, Sendable {
         case restoringSession
         case checkingCloudData
         case detectedPreviousFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool)
@@ -36,7 +36,13 @@ final class AppState {
 
     var authStatus: AuthStatus
 
-    var currentProfile: Profile?
+    var currentProfile: Profile? {
+        didSet {
+            QuickActionManager.updateQuickActions(for: currentProfile?.role)
+        }
+    }
+
+    var pendingQuickAction: QuickActionType?
 
     var family: Family?
 
@@ -45,6 +51,9 @@ final class AppState {
     var activeShareURL: URL?
     var cacheService: CacheService?
     var cacheInitError: AppStateError?
+
+    @ObservationIgnored
+    private var quickActionTask: Task<Void, Never>?
 
     // MARK: - Session Persistence Keys
 
@@ -59,6 +68,18 @@ final class AppState {
     init() {
         let hasSession = UserDefaults.standard.bool(forKey: Self.hasSessionKey)
         authStatus = hasSession ? .restoringSession : .checkingCloudData
+
+        quickActionTask = Task { @MainActor [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
+                if let action = notification.object as? QuickActionType {
+                    self?.pendingQuickAction = action
+                }
+            }
+        }
+    }
+
+    deinit {
+        quickActionTask?.cancel()
     }
 
     // MARK: - Abandoned Zone Queue Management
@@ -346,7 +367,7 @@ final class AppState {
         let name = family?.name ?? "our guild"
         if let activeShareURL {
             let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(activeShareURL.absoluteString)"
-            return [message, activeShareURL]
+            return [message]
         } else {
             let message = "Join \(name) on LootList!"
             return [message]

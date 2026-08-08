@@ -272,18 +272,13 @@ struct OptimisticRollbackTests {
         cache.upsertProfile(heroWithXP)
         appState.currentProfile = heroWithXP
 
-        // Attempt -- save will fail; snapshot is restored.
-        let returned = try await xpService.addXP(50, to: heroWithXP)
-
-        // Returned profile is the rolled-back value.
-        #expect(
-            returned.xp == 100,
-            "addXP must return rolled-back XP on save failure"
-        )
-        #expect(
-            returned.level == 1,
-            "addXP must return rolled-back level on save failure"
-        )
+        // Attempt -- save will fail; snapshot is restored and error is thrown.
+        do {
+            _ = try await xpService.addXP(50, to: heroWithXP)
+            #expect(Bool(false), "addXP must throw on save failure")
+        } catch {
+            // Expected failure
+        }
 
         // Cache is also rolled back to the pre-mutation snapshot.
         let cached = cache.fetchProfile(recordName: hero.id.recordName)
@@ -293,7 +288,7 @@ struct OptimisticRollbackTests {
         )
         #expect(
             cached?.xpTotal == 100,
-            "Cache must have pre-mutation XP after rollback"
+            "addXP snapshot rollback must restore the pre-mutation total to the cache"
         )
         #expect(
             cached?.level == 1,
@@ -424,7 +419,7 @@ struct OptimisticRollbackTests {
             )
             #expect(Bool(false), "Expected save to throw")
         } catch {
-            #expect(error is MockError)
+            #expect((error as? NotificationServiceError) == .persistenceFailed)
         }
 
         // Rollback: new preference invalidated from cache (no prior snapshot).
@@ -583,10 +578,46 @@ struct OptimisticRollbackTests {
             _ = try await service.award(achievement, to: hero, family: family)
             #expect(Bool(false), "Expected save to throw")
         } catch {
-            #expect(error is MockError)
+            #expect((error as? AchievementServiceError) == .persistenceFailed)
         }
 
         let cached = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName)
         #expect(cached.isEmpty, "ProfileAchievement must be invalidated after save failure for new award")
+    }
+
+    // MARK: - 12. bankXP does not stamp completion credit when XP save fails
+
+    @Test
+    func `bankXP does not stamp completion credit when XP save fails`() async throws {
+        let scaffold = try QuestServiceTests.MarkCompleteScaffold(
+            approvalMode: .autoApprove,
+            cloudKitOverride: FailingAfterNSavesCloudKitService(
+                zoneID: CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner"),
+                failAfterSaveCount: 1
+            ),
+            goldReward: 10.0,
+            xpReward: 50
+        )
+
+        let hero = scaffold.hero
+        scaffold.cache.upsertProfile(hero)
+        scaffold.cache.upsertQuest(scaffold.quest)
+
+        let completion = scaffold.completion(status: .verified)
+        scaffold.cache.upsertQuestCompletion(completion)
+        scaffold.cloudKit.seedMockRecords([scaffold.quest, hero, completion])
+        for type in [CachedRecordType.quest, CachedRecordType.profile, CachedRecordType.questCompletion] {
+            scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: type)
+        }
+
+        // Apply reward: Save #1 (Quest.xpBanked) succeeds, Save #2 (addXP) fails.
+        _ = try await scaffold.questService.applyReward(for: scaffold.quest, to: hero, completion: completion)
+
+        // The completion MUST NOT have stamped xpCredited when XP save failed.
+        let finalCompletion = try await scaffold.cloudKit.fetch(QuestCompletion.self, id: completion.id)
+        #expect(
+            finalCompletion.xpCredited == nil,
+            "Completion must not stamp xpCredited when addXP fails"
+        )
     }
 }

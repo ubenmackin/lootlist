@@ -162,7 +162,16 @@ extension QuestService {
             do {
                 let saved = try await cloudKit.save(updated)
                 cacheService?.upsertQuest(saved)
-                try await xpService.addXP(remaining, to: hero)
+                do {
+                    try await xpService.addXP(remaining, to: hero)
+                } catch {
+                    if let reverted = try? await cloudKit.save(currentQuest) {
+                        cacheService?.upsertQuest(reverted)
+                    } else {
+                        cacheService?.upsertQuest(currentQuest)
+                    }
+                    throw error
+                }
                 await registry?.deregister(inFlightKey)
                 return remaining
             } catch let error as CloudKitServiceError where error == .serverRecordChanged {

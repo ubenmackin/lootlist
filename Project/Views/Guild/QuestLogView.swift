@@ -14,6 +14,7 @@ struct QuestLogView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(AppState.self) private var appState
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+    @Environment(ToastManager.self) private var toastManager
 
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedQuests: [QuestCache]
@@ -87,14 +88,10 @@ struct QuestLogView: View {
                 )
                 viewModel = vm
             }
-            viewModel?.subscribeToSyncEvents(appSyncCoordinator)
             if let initialHero, viewModel?.selectedHero == nil {
                 viewModel?.selectedHero = initialHero
             }
             rebuildViewModel()
-        }
-        .onDisappear {
-            viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
         }
         .onChange(of: cachedProfiles) { _, _ in
             rebuildViewModel()
@@ -218,7 +215,11 @@ struct QuestLogView: View {
                                         let zoneID = questService.cloudKitReference.resolvedZoneID
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
                                         if let parent = appState.currentProfile {
-                                            _ = try? await questService.reject(questLog: domainLog, by: parent)
+                                            do {
+                                                _ = try await questService.reject(questLog: domainLog, by: parent)
+                                            } catch {
+                                                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                            }
                                         }
                                     }
                                 }
@@ -241,7 +242,11 @@ struct QuestLogView: View {
                                         let zoneID = questService.cloudKitReference.resolvedZoneID
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
                                         if let parent = appState.currentProfile {
-                                            _ = try? await questService.verify(questLog: domainLog, by: parent)
+                                            do {
+                                                _ = try await questService.verify(questLog: domainLog, by: parent)
+                                            } catch {
+                                                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                            }
                                         }
                                     }
                                 }

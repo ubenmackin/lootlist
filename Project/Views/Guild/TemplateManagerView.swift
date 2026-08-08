@@ -13,6 +13,7 @@ struct TemplateManagerView: View {
 
     let editing: QuestTemplate?
 
+    @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var name: String = ""
@@ -24,7 +25,6 @@ struct TemplateManagerView: View {
     @State private var targetCount: Int = 1
     @State private var isAllOrNothing: Bool = false
     @State private var approvalMode: ApprovalMode = .autoApprove
-    @State private var validationError: String?
     @State private var isSaving: Bool = false
 
     private static let weekdayCodes: [String] = AppConstants.weekdayCodes
@@ -129,14 +129,6 @@ struct TemplateManagerView: View {
                     }
                     .pickerStyle(.segmented)
                 }
-
-                if let validationError {
-                    Section {
-                        Text(validationError)
-                            .foregroundStyle(.red)
-                            .font(.footnote)
-                    }
-                }
             }
             .navigationTitle(editing == nil ? "New Template" : "Edit Template")
             .navigationBarTitleDisplayMode(.inline)
@@ -156,6 +148,7 @@ struct TemplateManagerView: View {
                 }
             }
             .onAppear(perform: hydrateFromEditing)
+            .toastOverlay()
         }
     }
 
@@ -175,18 +168,18 @@ struct TemplateManagerView: View {
     private func save() {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else {
-            validationError = "Name is required."
+            toastManager.show(message: "Name is required.", type: .error)
             return
         }
         guard let gold = Double(defaultGoldText.trimmingCharacters(in: .whitespaces)),
               gold >= 0
         else {
-            validationError = "Reward must be a non-negative number."
+            toastManager.show(message: "Reward must be a non-negative number.", type: .error)
             return
         }
         let xp = selectedRarity.xpReward
         if schedule == .specificDays, specificDays.isEmpty {
-            validationError = "Pick at least one day for Specific-Days schedule."
+            toastManager.show(message: "Pick at least one day for Specific-Days schedule.", type: .error)
             return
         }
 
@@ -226,7 +219,7 @@ struct TemplateManagerView: View {
                 dismiss()
             } catch {
                 isSaving = false
-                validationError = error.localizedDescription
+                toastManager.show(message: error.localizedDescription, type: .error)
             }
         }
     }

@@ -64,3 +64,10 @@ protocol CacheMergeable: PersistentModel {
     /// the full table and filtering in memory.
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<Self>
 }
+
+extension CacheMergeable {
+    /// Hoisted single & batch upsert field-application helper shared across CacheService upserts.
+    static func apply(_ cached: Self, from domain: DomainModel) {
+        cached.update(from: domain)
+    }
+}

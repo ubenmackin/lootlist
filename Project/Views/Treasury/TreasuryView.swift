@@ -12,6 +12,7 @@ import SwiftUI
 struct TreasuryView: View {
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     private let spending: any SpendingService
 
@@ -93,6 +94,17 @@ struct TreasuryView: View {
                     LogSpendingView(viewModel: viewModel)
                 }
             }
+            .onAppear {
+                checkPendingQuickAction(appState.pendingQuickAction)
+            }
+            .onChange(of: appState.pendingQuickAction) { _, action in
+                checkPendingQuickAction(action)
+            }
+            .onChange(of: viewModel?.errorMessage) { _, newError in
+                if let newError, !newError.isEmpty {
+                    toastManager?.show(message: newError, type: .error)
+                }
+            }
             .task {
                 if viewModel == nil {
                     viewModel = TreasuryViewModel(
@@ -131,6 +143,14 @@ struct TreasuryView: View {
         )
     }
 
+    private func checkPendingQuickAction(_ action: QuickActionType?) {
+        guard let action else { return }
+        if action == .addTransaction {
+            isShowingLogSpending = true
+            appState.pendingQuickAction = nil
+        }
+    }
+
     @ViewBuilder
     private func loadedContent(_ viewModel: TreasuryViewModel) -> some View {
         BalanceCardView(balance: viewModel.balance,
@@ -160,13 +180,6 @@ struct TreasuryView: View {
 
         logSpendingButton
             .padding(.horizontal)
-
-        if let error = viewModel.errorMessage, !error.isEmpty {
-            Text(error)
-                .font(.footnote)
-                .foregroundStyle(.red)
-                .padding(.horizontal)
-        }
     }
 
     private var logSpendingButton: some View {

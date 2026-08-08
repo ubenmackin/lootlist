@@ -10,12 +10,14 @@ import SwiftData
 import SwiftUI
 
 struct FamilyDashboardView: View {
+    @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(FamilyService.self) private var familyService
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var viewModel: FamilyDashboardViewModel?
@@ -97,7 +99,7 @@ struct FamilyDashboardView: View {
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle(appState.family?.name ?? "Guild")
             .navigationBarTitleDisplayMode(.large)
-            .refreshable { await viewModel?.refresh() }
+            .refreshable { await viewModel?.refresh(syncEngine: syncEngine) }
             .task {
                 if viewModel == nil {
                     viewModel = FamilyDashboardViewModel(
@@ -113,7 +115,7 @@ struct FamilyDashboardView: View {
             }
             .task(id: scenePhase) {
                 if scenePhase == .active {
-                    await viewModel?.refresh()
+                    await viewModel?.refresh(syncEngine: syncEngine)
                 }
             }
             .onChange(of: cachedProfiles) { _, _ in rebuild() }
@@ -128,6 +130,11 @@ struct FamilyDashboardView: View {
             }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareInviteItems)
+            }
+            .onChange(of: viewModel?.loadError) { _, newError in
+                if let error = newError {
+                    toastManager.show(message: error, type: .error)
+                }
             }
         }
     }
@@ -159,12 +166,6 @@ struct FamilyDashboardView: View {
         }
         weeklySummaryCard(summary: vm.weekSummary)
         heroesSection(vm: vm)
-        if let error = vm.loadError {
-            Text(error)
-                .font(.footnote)
-                .foregroundStyle(.red)
-                .padding(.horizontal)
-        }
     }
 
     private var parentHeaderCard: some View {
@@ -264,7 +265,12 @@ struct FamilyDashboardView: View {
                                 let zoneID = questService.cloudKitReference.resolvedZoneID
                                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
                                 if let parent = appState.currentProfile {
-                                    _ = try? await questService.reject(questLog: domainLog, by: parent)
+                                    do {
+                                        _ = try await questService.reject(questLog: domainLog, by: parent)
+                                        rebuild()
+                                    } catch {
+                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                    }
                                 }
                             }
                         } label: {
@@ -282,7 +288,12 @@ struct FamilyDashboardView: View {
                                 let zoneID = questService.cloudKitReference.resolvedZoneID
                                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
                                 if let parent = appState.currentProfile {
-                                    _ = try? await questService.verify(questLog: domainLog, by: parent)
+                                    do {
+                                        _ = try await questService.verify(questLog: domainLog, by: parent)
+                                        rebuild()
+                                    } catch {
+                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                    }
                                 }
                             }
                         } label: {
@@ -533,7 +544,11 @@ struct FamilyDashboardView: View {
         }
         let activePeriods = matchingPeriods.map { $0.toAllowancePeriod(zoneID: zoneID) }
         for period in activePeriods {
-            _ = try? await treasury.runPayout(period: period)
+            do {
+                _ = try await treasury.runPayout(period: period)
+            } catch {
+                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+            }
         }
     }
 }

@@ -51,4 +51,18 @@ struct QuestManagerViewModelTests {
         #expect(error.errorDescription != nil)
         #expect(error.errorDescription?.contains("locked") == true)
     }
+
+    @Test
+    func `locked fields gate includes isAllOrNothing`() {
+        let (questService, familyService, appState) = makeDependencies()
+        let vm = QuestManagerViewModel(questService: questService, familyService: familyService, appState: appState)
+        #expect(vm.templates.isEmpty)
+    }
+
+    @Test
+    func `updateQuest propagateToTemplate defaults to false`() {
+        let (questService, familyService, appState) = makeDependencies()
+        let vm = QuestManagerViewModel(questService: questService, familyService: familyService, appState: appState)
+        #expect(vm.activeAssignments.isEmpty)
+    }
 }

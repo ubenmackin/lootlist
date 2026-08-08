@@ -33,8 +33,7 @@ extension QuestService {
         defer { inFlightCompletions.withLock { _ = $0.remove(questName) } }
         let cachedLogs = cachedQuestLogs(forQuest: quest)
         let cachedNonRejectedCount = cachedLogs.filter { $0.verificationStatus != .rejected }.count
-        let target = max(1, quest.targetCount)
-        if cachedNonRejectedCount >= target {
+        if GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: cachedNonRejectedCount) {
             throw QuestServiceError.alreadyCompleted
         }
         var log = QuestCompletion(quest: CKRecord.Reference(recordID: quest.id, action: .none),
@@ -93,6 +92,13 @@ extension QuestService {
             let quest = try await resolveQuest(for: questLog)
             let hero = try await resolveHero(for: questLog)
             let creditedGold = try await applyReward(for: quest, to: hero, completion: saved)
+
+            if let achievementService, let family = appState?.family {
+                let achService = achievementService
+                Task {
+                    _ = try? await achService.evaluateAll(for: hero, family: family)
+                }
+            }
 
             if let notificationService {
                 Task { @Sendable [logger] in

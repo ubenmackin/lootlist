@@ -26,7 +26,7 @@ struct QuestCardView: View {
     }
 
     private var isFullyCompleted: Bool {
-        approvedCount >= targetCount
+        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
     }
 
     var body: some View {

@@ -30,6 +30,14 @@ enum AchievementCategory: String, Codable, Sendable {
     case special
 }
 
+enum AchievementServiceError: Error, LocalizedError, Equatable, Sendable {
+    case persistenceFailed
+
+    var errorDescription: String? {
+        "Could not save achievement. Please try again."
+    }
+}
+
 struct ProfileStats: Sendable {
     let questCount: Int
 
@@ -66,6 +74,11 @@ final class AchievementService {
 
     func seedDefaultAchievements(family: Family) async throws {
         guard let acting = appState?.currentProfile, acting.role.isParent else {
+            return
+        }
+
+        let familyName = family.id.recordName
+        if let cached = cacheService?.fetchAchievements(family: familyName), cached.count >= 12 {
             return
         }
 
@@ -309,38 +322,19 @@ final class AchievementService {
             await registry?.deregister(name)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: row.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchProfileAchievements(profileRecordName: profile.id.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
+                snapshot: snapshotPA,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cacheService?.fetchProfileAchievements(profileRecordName: profile.id.recordName).first(where: { $0.recordName == name })?.changeTag },
+                upsert: { restored in self.cacheService?.upsertProfileAchievement(restored) },
+                invalidate: { _ in self.cacheService?.invalidateProfileAchievement(recordName: name) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-                if let fresh = try? await cloudKit.fetch(ProfileAchievement.self, id: row.id) {
-                    cacheService?.upsertProfileAchievement(fresh)
-                } else if let snapshotPA {
-                    cacheService?.upsertProfileAchievement(snapshotPA)
-                } else {
-                    cacheService?.invalidateProfileAchievement(recordName: name)
-                }
-            } else {
-                if let snapshotPA {
-                    cacheService?.upsertProfileAchievement(snapshotPA)
-                } else {
-                    cacheService?.invalidateProfileAchievement(recordName: name)
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(name)
-            throw error
+            throw AchievementServiceError.persistenceFailed
         }
     }
 

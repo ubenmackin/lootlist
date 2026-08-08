@@ -77,14 +77,25 @@ final class TreasuryService {
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: startOfWeek,
                                             weekEnding: weekRange.upperBound)
-        var goldFromQuests = try await sumGold(for: logs)
+        var goldFromQuests = try await sumGold(for: logs, family: family)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         // Check if hero has strict All-or-Nothing payout policy enabled.
+        // Mirrors GoldCalculation.netWeeklyGold: the week pays nothing when ANY
+        // assigned quest is not fully completed — evaluated per quest against
+        // its own targetCount (approved logs), so multi-slot quests never zero
+        // out merely because their approved-log count is below the quest count.
         if profile.payoutPolicy == .allOrNothing {
-            let assigned = try await fetchAssignedQuests(profile: profile, weekOf: startOfWeek)
-            if !assigned.isEmpty, completedCount < assigned.count {
-                goldFromQuests = 0.0
+            let assigned = try await fetchAssignedQuests(profile: profile, family: family, weekOf: startOfWeek)
+            if !assigned.isEmpty {
+                let approvedLogsScoped = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+                let fullyCompletedCount = assigned.filter { quest in
+                    let questLogs = approvedLogsScoped.filter { $0.quest.recordID == quest.id }
+                    return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: questLogs.count)
+                }.count
+                if fullyCompletedCount < assigned.count {
+                    goldFromQuests = 0.0
+                }
             }
         }
 
@@ -159,34 +170,21 @@ final class TreasuryService {
             await registry?.deregister(period.id.recordName)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            // Sole recovery path: invalidates the phantom row (and handles the
+            // `.notFound` zombie case when the record was deleted server-side).
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: period.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
+                snapshot: nil,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
                     .first(where: { $0.recordName == period.id.recordName })?.changeTag
                 },
+                upsert: { cacheService?.upsertAllowancePeriod($0) },
+                invalidate: { _ in cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR invalidate
-                // if the re-fetch also fails (no snapshot to restore for new records).
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
-                    cacheService?.upsertAllowancePeriod(fresh)
-                } else {
-                    cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName)
-                }
-            } else {
-                cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName)
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(period.id.recordName)
             throw error
         }
@@ -257,36 +255,23 @@ final class TreasuryService {
             await registry?.deregister(name)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            // Sole recovery path: re-fetches the authoritative server record on
+            // a concurrent edit, else restores the pre-mutation snapshot, and
+            // invalidates instead of restoring when the record was deleted
+            // server-side (`.notFound` zombie prevention).
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: period.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
+                snapshot: snapshotPeriod,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
+                upsert: { cacheService?.upsertAllowancePeriod($0) },
+                invalidate: { _ in cacheService?.invalidateAllowancePeriod(recordName: name) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                // Concurrent edit: the server has a newer record. Discard our optimistic
-                // write by re-fetching the authoritative server record, OR fall back to
-                // the pre-mutation snapshot if the re-fetch also fails.
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
-                    cacheService?.upsertAllowancePeriod(fresh)
-                } else if let snapshotPeriod {
-                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
-                }
-            } else {
-                if let snapshotPeriod {
-                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(name)
             throw error
         }
@@ -353,33 +338,23 @@ final class TreasuryService {
             }
             await registry?.deregister(name)
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            // Sole recovery path: re-fetches the authoritative server record on
+            // a concurrent edit, else restores the pre-mutation snapshot, and
+            // invalidates instead of restoring when the record was deleted
+            // server-side (`.notFound` zombie prevention).
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: period.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
+                snapshot: snapshotPeriod,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
                     .first(where: { $0.recordName == name })?.changeTag
                 },
+                upsert: { cacheService?.upsertAllowancePeriod($0) },
+                invalidate: { _ in cacheService?.invalidateAllowancePeriod(recordName: name) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-
-                if let fresh = try? await cloudKit.fetch(AllowancePeriod.self, id: period.id) {
-                    cacheService?.upsertAllowancePeriod(fresh)
-                } else if let snapshotPeriod {
-                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
-                }
-            } else {
-                if let snapshotPeriod {
-                    cacheService?.upsertAllowancePeriod(snapshotPeriod)
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(name)
             throw error
         }
@@ -535,8 +510,9 @@ final class TreasuryService {
     }
 
     /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
-    private func fetchAssignedQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
-        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? .sunday)
+    private func fetchAssignedQuests(profile: Profile, family: Family, weekOf: Date) async throws -> [Quest] {
+        let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
+        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
 
         let range = TreasuryService.weekRange(starting: startOfWeek)
 
@@ -612,68 +588,13 @@ final class TreasuryService {
         return try await cloudKit.fetch(Family.self, id: recordID)
     }
 
-    private func sumGold(for logs: [QuestCompletion]) async throws -> Double {
-        var completedLogs: [QuestCompletion] = []
-        completedLogs.reserveCapacity(logs.count)
-        for log in logs where TreasuryService.isCompleted(log) {
-            completedLogs.append(log)
-        }
-        guard !completedLogs.isEmpty else { return 0 }
-
-        let uniqueQuestIDs = Array(Set(completedLogs.map(\.quest.recordID)))
-        var questCache: [CKRecord.ID: Quest] = [:]
-
-        // Cache-first: build a lookup dictionary from the family's cached
-        // quests.  Only quest IDs absent from the cache fall through to the
-        // chunked CloudKit fetch below (genuine cache miss — e.g. very first
-        if let cache = cacheService,
-           let familyName = completedLogs.first?.family.recordID.recordName
-        {
-            let zoneID = cloudKit.resolvedZoneID
-            for row in cache.fetchQuests(family: familyName) {
-                let quest = row.toQuest(zoneID: zoneID)
-                questCache[quest.id] = quest
-            }
-        }
-
-        let missingIDs = uniqueQuestIDs.filter { questCache[$0] == nil }
-
-        // CK fallback ONLY for cache-miss IDs.
-        if !missingIDs.isEmpty {
-            for chunk in missingIDs.chunked(into: 100) {
-                let predicate = NSPredicate(format: "recordID IN %@", chunk)
-                do {
-                    let fetched: [Quest] = try await cloudKit.query(Quest.self, predicate: predicate)
-                    for quest in fetched {
-                        questCache[quest.id] = quest
-                    }
-                } catch {
-                    for questID in chunk {
-                        if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
-                            questCache[questID] = fetched
-                        }
-                    }
-                }
-            }
-        }
-
-        // Group approved logs by quest so the shared proration helper is
-        // invoked once per quest with the full approved count — paying the
-        // prorated bounty (all-or-nothing or per-unit) rather than the full
-        // goldReward on every single log.
-        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
-        for log in completedLogs {
-            approvedCountByQuest[log.quest.recordID, default: 0] += 1
-        }
-
-        var totalGold: Double = 0
-        for (questID, approvedCount) in approvedCountByQuest {
-            if let quest = questCache[questID] {
-                totalGold += GoldCalculation.creditAsDouble(for: quest,
-                                                            approvedCount: approvedCount)
-            }
-        }
-        return totalGold
+    private func sumGold(for logs: [QuestCompletion], family: Family? = nil) async throws -> Double {
+        await GoldCalculation.totalCredit(
+            logs: logs,
+            cacheService: cacheService,
+            cloudKit: cloudKit,
+            family: family
+        )
     }
 
     private static func isCompleted(_ log: QuestCompletion) -> Bool {

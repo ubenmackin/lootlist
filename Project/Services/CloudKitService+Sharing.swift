@@ -13,7 +13,9 @@ extension CloudKitService {
         if isTestingOrMocking {
             return
         }
-        let pvtDB = privateDatabase
+        guard let pvtDB = privateDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         _ = try await retrying {
             try await pvtDB.deleteRecordZone(withID: zoneID)
         }
@@ -23,7 +25,9 @@ extension CloudKitService {
         if isTestingOrMocking {
             return
         }
-        let pvtDB = privateDatabase
+        guard let pvtDB = privateDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         do {
             _ = try await retrying {
                 try await pvtDB.recordZone(for: zoneID)
@@ -31,7 +35,7 @@ extension CloudKitService {
 
         } catch let error as CloudKitServiceError {
             switch error {
-            case .notFound:
+            case .notFound, .zoneNotFound:
                 let zone = CKRecordZone(zoneID: zoneID)
                 do {
                     _ = try await retrying { () -> CKRecordZone in
@@ -63,7 +67,9 @@ extension CloudKitService {
     // MARK: - CKShare Support
 
     func createShare(for rootRecordID: CKRecord.ID) async throws -> CKShare {
-        let pvtDB = privateDatabase
+        guard let pvtDB = privateDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         let serverRoot = try await retrying {
             try await pvtDB.record(for: rootRecordID)
         }
@@ -101,7 +107,9 @@ extension CloudKitService {
             }
             return url
         }
-        let pvtDB = privateDatabase
+        guard let pvtDB = privateDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         let targetID = CKRecord.ID(recordName: rootRecordID.recordName, zoneID: zoneID)
 
         do {
@@ -124,7 +132,7 @@ extension CloudKitService {
             throw error
         }
 
-        if let existingURL = try await fetchShareURL(in: zoneID) {
+        if let existingURL = try? await fetchShareURL(in: zoneID) {
             return existingURL
         }
 
@@ -158,14 +166,19 @@ extension CloudKitService {
         if isTestingOrMocking {
             return []
         }
-        return try await privateDatabase.allRecordZones()
+        guard let pvtDB = privateDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
+        return try await pvtDB.allRecordZones()
     }
 
     func fetchSharedZones() async throws -> [CKRecordZone] {
         if isTestingOrMocking {
             return []
         }
-        let sharedDB = sharedDatabase
+        guard let sharedDB = sharedDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         return try await sharedDB.allRecordZones()
     }
 
@@ -189,7 +202,9 @@ extension CloudKitService {
         if isTestingOrMocking {
             return URL(string: "https://www.icloud.com/share/test-mock-share")
         }
-        let pvtDB = privateDatabase
+        guard let pvtDB = privateDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         let predicate = NSPredicate(value: true)
         let query = CKQuery(recordType: "cloudkit.share", predicate: predicate)
 

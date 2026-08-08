@@ -18,6 +18,10 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
 
     case serverRecordChanged
 
+    case changeTokenExpired
+
+    case zoneNotFound
+
     case retryable(attempt: Int, code: Int?)
 
     case exhaustedBudget(attempt: Int)
@@ -47,6 +51,10 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
             "Requested record was not found (\(details))."
         case .serverRecordChanged:
             "Another device modified this record. Refresh to see the latest."
+        case .changeTokenExpired:
+            "CloudKit change token has expired. Requesting full sync."
+        case .zoneNotFound:
+            "CloudKit record zone was not found."
         case let .retryable(_, code):
             "CloudKit service is temporarily busy (code: \(code ?? 0))."
         case .exhaustedBudget:
@@ -142,11 +150,11 @@ class CloudKitService: CloudKitServiceProtocol {
         TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty
     }
 
-    var database: CKDatabase {
+    var database: CKDatabase? {
         privateDatabase
     }
 
-    var privateDatabase: CKDatabase {
+    var privateDatabase: CKDatabase? {
         if let cachedPrivateDatabase {
             return cachedPrivateDatabase
         }
@@ -155,7 +163,7 @@ class CloudKitService: CloudKitServiceProtocol {
         return db
     }
 
-    var sharedDatabase: CKDatabase {
+    var sharedDatabase: CKDatabase? {
         if let cachedSharedDatabase {
             return cachedSharedDatabase
         }
@@ -191,7 +199,7 @@ class CloudKitService: CloudKitServiceProtocol {
     var activeFamilyZoneID: CKRecordZone.ID?
     var activeIsOwner: Bool = true
 
-    var activeFamilyDatabase: CKDatabase {
+    var activeFamilyDatabase: CKDatabase? {
         database(isOwner: activeIsOwner)
     }
 
@@ -199,7 +207,7 @@ class CloudKitService: CloudKitServiceProtocol {
         activeFamilyZoneID ?? defaultZoneID
     }
 
-    func database(isOwner: Bool) -> CKDatabase {
+    func database(isOwner: Bool) -> CKDatabase? {
         isOwner ? privateDatabase : sharedDatabase
     }
 
@@ -336,7 +344,14 @@ class CloudKitService: CloudKitServiceProtocol {
         throw lastWrappedError ?? CloudKitServiceError.exhaustedBudget(attempt: Self.maxRetries)
     }
 
+    func fetchShareMetadata(for url: URL) async throws -> CKShare.Metadata {
+        try await Self.defaultContainer.shareMetadata(for: url)
+    }
+
     func wrapError(_ error: Error) -> CloudKitServiceError {
+        if let serviceError = error as? CloudKitServiceError {
+            return serviceError
+        }
         if let ckError = error as? CKError {
             return wrapCKError(ckError)
         }
@@ -345,7 +360,11 @@ class CloudKitService: CloudKitServiceProtocol {
 
     private func wrapCKError(_ error: CKError) -> CloudKitServiceError {
         switch error.code {
-        case .zoneNotFound, .unknownItem, .constraintViolation:
+        case .changeTokenExpired:
+            .changeTokenExpired
+        case .zoneNotFound:
+            .zoneNotFound
+        case .unknownItem, .constraintViolation:
             .notFound("\(error.code.rawValue)")
         case .serverRecordChanged:
             .serverRecordChanged
@@ -359,6 +378,8 @@ class CloudKitService: CloudKitServiceProtocol {
             .invalidArguments(error.localizedDescription)
         case .alreadyShared:
             .shareFailed("Record is already shared")
+        case .operationCancelled:
+            .underlying("operationCancelled")
         default:
             .underlying("\(error.code.rawValue)")
         }
