@@ -8,12 +8,20 @@
 import CloudKit
 import Foundation
 
-enum SpendingServiceError: Error, Equatable, Sendable {
+enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
     case unsupported
-
     case invalidAmount
-
+    case persistenceFailed
     case underlying(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unsupported: "This action isn't supported on this device."
+        case .invalidAmount: "Enter a valid positive amount."
+        case .persistenceFailed: "Could not save your spending. Please try again."
+        case let .underlying(msg): msg
+        }
+    }
 }
 
 @MainActor
@@ -136,7 +144,7 @@ final class ManualSpendingService: SpendingService {
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
 
-        // Register the optimistic window so a background sync skips this row.
+        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
         let registry = cacheService?.inFlightRegistry
         await registry?.register(name)
 
@@ -148,32 +156,21 @@ final class ManualSpendingService: SpendingService {
             await registry?.deregister(name)
             return saved
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: entry.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
-                    .first(where: { $0.recordName == name })?.changeTag
+                snapshot: snapshotEntry,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: {
+                    self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName).first(where: { $0.recordName == name })?.changeTag
                 },
+                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
+                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-                if let fresh = try? await cloudKit.fetch(LedgerEntry.self, id: entry.id) {
-                    cacheService?.upsertLedgerEntry(fresh)
-                } else {
-                    cacheService?.invalidateLedgerEntry(recordName: name)
-                }
-            } else {
-                cacheService?.invalidateLedgerEntry(recordName: name)
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(name)
-            throw error
+            throw SpendingServiceError.persistenceFailed
         }
     }
 
@@ -188,10 +185,8 @@ final class ManualSpendingService: SpendingService {
         let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName)
             .first(where: { $0.recordName == name })
         let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
         let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
 
-        // Register the optimistic window so a background sync skips this row.
         let registry = cacheService?.inFlightRegistry
         await registry?.register(name)
 
@@ -200,34 +195,19 @@ final class ManualSpendingService: SpendingService {
             try await cloudKit.delete(entry.id, in: nil, using: nil)
             await registry?.deregister(name)
         } catch {
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: entry.id,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: { self.cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
+                snapshot: snapshotEntry,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName).first(where: { $0.recordName == name })?.changeTag },
+                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
+                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-                if let fresh = try? await cloudKit.fetch(LedgerEntry.self, id: entry.id) {
-                    cacheService?.upsertLedgerEntry(fresh)
-                } else if let snapshotEntry {
-                    cacheService?.upsertLedgerEntry(snapshotEntry)
-                }
-            } else {
-                if let snapshotEntry {
-                    cacheService?.upsertLedgerEntry(snapshotEntry)
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(name)
-            throw error
+            throw SpendingServiceError.persistenceFailed
         }
     }
 }

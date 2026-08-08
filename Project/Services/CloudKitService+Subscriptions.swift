@@ -13,7 +13,9 @@ extension CloudKitService {
                             in zoneID: CKRecordZone.ID,
                             using db: CKDatabase? = nil) async throws
     {
-        let targetDB = db ?? activeFamilyDatabase
+        guard let targetDB = db ?? activeFamilyDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         var failures: [String: String] = [:]
 
         let existing = await subscriptionManager.activeSubscriptions
@@ -67,7 +69,9 @@ extension CloudKitService {
                               in zoneID: CKRecordZone.ID,
                               using db: CKDatabase? = nil) async throws
     {
-        let targetDB = db ?? activeFamilyDatabase
+        guard let targetDB = db ?? activeFamilyDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         let subID = stableSubscriptionID(for: recordType, in: zoneID)
         do {
             _ = try await retrying {
@@ -117,7 +121,7 @@ extension CloudKitService {
             return
         }
 
-        let targetDB = db ?? activeFamilyDatabase
+        guard let targetDB = db ?? activeFamilyDatabase else { return }
         do {
             let zone = zoneID ?? resolvedZoneID
             let query = CKQuery(recordType: recordType,

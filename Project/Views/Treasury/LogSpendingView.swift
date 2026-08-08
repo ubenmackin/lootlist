@@ -10,6 +10,7 @@ import SwiftUI
 struct LogSpendingView: View {
     @Bindable var viewModel: TreasuryViewModel
 
+    @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var description: String = ""
@@ -53,14 +54,6 @@ struct LogSpendingView: View {
                                selection: $date,
                                displayedComponents: [.date, .hourAndMinute])
                 }
-
-                if let error = viewModel.errorMessage, !error.isEmpty {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red)
-                            .font(.subheadline)
-                    }
-                }
             }
             .formStyle(.grouped)
             .navigationTitle("Scroll of Spending")
@@ -82,6 +75,7 @@ struct LogSpendingView: View {
                 }
             }
             .interactiveDismissDisabled(isSaving)
+            .toastOverlay()
         }
     }
 
@@ -96,6 +90,7 @@ struct LogSpendingView: View {
 
     private func save() {
         guard let amount = Double(amountText), amount.isFinite, amount > 0 else {
+            toastManager.show(message: "Enter a valid positive amount.", type: .error)
             return
         }
         isSaving = true
@@ -108,6 +103,8 @@ struct LogSpendingView: View {
             isSaving = false
             if success {
                 dismiss()
+            } else {
+                toastManager.show(message: viewModel.errorMessage ?? "Failed to log spending.", type: .error)
             }
         }
     }

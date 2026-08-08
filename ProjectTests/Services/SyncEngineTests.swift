@@ -384,4 +384,13 @@ struct SyncEngineTests {
         #expect(privateKey.hasSuffix(".private"))
         #expect(sharedKey.hasSuffix(".shared"))
     }
+
+    // MARK: Test 13 — ParsedRecord maps correctly
+
+    @Test
+    func `parsedRecord cachedRecordType maps correctly`() {
+        // parseFailure should return nil
+        let failure = ParsedRecord.parseFailure(recordType: "Unknown", recordName: "test")
+        #expect(failure.cachedRecordType == nil)
+    }
 }

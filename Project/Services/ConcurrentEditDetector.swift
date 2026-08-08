@@ -52,6 +52,10 @@ actor InFlightMutationRegistry {
         Set(keys.map { extractRecordName(from: $0) })
     }
 
+    /// Splits on the first ":" to separate the namespace prefix ("xpBank:" etc.) from
+    /// the record name. CloudKit record names in this codebase are UUID strings, which
+    /// never contain ":"; if a future record type allows ":" in the name this helper must
+    /// be replaced with a structured key.
     private func extractRecordName(from key: String) -> String {
         guard let colonIndex = key.firstIndex(of: ":") else { return key }
         return String(key[key.index(after: colonIndex)...])

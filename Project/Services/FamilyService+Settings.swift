@@ -52,6 +52,7 @@ extension FamilyService {
                     cacheService?.upsertFamily(restored)
                     appState.family = restored
                 },
+                invalidate: { _ in cacheService?.invalidateFamily(recordName: name) },
                 error: error
             )
             await registry?.deregister(name)
@@ -102,6 +103,7 @@ extension FamilyService {
                     cacheService?.upsertFamily(restored)
                     appState.family = restored
                 },
+                invalidate: { _ in cacheService?.invalidateFamily(recordName: name) },
                 error: error
             )
             await registry?.deregister(name)
@@ -153,6 +155,7 @@ extension FamilyService {
                         appState.currentProfile = restored
                     }
                 },
+                invalidate: { _ in cacheService?.invalidateProfile(recordName: name) },
                 error: error
             )
             await registry?.deregister(name)
@@ -204,6 +207,7 @@ extension FamilyService {
                         appState.currentProfile = restored
                     }
                 },
+                invalidate: { _ in cacheService?.invalidateProfile(recordName: name) },
                 error: error
             )
             await registry?.deregister(name)
@@ -260,6 +264,7 @@ extension FamilyService {
                         appState.currentProfile = restored
                     }
                 },
+                invalidate: { _ in cacheService?.invalidateProfile(recordName: name) },
                 error: error
             )
             await registry?.deregister(name)
@@ -320,6 +325,7 @@ extension FamilyService {
                         appState.currentProfile = restored
                     }
                 },
+                invalidate: { _ in cacheService?.invalidateProfile(recordName: name) },
                 error: error
             )
             await registry?.deregister(name)
@@ -345,6 +351,9 @@ extension FamilyService {
     ///    re-fetch also fails.
     /// 3. Otherwise: restores the pre-mutation snapshot and surfaces the
     ///    underlying error toast.
+    /// 4. On `.notFound` (the server record was deleted concurrently): calls
+    ///    the `invalidate` closure instead of restoring — a zombie row must
+    ///    never be re-restored from a stale snapshot.
     ///
     /// The caller deregisters the in-flight guard and rethrows its domain
     /// error after this returns.
@@ -354,6 +363,7 @@ extension FamilyService {
         snapshot: T?,
         fetchCurrentTag: @escaping () -> String?,
         restore: (T) -> Void,
+        invalidate: (String) -> Void,
         error: Error
     ) async {
         let (_, db) = familyContext(for: recordID)
@@ -365,7 +375,7 @@ extension FamilyService {
             toastManager: toastManager,
             fetchCurrentTag: fetchCurrentTag,
             upsert: restore,
-            invalidate: { _ in },
+            invalidate: invalidate,
             error: error,
             db: db
         )

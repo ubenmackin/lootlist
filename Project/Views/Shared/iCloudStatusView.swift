@@ -12,6 +12,7 @@ import SwiftUI
 struct iCloudStatusView: View {
     @Environment(AppState.self) private var appState
     @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     // iCloudStatusView intentionally omits familyRecordName filters on all @Query
     // declarations. This view is the diagnostic panel that surfaces ALL cached
@@ -135,6 +136,11 @@ struct iCloudStatusView: View {
         .task {
             await fetchAccountStatus()
         }
+        .onChange(of: syncEngine?.syncError) { _, newError in
+            if let newError {
+                toastManager?.show(message: newError, type: .error)
+            }
+        }
     }
 
     // MARK: Section 1 — Sync Status
@@ -153,17 +159,6 @@ struct iCloudStatusView: View {
                         Capsule()
                             .fill(syncStatusColor.opacity(0.15))
                     )
-            }
-
-            if let error = syncEngine?.syncError {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Error")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(error)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                }
             }
 
             HStack {
@@ -226,15 +221,9 @@ struct iCloudStatusView: View {
             HStack {
                 Text("Account")
                 Spacer()
-                if let error = accountStatusError {
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                } else {
-                    Text(accountStatus.displayName)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(accountStatusColor(accountStatus))
-                }
+                Text(accountStatus.displayName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(accountStatusColor(accountStatus))
             }
         }
     }
@@ -287,8 +276,10 @@ struct iCloudStatusView: View {
         do {
             let status = try await container.accountStatus()
             accountStatus = status
+            accountStatusError = nil
         } catch {
             accountStatusError = error.localizedDescription
+            toastManager?.show(message: error.localizedDescription, type: .error)
         }
     }
 }

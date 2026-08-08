@@ -33,6 +33,7 @@ final class QuestService {
 
     var cacheService: CacheService?
     var treasuryService: TreasuryService?
+    var achievementService: AchievementService?
 
     /// The active session's app state, used to resolve the acting profile for
     /// privileged quest verification. Wired by `AppDependencies`; optional so
@@ -121,7 +122,21 @@ final class QuestService {
             await registry?.deregister(template.id.recordName)
             return saved
         } catch {
-            cacheService?.invalidateQuestTemplate(recordName: template.id.recordName)
+            // All-or-nothing is mirrored by the recovery wrapper: a brand-new
+            // template has no pre-mutation snapshot, so the concurrent-edit
+            // cascade (re-fetch / snapshot restore) falls back to invalidating
+            // the phantom row, and `.notFound` never resurrects a deleted
+            // record. The optimistic registration is released only here.
+            await handleSaveFailure(
+                recordID: template.id,
+                fetchCurrentTag: {
+                    self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
+                        .first(where: { $0.recordName == template.id.recordName })?.changeTag
+                },
+                upsert: { self.cacheService?.upsertQuestTemplate($0) },
+                invalidate: { self.cacheService?.invalidateQuestTemplate(recordName: $0) },
+                error: error
+            )
             await registry?.deregister(template.id.recordName)
             throw error
         }
@@ -560,35 +575,6 @@ final class QuestService {
             await stamped.append(stampNameIfNeeded(quest))
         }
         return stamped
-    }
-
-    /// Detects a concurrent edit and surfaces the canonical warning toast.
-    /// Returns `true` when a concurrent edit is found — callers then run
-    /// their per-type rollback (fresh re-fetch / snapshot restore / invalidate).
-    @discardableResult
-    func handleConcurrentEdit(
-        preMutationChangeTag: String?,
-        fetchCurrent: @escaping () -> String?,
-        error: Error
-    ) -> Bool {
-        let detected = ConcurrentEditDetector.detectConcurrentEdit(
-            preMutationChangeTag: preMutationChangeTag,
-            fetchCurrent: fetchCurrent,
-            error: error
-        )
-        if detected {
-            toastManager?.show(
-                message: "Data was modified by another device. Refresh to see the latest.",
-                type: .warning
-            )
-        }
-        return detected
-    }
-
-    func showErrorToast(_ error: Error) {
-        let message = (error as? LocalizedError)?.errorDescription
-            ?? error.localizedDescription
-        toastManager?.show(message: message, type: .error)
     }
 
     func sendAssignmentNotification(to assignee: Profile, questName: String) {

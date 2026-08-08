@@ -10,18 +10,14 @@ import Foundation
 
 @MainActor
 class MockCloudKitService: CloudKitServiceProtocol {
-    /// A real (lazily-created) container backing the mock's database accessors.
-    /// No network method is ever invoked on it — the mock overrides every
-    /// protocol method and consumers route only through those overrides — so
-    /// allocating it is safe for tests and never touches a live iCloud account.
-    private static let container: CKContainer = .init(identifier: "iCloud.com.volcrypt.lootlist")
-
-    static var defaultContainer: CKContainer {
-        container
-    }
-
     /// The fixed current iCloud user the mock reports via `currentUserRecordID()`.
     static let mockUserRecordName = "mockUser"
+
+    private static let containerInstance: CKContainer = .init(identifier: "iCloud.com.volcrypt.lootlist")
+
+    static var defaultContainer: CKContainer {
+        containerInstance
+    }
 
     var container: CKContainer {
         Self.defaultContainer
@@ -71,24 +67,24 @@ class MockCloudKitService: CloudKitServiceProtocol {
         }
     }
 
-    var database: CKDatabase {
-        privateDatabase
+    var database: CKDatabase? {
+        nil
     }
 
-    var privateDatabase: CKDatabase {
-        Self.container.privateCloudDatabase
+    var privateDatabase: CKDatabase? {
+        nil
     }
 
-    var sharedDatabase: CKDatabase {
-        Self.container.sharedCloudDatabase
+    var sharedDatabase: CKDatabase? {
+        nil
     }
 
-    var activeFamilyDatabase: CKDatabase {
-        privateDatabase
+    var activeFamilyDatabase: CKDatabase? {
+        nil
     }
 
-    func database(isOwner: Bool) -> CKDatabase {
-        isOwner ? privateDatabase : sharedDatabase
+    func database(isOwner _: Bool) -> CKDatabase? {
+        nil
     }
 
     func save<T: CloudKitRecord>(_ entity: T, in _: CKRecordZone.ID?, using _: CKDatabase?) async throws -> T {
@@ -157,8 +153,27 @@ class MockCloudKitService: CloudKitServiceProtocol {
     func ensureZoneExists(_: CKRecordZone.ID) async throws {}
 
     func fetchZoneChanges(in _: CKRecordZone.ID?, since _: CKServerChangeToken?, using _: CKDatabase?) async throws -> ZoneChangesResult {
-        ZoneChangesResult(
-            changedRecords: Array(mockRecords.values),
+        let parsed: [ParsedRecord] = mockRecords.values.compactMap { record in
+            do {
+                switch record.recordType {
+                case Family.recordType: return try .family(Family(record: record))
+                case Profile.recordType: return try .profile(Profile(record: record))
+                case Quest.recordType: return try .quest(Quest(record: record))
+                case QuestTemplate.recordType: return try .questTemplate(QuestTemplate(record: record))
+                case QuestCompletion.recordType: return try .questCompletion(QuestCompletion(record: record))
+                case LedgerEntry.recordType: return try .ledgerEntry(LedgerEntry(record: record))
+                case AllowancePeriod.recordType: return try .allowancePeriod(AllowancePeriod(record: record))
+                case Achievement.recordType: return try .achievement(Achievement(record: record))
+                case ProfileAchievement.recordType: return try .profileAchievement(ProfileAchievement(record: record))
+                case NotificationPreference.recordType: return try .notificationPreference(NotificationPreference(record: record))
+                default: return .parseFailure(recordType: record.recordType, recordName: record.recordID.recordName)
+                }
+            } catch {
+                return .parseFailure(recordType: record.recordType, recordName: record.recordID.recordName)
+            }
+        }
+        return ZoneChangesResult(
+            changedRecords: parsed,
             deletedRecordIDs: [],
             newToken: nil,
             moreComing: false
@@ -178,6 +193,10 @@ class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func acceptShare(metadata _: CKShare.Metadata) async throws {}
+
+    func fetchShareMetadata(for _: URL) async throws -> CKShare.Metadata {
+        throw CloudKitServiceError.notFound("Mock share metadata not configured")
+    }
 
     func processAbandonedZonesQueue(appState _: AppState) async {}
 

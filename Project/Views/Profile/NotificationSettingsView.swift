@@ -15,6 +15,8 @@ struct NotificationSettingsView: View {
     private let profile: Profile
     private let family: Family
 
+    @Environment(ToastManager.self) private var toastManager
+
     @Query private var cachedPreferences: [NotificationPreferenceCache]
 
     @AppStorage("masterNotificationsEnabled") private var masterNotificationsEnabled = true
@@ -62,10 +64,15 @@ struct NotificationSettingsView: View {
                     if authorizationStatus == .notDetermined {
                         Button("Enable") {
                             Task {
-                                let granted = await (try? notificationService.requestAuthorization()) ?? false
-                                await updateAuthStatus()
-                                if granted {
-                                    notificationService.registerForRemoteNotifications()
+                                do {
+                                    let granted = try await notificationService.requestAuthorization()
+                                    await updateAuthStatus()
+                                    if granted {
+                                        notificationService.registerForRemoteNotifications()
+                                    }
+                                } catch {
+                                    await updateAuthStatus()
+                                    toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                                 }
                             }
                         }
@@ -90,7 +97,11 @@ struct NotificationSettingsView: View {
                         if newValue {
                             if authorizationStatus == .notDetermined {
                                 Task {
-                                    _ = try? await notificationService.requestAuthorization()
+                                    do {
+                                        _ = try await notificationService.requestAuthorization()
+                                    } catch {
+                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                    }
                                     await updateAuthStatus()
                                 }
                             }
@@ -230,7 +241,7 @@ struct NotificationSettingsView: View {
                         try await notificationService.updatePreference(event: event, enabled: newValue)
                         UserDefaults.standard.set(newValue, forKey: event.userDefaultsKey)
                     } catch {
-                        // Log error, possibly revert UI state
+                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                     }
                 }
             }

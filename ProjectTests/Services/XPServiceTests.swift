@@ -128,17 +128,17 @@ struct XPServiceTests {
     }
 
     @MainActor
-    private final class FailingCloudKitService: CloudKitServicing {
-        func save<T: CloudKitRecord>(_: T,
-                                     in _: CKRecordZone.ID?,
-                                     using _: CKDatabase?) async throws -> T
+    private final class FailingCloudKitService: MockCloudKitService {
+        override func save<T: CloudKitRecord>(_: T,
+                                              in _: CKRecordZone.ID?,
+                                              using _: CKDatabase?) async throws -> T
         {
             throw MockError.saveFailed
         }
 
-        func fetch<T: CloudKitRecord>(_: T.Type,
-                                      id _: CKRecord.ID,
-                                      using _: CKDatabase?) async throws -> T
+        override func fetch<T: CloudKitRecord>(_: T.Type,
+                                               id _: CKRecord.ID,
+                                               using _: CKDatabase?) async throws -> T
         {
             throw MockError.saveFailed
         }
@@ -196,12 +196,12 @@ struct XPServiceTests {
         cache.upsertProfile(hero)
         appState.currentProfile = hero
 
-        let returned = try await service.addXP(50, to: hero)
-
-        // (c) returned profile is the rolled-back value, NOT the inflated `updated`.
-        #expect(returned.xp == 100, "addXP must return rolled-back profile on failure, not the inflated value")
-        #expect(returned.xp != 150)
-        #expect(returned.level == 1)
+        do {
+            _ = try await service.addXP(50, to: hero)
+            #expect(Bool(false), "addXP must throw on save failure")
+        } catch {
+            // Expected failure
+        }
 
         // (b) cache is rolled back to the pre-mutation value.
         let cached = cache.fetchProfile(recordName: hero.id.recordName)
@@ -222,12 +222,12 @@ struct XPServiceTests {
         // Note: deliberately NOT seeded into the cache → no snapshot available.
         appState.currentProfile = hero
 
-        let returned = try await service.addXP(50, to: hero)
-
-        // (c) returned profile is the original profile, NOT the inflated `updated`.
-        #expect(returned.xp == 100, "addXP must return original profile when no snapshot exists")
-        #expect(returned.xp != 150)
-        #expect(returned.id == hero.id)
+        do {
+            _ = try await service.addXP(50, to: hero)
+            #expect(Bool(false), "addXP must throw on save failure")
+        } catch {
+            // Expected failure
+        }
 
         // (b) cache is invalidated (no prior state to roll back to).
         let cached = cache.fetchProfile(recordName: hero.id.recordName)

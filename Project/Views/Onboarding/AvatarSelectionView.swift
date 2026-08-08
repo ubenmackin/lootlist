@@ -11,6 +11,8 @@ import SwiftUI
 struct AvatarSelectionView: View {
     @Bindable var viewModel: OnboardingViewModel
 
+    @Environment(ToastManager.self) private var toastManager
+
     @State private var isRPGExpanded: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
 
@@ -24,17 +26,13 @@ struct AvatarSelectionView: View {
                 rpgDisclosureSection
 
                 finalizeButton
-
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                        .accessibilityIdentifier("avatar.errorBanner")
-                }
             }
             .padding(.vertical, 24)
+        }
+        .onChange(of: viewModel.error) { _, newError in
+            if let error = newError {
+                toastManager.show(message: error, type: .error)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(

@@ -5,9 +5,11 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 
-/// Single source of truth for quest-gold proration.
+// Single source of truth for quest-gold proration.
+
 ///
 /// All gold accounting — the real wallet payout in `TreasuryService`, the
 /// hero/guardian dashboard previews, and any downstream gold displays — must
@@ -231,6 +233,31 @@ enum GoldCalculation: Sendable {
         return total
     }
 
+    /// Cached-row fully-completed check, guarded against `targetCount == 0`.
+    /// Mirrors the `safeTarget = max(1, targetCount)` defense inside `credit(_:…)`
+    /// so AON zero-out and per-quest completion checks can never disagree.
+    static func isFullyCompleted(quest: QuestCache, approvedCount: Int) -> Bool {
+        let target = max(1, quest.targetCount)
+        return approvedCount >= target
+    }
+
+    /// Domain-model fully-completed check, guarded against `targetCount == 0`.
+    /// Mirrors the `safeTarget = max(1, targetCount)` defense inside `credit(_:…)`
+    /// so AON zero-out and per-quest completion checks can never disagree.
+    static func isFullyCompleted(quest: Quest, approvedCount: Int) -> Bool {
+        let target = max(1, quest.targetCount)
+        return approvedCount >= target
+    }
+
+    /// Whether a quest's non-rejected logs (approved OR pending) already
+    /// occupy every completion slot — the gate `QuestService.markComplete`
+    /// uses to reject a new completion before the hero logs more. Guarded
+    /// against `targetCount == 0` like every sibling completion check.
+    static func nonRejectedLogsReachTarget(quest: Quest, nonRejectedCount: Int) -> Bool {
+        let target = max(1, quest.targetCount)
+        return nonRejectedCount >= target
+    }
+
     static func netWeeklyGold(
         quests: [QuestCache],
         logs: [QuestCompletionCache],
@@ -252,7 +279,7 @@ enum GoldCalculation: Sendable {
 
         let fullyCompletedCount = assignedQuests.filter { quest in
             let qLogs = approvedLogs.filter { $0.questRecordName == quest.recordName }
-            return qLogs.count >= quest.targetCount
+            return isFullyCompleted(quest: quest, approvedCount: qLogs.count)
         }.count
 
         if payoutPolicy == .allOrNothing,
@@ -263,5 +290,66 @@ enum GoldCalculation: Sendable {
         }
 
         return totalEarned
+    }
+
+    /// Single source of truth for "sum gold across logs, cache-first with per-id CK fallback".
+    /// Used by TreasuryService.sumGold and QuestService+QuestLogs.earnedThisWeek to
+    /// prevent duplicated cache-then-CK-fallback-then-prorate gold summation.
+    static func totalCredit(
+        logs: [QuestCompletion],
+        cacheService: CacheService?,
+        cloudKit: any CloudKitServiceProtocol,
+        family: Family? = nil,
+        calendar _: Calendar = .iso8601UTC
+    ) async -> Double {
+        let completedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+        guard !completedLogs.isEmpty else { return 0 }
+
+        let uniqueQuestIDs = Array(Set(completedLogs.map(\.quest.recordID)))
+        var questMap: [CKRecord.ID: Quest] = [:]
+
+        if let cache = cacheService {
+            let familyName = family?.id.recordName
+            let quests = await MainActor.run {
+                let zoneID = cloudKit.resolvedZoneID
+                return cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
+            }
+            for quest in quests {
+                questMap[quest.id] = quest
+            }
+        }
+
+        let missingIDs = uniqueQuestIDs.filter { questMap[$0] == nil }
+
+        if !missingIDs.isEmpty {
+            for chunk in missingIDs.chunked(into: 100) {
+                let predicate = NSPredicate(format: "recordID IN %@", chunk)
+                do {
+                    let fetched: [Quest] = try await cloudKit.query(Quest.self, predicate: predicate)
+                    for quest in fetched {
+                        questMap[quest.id] = quest
+                    }
+                } catch {
+                    for questID in chunk {
+                        if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                            questMap[questID] = fetched
+                        }
+                    }
+                }
+            }
+        }
+
+        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
+        for log in completedLogs {
+            approvedCountByQuest[log.quest.recordID, default: 0] += 1
+        }
+
+        var total: Double = 0
+        for (questID, approvedCount) in approvedCountByQuest {
+            if let quest = questMap[questID] {
+                total += creditAsDouble(for: quest, approvedCount: approvedCount)
+            }
+        }
+        return total
     }
 }

@@ -56,7 +56,8 @@ final class HeroDashboardViewModel {
               appState.family != nil
         else { return }
 
-        weekDays = HeroDashboardViewModel.currentWeekDays()
+        let payoutDay = appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
+        weekDays = HeroDashboardViewModel.currentWeekDays(payoutDay: payoutDay)
         let todayCode = HeroDashboardViewModel.todayWeekdayCode()
 
         if !templates.isEmpty {
@@ -137,7 +138,6 @@ final class HeroDashboardViewModel {
         streak = StreakCalculator.computeStreak(from: heroLogs)
         let profileRecordName = appState.currentProfile?.id.recordName ?? ""
         let payoutPolicy = appState.currentProfile?.payoutPolicy
-        let payoutDay = appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
         earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests, profileRecordName: profileRecordName, payoutPolicy: payoutPolicy, payoutDay: payoutDay)
 
         // Precompute the number of fully-completed quests once, so the view
@@ -158,8 +158,7 @@ final class HeroDashboardViewModel {
     }
 
     func isFullyCompleted(for quest: QuestCache) -> Bool {
-        let target = max(1, quest.targetCount)
-        return approvedCount(for: quest) >= target
+        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount(for: quest))
     }
 
     nonisolated static func earnedThisWeek(
@@ -227,7 +226,7 @@ final class HeroDashboardViewModel {
             let approvedLogs = logs(for: quest).filter {
                 $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
             }
-            return approvedLogs.count >= quest.targetCount
+            return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count)
         }
     }
 
@@ -242,31 +241,33 @@ final class HeroDashboardViewModel {
         return codes[safe]
     }
 
-    static func currentWeekDays(for date: Date = Date(), calendar: Calendar = .iso8601UTC) -> [DayInfo] {
-        let weekday = calendar.component(.weekday, from: date) // 1 (Sun) to 7 (Sat)
-        let daysToSunday = 1 - weekday
-        guard let sundayDate = calendar.date(byAdding: .day, value: daysToSunday, to: calendar.startOfDay(for: date)) else {
+    static func currentWeekDays(for date: Date = Date(), payoutDay: PayoutDay = .saturday, calendar: Calendar = .iso8601UTC) -> [DayInfo] {
+        let firstDayOfWeek = payoutDay.nextDay.weekdayNumber // 1 (Sun) .. 7 (Sat)
+        let weekday = calendar.component(.weekday, from: date)
+        let diff = (firstDayOfWeek - weekday)
+        let daysToStart = diff > 0 ? diff - 7 : diff
+        guard let startDate = calendar.date(byAdding: .day, value: daysToStart, to: calendar.startOfDay(for: date)) else {
             return []
         }
 
         let codes = AppConstants.weekdayCodes
         let shortNames = AppConstants.weekdayShort
-
         let todayStart = calendar.startOfDay(for: date)
 
         return (0 ..< 7).compactMap { offset in
-            guard let dayDate = calendar.date(byAdding: .day, value: offset, to: sundayDate) else { return nil }
+            guard let dayDate = calendar.date(byAdding: .day, value: offset, to: startDate) else { return nil }
             let dayStart = calendar.startOfDay(for: dayDate)
             let isToday = calendar.isDate(dayStart, inSameDayAs: todayStart)
             let isPast = dayStart < todayStart
             let isFuture = dayStart > todayStart
             let dayNum = calendar.component(.day, from: dayDate)
+            let dayWeekdayIndex = calendar.component(.weekday, from: dayDate) - 1
 
             return DayInfo(
-                id: codes[offset],
+                id: codes[dayWeekdayIndex],
                 date: dayDate,
-                weekdayCode: codes[offset],
-                shortName: shortNames[offset],
+                weekdayCode: codes[dayWeekdayIndex],
+                shortName: shortNames[dayWeekdayIndex],
                 dayNumber: dayNum,
                 isToday: isToday,
                 isPast: isPast,

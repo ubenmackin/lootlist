@@ -31,9 +31,6 @@ final class QuestLogViewModel {
     private let familyService: FamilyService
     private let appState: AppState
 
-    private var syncSubscriptionID: UUID?
-    private var syncTask: Task<Void, Never>?
-
     private var allProfiles: [ProfileCache] = []
     private var profileByName: [String: ProfileCache] = [:]
 
@@ -48,28 +45,6 @@ final class QuestLogViewModel {
         self.questService = questService
         self.familyService = familyService
         self.appState = appState
-    }
-
-    func subscribeToSyncEvents(_ coordinator: AppSyncCoordinator) {
-        guard syncSubscriptionID == nil else { return }
-        let (stream, id) = coordinator.subscribe()
-        syncSubscriptionID = id
-        syncTask = Task {
-            for await _ in stream {
-                // view's `@Query *.Cache` re-fires `.onChange` → `rebuildLists`.
-                // No explicit `load(family:)` here — that would duplicate the
-                // `.onChange` path and could diverge on edge rows.
-            }
-        }
-    }
-
-    func unsubscribeFromSyncEvents(_ coordinator: AppSyncCoordinator) {
-        syncTask?.cancel()
-        syncTask = nil
-        if let id = syncSubscriptionID {
-            coordinator.unsubscribe(id: id)
-            syncSubscriptionID = nil
-        }
     }
 
     // MARK: - Types
@@ -195,7 +170,7 @@ final class QuestLogViewModel {
 
             let status: CompletionStatus = if logs.isEmpty {
                 .notStarted
-            } else if approvedLogs.count >= target {
+            } else if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count) {
                 .completed
             } else if hasRejectedLog {
                 .rejected

@@ -9,6 +9,15 @@ import CloudKit
 import Foundation
 import Observation
 
+struct SpendingLogRow: Identifiable, Equatable {
+    let id: String
+    let amount: Double
+    let description: String
+    let date: Date
+    let source: String
+    let rawCache: LedgerEntryCache?
+}
+
 @MainActor
 @Observable
 final class TreasuryViewModel {
@@ -24,7 +33,7 @@ final class TreasuryViewModel {
 
     private(set) var allowancePeriod: AllowancePeriod?
 
-    private(set) var spendingLog: [LedgerEntryCache] = []
+    private(set) var spendingLog: [SpendingLogRow] = []
 
     private(set) var isLoading: Bool = false
 
@@ -81,7 +90,7 @@ final class TreasuryViewModel {
         }
         let fullyCompletedCount = assignedQuests.filter { quest in
             let qApprovedLogs = weekLogs.filter { $0.questRecordName == quest.recordName }
-            return qApprovedLogs.count >= quest.targetCount
+            return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: qApprovedLogs.count)
         }.count
 
         if profile.payoutPolicy == .allOrNothing,
@@ -112,32 +121,51 @@ final class TreasuryViewModel {
             ? (Date.distantPast ..< Date.distantFuture)
             : weekRange
 
-        let includedLedgers = profileLedgers.filter { range.contains($0.date) }
-
-        // Include approved logs as ledger entries for display.
-        let familyName = appState.family?.id.recordName ?? ""
-        let logLedgers = approvedLogs
-            .filter { range.contains($0.weekOf) }
-            .compactMap { log -> LedgerEntryCache? in
-                guard let quest = quests.first(where: { $0.recordName == log.questRecordName }) else { return nil }
-                return LedgerEntryCache(
-                    recordName: "log-\(log.recordName)",
-                    profileRecordName: profileName,
-                    familyRecordName: familyName,
-                    amount: quest.goldReward,
-                    entryDescription: "Completed: \(quest.questName)",
-                    date: log.completedDate,
-                    source: "quest"
+        let ledgerRows = profileLedgers
+            .filter { range.contains($0.date) }
+            .map { ledger in
+                SpendingLogRow(
+                    id: ledger.recordName,
+                    amount: ledger.amount,
+                    description: ledger.entryDescription,
+                    date: ledger.date,
+                    source: ledger.source,
+                    rawCache: ledger
                 )
             }
 
-        spendingLog = (includedLedgers + logLedgers).sorted { $0.date > $1.date }
+        let logRows = approvedLogs
+            .filter { range.contains($0.weekOf) }
+            .compactMap { log -> SpendingLogRow? in
+                guard let quest = quests.first(where: { $0.recordName == log.questRecordName }) else { return nil }
+                return SpendingLogRow(
+                    id: "log-\(log.recordName)",
+                    amount: quest.goldReward,
+                    description: "Completed: \(quest.questName)",
+                    date: log.completedDate,
+                    source: "quest",
+                    rawCache: nil
+                )
+            }
+
+        spendingLog = (ledgerRows + logRows).sorted { $0.date > $1.date }
     }
 
     func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], showAllTime: Bool) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
-        let filtered = cachedLedgers.filter { $0.profileRecordName == profileName }
+        let filtered = cachedLedgers
+            .filter { $0.profileRecordName == profileName }
+            .map { ledger in
+                SpendingLogRow(
+                    id: ledger.recordName,
+                    amount: ledger.amount,
+                    description: ledger.entryDescription,
+                    date: ledger.date,
+                    source: ledger.source,
+                    rawCache: ledger
+                )
+            }
 
         if showAllTime {
             spendingLog = filtered.sorted { $0.date > $1.date }
@@ -146,7 +174,6 @@ final class TreasuryViewModel {
             let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
 
             spendingLog = filtered
-
                 .filter { weekRange.contains($0.date) }
                 .sorted { $0.date > $1.date }
         }

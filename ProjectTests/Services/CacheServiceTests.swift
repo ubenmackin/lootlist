@@ -712,4 +712,32 @@ struct CacheServiceTests {
         #expect(updated.first?.questName == "Observer Quest Updated")
         #expect(updated.first?.goldReward == 42.0)
     }
+
+    @Test
+    func `batch upsert profiles stamps payoutDay on existing row`() throws {
+        let service = try makeService()
+        let family = Family(
+            name: "Dragons",
+            createdBy: CKRecord.ID(recordName: "user1"),
+            id: CKRecord.ID(recordName: "fam")
+        )
+        service.upsertFamily(family)
+
+        var profile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "icloud1"),
+            family: ref("fam"),
+            payoutDay: .monday,
+            id: CKRecord.ID(recordName: "profile-batch1")
+        )
+        service.upsertProfile(profile)
+        #expect(service.fetchProfiles(family: "fam").first(where: { $0.recordName == "profile-batch1" })?.payoutDayEnum == .monday)
+
+        profile.payoutDay = .friday
+        service.upsertProfiles([profile], family: "fam")
+
+        let updated = service.fetchProfiles(family: "fam").first(where: { $0.recordName == "profile-batch1" })
+        #expect(updated?.payoutDayEnum == .friday)
+    }
 }

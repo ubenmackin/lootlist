@@ -63,7 +63,8 @@ final class AppSyncCoordinator {
         }
     }
 
-    func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase) async {
+    func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase?) async {
+        guard let database else { return }
         // Dual-path subscription strategy:
         // - Owner (private) database: use a zone-scoped CKRecordZoneSubscription so
         //   change notifications only fire for this family's zone, avoiding spurious
@@ -89,7 +90,8 @@ final class AppSyncCoordinator {
         }
     }
 
-    func removeSubscriptions(from database: CKDatabase) async {
+    func removeSubscriptions(from database: CKDatabase?) async {
+        guard let database else { return }
         do {
             let subscriptions = try await database.allSubscriptions()
             for sub in subscriptions {

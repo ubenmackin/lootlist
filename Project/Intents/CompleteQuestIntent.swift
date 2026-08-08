@@ -1,0 +1,64 @@
+//
+//  CompleteQuestIntent.swift
+//  LootList
+//
+//  Created by Ben Mackin on 8/6/26.
+//
+
+import AppIntents
+import Foundation
+import SwiftData
+
+struct CompleteQuestIntent: AppIntent, Sendable {
+    static let title: LocalizedStringResource = "Complete Quest"
+    static let description = IntentDescription("Marks a quest or chore as completed.")
+
+    @Parameter(title: "Quest")
+    var quest: QuestEntity?
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let dep = AppDependencies.shared,
+              let profile = dep.appState.currentProfile
+        else {
+            return .result(dialog: "LootList isn't running. Open the app first.")
+        }
+
+        let targetQuestEntity: QuestEntity
+        if let provided = quest {
+            targetQuestEntity = provided
+        } else {
+            let suggested = try await QuestEntityQuery().suggestedEntities()
+            guard !suggested.isEmpty else {
+                return .result(dialog: "You have no active quests to complete!")
+            }
+            if suggested.count == 1, let single = suggested.first {
+                targetQuestEntity = single
+            } else {
+                throw $quest.needsValueError("Which quest would you like to complete?")
+            }
+        }
+
+        let questModel: Quest? = await MainActor.run {
+            let zoneID = dep.questService.cloudKitReference.resolvedZoneID
+            let familyName = dep.appState.family?.id.recordName
+            guard let cache = dep.cacheService?.fetchQuests(family: familyName, weekInRange: nil)
+                .first(where: { $0.recordName == targetQuestEntity.id && $0.isActive })
+            else { return nil }
+            return cache.toQuest(zoneID: zoneID)
+        }
+
+        guard let questModel else {
+            return .result(dialog: "Quest '\(targetQuestEntity.title)' was not found.")
+        }
+
+        do {
+            _ = try await dep.questService.markComplete(quest: questModel, by: profile)
+            return .result(dialog: "Awesome work! Marked '\(targetQuestEntity.title)' as completed.")
+        } catch let err as QuestServiceError {
+            return .result(dialog: IntentDialog(stringLiteral: err.errorDescription ?? "Could not complete the quest."))
+        } catch {
+            return .result(dialog: "Could not complete the quest: \(error.localizedDescription)")
+        }
+    }
+}

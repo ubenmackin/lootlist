@@ -20,7 +20,9 @@ extension CloudKitService {
             throw CloudKitServiceError.notFound(id.recordName)
         }
 
-        let targetDB = db ?? activeFamilyDatabase
+        guard let targetDB = db ?? activeFamilyDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         let record = try await retrying {
             try await targetDB.record(for: id)
         }

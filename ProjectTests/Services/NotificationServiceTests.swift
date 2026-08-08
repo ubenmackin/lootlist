@@ -239,7 +239,7 @@ struct NotificationServiceTests {
             _ = try await service.updatePreference(event: .questAssigned, enabled: true)
             #expect(Bool(false), "Expected save to throw on serverRecordChanged")
         } catch {
-            #expect((error as? CloudKitServiceError) == .serverRecordChanged)
+            #expect((error as? NotificationServiceError) == .persistenceFailed)
         }
 
         let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1")

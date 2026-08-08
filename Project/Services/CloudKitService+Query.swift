@@ -25,17 +25,34 @@ extension CloudKitService {
         }
 
         let zone = zoneID ?? resolvedZoneID
-        let targetDB = db ?? activeFamilyDatabase
+        guard let targetDB = db ?? activeFamilyDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         let query = CKQuery(recordType: type.recordType, predicate: predicate)
         query.sortDescriptors = sortDescriptors
 
         var allMatchResults: [(CKRecord.ID, Result<CKRecord, Error>)] = []
         let maximumResults = CKQueryOperation.maximumResults
 
-        let (firstPageResults, firstCursor) = try await retrying {
-            try await targetDB.records(matching: query,
-                                       inZoneWith: zone,
-                                       resultsLimit: maximumResults)
+        let (firstPageResults, firstCursor): ([(CKRecord.ID, Result<CKRecord, Error>)], CKQueryOperation.Cursor?)
+        do {
+            (firstPageResults, firstCursor) = try await retrying {
+                try await targetDB.records(matching: query,
+                                           inZoneWith: zone,
+                                           resultsLimit: maximumResults)
+            }
+        } catch {
+            let wrapped = wrapError(error)
+            switch wrapped {
+            case .notFound:
+                // Record type or zone does not exist yet on CloudKit server — return empty results.
+                return []
+            case let .invalidArguments(msg) where msg.contains("not marked queryable") || msg.contains("recordName"):
+                // Record type lacks a queryable index on CloudKit server — return empty results.
+                return []
+            default:
+                throw wrapped
+            }
         }
         allMatchResults.append(contentsOf: firstPageResults)
         var cursor: CKQueryOperation.Cursor? = firstCursor

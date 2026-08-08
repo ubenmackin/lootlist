@@ -18,6 +18,8 @@ struct ProfileView: View {
 
     private let notificationService: NotificationService
 
+    @Environment(ToastManager.self) private var toastManager
+
     @Environment(AppState.self) private var appState
 
     @Environment(FamilyService.self) private var familyService
@@ -304,7 +306,11 @@ struct ProfileView: View {
                         updated.displayName = newName
                         appState.currentProfile = updated
                         Task {
-                            try? await familyService.updateProfileDisplayName(profile: updated, newName: newName)
+                            do {
+                                try await familyService.updateProfileDisplayName(profile: updated, newName: newName)
+                            } catch {
+                                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                            }
                         }
                     }
                 )
@@ -478,7 +484,11 @@ struct ProfileView: View {
                             updated.displayName = trimmed
                             appState.currentProfile = updated
                             Task {
-                                try? await familyService.updateProfileDisplayName(profile: updated, newName: trimmed)
+                                do {
+                                    try await familyService.updateProfileDisplayName(profile: updated, newName: trimmed)
+                                } catch {
+                                    toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                }
                             }
                         }
                         showingEditName = false
@@ -580,6 +590,7 @@ final class ProfileViewModel {
 
 struct EditAvatarSheet: View {
     let profile: Profile
+    @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(\.dismiss) private var dismiss
@@ -664,12 +675,16 @@ struct EditAvatarSheet: View {
                     Button("Save") {
                         isSaving = true
                         Task {
-                            _ = try? await familyService.updateProfileAvatar(
-                                profile: profile,
-                                avatarClass: selectedClass,
-                                avatarPresetID: selectedPresetID,
-                                customAvatarImageData: customData
-                            )
+                            do {
+                                try await familyService.updateProfileAvatar(
+                                    profile: profile,
+                                    avatarClass: selectedClass,
+                                    avatarPresetID: selectedPresetID,
+                                    customAvatarImageData: customData
+                                )
+                            } catch {
+                                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                            }
                             dismiss()
                         }
                     }

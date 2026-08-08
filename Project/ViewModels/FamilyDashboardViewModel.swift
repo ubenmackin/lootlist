@@ -36,7 +36,6 @@ final class FamilyDashboardViewModel {
 
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
-    private var syncRefreshTask: Task<Void, Never>?
 
     init(questService: QuestService,
          treasury: TreasuryService,
@@ -51,7 +50,7 @@ final class FamilyDashboardViewModel {
         self.appState = appState
     }
 
-    func refresh() async {
+    func refresh(syncEngine: SyncEngine? = nil) async {
         guard appState.family != nil else {
             heroes = []
             parents = []
@@ -63,6 +62,12 @@ final class FamilyDashboardViewModel {
         defer { isLoading = false }
 
         await ensureActiveShareURL()
+        if let family = appState.family {
+            try? await achievements.seedDefaultAchievements(family: family)
+        }
+        if let syncEngine {
+            await syncEngine.incrementalSync(familyRecordName: appState.family?.id.recordName, forceFullFetch: true)
+        }
     }
 
     @MainActor
@@ -71,7 +76,11 @@ final class FamilyDashboardViewModel {
         guard appState.activeShareURL == nil else { return }
         guard let zoneID = appState.familyZoneID, let family = appState.family else { return }
         let cloudKit = questService.cloudKitReference
-        appState.activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
+        do {
+            appState.activeShareURL = try await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
+        } catch {
+            logger.error("Failed to fetch or create active share URL: \(error, privacy: .private)")
+        }
     }
 
     func rebuildLists(
@@ -187,14 +196,9 @@ final class FamilyDashboardViewModel {
     private func handleRecordChangedSync() {
         // SyncEngine's incrementalSync handles writing incoming push changes to
         // SwiftData, which automatically re-fires `.onChange` → `rebuildLists()`.
-        // No redundant manual CloudKit query needed.
-        syncRefreshTask?.cancel()
-        syncRefreshTask = nil
     }
 
     func unsubscribeFromSyncEvents(_ coordinator: AppSyncCoordinator) {
-        syncRefreshTask?.cancel()
-        syncRefreshTask = nil
         syncTask?.cancel()
         syncTask = nil
         if let id = syncSubscriptionID {
@@ -211,8 +215,6 @@ final class FamilyDashboardViewModel {
         loadError = nil
         isLoading = false
         isLoadingPayouts = false
-        syncRefreshTask?.cancel()
-        syncRefreshTask = nil
     }
 }
 

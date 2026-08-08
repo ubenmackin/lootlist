@@ -14,6 +14,7 @@ struct TrophyRoomView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(XPService.self) private var xpService
     @Environment(AppState.self) private var appState
+    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
 
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
@@ -44,11 +45,13 @@ struct TrophyRoomView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
+            Group {
                 if let viewModel {
                     content(for: viewModel)
                 } else {
-                    loadingPlaceholder
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityHidden(true)
                 }
             }
             .navigationTitle("Hall of Heroes")
@@ -61,6 +64,10 @@ struct TrophyRoomView: View {
                 }
             }
             .refreshable {
+                await syncEngine?.incrementalSync()
+                if let profile = appState.currentProfile, let family = appState.family {
+                    _ = try? await achievementService.evaluateAll(for: profile, family: family)
+                }
                 rebuild()
             }
         }
@@ -71,6 +78,9 @@ struct TrophyRoomView: View {
                     xpService: xpService,
                     appState: appState
                 )
+            }
+            if let profile = appState.currentProfile, let family = appState.family {
+                _ = try? await achievementService.evaluateAll(for: profile, family: family)
             }
             rebuild()
         }

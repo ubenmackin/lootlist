@@ -11,9 +11,16 @@ import SwiftData
 import UIKit
 import UserNotifications
 
-enum NotificationServiceError: Error, Equatable, Sendable {
+enum NotificationServiceError: Error, LocalizedError, Equatable, Sendable {
     case centerFailure(String)
-    case persistenceFailed(String)
+    case persistenceFailed
+
+    var errorDescription: String? {
+        switch self {
+        case let .centerFailure(msg): msg
+        case .persistenceFailed: "Could not save notification preferences. Please try again."
+        }
+    }
 }
 
 @MainActor
@@ -113,7 +120,7 @@ final class NotificationService {
     @discardableResult
     func updatePreference(event: NotificationEventType, enabled: Bool) async throws -> NotificationPreference {
         guard let profile = appState.currentProfile, let family = appState.family else {
-            throw NotificationServiceError.persistenceFailed("No active profile/family for notification preference update")
+            throw NotificationServiceError.persistenceFailed
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
@@ -151,60 +158,23 @@ final class NotificationService {
             await registry?.deregister(recordID.recordName)
             return saved
         } catch {
-            // A `.notFound` from `cloudKit.save` is definitive evidence of a
-            // concurrent delete — the record no longer exists server-side.
-            // Restoring the pre-mutation snapshot would resurrect a row that
-            // another device deleted, so invalidate instead; the next sync
-            // pass confirms the absence. This branch runs before the
-            // changeTag-based detector because a concurrent deletion also
-            // removes the cached row, making the detector's `fetchCurrent`
-            // nil and silently false.
-            if let serviceError = error as? CloudKitServiceError,
-               case .notFound = serviceError
-            {
-                cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
-                await registry?.deregister(recordID.recordName)
-                throw error
-            }
-
-            let concurrentEditDetected = ConcurrentEditDetector.detectConcurrentEdit(
+            let snapshotModel = snapshot?.toNotificationPreference(zoneID: cloudKit.resolvedZoneID)
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: recordID,
                 preMutationChangeTag: preMutationChangeTag,
-                fetchCurrent: {
-                    self.cachedPreference(for: event)?.changeTag
+                snapshot: snapshotModel,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cachedPreference(for: event)?.changeTag },
+                upsert: { restored in
+                    self.cacheService?.upsertNotificationPreference(restored)
+                    UserDefaults.standard.set(restored.enabled, forKey: event.userDefaultsKey)
                 },
+                invalidate: { _ in self.cacheService?.invalidateNotificationPreference(recordName: recordID.recordName) },
                 error: error
             )
-
-            if concurrentEditDetected {
-                toastManager?.show(
-                    message: "Data was modified by another device. Refresh to see the latest.",
-                    type: .warning
-                )
-                if let fresh = try? await cloudKit.fetch(NotificationPreference.self, id: recordID) {
-                    cacheService?.upsertNotificationPreference(fresh)
-                } else if let snapshot {
-                    cacheService?.upsertNotificationPreference(
-                        snapshot.toNotificationPreference(zoneID: cloudKit.resolvedZoneID)
-                    )
-                } else {
-                    cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
-                }
-            } else {
-                if let snapshot {
-                    // Update path — restore the pre-mutation cached value.
-                    cacheService?.upsertNotificationPreference(
-                        snapshot.toNotificationPreference(zoneID: cloudKit.resolvedZoneID)
-                    )
-                } else {
-                    // Brand-new preference with no prior cached row — invalidate.
-                    cacheService?.invalidateNotificationPreference(recordName: recordID.recordName)
-                }
-                let message = (error as? LocalizedError)?.errorDescription
-                    ?? error.localizedDescription
-                toastManager?.show(message: message, type: .error)
-            }
             await registry?.deregister(recordID.recordName)
-            throw error
+            throw NotificationServiceError.persistenceFailed
         }
     }
 
@@ -337,8 +307,8 @@ final class NotificationService {
         verificationCategoryRegistered = true
     }
 
-    func updateAppBadgeCount(pendingCount: Int) {
-        UNUserNotificationCenter.current().setBadgeCount(max(0, pendingCount)) { _ in }
+    func updateAppBadgeCount(pendingCount: Int) async {
+        try? await UNUserNotificationCenter.current().setBadgeCount(max(0, pendingCount))
     }
 }
 

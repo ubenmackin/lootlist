@@ -24,7 +24,9 @@ extension CloudKitService {
         }
 
         let zone = zoneID ?? resolvedZoneID
-        let targetDB = db ?? activeFamilyDatabase
+        guard let targetDB = db ?? activeFamilyDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
 
         let source = model.toRecord()
         let targetID: CKRecord.ID = {
@@ -67,17 +69,7 @@ extension CloudKitService {
         let saved: CKRecord
         do {
             saved = try await retrying {
-                try await withCheckedThrowingContinuation { continuation in
-                    targetDB.save(recordToSave) { record, error in
-                        if let error {
-                            continuation.resume(throwing: error)
-                        } else if let record {
-                            continuation.resume(returning: record)
-                        } else {
-                            continuation.resume(throwing: CKError(.internalError))
-                        }
-                    }
-                }
+                try await targetDB.save(recordToSave)
             }
         } catch {
             logger.error("Save failed for \(T.recordType, privacy: .public) (\(recordToSave.recordID.recordName, privacy: .private)): \(error, privacy: .private)")
@@ -96,7 +88,9 @@ extension CloudKitService {
             return
         }
 
-        let targetDB = db ?? activeFamilyDatabase
+        guard let targetDB = db ?? activeFamilyDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
         let id = CKRecord.ID(recordName: recordID.recordName,
                              zoneID: zoneID ?? recordID.zoneID)
         _ = try await retrying {

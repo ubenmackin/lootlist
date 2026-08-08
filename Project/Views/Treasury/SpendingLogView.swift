@@ -100,7 +100,7 @@ struct SpendingLogView: View {
 }
 
 struct LedgerEntryRow: View {
-    let entry: LedgerEntryCache
+    let entry: SpendingLogRow
 
     var body: some View {
         VStack(spacing: 4) {
@@ -113,7 +113,7 @@ struct LedgerEntryRow: View {
                     .frame(width: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.entryDescription)
+                    Text(entry.description)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
                     Text(dateText)
@@ -134,7 +134,7 @@ struct LedgerEntryRow: View {
             )
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(entry.entryDescription), \(GoldFormat.signed(entry.amount)), \(dateText)")
+        .accessibilityLabel("\(entry.description), \(GoldFormat.signed(entry.amount)), \(dateText)")
     }
 
     private var dateText: String {

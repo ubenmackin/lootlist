@@ -87,7 +87,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         self.xpBanked = xpBanked
         self.rarity = rarity
         self.scheduleType = scheduleType
-        self.targetCount = targetCount
+        self.targetCount = max(1, targetCount)
         self.isAllOrNothing = isAllOrNothing
         self.approvalMode = approvalMode
         self.descriptionText = descriptionText
@@ -137,7 +137,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         isAllOrNothing = quest.isAllOrNothing
         approvalMode = quest.approvalMode.rawValue
         descriptionText = quest.descriptionText
-        targetCount = quest.targetCount
+        targetCount = max(1, quest.targetCount)
         createdByRecordName = quest.createdBy.recordID.recordName
         changeTag = quest.changeTag
     }

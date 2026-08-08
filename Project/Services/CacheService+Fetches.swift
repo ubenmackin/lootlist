@@ -10,6 +10,8 @@ import os
 import SwiftData
 
 extension CacheService {
+    private static let fetchLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
+
     // MARK: - Generic helper
 
     /// Generic fetch helper that handles the common fetch pattern.
@@ -23,8 +25,7 @@ extension CacheService {
             let descriptor = FetchDescriptor<T>(predicate: predicate, sortBy: sortBy)
             return try context.fetch(descriptor)
         } catch {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
-            logger.error("Failed to fetch \(String(describing: T.self)): \(error, privacy: .public)")
+            Self.fetchLogger.error("Failed to fetch \(String(describing: T.self)): \(error, privacy: .public)")
             return []
         }
     }
