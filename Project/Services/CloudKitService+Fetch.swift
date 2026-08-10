@@ -23,8 +23,14 @@ extension CloudKitService {
         guard let targetDB = db ?? activeFamilyDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
+        let targetID: CKRecord.ID = {
+            if id.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
+                return id
+            }
+            return CKRecord.ID(recordName: id.recordName, zoneID: resolvedZoneID)
+        }()
         let record = try await retrying {
-            try await targetDB.record(for: id)
+            try await targetDB.record(for: targetID)
         }
         return try T(record: record)
     }

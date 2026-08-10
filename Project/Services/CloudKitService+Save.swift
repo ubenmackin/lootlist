@@ -55,6 +55,15 @@ extension CloudKitService {
             }
         }
 
+        // Preserve server-side fields the model does not carry. `toRecord()`
+        // writes a key only when the model manages it, and omits fields it does
+        // not express (e.g. `Quest.name`/`descriptionText` before the backfill,
+        // `LedgerEntry.location`, `QuestTemplate.specificDays` when empty), so
+        // stripping every key the fresh model leaves nil would silently delete
+        // concurrent server data written by another device. Clearing a field is
+        // expressed explicitly: `toRecord()` writes `nil` for a managed field
+        // (e.g. `Profile.avatarPresetID` when the avatar is removed), and that
+        // nil write is applied below — exactly the mock path's semantics.
         for key in source.allKeys() {
             recordToSave[key] = source[key]
         }
@@ -88,13 +97,18 @@ extension CloudKitService {
             return
         }
 
+        let zone = zoneID ?? resolvedZoneID
         guard let targetDB = db ?? activeFamilyDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
-        let id = CKRecord.ID(recordName: recordID.recordName,
-                             zoneID: zoneID ?? recordID.zoneID)
+        let targetID: CKRecord.ID = {
+            if recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
+                return recordID
+            }
+            return CKRecord.ID(recordName: recordID.recordName, zoneID: zone)
+        }()
         _ = try await retrying {
-            try await targetDB.deleteRecord(withID: id)
+            try await targetDB.deleteRecord(withID: targetID)
         }
     }
 }

@@ -33,6 +33,7 @@ struct ProfileView: View {
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedProfiles: [ProfileCache]
 
     @State private var showingEditName: Bool = false
 
@@ -67,6 +68,7 @@ struct ProfileView: View {
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
+        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         _cachedAchievements = Query(
             filter: achievementFilter,
             sort: \AchievementCache.name
@@ -91,6 +93,10 @@ struct ProfileView: View {
             sort: \QuestCache.weekOf,
             order: .reverse
         )
+        _cachedProfiles = Query(
+            filter: profileFilter,
+            sort: \ProfileCache.displayName
+        )
     }
 
     var body: some View {
@@ -107,7 +113,7 @@ struct ProfileView: View {
                 }
                 .padding(.vertical, 20)
             }
-            .navigationTitle("Character")
+            .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.large)
             .alert("Sign Out?", isPresented: $showingSignOutConfirm) {
                 Button("Sign Out", role: .destructive) {
@@ -140,10 +146,12 @@ struct ProfileView: View {
             .onChange(of: cachedLedgers) { _, _ in recomputeCharacterFromCache() }
             .onChange(of: cachedAchievements) { _, _ in recomputeCharacterFromCache() }
             .onChange(of: cachedQuests) { _, _ in recomputeCharacterFromCache() }
+            .onChange(of: cachedProfiles) { _, _ in recomputeCharacterFromCache() }
         }
     }
 
     private func recomputeCharacterFromCache() {
+        appState.updateCurrentProfileFromCache()
         viewModel.recomputeCharacterFromCache(
             profile: appState.currentProfile,
             completions: cachedCompletions,
@@ -519,7 +527,7 @@ final class ProfileViewModel {
         profile: Profile?,
         completions: [QuestCompletionCache],
         ledgers: [LedgerEntryCache],
-        quests: [QuestCache],
+        quests _: [QuestCache],
         profileAchievements: [ProfileAchievementCache],
         achievements: [AchievementCache],
         zoneID: CKRecordZone.ID
@@ -533,29 +541,13 @@ final class ProfileViewModel {
         let heroCompletions = completions.filter { $0.completerRecordName == profileName }
         streak = StreakCalculator.computeStreak(from: heroCompletions)
 
-        let completedLogs = heroCompletions.filter {
-            $0.verificationStatus == VerificationStatus.autoApproved.rawValue
-                || $0.verificationStatus == VerificationStatus.verified.rawValue
-        }
-        let questByName = Dictionary(
-            quests.map { ($0.recordName, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        var approvedCountByQuest: [String: Int] = [:]
-        for log in completedLogs {
-            approvedCountByQuest[log.questRecordName, default: 0] += 1
-        }
-        var goldFromQuests = 0.0
-        for (qName, count) in approvedCountByQuest {
-            if let quest = questByName[qName] {
-                goldFromQuests += GoldCalculation.creditAsDouble(for: quest,
-                                                                 approvedCount: count)
-            }
-        }
+        // Wallet balance is sourced exclusively from the ledger: quest earnings
+        // are minted as `source == "quest"` ledger entries by
+        // `TreasuryService.mintPayoutLedgerEntry` / `mintRealTimeLedgerEntry`,
+        // so summing them again from completion logs would double-count.
+        // Mirrors `TreasuryViewModel.rebuildLists` (ledger-sum-only pattern).
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
-        let bonusGold = profileLedgers.filter { $0.amount > 0 }.reduce(into: 0.0) { $0 += $1.amount }
-        let spending = profileLedgers.filter { $0.amount < 0 }.reduce(into: 0.0) { $0 += $1.amount }
-        goldBalance = goldFromQuests + bonusGold + spending
+        goldBalance = profileLedgers.reduce(0.0) { $0 + $1.amount }
 
         let earnedNames = Set(
             profileAchievements

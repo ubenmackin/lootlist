@@ -36,7 +36,22 @@ protocol SpendingService: Sendable {
                    familyRecordName: String,
                    description: String,
                    amount: Double,
+                   location: String?,
                    date: Date) async throws -> LedgerEntry
+
+    func deposit(profile: Profile,
+                 family: Family,
+                 familyRecordName: String,
+                 description: String,
+                 amount: Double,
+                 date: Date) async throws -> LedgerEntry
+
+    func withdraw(profile: Profile,
+                  family: Family,
+                  familyRecordName: String,
+                  description: String,
+                  amount: Double,
+                  date: Date) async throws -> LedgerEntry
 
     func delete(_ entry: LedgerEntry) async throws
 }
@@ -47,7 +62,28 @@ extension SpendingService {
                    familyRecordName _: String,
                    description _: String,
                    amount _: Double,
-                   date _: Date) async throws -> LedgerEntry
+                   location _: String? = nil,
+                   date _: Date = Date()) async throws -> LedgerEntry
+    {
+        throw SpendingServiceError.unsupported
+    }
+
+    func deposit(profile _: Profile,
+                 family _: Family,
+                 familyRecordName _: String,
+                 description _: String,
+                 amount _: Double,
+                 date _: Date) async throws -> LedgerEntry
+    {
+        throw SpendingServiceError.unsupported
+    }
+
+    func withdraw(profile _: Profile,
+                  family _: Family,
+                  familyRecordName _: String,
+                  description _: String,
+                  amount _: Double,
+                  date _: Date) async throws -> LedgerEntry
     {
         throw SpendingServiceError.unsupported
     }
@@ -91,6 +127,7 @@ final class ManualSpendingService: SpendingService {
                         profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: zoneID), action: .none),
                         amount: cacheRow.amount,
                         description: cacheRow.entryDescription,
+                        location: cacheRow.location,
                         date: cacheRow.date,
                         source: cacheRow.source,
                         family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: zoneID), action: .none),
@@ -116,9 +153,10 @@ final class ManualSpendingService: SpendingService {
                    familyRecordName: String,
                    description: String,
                    amount: Double,
+                   location: String? = nil,
                    date: Date = Date()) async throws -> LedgerEntry
     {
-        guard let acting = appState?.currentProfile, acting.id == profile.id else {
+        guard let acting = appState?.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
 
@@ -133,6 +171,7 @@ final class ManualSpendingService: SpendingService {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: -abs(amount),
             description: description,
+            location: location,
             date: date,
             source: "manual",
             family: CKRecord.Reference(recordID: family.id, action: .none)
@@ -174,7 +213,129 @@ final class ManualSpendingService: SpendingService {
         }
     }
 
+    func deposit(profile: Profile,
+                 family: Family,
+                 familyRecordName: String,
+                 description: String,
+                 amount: Double,
+                 date: Date = Date()) async throws -> LedgerEntry
+    {
+        guard let acting = appState?.currentProfile, acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
+        guard amount.isFinite, amount > 0 else {
+            throw SpendingServiceError.invalidAmount
+        }
+
+        let entry = LedgerEntry(
+            profile: CKRecord.Reference(recordID: profile.id, action: .none),
+            amount: abs(amount),
+            description: description,
+            date: date,
+            source: "deposit",
+            family: CKRecord.Reference(recordID: family.id, action: .none)
+        )
+        let name = entry.id.recordName
+        // Scope the snapshot fetch to the active family so a profile that
+        // briefly existed in two families does not match rows from the other.
+        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+
+        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
+        cacheService?.upsertLedgerEntry(entry)
+        do {
+            let zoneID = cloudKit.resolvedZoneID
+            let saved = try await cloudKit.save(entry, in: zoneID)
+            cacheService?.upsertLedgerEntry(saved)
+            await registry?.deregister(name)
+            return saved
+        } catch {
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: entry.id,
+                preMutationChangeTag: preMutationChangeTag,
+                snapshot: snapshotEntry,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: {
+                    self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName).first(where: { $0.recordName == name })?.changeTag
+                },
+                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
+                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
+                error: error
+            )
+            await registry?.deregister(name)
+            throw SpendingServiceError.persistenceFailed
+        }
+    }
+
+    func withdraw(profile: Profile,
+                  family: Family,
+                  familyRecordName: String,
+                  description: String,
+                  amount: Double,
+                  date: Date = Date()) async throws -> LedgerEntry
+    {
+        guard let acting = appState?.currentProfile, acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
+        guard amount.isFinite, amount > 0 else {
+            throw SpendingServiceError.invalidAmount
+        }
+
+        let entry = LedgerEntry(
+            profile: CKRecord.Reference(recordID: profile.id, action: .none),
+            amount: -abs(amount),
+            description: description,
+            date: date,
+            source: "withdrawal",
+            family: CKRecord.Reference(recordID: family.id, action: .none)
+        )
+        let name = entry.id.recordName
+        // Scope the snapshot fetch to the active family so a profile that
+        // briefly existed in two families does not match rows from the other.
+        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
+            .first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+
+        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
+        cacheService?.upsertLedgerEntry(entry)
+        do {
+            let zoneID = cloudKit.resolvedZoneID
+            let saved = try await cloudKit.save(entry, in: zoneID)
+            cacheService?.upsertLedgerEntry(saved)
+            await registry?.deregister(name)
+            return saved
+        } catch {
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: entry.id,
+                preMutationChangeTag: preMutationChangeTag,
+                snapshot: snapshotEntry,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: {
+                    self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName).first(where: { $0.recordName == name })?.changeTag
+                },
+                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
+                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
+                error: error
+            )
+            await registry?.deregister(name)
+            throw SpendingServiceError.persistenceFailed
+        }
+    }
+
     func delete(_ entry: LedgerEntry) async throws {
+        guard entry.source != "quest" else {
+            throw SpendingServiceError.unsupported
+        }
+
         guard let acting = appState?.currentProfile,
               entry.profile.recordID == acting.id || acting.role.isParent
         else {

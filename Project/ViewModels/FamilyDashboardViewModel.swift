@@ -114,25 +114,41 @@ final class FamilyDashboardViewModel {
             let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
             let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && (heroWeekRange.contains($0.weekOf) || heroWeekRange.contains($0.completedDate)) }
 
-            let completed = heroLogs.filter {
+            let approvedLogs = heroLogs.filter {
                 $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
             }
 
-            let goldFromQuests = GoldCalculation.netWeeklyGold(
-                quests: quests,
-                logs: logs,
-                profileRecordName: hero.recordName,
-                payoutPolicy: hero.payoutPolicyEnum,
-                weekRange: heroWeekRange
-            )
+            let fullyCompletedQuestsCount = heroQuests.filter { quest in
+                let qApprovedLogs = approvedLogs.filter { $0.questRecordName == quest.recordName }
+                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: qApprovedLogs.count)
+            }.count
 
-            let heroLedgers = ledgers.filter {
-                $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
+            let heroPeriod = allowancePeriods.first {
+                $0.profileRecordName == hero.recordName &&
+                    Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: heroWeekOf)
             }
-            let bonusGold = heroLedgers
-                .filter { $0.amount > 0 }
-                .reduce(0.0) { $0 + $1.amount }
-            let earned = goldFromQuests + bonusGold
+            let isPeriodPaid = heroPeriod?.statusEnum == .paid
+
+            let earned: Double
+            if isPeriodPaid {
+                earned = 0.0
+            } else {
+                let goldFromQuests = GoldCalculation.netWeeklyGold(
+                    quests: quests,
+                    logs: logs,
+                    profileRecordName: hero.recordName,
+                    payoutPolicy: hero.payoutPolicyEnum,
+                    weekRange: heroWeekRange
+                )
+
+                let heroLedgers = ledgers.filter {
+                    $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
+                }
+                let bonusGold = heroLedgers
+                    .filter { $0.amount > 0 && $0.source != "quest" }
+                    .reduce(0.0) { $0 + $1.amount }
+                earned = goldFromQuests + bonusGold
+            }
 
             let streakLogs = logs.filter { $0.completerRecordName == hero.recordName }
             let streak = StreakCalculator.computeStreak(from: streakLogs)
@@ -142,7 +158,7 @@ final class FamilyDashboardViewModel {
 
             heroSummaries.append(HeroSummary(
                 profile: hero,
-                weeklyQuestsCompleted: completed.count,
+                weeklyQuestsCompleted: fullyCompletedQuestsCount,
                 weeklyQuestsTotal: heroQuests.count,
                 weeklyGoldEarned: earned,
                 currentStreak: streak,
@@ -222,6 +238,17 @@ struct WeekendSummary: Equatable {
     let weekOf: Date
 
     let totalEarned: Double
+
+    /// Amount pending payout for non-real-time heroes only.
+    /// Real-time heroes' weekly gold is disbursed immediately on
+    /// each quest completion, so it is never "pending" a weekly batch.
+    var pendingPayoutAmount: Double {
+        heroSummaries.reduce(into: 0.0) { acc, hero in
+            if hero.profile.payoutPolicyEnum != .realTime {
+                acc += hero.weeklyGoldEarned
+            }
+        }
+    }
 
     let totalQuestsCompleted: Int
 

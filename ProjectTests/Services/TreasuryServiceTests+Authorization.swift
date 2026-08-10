@@ -160,7 +160,7 @@ extension TreasuryServiceTests {
     }
 
     @Test
-    func `processRealTimeSettlement returns nil when a parent acts on a different hero`() async throws {
+    func `processRealTimeSettlement settles when a parent acts on a real time hero`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
         let appState = AppState()
@@ -181,8 +181,6 @@ extension TreasuryServiceTests {
         )
         appState.currentProfile = guildMaster
 
-        // Real-time settlement is a self-action; parent acting on a different
-        // hero cannot trigger it.
         let targetHeroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let targetHero = Profile(
             displayName: "Target Hero",
@@ -200,9 +198,47 @@ extension TreasuryServiceTests {
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
+        let monday = WeekMath.mondayOfWeek(for: Date())
+        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        let templateRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
+        )
+        let quest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: targetHeroID, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Verified Quest",
+            id: questID
+        )
+        let completion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: questID, action: .none),
+            completedBy: CKRecord.Reference(recordID: targetHeroID, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            family: familyRef
+        )
+        cloudKit.seedMockRecords([targetHero, family, quest, completion])
 
-        let result = try await treasury.processRealTimeSettlement(profile: targetHero, family: family)
-        #expect(result == nil, "Parent cannot trigger another profile's self-settlement")
+        // Parent-verified quests settle on the hero's behalf: the acting
+        // profile is the parent, not the hero, and the settlement must
+        // proceed — the identity-only guard previously dropped it, leaving
+        // the hero's wallet un-credited.
+        let result = try await treasury.processRealTimeSettlement(
+            profile: targetHero,
+            family: family,
+            date: monday
+        )
+        let period = try #require(result, "A parent acting on a real-time hero must not be dropped")
+        #expect(period.profile.recordID == targetHero.id, "Settlement must target the hero's period")
+        #expect(period.totalEarned == 25.0, "Parent-verified gold must settle on the hero's period")
+        #expect(period.paidAmount == 25.0)
     }
 
     @Test

@@ -31,6 +31,8 @@ struct BalanceCardView: View {
 
     let status: PayoutStatus?
 
+    var pendingPayoutAmount: Double?
+
     var body: some View {
         VStack(spacing: 16) {
             Text(amountText)
@@ -39,7 +41,7 @@ struct BalanceCardView: View {
                 .foregroundStyle(balance == nil ? .secondary : .primary)
                 .contentTransition(.numericText())
 
-            Text("Money")
+            Text("Money (Wallet Balance)")
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
@@ -51,7 +53,24 @@ struct BalanceCardView: View {
 
             if let status {
                 statusPill(for: status)
-                    .padding(.top, 8)
+                    .padding(.top, 4)
+            }
+
+            if let pendingPayoutAmount, pendingPayoutAmount > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "hourglass")
+                    Text("\(CurrencyFormatter.string(pendingPayoutAmount)) Pending Weekly Payout")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule().fill(Color.orange.opacity(0.12))
+                )
+                .overlay(
+                    Capsule().strokeBorder(Color.orange.opacity(0.40), lineWidth: 1)
+                )
             }
         }
         .padding(24)

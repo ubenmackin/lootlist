@@ -22,6 +22,11 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>fetch</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.volcrypt.lootlist.weeklypayout</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

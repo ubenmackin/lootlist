@@ -32,9 +32,13 @@ extension QuestService {
         inFlightCompletions.withLock { _ = $0.insert(questName) }
         defer { inFlightCompletions.withLock { _ = $0.remove(questName) } }
         let cachedLogs = cachedQuestLogs(forQuest: quest)
-        let cachedNonRejectedCount = cachedLogs.filter { $0.verificationStatus != .rejected }.count
+        let cachedNonRejectedCount = cachedLogs.filter(\.verificationStatus.countsTowardCompletion).count
         if GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: cachedNonRejectedCount) {
             throw QuestServiceError.alreadyCompleted
+        }
+        if quest.approvalMode == .parentVerify, cachedLogs.contains(where: { $0.verificationStatus == .pending }) {
+            toastManager?.show(message: "The previous completion is awaiting parent verification.", type: .info)
+            throw QuestServiceError.alreadyInFlight
         }
         var log = QuestCompletion(quest: CKRecord.Reference(recordID: quest.id, action: .none),
                                   completedBy: CKRecord.Reference(recordID: profile.id, action: .none),
@@ -70,6 +74,56 @@ extension QuestService {
                 error: error
             )
             await reg?.deregister(log.id.recordName)
+            throw error
+        }
+    }
+
+    func withdrawCompletion(questLog: QuestCompletion, by profile: Profile) async throws {
+        guard let acting = appState?.currentProfile,
+              acting.id == profile.id || acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        guard questLog.verificationStatus == .pending else {
+            throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
+        }
+
+        // Pending submissions are append-only: unsubmitting is a state
+        // transition (pending → withdrawn) that keeps the completion record
+        // inserted, never a delete. The withdrawn log no longer occupies a
+        // completion slot, so a later `markComplete` is allowed to proceed.
+        var updated = questLog
+        updated.verificationStatus = .withdrawn
+
+        let name = questLog.id.recordName
+        let snapshot = cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })
+        let preMutationChangeTag = snapshot?.changeTag
+        let snapshotCompletion: QuestCompletion? = snapshot?.toQuestCompletion(zoneID: cloudKit.resolvedZoneID)
+
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
+        cacheService?.upsertQuestCompletion(updated)
+        do {
+            let saved = try await cloudKit.save(updated)
+            cacheService?.upsertQuestCompletion(saved)
+            await registry?.deregister(name)
+        } catch {
+            // On failure the pre-mutation snapshot (the pending row) is
+            // restored, so the cache never drops a record the source of truth
+            // still holds — withdrawal is state-based, with no delete to fold
+            // back in.
+            await handleSaveFailure(
+                recordID: questLog.id,
+                preMutationChangeTag: preMutationChangeTag,
+                snapshot: snapshotCompletion,
+                fetchCurrentTag: { self.cacheService?.fetchQuestCompletions(family: questLog.family.recordID.recordName).first(where: { $0.recordName == name })?.changeTag },
+                upsert: { self.cacheService?.upsertQuestCompletion($0) },
+                invalidate: { self.cacheService?.invalidateQuestCompletion(recordName: $0) },
+                error: error
+            )
+            await registry?.deregister(name)
             throw error
         }
     }

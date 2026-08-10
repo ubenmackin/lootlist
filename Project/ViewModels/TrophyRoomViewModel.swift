@@ -36,6 +36,11 @@ final class TrophyRoomViewModel {
         Set(earned.map(\.achievementRecordName))
     }
 
+    var latestEarnedTrophyName: String? {
+        guard let latest = earned.max(by: { $0.earnedDate < $1.earnedDate }) else { return nil }
+        return allAchievements.first(where: { $0.recordName == latest.achievementRecordName })?.name
+    }
+
     func rebuildLists(earned: [ProfileAchievementCache], allAchievements: [AchievementCache]) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName

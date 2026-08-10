@@ -5,8 +5,11 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import BackgroundTasks
 import CloudKit
+import os
 import UIKit
+import UserNotifications
 
 extension SyncOutcome {
     /// Maps the sync outcome to the iOS background-fetch result iOS expects so
@@ -22,6 +25,78 @@ extension SyncOutcome {
 }
 
 class AppDelegate: NSObject, UIApplicationDelegate {
+    static let weeklyPayoutTaskId = "com.volcrypt.lootlist.weeklypayout"
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppDelegate")
+
+    func application(
+        _: UIApplication,
+        didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        registerBackgroundTasks()
+        // Local banners are surfaced by UNUserNotificationCenter, separate from
+        // the silent-push path handled in `didReceiveRemoteNotification`.
+        // Installing the router makes banners tappable in the foreground and
+        // turns taps into tab navigation / inline review actions.
+        Task { @MainActor in
+            UNUserNotificationCenter.current().delegate = NotificationRouter.shared
+        }
+        return true
+    }
+
+    private func registerBackgroundTasks() {
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.weeklyPayoutTaskId, using: nil) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else { return }
+            Self.handleWeeklyPayoutBackgroundRefresh(task: refreshTask)
+        }
+    }
+
+    static func scheduleWeeklyPayoutRefresh(payoutDay: PayoutDay = .sunday) {
+        #if targetEnvironment(simulator) || os(macOS)
+            logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
+            return
+        #else
+            let request = BGAppRefreshTaskRequest(identifier: weeklyPayoutTaskId)
+            let now = Date()
+            let currentWeekStart = WeekMath.startOfWeek(for: now, payoutDay: payoutDay)
+            let nextPayoutDate = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: currentWeekStart) ?? now
+            request.earliestBeginDate = nextPayoutDate > now ? nextPayoutDate : now.addingTimeInterval(3600)
+
+            do {
+                try BGTaskScheduler.shared.submit(request)
+            } catch {
+                logger.debug("Failed to submit BGAppRefreshTask: \(error, privacy: .public)")
+            }
+        #endif
+    }
+
+    private static func handleWeeklyPayoutBackgroundRefresh(task: BGAppRefreshTask) {
+        task.expirationHandler = {
+            logger.warning("Weekly payout BGAppRefreshTask expired prior to completion")
+            // Complete the expired task as failed — an uncompleted task counts
+            // as a failure and iOS throttles future background refreshes.
+            task.setTaskCompleted(success: false)
+        }
+
+        Task { @MainActor in
+            guard let shared = AppDependencies.shared else {
+                // Background cold start before AppDependencies is constructed:
+                // the family's payout day cannot be resolved and no payout work
+                // can run. Report the task as failed rather than claiming success
+                // for work that never happened; the next foreground launch
+                // (LootListApp) re-arms the refresh with the family's day.
+                task.setTaskCompleted(success: false)
+                return
+            }
+
+            // Re-arm the next refresh on the family's configured payout day so
+            // non-Sunday families keep their cadence while the app stays closed,
+            // instead of drifting to the Sunday default.
+            scheduleWeeklyPayoutRefresh(payoutDay: shared.appState.family?.payoutDay ?? .sunday)
+            _ = await shared.autoPayoutCoordinator.processPendingPayoutsIfDue()
+            task.setTaskCompleted(success: true)
+        }
+    }
+
     func application(
         _: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,

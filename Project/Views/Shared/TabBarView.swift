@@ -54,6 +54,13 @@ struct TabBarView: View {
         }
         .onAppear {
             reconcileDefaultSelection()
+            // A notification tap that arrived before this view mounted (cold
+            // start) is retained by the router; adopt it here so the tab switch
+            // still happens once the session is authenticated.
+            if let route = NotificationRouter.shared.takePendingRoute() {
+                appState.pendingNotificationRoute = route
+            }
+            checkPendingNotificationRoute(appState.pendingNotificationRoute)
             Task {
                 await notificationService.updateAppBadgeCount(pendingCount: pendingCount)
             }
@@ -68,6 +75,33 @@ struct TabBarView: View {
             guard let action else { return }
             handleQuickAction(action)
         }
+        .onChange(of: appState.pendingNotificationRoute) { _, route in
+            guard let route else { return }
+            handleNotificationRoute(route)
+        }
+    }
+
+    private func checkPendingNotificationRoute(_ route: NotificationRoute?) {
+        guard let route else { return }
+        handleNotificationRoute(route)
+    }
+
+    private func handleNotificationRoute(_ route: NotificationRoute) {
+        switch route {
+        case .pendingVerifications:
+            if roleKind == .parent {
+                selectedTab = .manage
+            }
+        case .quests:
+            selectedTab = (roleKind == .parent) ? .manage : .quests
+        case .heroLedger:
+            if roleKind == .parent {
+                // The spender's ledger lives under the hero's detail card on
+                // the family dashboard.
+                selectedTab = .family
+            }
+        }
+        appState.pendingNotificationRoute = nil
     }
 
     private func handleQuickAction(_ action: QuickActionType) {
@@ -119,7 +153,7 @@ struct TabBarView: View {
     private var parentTabs: some View {
         let familyName = appState.family?.id.recordName
 
-        FamilyDashboardView(familyRecordName: familyName)
+        FamilyDashboardView(spending: spending, familyRecordName: familyName)
             .tabItem {
                 Label("Family", systemImage: "house.fill")
             }

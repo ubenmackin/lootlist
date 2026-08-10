@@ -292,15 +292,19 @@ struct BackgroundCacheActorTests {
     }
 
     @Test
-    func `purge missing families empty set removes all`() async throws {
+    func `purge missing families with empty valid set keeps rows`() async throws {
         let container = try makeContainer()
         try seedAllCaches(container, prefix: "seed_")
         #expect(try remainingCount(FamilyCache.self, in: container) == 1)
 
         let actor = BackgroundCacheActor(container: container)
+
+        // An empty CKQuery result is a transient failure mode (record types
+        // lacking QUERYABLE indexes in the dev schema, network fallback) — it is
+        // never a delete-everything signal. The safety guard must keep the row.
         await actor.purgeMissingFamilies(validRecordNames: [])
 
-        #expect(try remainingCount(FamilyCache.self, in: container) == 0)
+        #expect(try remainingCount(FamilyCache.self, in: container) == 1)
     }
 
     // MARK: - Purge family-scope guard
@@ -341,12 +345,36 @@ struct BackgroundCacheActorTests {
         await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: "")
         #expect(try remainingCount(QuestCache.self, in: container) == 2)
 
-        // Sanity: an explicitly scoped purge still works — scope fam_a with
-        // empty valid set deletes only fam_a's row, leaving fam_b intact.
-        await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: "fam_a")
+        // Sanity: an explicitly scoped purge still works — scope fam_a with a
+        // non-empty valid set that excludes q_a (an empty set short-circuits via
+        // the empty-result safety guard) deletes only fam_a's row, leaving
+        // fam_b intact.
+        await actor.purgeMissingQuests(validRecordNames: ["q_b"], familyRecordName: "fam_a")
         #expect(try remainingCount(QuestCache.self, in: container) == 1)
         let remaining = try fetchAll(QuestCache.self, in: container)
         #expect(remaining.first?.familyRecordName == "fam_b")
+    }
+
+    // MARK: - Empty validRecordNames safety guard
+
+    @Test
+    func `empty valid record names never purge existing cached rows`() async throws {
+        let container = try makeContainer()
+        try seedAllCaches(container, prefix: "seed_")
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+        #expect(try remainingCount(ProfileCache.self, in: container) == 1)
+
+        let actor = BackgroundCacheActor(container: container)
+
+        // A transient empty CKQuery result (record types lacking QUERYABLE
+        // indexes in the dev schema, network fallback) must never be treated as
+        // a wipe signal — purging on it would destroy valid local cached data.
+        await actor.purgeMissingQuests(validRecordNames: [], familyRecordName: "fam")
+        await actor.purgeMissingProfiles(validRecordNames: [], familyRecordName: "fam")
+
+        // Every valid cached row survives the short-circuited purge.
+        #expect(try remainingCount(QuestCache.self, in: container) == 1)
+        #expect(try remainingCount(ProfileCache.self, in: container) == 1)
     }
 
     // MARK: Quests

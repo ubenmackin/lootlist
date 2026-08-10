@@ -109,6 +109,7 @@ extension LedgerEntryCache {
             profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zoneID), action: .none),
             amount: amount,
             description: entryDescription,
+            location: location,
             date: date,
             source: source,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),

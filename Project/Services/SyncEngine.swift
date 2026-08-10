@@ -51,15 +51,20 @@ final class SyncEngine {
 
     private let syncTaskMutex = Mutex<Task<Void, Never>?>(nil)
 
+    var appState: AppState?
+    var notificationService: NotificationService?
+
     init(cloudKit: any CloudKitServiceProtocol,
          cacheService: CacheService,
          backgroundCache: BackgroundCacheActor,
-         syncCoordinator: AppSyncCoordinator)
+         syncCoordinator: AppSyncCoordinator,
+         appState: AppState? = nil)
     {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
         self.backgroundCache = backgroundCache
         self.syncCoordinator = syncCoordinator
+        self.appState = appState
 
         listenToPushNotifications()
     }
@@ -188,6 +193,7 @@ final class SyncEngine {
         ) { profiles in
             await backgroundCache.batchUpsertProfiles(profiles, familyRecordName: familyRecordName)
             await backgroundCache.purgeMissingProfiles(validRecordNames: Set(profiles.map(\.id.recordName)), familyRecordName: familyRecordName)
+            self.appState?.updateCurrentProfileFromCache()
         }
 
         await syncEntityGroup(
@@ -343,6 +349,9 @@ final class SyncEngine {
                 lastSyncedAt = Date()
                 let outcome: SyncOutcome = syncError == nil ? (recordsChanged ? .changed : .noChange) : .failed
                 NotificationCenter.default.post(name: .syncDidComplete, object: self, userInfo: [SyncOutcome.userInfoKey: outcome])
+                Task { @MainActor [weak self] in
+                    self?.appState?.updateCurrentProfileFromCache()
+                }
                 // After saving the change token marking byte progress, set pendingSync = incremental if moreComing.
                 // The next call will resume from the checkpoint token.
                 dispatchPendingSync(familyRecordName: familyRecordName)
@@ -353,8 +362,12 @@ final class SyncEngine {
         let tokenKey = tokenKey(for: zoneID, isShared: !cloudKit.activeIsOwner)
 
         if forceFullFetch {
-            logger.info("forceFullFetch requested — clearing change token for zone \(zoneID.zoneName, privacy: .private)")
+            logger.info("forceFullFetch requested — delegating to full sync for zone \(zoneID.zoneName, privacy: .private)")
             UserDefaults.standard.removeObject(forKey: tokenKey)
+            isSyncing = false
+            didDelegateToFullSync = true
+            await dispatchFullSync(familyRecordName: familyRecordName)
+            return
         }
 
         // A previous incremental pass hit unparseable records in this zone,
@@ -365,7 +378,7 @@ final class SyncEngine {
             logger.warning("Zone \(zoneID.zoneName, privacy: .private) flagged for full re-sync after unparseable records; running syncAll")
             isSyncing = false
             didDelegateToFullSync = true
-            await dispatchFullSync(familyRecordName: familyRecordName)
+            await _syncAll(familyRecordName: zoneID.zoneName)
             return
         }
 
@@ -377,6 +390,7 @@ final class SyncEngine {
             let result = try await cloudKit.fetchZoneChanges(since: token)
             recordsChanged = !result.changedRecords.isEmpty || !result.deletedRecordIDs.isEmpty
             let touchedTypes = await processIncrementalChanges(result)
+            await processIncomingNotifications(result)
 
             if self.failedRecordCount > 0 {
                 // Skip advancing token if parsing failed and schedule full re-sync.
@@ -429,11 +443,12 @@ final class SyncEngine {
         }
 
         for (deletedID, recordType) in result.deletedRecordIDs {
-            guard let cachedType = CachedRecordType.recordType(for: recordType) else {
-                logger.warning("Skipping delete of unknown recordType '\(recordType, privacy: .public)' for record \(deletedID.recordName, privacy: .private)")
-                continue
+            let cachedType = CachedRecordType.recordType(for: recordType)
+            if let cachedType {
+                touchedTypes.insert(cachedType)
+            } else {
+                touchedTypes.formUnion(CachedRecordType.allCases)
             }
-            touchedTypes.insert(cachedType)
             await backgroundCache.deleteRecord(recordName: deletedID.recordName, type: cachedType)
         }
         return touchedTypes
@@ -606,5 +621,110 @@ final class SyncEngine {
         // The isSyncing / pendingSync mechanism serializes actual sync execution —
         // the two are distinct levels of the guardian.
         syncTaskMutex.withLock { $0 = task }
+    }
+
+    // MARK: - Incoming Notification Delivery
+
+    /// Inspects newly downloaded records from a remote sync and posts local
+    /// notification banners on the receiving device for the logged-in profile.
+    /// Skips records authored by the current profile to avoid self-notifications.
+    private func processIncomingNotifications(_ result: ZoneChangesResult) async {
+        guard let notificationService, let currentProfile = appState?.currentProfile else { return }
+
+        for parsed in result.changedRecords {
+            switch parsed {
+            case let .quest(quest):
+                await handleQuestNotification(quest, currentProfile: currentProfile, notificationService: notificationService)
+            case let .questCompletion(completion):
+                await handleQuestCompletionNotification(completion, currentProfile: currentProfile, notificationService: notificationService)
+            case let .ledgerEntry(entry):
+                await handleLedgerEntryNotification(entry, currentProfile: currentProfile, notificationService: notificationService)
+            default:
+                continue
+            }
+        }
+    }
+
+    private func handleQuestNotification(_ quest: Quest,
+                                         currentProfile: Profile,
+                                         notificationService: NotificationService) async
+    {
+        guard currentProfile.role == .hero else { return }
+        let currentProfileName = currentProfile.id.recordName
+        guard quest.assignee.recordID.recordName == currentProfileName else { return }
+        let creatorName = quest.createdBy.recordID.recordName
+        guard creatorName != currentProfileName else { return }
+
+        let questTitle = quest.name ?? "a quest"
+        try? await notificationService.deliverSyncNotification(
+            eventType: .questAssigned,
+            title: "⚔️ New Quest Assigned!",
+            body: "You have been assigned '\(questTitle)'.",
+            profileID: creatorName
+        )
+    }
+
+    private func handleQuestCompletionNotification(_ completion: QuestCompletion,
+                                                   currentProfile: Profile,
+                                                   notificationService: NotificationService) async
+    {
+        let currentProfileName = currentProfile.id.recordName
+        let completerName = completion.completedBy.recordID.recordName
+
+        switch completion.verificationStatus {
+        case .pending:
+            guard currentProfile.role.isParent else { return }
+            guard completerName != currentProfileName else { return }
+            try? await notificationService.deliverSyncNotification(
+                eventType: .questNeedsReview,
+                title: "⚔️ Quest Needs Review",
+                body: "A hero has completed a quest — tap to verify.",
+                profileID: completerName
+            )
+
+        case .verified, .autoApproved:
+            guard completerName == currentProfileName else { return }
+            let verifierName = completion.verifiedBy?.recordID.recordName ?? ""
+            guard verifierName != currentProfileName else { return }
+            try? await notificationService.deliverSyncNotification(
+                eventType: .questCompleted,
+                title: "🏆 Quest Verified!",
+                body: "Your quest was verified!",
+                profileID: verifierName
+            )
+
+        case .rejected:
+            guard completerName == currentProfileName else { return }
+            let verifierName = completion.verifiedBy?.recordID.recordName ?? ""
+            guard verifierName != currentProfileName else { return }
+            try? await notificationService.deliverSyncNotification(
+                eventType: .questRejected,
+                title: "❌ Quest Rejected",
+                body: "Your quest submission was not approved — check feedback and try again.",
+                profileID: verifierName
+            )
+
+        case .withdrawn:
+            return
+        }
+    }
+
+    private func handleLedgerEntryNotification(_ entry: LedgerEntry,
+                                               currentProfile: Profile,
+                                               notificationService: NotificationService) async
+    {
+        guard currentProfile.role.isParent else { return }
+        guard entry.amount < 0, entry.source == "manual" else { return }
+        let currentProfileName = currentProfile.id.recordName
+        let spenderName = entry.profile.recordID.recordName
+        guard spenderName != currentProfileName else { return }
+
+        let amountText = CurrencyFormatter.string(abs(entry.amount))
+        try? await notificationService.deliverSyncNotification(
+            eventType: .spendingLogged,
+            title: "💰 Spending Logged",
+            body: "A hero logged a \(amountText) purchase.",
+            profileID: spenderName
+        )
     }
 }

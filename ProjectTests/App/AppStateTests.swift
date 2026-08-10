@@ -137,4 +137,59 @@ struct AppStateTests {
         #expect(cache.fetchProfiles(family: "familyB").map(\.recordName) == ["profB"])
         #expect(cache.fetchProfiles(family: "familyC").map(\.recordName) == ["profC"])
     }
+
+    @Test
+    func `cross-device profile field changes propagate to current profile`() throws {
+        let zoneID = CKRecordZone.ID(zoneName: "PropagationZone", ownerName: "PropagationOwner")
+        let familyID = CKRecord.ID(recordName: "famProp", zoneID: zoneID)
+        let profileID = CKRecord.ID(recordName: "profProp", zoneID: zoneID)
+
+        let family = Family(
+            name: "Propagation Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: familyID
+        )
+        let profile = Profile(
+            displayName: "Hero",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "hero1", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            payoutPolicy: .perQuest,
+            id: profileID
+        )
+
+        let cache = try CacheService(inMemory: true)
+        cache.upsertFamily(family)
+        cache.upsertProfile(profile)
+
+        let appState = AppState()
+        appState.cacheService = cache
+        appState.familyZoneID = zoneID
+        appState.currentProfile = profile
+
+        // A remote device changes ONLY the payout policy. XP/logistics/name/
+        // avatar are untouched, so the old field-subset change gate would have
+        // skipped this update; the full-profile comparison must not.
+        var policyChanged = profile
+        policyChanged.payoutPolicy = .allOrNothing
+        cache.upsertProfile(policyChanged)
+
+        appState.updateCurrentProfileFromCache()
+
+        #expect(appState.currentProfile?.payoutPolicy == .allOrNothing)
+
+        // A second remote pass changes ONLY the payout day and custom avatar
+        // image; both must also reach currentProfile.
+        var avatarAndDayChanged = policyChanged
+        avatarAndDayChanged.payoutDay = .friday
+        avatarAndDayChanged.customAvatarImageData = Data([0xAA, 0xBB, 0xCC])
+        cache.upsertProfile(avatarAndDayChanged)
+
+        appState.updateCurrentProfileFromCache()
+
+        #expect(appState.currentProfile?.payoutDay == .friday)
+        #expect(appState.currentProfile?.customAvatarImageData == Data([0xAA, 0xBB, 0xCC]))
+    }
 }

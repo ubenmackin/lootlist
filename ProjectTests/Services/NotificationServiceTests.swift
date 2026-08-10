@@ -10,6 +10,7 @@ import Foundation
 @testable import LootList
 import SwiftData
 import Testing
+import UserNotifications
 
 @MainActor
 struct NotificationServiceTests {
@@ -257,5 +258,104 @@ struct NotificationServiceTests {
             cached.pushEnabled == false,
             "Cache must hold the authoritative server value (pushEnabled=false), not the optimistic write (pushEnabled=true)"
         )
+    }
+
+    // MARK: - Event Type Metadata & Role Relevance Tests
+
+    @Test
+    func `notification event types map correctly to categories and roles`() {
+        #expect(NotificationEventType.questRejected.category == .quests)
+        #expect(NotificationEventType.questRejected.displayName == "Quest Rejected")
+        #expect(NotificationEventType.questRejected.iconSystemName == "xmark.seal.fill")
+
+        #expect(NotificationEventType.questAssigned.isRelevantForHero == true)
+        #expect(NotificationEventType.questAssigned.isRelevantForParent == false)
+
+        #expect(NotificationEventType.questNeedsReview.isRelevantForHero == false)
+        #expect(NotificationEventType.questNeedsReview.isRelevantForParent == true)
+
+        #expect(NotificationEventType.questRejected.isRelevantForHero == true)
+        #expect(NotificationEventType.questRejected.isRelevantForParent == false)
+
+        #expect(NotificationEventType.spendingLogged.isRelevantForHero == false)
+        #expect(NotificationEventType.spendingLogged.isRelevantForParent == true)
+
+        #expect(NotificationEventType.levelUp.isRelevantForHero == true)
+        #expect(NotificationEventType.levelUp.isRelevantForParent == true)
+    }
+
+    @Test
+    func `deliverSyncNotification skips self notifications`() async throws {
+        resetUserDefaults()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let app = AppState()
+        let profile = makeProfile(zoneID: zoneID)
+        app.currentProfile = profile
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+
+        // deliverSyncNotification with matching profileID should return early without throwing
+        try await service.deliverSyncNotification(
+            eventType: .questCompleted,
+            title: "Test",
+            body: "Self notification",
+            profileID: profile.id.recordName
+        )
+    }
+
+    // MARK: - Deep-link payload carries the authoring peer (not the viewer)
+
+    @Test
+    func `deliverSyncNotification deep-link profileID carries the authoring peer, not the viewer`() async throws {
+        resetUserDefaults()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let app = AppState()
+        // The viewer is the receiver of the notification on this device.
+        let viewer = makeProfile(zoneID: zoneID)
+        app.currentProfile = viewer
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+
+        // The authoring peer is the family member whose action triggered the
+        // sync event (creator/completer/spender/verifier recordName).
+        let authoringPeerID = "authorPeer"
+
+        // Clean slate so the only pending request after delivery is ours.
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        try await service.deliverSyncNotification(
+            eventType: .questCompleted,
+            title: "Quest Completed",
+            body: "A hero completed a quest.",
+            profileID: authoringPeerID
+        )
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let deliveredNotifications = await UNUserNotificationCenter.current().deliveredNotifications()
+
+        let userInfo: [AnyHashable: Any] = try #require(
+            pending.first(where: { $0.identifier.hasPrefix("\(NotificationEventType.questCompleted.rawValue):") })?.content.userInfo
+                ?? deliveredNotifications.first(where: { $0.request.identifier.hasPrefix("\(NotificationEventType.questCompleted.rawValue):") })?.request.content.userInfo,
+            "Expected a pending or delivered request with the questCompleted identifier prefix"
+        )
+
+        let payloadProfileID = try #require(
+            userInfo["profileID"] as? String,
+            "userInfo must carry a String profileID for deep-link routing"
+        )
+        #expect(
+            payloadProfileID == authoringPeerID,
+            "deep-link profileID must be the authoring peer (\"\(authoringPeerID)\"), not the viewer (\"\(viewer.id.recordName)\")"
+        )
+        #expect(payloadProfileID != viewer.id.recordName)
     }
 }

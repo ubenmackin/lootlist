@@ -59,7 +59,7 @@ final class CacheService {
     }
 
     init(inMemory: Bool = false) throws {
-        let schema = Schema(LootListSchemaV4.models)
+        let schema = Schema(LootListSchemaV5.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
             container = try ModelContainer(

@@ -19,6 +19,8 @@ struct HeroDashboardView: View {
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     @State private var viewModel: HeroDashboardViewModel?
     @State private var submittingQuestIDs: Set<String> = []
@@ -37,6 +39,8 @@ struct HeroDashboardView: View {
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
 
         _cachedQuests = Query(
             filter: questFilter,
@@ -52,23 +56,54 @@ struct HeroDashboardView: View {
             filter: templateFilter,
             sort: \QuestTemplateCache.name
         )
+        _cachedProfiles = Query(
+            filter: profileFilter,
+            sort: \ProfileCache.displayName
+        )
+        _cachedAllowancePeriods = Query(
+            filter: allowanceFilter,
+            sort: \AllowancePeriodCache.weekOf,
+            order: .reverse
+        )
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    goldBalanceCard
-                    streakBanner
-                    questBoard
-                }
+            VStack(spacing: 0) {
+                HeroHeaderCardView(
+                    profile: appState.currentProfile,
+                    familyName: appState.family?.name,
+                    streak: viewModel?.streak ?? 0,
+                    earnedThisWeek: viewModel?.earnedThisWeek ?? 0.0,
+                    completedQuestCount: viewModel?.completedQuestCount ?? 0,
+                    totalQuestCount: viewModel?.weekQuests.count ?? 0,
+                    isPendingPayout: appState.currentProfile?.payoutPolicy != .realTime
+                )
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
+
+                ScrollView {
+                    VStack(spacing: 16) {
+                        questBoard
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                }
             }
             .background(Color(.systemGroupedBackground))
             .scrollContentBackground(.hidden)
-            .navigationTitle("Quests")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink {
+                        QuestLogView(familyRecordName: appState.family?.id.recordName)
+                    } label: {
+                        Label("Quest Log", systemImage: "scroll")
+                    }
+                }
+            }
             .refreshable {
                 await syncEngine?.incrementalSync()
                 rebuildViewModel()
@@ -93,10 +128,17 @@ struct HeroDashboardView: View {
             .onChange(of: cachedTemplates) { _, _ in
                 rebuildViewModel()
             }
+            .onChange(of: cachedProfiles) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedAllowancePeriods) { _, _ in
+                rebuildViewModel()
+            }
         }
     }
 
     private func rebuildViewModel() {
+        appState.updateCurrentProfileFromCache()
         guard let vm = viewModel else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
@@ -109,59 +151,10 @@ struct HeroDashboardView: View {
 
         let templates = cachedTemplates
 
-        vm.rebuildLists(quests: quests, logs: logs, templates: templates)
+        vm.rebuildLists(quests: quests, logs: logs, templates: templates, allowancePeriods: cachedAllowancePeriods)
     }
 
-    private var goldBalanceCard: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "banknote")
-                .font(.system(size: 36))
-                .foregroundStyle(.yellow)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Earned This Week")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text(viewModel.map { CurrencyFormatter.string($0.earnedThisWeek) } ?? CurrencyFormatter.string(0))
-                    .font(.title.bold())
-                    .monospacedDigit()
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("Quests")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("\(viewModel?.completedQuestCount ?? 0)/\(viewModel?.weekQuests.count ?? 0)")
-                    .font(.title3.bold())
-                    .monospacedDigit()
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-    }
-
-    @ViewBuilder
-    private var streakBanner: some View {
-        if let streak = viewModel?.streak, streak > 0 {
-            HStack(spacing: 8) {
-                Image(systemName: "flame.fill")
-                    .foregroundStyle(.orange)
-                Text("\(streak) Combo Streak")
-                    .font(.headline.bold())
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.orange.opacity(0.15))
-            )
-        }
-    }
-
-    // MARK: - Quest Board (Hybrid Option 3)
+    // MARK: - Quest Board
 
     @ViewBuilder
     private var questBoard: some View {
@@ -218,7 +211,7 @@ struct HeroDashboardView: View {
 
     private func dailyRoutinesSection(quests: [QuestCache], vm: HeroDashboardViewModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Today's Quests ⚔️", systemImage: "sun.max.fill")
+            Label("Today's Quests", systemImage: "sun.max.fill")
                 .font(.headline)
             ForEach(quests) { quest in
                 questCard(quest: quest, vm: vm)
@@ -230,7 +223,7 @@ struct HeroDashboardView: View {
 
     private func weeklyBountiesSection(quests: [QuestCache], vm: HeroDashboardViewModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Weekly Bounties 🎯", systemImage: "target")
+            Label("Weekly Bounties", systemImage: "target")
                 .font(.headline)
             ForEach(quests) { quest in
                 questCard(quest: quest, vm: vm)
