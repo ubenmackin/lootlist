@@ -295,7 +295,6 @@ extension SyncEngineTests {
             profile: ref("prof1"),
             eventType: .questCompleted,
             enabled: true,
-            pushEnabled: true,
             family: family,
             id: CKRecord.ID(recordName: recordName)
         )

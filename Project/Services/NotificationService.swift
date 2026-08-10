@@ -139,7 +139,6 @@ final class NotificationService {
             profile: profileRef,
             eventType: event,
             enabled: enabled,
-            pushEnabled: enabled,
             family: familyRef,
             id: recordID
         )
