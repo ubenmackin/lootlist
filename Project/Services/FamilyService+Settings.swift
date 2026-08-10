@@ -13,11 +13,16 @@ extension FamilyService {
     func updatePayoutPolicy(family: Family, policy: PayoutPolicy) async throws -> Family {
         // Privileged mutation: a parent (Guild Master / Ranger) may change the
         // family payout policy, or the owner anchor may grant it.
-        guard let acting = appState.currentProfile else {
-            throw FamilyServiceError.unauthorized
+        let actingIsParent = appState.currentProfile?.role.isParent ?? false
+        // The owner-anchor grant applies only when the family carries a
+        // server-authenticated creator stamp; a legacy family (nil creator)
+        // stays strictly parent-gated.
+        let ownerAnchorGrant: Bool = if family.creatorUserRecordName != nil {
+            await isFamilyOwner(family)
+        } else {
+            false
         }
-        let isAuthorized = acting.role.isParent ? true : await isFamilyOwner(family)
-        guard isAuthorized else {
+        guard actingIsParent || ownerAnchorGrant else {
             throw FamilyServiceError.unauthorized
         }
 
@@ -64,11 +69,16 @@ extension FamilyService {
     func updatePayoutDay(family: Family, day: PayoutDay) async throws -> Family {
         // Privileged mutation: a parent (Guild Master / Ranger) may change the
         // family payout day, or the owner anchor may grant it.
-        guard let acting = appState.currentProfile else {
-            throw FamilyServiceError.unauthorized
+        let actingIsParent = appState.currentProfile?.role.isParent ?? false
+        // The owner-anchor grant applies only when the family carries a
+        // server-authenticated creator stamp; a legacy family (nil creator)
+        // stays strictly parent-gated.
+        let ownerAnchorGrant: Bool = if family.creatorUserRecordName != nil {
+            await isFamilyOwner(family)
+        } else {
+            false
         }
-        let isAuthorized = acting.role.isParent ? true : await isFamilyOwner(family)
-        guard isAuthorized else {
+        guard actingIsParent || ownerAnchorGrant else {
             throw FamilyServiceError.unauthorized
         }
 
@@ -222,8 +232,8 @@ extension FamilyService {
             throw FamilyServiceError.persistenceFailed
         }
 
-        // Self-action: hero or member updates their own display name.
-        guard let acting = appState.currentProfile, acting.id == profile.id else {
+        // Self-or-parent action: hero/member updates their own display name or parent updates hero's name.
+        guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
 
@@ -278,8 +288,8 @@ extension FamilyService {
                              avatarPresetID: String?,
                              customAvatarImageData: Data?) async throws -> Profile
     {
-        // Self-action: hero or member updates their own profile avatar.
-        guard let acting = appState.currentProfile, acting.id == profile.id else {
+        // Self-or-parent action: hero/member updates their own profile avatar or parent updates hero's avatar.
+        guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
 

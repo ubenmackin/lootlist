@@ -34,8 +34,6 @@ struct SpendingLogView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                filterToggle
-
                 if viewModel.spendingLog.isEmpty {
                     emptyState
                 } else {
@@ -50,8 +48,13 @@ struct SpendingLogView: View {
             .padding(.vertical)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle(navigationTitle)
+        .navigationTitle("Scroll of Spending")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                LedgerDateRangeMenu(showAllTime: $showAllTime)
+            }
+        }
         .onChange(of: showAllTime) { _, newValue in
             viewModel.rebuildSpendingLog(from: cachedLedgers, showAllTime: newValue)
         }
@@ -63,39 +66,22 @@ struct SpendingLogView: View {
         }
     }
 
-    private var filterToggle: some View {
-        HStack {
-            Label(showAllTime ? "All Time" : "This Week",
-                  systemImage: showAllTime ? "calendar" : "clock")
-                .font(.subheadline.weight(.semibold))
-            Spacer()
-            Toggle("", isOn: $showAllTime)
-                .labelsHidden()
-                .tint(.gold)
-        }
-        .padding(.horizontal)
-    }
-
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "scroll.fill")
                 .font(.system(size: 44))
                 .foregroundStyle(.secondary)
-            Text("Empty Scroll of Spending")
+            Text("Empty Ledger")
                 .font(.headline)
             Text(showAllTime
-                ? "No entries yet — log your first spend to begin your chronicle."
-                : "No spending logged this week.")
+                ? "No entries yet."
+                : "No ledger activity this week.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
         }
         .padding(.top, 64)
-    }
-
-    private var navigationTitle: String {
-        showAllTime ? "Scroll of Spending — All Time" : "Scroll of Spending"
     }
 }
 
@@ -105,20 +91,36 @@ struct LedgerEntryRow: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: entry.amount >= 0
-                    ? "banknote"
-                    : "arrow.down.circle.fill")
+                let iconInfo = LedgerRowStyle.sourceIcon(for: entry.source, fallbackTint: entry.amount >= 0 ? .gold : .red)
+                Image(systemName: iconInfo.name)
                     .font(.title2)
-                    .foregroundStyle(entry.amount >= 0 ? Color.gold : .red)
+                    .foregroundStyle(iconInfo.color)
                     .frame(width: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.description)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
-                    Text(dateText)
-                        .font(.caption)
+                    if let location = entry.location, !location.isEmpty {
+                        HStack(spacing: 3) {
+                            Image(systemName: "mappin.and.ellipse")
+                                .font(.caption2)
+                            Text(location)
+                                .font(.caption.weight(.medium))
+                        }
                         .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text(LedgerRowStyle.sourceLabel(for: entry.source))
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(iconInfo.color)
+                        Text("•")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text(LedgerRowStyle.dateText(for: entry.date))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer(minLength: 12)
@@ -134,13 +136,6 @@ struct LedgerEntryRow: View {
             )
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(entry.description), \(GoldFormat.signed(entry.amount)), \(dateText)")
-    }
-
-    private var dateText: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: entry.date)
+        .accessibilityLabel("\(entry.description), \(GoldFormat.signed(entry.amount)), \(LedgerRowStyle.dateText(for: entry.date))")
     }
 }

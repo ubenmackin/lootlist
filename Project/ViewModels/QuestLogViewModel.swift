@@ -165,7 +165,7 @@ final class QuestLogViewModel {
             let target = max(1, quest.targetCount)
 
             let hasRejectedLog = logs.contains {
-                $0.verificationStatusEnum == .rejected
+                $0.verificationStatusEnum == .rejected || $0.verificationStatusEnum == .withdrawn
             }
 
             let status: CompletionStatus = if logs.isEmpty {

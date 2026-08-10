@@ -35,23 +35,26 @@ struct LogSpendingIntent: AppIntent, Sendable {
             return .result(dialog: "Please specify a valid spending amount.")
         }
 
-        let fullDescription: String = if let location = location?.trimmingCharacters(in: .whitespacesAndNewlines), !location.isEmpty {
-            "\(itemDescription) at \(location)"
-        } else {
-            itemDescription
-        }
+        let trimmedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let locationValue = (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil
 
         do {
             _ = try await dep.spendingService.logManual(
                 profile: profile,
                 family: family,
                 familyRecordName: family.id.recordName,
-                description: fullDescription,
+                description: itemDescription,
                 amount: amount,
+                location: locationValue,
                 date: Date()
             )
             let formattedAmount = CurrencyFormatter.string(amount)
-            return .result(dialog: "Logged spending of \(formattedAmount) for \(fullDescription).")
+            let descStr = if let locationValue {
+                "\(itemDescription) at \(locationValue)"
+            } else {
+                itemDescription
+            }
+            return .result(dialog: "Logged spending of \(formattedAmount) for \(descStr).")
         } catch let err as SpendingServiceError {
             return .result(dialog: IntentDialog(stringLiteral: err.errorDescription ?? "Could not log spending."))
         } catch {

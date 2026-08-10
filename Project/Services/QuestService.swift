@@ -557,6 +557,66 @@ final class QuestService {
             .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
     }
 
+    /// Deactivates uncompleted quests from past weeks whose payouts have been
+    /// finalized, so they no longer appear on primary active quest views. The
+    /// current week is never swept: a mid-week early payout finalizes the week's
+    /// earnings but must not retire quests the hero is still completing.
+    @discardableResult
+    func sweepExpiredQuests(family: Family, currentWeekOf: Date) async throws -> [Quest] {
+        guard let acting = appState?.currentProfile, acting.role.isParent else {
+            return []
+        }
+
+        let familyName = family.id.recordName
+        let normalizedCurrentWeek = WeekMath.startOfWeek(for: currentWeekOf, payoutDay: family.payoutDay)
+
+        // Query allowance periods to identify weeks whose payouts have been completed (.paid)
+        let allowancePeriods: [AllowancePeriod]
+        if let cache = cacheService {
+            allowancePeriods = cache.fetchAllowancePeriods(family: familyName)
+                .map { $0.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID) }
+        } else {
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let predicate = NSPredicate(format: "family == %@", familyRef)
+            allowancePeriods = await (try? cloudKit.query(AllowancePeriod.self, predicate: predicate)) ?? []
+        }
+
+        let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map { Calendar.iso8601UTC.startOfDay(for: $0.weekOf) })
+
+        let allQuests: [Quest]
+        if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+            allQuests = cache.fetchQuests(family: familyName)
+                .filter(\.isActive)
+                .map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
+        } else {
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let predicate = NSPredicate(format: "family == %@", familyRef)
+            allQuests = try await cloudKit.query(Quest.self, predicate: predicate)
+                .filter(\.active)
+        }
+
+        var deactivated: [Quest] = []
+        for var quest in allQuests {
+            let questWeekStart = Calendar.iso8601UTC.startOfDay(for: quest.weekOf)
+            // A quest is retired only when its week has both ended (a past week)
+            // and been finalized by a payout. Requiring the week to be past is
+            // what keeps a mid-week early payout — which marks the current week's
+            // period .paid — from deactivating quests the hero is still on.
+            if questWeekStart < normalizedCurrentWeek, paidWeeks.contains(questWeekStart) {
+                quest.active = false
+                cacheService?.upsertQuest(quest)
+                do {
+                    let saved = try await cloudKit.save(quest)
+                    cacheService?.upsertQuest(saved)
+                    deactivated.append(saved)
+                } catch {
+                    logger.error("Failed to deactivate expired quest \(quest.id.recordName, privacy: .public): \(error, privacy: .public)")
+                }
+            }
+        }
+        return deactivated
+    }
+
     private func stampNameIfNeeded(_ quest: Quest) async -> Quest {
         guard quest.name == nil else { return quest }
         guard let template = try? await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID) else {

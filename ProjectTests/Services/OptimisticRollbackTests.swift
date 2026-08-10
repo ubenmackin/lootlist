@@ -272,13 +272,10 @@ struct OptimisticRollbackTests {
         cache.upsertProfile(heroWithXP)
         appState.currentProfile = heroWithXP
 
-        // Attempt -- save will fail; snapshot is restored and error is thrown.
-        do {
-            _ = try await xpService.addXP(50, to: heroWithXP)
-            #expect(Bool(false), "addXP must throw on save failure")
-        } catch {
-            // Expected failure
-        }
+        // Attempt -- save will fail; snapshot is restored and returned (non-throwing per ARCHITECTURE.md §Conflict).
+        let returned = try await xpService.addXP(50, to: heroWithXP)
+        #expect(returned.xp == 100, "addXP must return pre-mutation profile on save failure")
+        #expect(returned.level == 1)
 
         // Cache is also rolled back to the pre-mutation snapshot.
         let cached = cache.fetchProfile(recordName: hero.id.recordName)

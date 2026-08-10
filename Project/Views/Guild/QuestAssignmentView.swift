@@ -212,8 +212,9 @@ struct QuestAssignmentView: View {
                     }
                 }
                 .onChange(of: selectedTemplate) { _, newTemplate in
-                    guard mode == .fromTemplate, !userEditedQuestName else { return }
+                    guard mode == .fromTemplate else { return }
                     editQuestName = newTemplate?.name ?? ""
+                    userEditedQuestName = false
                 }
             }
         }

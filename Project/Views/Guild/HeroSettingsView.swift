@@ -66,14 +66,7 @@ struct HeroSettingsView: View {
 
     private var heroHeaderCard: some View {
         HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(Color.purple.opacity(0.16))
-                    .frame(width: 56, height: 56)
-                Image(systemName: hero.avatarClass?.iconSystemName ?? hero.role.iconSystemName)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.purple)
-            }
+            avatarView
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(hero.displayName)
@@ -98,6 +91,10 @@ struct HeroSettingsView: View {
         .padding(16)
         .background(cardBackground)
         .padding(.horizontal)
+    }
+
+    private var avatarView: some View {
+        ProfileAvatarView(profile: hero)
     }
 
     // MARK: - Payout Day Override Section
@@ -128,7 +125,7 @@ struct HeroSettingsView: View {
                         }
                     }
                 )) {
-                    Text("Inherit Family Default (\(appState.family?.payoutDay.displayName ?? "Sunday"))").tag(PayoutDay?.none)
+                    Text("Default").tag(PayoutDay?.none)
                     Divider()
                     ForEach(PayoutDay.allCases) { day in
                         Text(day.displayName).tag(PayoutDay?.some(day))

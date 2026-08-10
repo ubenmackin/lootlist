@@ -63,6 +63,8 @@ final class AchievementService {
 
     var appState: AppState?
 
+    var notificationService: NotificationService?
+
     init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil, toastManager: ToastManager? = nil, appState: AppState? = nil) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -180,7 +182,7 @@ final class AchievementService {
             Achievement(
                 name: "Fortune Hoarder",
                 description: "Earn \(CurrencyFormatter.string(100)) lifetime",
-                iconSystemName: "coins",
+                iconSystemName: "banknote.fill",
                 category: AchievementCategory.gold,
                 requirementType: AchievementRequirement.gold100,
                 requirementValue: 100,
@@ -287,6 +289,41 @@ final class AchievementService {
                 awarded.append(definition)
             }
         }
+
+        if let notificationService, !awarded.isEmpty {
+            for achievement in awarded {
+                try? await notificationService.send(
+                    .trophyEarned,
+                    to: profile,
+                    title: "🏅 Trophy Earned!",
+                    body: "You unlocked '\(achievement.name)'!"
+                )
+            }
+        }
+
+        // Fire streak milestone notifications only when the matching
+        // milestone achievement (.streak7 / .streak30) was newly awarded
+        // in this pass. longestStreakDays is a lifetime best, so gating on
+        // it directly would re-notify a hero whose best streak has plateaued
+        // on every TrophyRoom open or verification.
+        if let notificationService {
+            let newlyAwardedStreakThresholds = awarded.compactMap { achievement -> Int? in
+                switch achievement.requirementType {
+                case .streak7: return 7
+                case .streak30: return 30
+                default: return nil
+                }
+            }
+            for streakDays in newlyAwardedStreakThresholds.sorted() {
+                try? await notificationService.send(
+                    .streakMilestone,
+                    to: profile,
+                    title: "🔥 Streak Milestone!",
+                    body: "You've hit a \(streakDays)-day streak!"
+                )
+            }
+        }
+
         return awarded
     }
 

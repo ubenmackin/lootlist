@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import os
 
@@ -90,6 +91,97 @@ extension DataMigrationsCoordinator {
             // backfill is idempotent — rows already carrying a positive value
             // are never clobbered. Safe to run on BackgroundCacheActor.
             await backgroundCache.backfillTargetCountGlobally()
+        }
+    }
+
+    static func questLedgerBackfillV1(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService?) -> MigrationStep {
+        MigrationStep(id: "QuestLedgerBackfillV1", version: 1) {
+            guard let zoneID = cloudKit.activeFamilyZoneID else { return }
+
+            // Backfill every allowance period — paid and open. The ledger is
+            // the single source of truth for wallet balances, so pre-update
+            // quest earnings must survive the migration even when the period
+            // was never closed: real-time heroes accumulate paidAmount while
+            // the period stays open, and unpaid perQuest histories carry
+            // totalEarned with no payout entry.
+            let periods = try await cloudKit.query(
+                AllowancePeriod.self,
+                predicate: NSPredicate(value: true)
+            )
+
+            let existingLedgers = await (try? cloudKit.query(
+                LedgerEntry.self,
+                predicate: NSPredicate(value: true),
+                in: zoneID
+            )) ?? []
+
+            for period in periods {
+                var paidAmount = period.paidAmount ?? period.totalEarned
+                guard paidAmount > 0 else { continue }
+
+                let entryRecordName: String
+                let descriptionPrefix: String
+                if period.status == .paid {
+                    entryRecordName = "payout-\(period.id.recordName)"
+                    descriptionPrefix = "Quest earnings"
+
+                    // Real-time heroes already settled each week's earnings into
+                    // an "rt-" entry; minting a payout entry over it would total
+                    // the week's quest earnings twice in currentBalance.
+                    let realTimeEntryExists = await (try? cloudKit.fetch(
+                        LedgerEntry.self,
+                        id: CKRecord.ID(recordName: "rt-\(period.id.recordName)", zoneID: zoneID)
+                    )) != nil
+                    if realTimeEntryExists {
+                        continue
+                    }
+
+                    // For legacy paid periods created under earlier app versions,
+                    // paidAmount included manual deposit bonus gold. Subtract any
+                    // existing non-quest deposit entries for that week so bonus gold
+                    // is not double-counted in currentBalance.
+                    let weekEnd = Calendar.iso8601UTC.date(byAdding: .day, value: 7, to: period.weekOf) ?? period.weekOf.addingTimeInterval(7 * 86400)
+                    let depositBonusSum = existingLedgers
+                        .filter {
+                            $0.profile.recordID == period.profile.recordID &&
+                                $0.source != "quest" &&
+                                $0.amount > 0 &&
+                                $0.date >= period.weekOf &&
+                                $0.date < weekEnd
+                        }
+                        .reduce(0.0) { $0 + $1.amount }
+
+                    paidAmount = max(0, paidAmount - depositBonusSum)
+                    guard paidAmount > 0 else { continue }
+                } else {
+                    // Open/never-paid periods mint the real-time "rt-" entry so
+                    // their accumulated earnings do not vanish from the wallet.
+                    entryRecordName = "rt-\(period.id.recordName)"
+                    descriptionPrefix = "Quest earnings — real-time"
+                }
+
+                let existing = try? await cloudKit.fetch(LedgerEntry.self, id: CKRecord.ID(recordName: entryRecordName, zoneID: zoneID))
+                if existing != nil {
+                    continue
+                }
+
+                let formatter = DateFormatter()
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .none
+                let entry = LedgerEntry(
+                    profile: period.profile,
+                    amount: abs(paidAmount),
+                    description: "\(descriptionPrefix) (week of \(formatter.string(from: period.weekOf)))",
+                    date: period.paidDate ?? period.weekOf,
+                    source: "quest",
+                    family: period.family,
+                    id: CKRecord.ID(recordName: entryRecordName, zoneID: zoneID)
+                )
+                cacheService?.upsertLedgerEntry(entry)
+                if let saved = try? await cloudKit.save(entry, in: zoneID, using: nil) {
+                    cacheService?.upsertLedgerEntry(saved)
+                }
+            }
         }
     }
 }

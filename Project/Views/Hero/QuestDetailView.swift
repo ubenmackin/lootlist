@@ -82,18 +82,17 @@ struct QuestDetailView: View {
                 if targetCount > 1 {
                     progressCard
                 }
+                completeButton
                 if !allLogs.isEmpty {
                     logsSection
                 }
-                completeButton
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .containerRelativeFrame([.vertical])
         }
         .background(Color(.systemGroupedBackground))
         .scrollContentBackground(.hidden)
-        .navigationTitle("Quest")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await load()
@@ -224,22 +223,43 @@ struct QuestDetailView: View {
         )
     }
 
+    private var hasPendingLog: Bool {
+        quest.approvalMode == .parentVerify && allLogs.contains(where: { $0.verificationStatus == .pending })
+    }
+
+    private var pendingLog: QuestCompletion? {
+        allLogs.first(where: { $0.verificationStatus == .pending })
+    }
+
     private var completeButton: some View {
-        Button {
-            Task { await completeQuest() }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.circle.fill")
-                Text(completeButtonLabel)
+        VStack(spacing: 12) {
+            Button {
+                Task { await completeQuest() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isFullyCompleted ? "checkmark.seal.fill" : (hasPendingLog ? "hourglass" : "checkmark.circle.fill"))
+                    Text(completeButtonLabel)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(isFullyCompleted ? .green : (hasPendingLog ? .purple : .green))
+            .disabled(completeButtonDisabled)
+            .opacity(completeButtonDisabled ? 0.5 : 1)
+
+            if hasPendingLog, let logToWithdraw = pendingLog {
+                Button(role: .destructive) {
+                    Task { await withdrawCompletion(logToWithdraw) }
+                } label: {
+                    Label("Unsubmit Completion", systemImage: "arrow.uturn.backward.circle")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .disabled(isCompleting)
+            }
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .tint(.green)
-        .disabled(completeButtonDisabled)
-        .opacity(completeButtonDisabled ? 0.6 : 1)
     }
 
     private var completeButtonLabel: String {
@@ -257,7 +277,7 @@ struct QuestDetailView: View {
             switch log.verificationStatus {
             case .autoApproved, .verified: return "Completed"
             case .pending: return "Awaiting Verification"
-            case .rejected: return "Complete (Try Again)"
+            case .rejected, .withdrawn: return "Complete (Try Again)"
             }
         }
         return (isLoadingLog && latestLog == nil) ? "Loading..." : "Complete"
@@ -267,27 +287,31 @@ struct QuestDetailView: View {
         if isFullyCompleted {
             return true
         }
+        if hasPendingLog {
+            return true
+        }
         if targetCount > 1 {
             return canSubmitAnotherCompletion
         }
         if let log = latestLog {
             switch log.verificationStatus {
             case .autoApproved, .verified, .pending: return true
-            case .rejected: return isCompleting
+            case .rejected, .withdrawn: return isCompleting
             }
         }
         return isCompleting || (isLoadingLog && latestLog == nil)
     }
 
-    /// Mirrors `QuestService.markComplete`'s pre-write gate so the button
-    /// disables exactly when the service would reject the tap: pending logs
-    /// hold a slot, rejected logs do not.
+    /// Disables the multi-completion button when a submission is already in
+    /// flight or non-rejected logs already occupy every completion slot.
+    /// Pending logs never reach this gate — `completeButtonDisabled` returns
+    /// early for them — so only approved/verified logs are counted here.
     private var canSubmitAnotherCompletion: Bool {
         isCompleting || GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejected)
     }
 
     private var nonRejected: Int {
-        allLogs.filter { $0.verificationStatus != .rejected }.count
+        allLogs.filter(\.verificationStatus.countsTowardCompletion).count
     }
 
     private func statusIcon(_ status: VerificationStatus) -> String {
@@ -296,6 +320,7 @@ struct QuestDetailView: View {
         case .verified: "checkmark.seal.fill"
         case .pending: "hourglass"
         case .rejected: "xmark.octagon.fill"
+        case .withdrawn: "arrow.uturn.backward.circle.fill"
         }
     }
 
@@ -305,6 +330,7 @@ struct QuestDetailView: View {
         case .verified: .green
         case .pending: .orange
         case .rejected: .red
+        case .withdrawn: .gray
         }
     }
 
@@ -314,6 +340,7 @@ struct QuestDetailView: View {
         case .verified: "Verified by parent — money & XP earned"
         case .pending: "Awaiting parent verification"
         case .rejected: "Rejected by parent — try again"
+        case .withdrawn: "Unsubmitted — try again"
         }
     }
 
@@ -350,6 +377,18 @@ struct QuestDetailView: View {
             toastManager?.show(message: questError.localizedDescription, type: .error)
         } catch {
             toastManager?.show(message: error.localizedDescription, type: .error)
+        }
+    }
+
+    private func withdrawCompletion(_ log: QuestCompletion) async {
+        guard let profile = appState.currentProfile else { return }
+        isCompleting = true
+        defer { isCompleting = false }
+        do {
+            try await questService.withdrawCompletion(questLog: log, by: profile)
+            toastManager?.show(message: "Completion unsubmitted.", type: .info)
+        } catch {
+            toastManager?.show(message: "Could not unsubmit: \(error.localizedDescription)", type: .error)
         }
     }
 }

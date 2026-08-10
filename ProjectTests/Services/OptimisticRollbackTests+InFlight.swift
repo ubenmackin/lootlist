@@ -134,10 +134,12 @@ extension OptimisticRollbackTests {
         cache.upsertQuest(optimisticQuest)
         await registry.register(optimisticID.recordName)
 
-        // Full-sync purge: `validRecordNames` is a CloudKit query snapshot
-        // taken before either quest existed, so neither appears in it.
+        // Full-sync purge: `validRecordNames` is a CloudKit query snapshot taken
+        // before either quest existed, so neither appears in it. It carries a
+        // non-empty snapshot name so the empty-result safety guard does not
+        // short-circuit — this test exercises the in-flight registry guard.
         await backgroundCache.purgeMissingQuests(
-            validRecordNames: [],
+            validRecordNames: ["snapshot_before_quests_existed"],
             familyRecordName: familyRef.recordID.recordName
         )
 

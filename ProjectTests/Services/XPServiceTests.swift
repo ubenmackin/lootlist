@@ -185,6 +185,40 @@ struct XPServiceTests {
     }
 
     @Test
+    func `addXP preserves fresher currentProfile fields instead of replacing them with stale cached values`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        // The cache holds the pre-sync profile (knight_01 avatar, perQuest payout).
+        let cachedHero = makeHero(zoneID: zoneID, xp: 100, level: 1)
+        cache.upsertProfile(cachedHero)
+
+        // currentProfile carries fresher in-memory UI state (avatar + payout
+        // policy changed on another device) that the local cache has not synced.
+        var fresher = cachedHero
+        fresher.avatarPresetID = "mage_01"
+        fresher.payoutPolicy = .realTime
+        appState.currentProfile = fresher
+
+        // Grant XP using the stale cache-derived profile.
+        let saved = try await service.addXP(50, to: cachedHero)
+
+        // The XP/level deltas land on currentProfile…
+        #expect(saved.xp == 150)
+        let current = try #require(appState.currentProfile)
+        #expect(current.xp == 150)
+        #expect(current.level == 2)
+
+        // …but the fresher fields survive the grant untouched rather than being
+        // clobbered by the stale cache-derived profile that was granted XP.
+        #expect(current.avatarPresetID == "mage_01")
+        #expect(current.payoutPolicy == .realTime)
+    }
+
+    @Test
     func `addXP on save failure rolls cache back to pre-mutation value`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = FailingCloudKitService()
@@ -196,12 +230,9 @@ struct XPServiceTests {
         cache.upsertProfile(hero)
         appState.currentProfile = hero
 
-        do {
-            _ = try await service.addXP(50, to: hero)
-            #expect(Bool(false), "addXP must throw on save failure")
-        } catch {
-            // Expected failure
-        }
+        let returned = try await service.addXP(50, to: hero)
+        #expect(returned.xp == 100)
+        #expect(returned.level == 1)
 
         // (b) cache is rolled back to the pre-mutation value.
         let cached = cache.fetchProfile(recordName: hero.id.recordName)
@@ -222,12 +253,9 @@ struct XPServiceTests {
         // Note: deliberately NOT seeded into the cache → no snapshot available.
         appState.currentProfile = hero
 
-        do {
-            _ = try await service.addXP(50, to: hero)
-            #expect(Bool(false), "addXP must throw on save failure")
-        } catch {
-            // Expected failure
-        }
+        let returned = try await service.addXP(50, to: hero)
+        #expect(returned.xp == 100)
+        #expect(returned.level == 1)
 
         // (b) cache is invalidated (no prior state to roll back to).
         let cached = cache.fetchProfile(recordName: hero.id.recordName)

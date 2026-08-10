@@ -78,7 +78,14 @@ struct TreasuryView: View {
                 .padding(.vertical)
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("Treasury")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink(value: "spendingLog") {
+                        Label("Ledger", systemImage: "scroll.fill")
+                    }
+                }
+            }
+            .navigationTitle("Money")
             .navigationDestination(for: String.self) { destination in
                 switch destination {
                 case "spendingLog" where viewModel != nil:
@@ -91,7 +98,7 @@ struct TreasuryView: View {
             }
             .sheet(isPresented: $isShowingLogSpending) {
                 if let viewModel {
-                    LogSpendingView(viewModel: viewModel)
+                    LogSpendingView(viewModel: viewModel, familyRecordName: familyRecordName)
                 }
             }
             .onAppear {
@@ -155,28 +162,11 @@ struct TreasuryView: View {
     private func loadedContent(_ viewModel: TreasuryViewModel) -> some View {
         BalanceCardView(balance: viewModel.balance,
                         weekOf: viewModel.allowancePeriod?.weekOf ?? Date(),
-                        status: viewModel.allowancePeriod?.status)
+                        status: viewModel.allowancePeriod?.status,
+                        pendingPayoutAmount: viewModel.pendingQuestGold)
             .padding(.horizontal, 0)
 
         WeeklyBreakdownCard(breakdown: viewModel.weeklyBreakdown)
-
-        NavigationLink(value: "spendingLog") {
-            HStack {
-                Image(systemName: "scroll.fill")
-                    .foregroundStyle(Color.gold)
-                Text("Open Scroll of Spending")
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(.secondary)
-            }
-            .font(.body.weight(.semibold))
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
-            )
-        }
-        .padding(.horizontal)
 
         logSpendingButton
             .padding(.horizontal)

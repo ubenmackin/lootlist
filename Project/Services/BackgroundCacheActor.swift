@@ -270,18 +270,45 @@ actor BackgroundCacheActor {
     /// place (`CachedRecordType.recordType(for:)`), then delegates to the generic
     /// recordName-scoped delete. Every route shares the same in-flight registry
     /// guard, so no path deletes rows under an active optimistic mutation.
-    func deleteRecord(recordName: String, type: CachedRecordType) async {
-        switch type {
-        case .profile: await deleteRecordByRecordName(ProfileCache.self, recordName: recordName)
-        case .family: await deleteRecordByRecordName(FamilyCache.self, recordName: recordName)
-        case .quest: await deleteRecordByRecordName(QuestCache.self, recordName: recordName)
-        case .questTemplate: await deleteRecordByRecordName(QuestTemplateCache.self, recordName: recordName)
-        case .questCompletion: await deleteRecordByRecordName(QuestCompletionCache.self, recordName: recordName)
-        case .ledgerEntry: await deleteRecordByRecordName(LedgerEntryCache.self, recordName: recordName)
-        case .allowancePeriod: await deleteRecordByRecordName(AllowancePeriodCache.self, recordName: recordName)
-        case .achievement: await deleteRecordByRecordName(AchievementCache.self, recordName: recordName)
-        case .profileAchievement: await deleteRecordByRecordName(ProfileAchievementCache.self, recordName: recordName)
-        case .notificationPreference: await deleteRecordByRecordName(NotificationPreferenceCache.self, recordName: recordName)
+    func deleteRecord(recordName: String, type: CachedRecordType?) async {
+        if let type {
+            switch type {
+            case .profile: await deleteRecordByRecordName(ProfileCache.self, recordName: recordName)
+            case .family: await deleteRecordByRecordName(FamilyCache.self, recordName: recordName)
+            case .quest: await deleteRecordByRecordName(QuestCache.self, recordName: recordName)
+            case .questTemplate: await deleteRecordByRecordName(QuestTemplateCache.self, recordName: recordName)
+            case .questCompletion: await deleteRecordByRecordName(QuestCompletionCache.self, recordName: recordName)
+            case .ledgerEntry: await deleteRecordByRecordName(LedgerEntryCache.self, recordName: recordName)
+            case .allowancePeriod: await deleteRecordByRecordName(AllowancePeriodCache.self, recordName: recordName)
+            case .achievement: await deleteRecordByRecordName(AchievementCache.self, recordName: recordName)
+            case .profileAchievement: await deleteRecordByRecordName(ProfileAchievementCache.self, recordName: recordName)
+            case .notificationPreference: await deleteRecordByRecordName(NotificationPreferenceCache.self, recordName: recordName)
+            }
+        } else {
+            // Unknown-record-type fallback (`type == nil`): the record resolver
+            // maps only CKRecordTypes it knows, so this branch runs for deletions
+            // the resolver could not map. Sweep every known cache table by
+            // recordName as a best-effort heuristic — the record may have been
+            // cached under a different type than the server reports, or its type
+            // string diverged before the resolver existed.
+            //
+            // FamilyCache is intentionally excluded from this sweep. It is the
+            // root record — never family-scoped, preserved globally, reachable by
+            // recordName only from the deliberate `.family` route above. A genuine
+            // Family deletion always arrives as `Family.recordType`, which the
+            // resolver maps to `.family`, so a record reaching this nil branch can
+            // never legitimately be the family row; sweeping it here could only
+            // take out the family anchor on a blind name match. The typed path is
+            // the single sanctioned route for family-row deletion.
+            await deleteRecordByRecordName(QuestCompletionCache.self, recordName: recordName)
+            await deleteRecordByRecordName(QuestCache.self, recordName: recordName)
+            await deleteRecordByRecordName(QuestTemplateCache.self, recordName: recordName)
+            await deleteRecordByRecordName(ProfileCache.self, recordName: recordName)
+            await deleteRecordByRecordName(LedgerEntryCache.self, recordName: recordName)
+            await deleteRecordByRecordName(AllowancePeriodCache.self, recordName: recordName)
+            await deleteRecordByRecordName(AchievementCache.self, recordName: recordName)
+            await deleteRecordByRecordName(ProfileAchievementCache.self, recordName: recordName)
+            await deleteRecordByRecordName(NotificationPreferenceCache.self, recordName: recordName)
         }
         saveContext()
     }

@@ -235,11 +235,16 @@ final class FamilyService: FamilyProfileFetching {
         }
         // Privileged mutation: a parent (Guild Master / Ranger) may rename the
         // family, or the owner anchor may grant it even for a non-parent role.
-        guard let acting = appState.currentProfile else {
-            throw FamilyServiceError.unauthorized
+        let actingIsParent = appState.currentProfile?.role.isParent ?? false
+        // The owner-anchor grant applies only when the family carries a
+        // server-authenticated creator stamp; a legacy family (nil creator)
+        // stays strictly parent-gated.
+        let ownerAnchorGrant: Bool = if family.creatorUserRecordName != nil {
+            await isFamilyOwner(family)
+        } else {
+            false
         }
-        let isAuthorized = acting.role.isParent ? true : await isFamilyOwner(family)
-        guard isAuthorized else {
+        guard actingIsParent || ownerAnchorGrant else {
             throw FamilyServiceError.unauthorized
         }
 
@@ -447,23 +452,18 @@ final class FamilyService: FamilyProfileFetching {
 
     /// Server-authenticated owner check, anchored on CloudKit's read-only
     /// `creatorUserRecordID`. Returns false when the creator is unresolved
-    /// Server-authenticated owner check, anchored on CloudKit's read-only
-    /// `creatorUserRecordID`. Returns false when the creator is unresolved
     /// (nil) — callers handle the nil (legacy) case.
     func isFamilyOwner(_ family: Family) async -> Bool {
-        if appState.isZoneOwner {
-            return true
-        }
-        guard let anchor = family.creatorUserRecordName else { return appState.isZoneOwner }
-        if anchor == "__defaultOwner__" || anchor == "_defaultOwner_" {
-            return appState.isZoneOwner
-        }
-        if let userRecordID = try? await cloudKit.currentUserRecordID() {
-            if userRecordID.recordName == anchor {
-                return true
+        if let anchor = family.creatorUserRecordName,
+           anchor != "__defaultOwner__",
+           anchor != "_defaultOwner_"
+        {
+            if let userRecordID = try? await cloudKit.currentUserRecordID() {
+                return userRecordID.recordName == anchor
             }
+            return false
         }
-        return false
+        return appState.isZoneOwner
     }
 
     /// Resolves the Family for a member profile (cache-first, then CloudKit) so
@@ -603,7 +603,12 @@ final class FamilyService: FamilyProfileFetching {
         // families without an owner anchor fall back to the zone-owner +
         // parent-role check.
         let isOwner = await isFamilyOwner(family)
-        let isAuthorized = appState.isZoneOwner || isOwner
+        let actingRoleIsParent = appState.currentProfile?.role.isParent ?? false
+        let isAuthorized: Bool = if let anchor = family.creatorUserRecordName, anchor != "__defaultOwner__", anchor != "_defaultOwner_" {
+            isOwner
+        } else {
+            appState.isZoneOwner && actingRoleIsParent
+        }
         guard isAuthorized else {
             throw FamilyServiceError.unauthorized
         }
