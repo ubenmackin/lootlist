@@ -314,7 +314,6 @@ struct CacheServiceTests {
             profile: ref("hero"),
             eventType: .questCompleted,
             enabled: true,
-            pushEnabled: true,
             family: ref("fam"),
             id: CKRecord.ID(recordName: "pref1")
         )

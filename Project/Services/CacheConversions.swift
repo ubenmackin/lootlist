@@ -196,7 +196,6 @@ extension NotificationPreferenceCache {
             profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zoneID), action: .none),
             eventType: NotificationEventType(rawValue: eventType) ?? .questAssigned,
             enabled: enabled,
-            pushEnabled: pushEnabled,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )

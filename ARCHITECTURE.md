@@ -95,7 +95,7 @@ Both fields are mirrored as SwiftData cache attributes (`QuestCache.xpBanked`, `
 
 ### 3. SpendingService (Manual today; FinanceKit V2 planned)
 
-`protocol SpendingService` (`@MainActor`, `Sendable`) lives in `Project/Services/SpendingService.swift`, with `ManualSpendingService` as its sole conformer. The protocol abstracts `fetchTransactions(for:in:)`, `isAvailable()`, `logManual(...)`, and `delete(_:)`; its protocol extension defaults the mutation methods to `SpendingServiceError.unsupported` so a read-only provider can skip them. Views (`LootListApp`, `TabBarView`) currently depend on `ManualSpendingService` directly. A `FinanceKitSpendingService` (pulling from Apple Card via FinanceKit) remains the planned V2 conformer; the protocol is the seam that makes the manual → FinanceKit swap a drop-in replacement with no UI changes.
+`protocol SpendingService` (`@MainActor`, `Sendable`) lives in `Project/Services/SpendingService.swift`, with `ManualSpendingService` as its sole conformer. The protocol abstracts `fetchTransactions(for:in:)`, `isAvailable()`, `logManual(...)`, `deposit(...)`, `withdraw(...)`, and `delete(_:)`; `logManual`, `deposit`, and `withdraw` carry `location: String?` (mirroring the V5 `LedgerEntryCache.location` schema addition in §11). Its protocol extension defaults the mutation methods to `SpendingServiceError.unsupported` so a read-only provider can skip them. Views (`LootListApp`, `TabBarView`) currently depend on `ManualSpendingService` directly. A `FinanceKitSpendingService` (pulling from Apple Card via FinanceKit) remains the planned V2 conformer; the protocol is the seam that makes the manual → FinanceKit swap a drop-in replacement with no UI changes.
 
 ### 4. Quest Approval (Configurable Per Quest)
 
@@ -422,7 +422,7 @@ The absence of a CloudKit-side business-rule layer means authenticated write-gat
 ### CloudKit Integration
 - **Container:** `CKContainer(identifier: "iCloud.com.volcrypt.lootlist")` (via `CloudKitService.defaultContainer`).
 - **Database selection:** always go through `CloudKitService.database(isOwner:)` — never assume `sharedCloudDatabase`.
-- **Subscriptions:** `CKSubscription` per zone, managed by `AppSyncCoordinator` + `CloudKitService.SubscriptionManager` (an actor that holds per-recordType change-stream continuations). `CloudKitService.changes(for:)` exposes an `AsyncStream`; `broadcastChange` fans events to subscribers.
+- **Subscriptions:** `CKSubscription` per zone (owner DB) and per database (shared DB), registered by `AppSyncCoordinator.registerSubscriptions(for:in:)` with `shouldSendContentAvailable = true` (silent push — sync-only, not user-visible alerts). CKRecord change delivery reaches the client via silent push; no in-process `AsyncStream` continuation layer is needed.
 - **Retry/backoff:** `CloudKitService.retrying()` with `backoffSchedule = [0.5s, 1.5s, 4s]`, `maxRetries = 3`. Failures surface as `CloudKitServiceError` (the full case set lives in `Project/Services/CloudKitService.swift`; notably `serverRecordChanged` is the canonical concurrent-edit signal used by §Conflict).
 - **Shares:** `createShare` / `fetchOrCreateShareURL` / `acceptShare`; incoming share URLs handled via `.onOpenURL` → `pendingShareMetadata`.
 - **Tests:** CloudKit mocks are returned when `TestEnvironment.isRunningUnitOrUITests`; use `SampleData.populate` to seed both CloudKit mocks and the in-memory cache.
