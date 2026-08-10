@@ -23,8 +23,6 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
 
     var enabled: Bool
 
-    var pushEnabled: Bool
-
     var family: CKRecord.Reference
 
     init(record: CKRecord) throws {
@@ -48,7 +46,6 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
         self.eventType = eventType
 
         enabled = record.bool(forKey: "enabled", default: false)
-        pushEnabled = record.bool(forKey: "pushEnabled", default: false)
 
         guard let family = record["family"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("family")
@@ -61,7 +58,6 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
         record["profile"] = profile as CKRecordValue
         record["eventType"] = eventType.rawValue as CKRecordValue
         record["enabled"] = enabled as CKRecordValue
-        record["pushEnabled"] = pushEnabled as CKRecordValue
         record["family"] = family as CKRecordValue
         return record
     }
@@ -69,7 +65,6 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
     init(profile: CKRecord.Reference,
          eventType: NotificationEventType,
          enabled: Bool,
-         pushEnabled: Bool,
          family: CKRecord.Reference,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
@@ -77,7 +72,6 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
         self.profile = profile
         self.eventType = eventType
         self.enabled = enabled
-        self.pushEnabled = pushEnabled
         self.family = family
     }
 
@@ -93,7 +87,6 @@ struct NotificationPreference: Identifiable, Equatable, Sendable {
         self.init(profile: profile,
                   eventType: eventType,
                   enabled: defaultEnabled,
-                  pushEnabled: defaultEnabled,
                   family: family,
                   id: id)
     }

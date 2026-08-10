@@ -84,8 +84,7 @@ struct BackgroundCacheActorTests {
         ))
         ctx.insert(NotificationPreferenceCache(
             recordName: "\(prefix)notificationPreference", profileRecordName: "hero",
-            familyRecordName: "fam", eventType: "questCompleted", enabled: true,
-            pushEnabled: true
+            familyRecordName: "fam", eventType: "questCompleted", enabled: true
         ))
 
         try ctx.save()
@@ -714,7 +713,6 @@ struct BackgroundCacheActorTests {
             profile: ref("hero"),
             eventType: .questCompleted,
             enabled: true,
-            pushEnabled: true,
             family: ref("fam"),
             id: CKRecord.ID(recordName: "pref1")
         )
@@ -722,7 +720,6 @@ struct BackgroundCacheActorTests {
             profile: ref("hero"),
             eventType: .levelUp,
             enabled: false,
-            pushEnabled: false,
             family: ref("fam"),
             id: CKRecord.ID(recordName: "pref2")
         )

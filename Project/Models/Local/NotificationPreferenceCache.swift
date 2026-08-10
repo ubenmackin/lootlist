@@ -19,7 +19,6 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
     var familyRecordName: String
     var eventType: String
     var enabled: Bool
-    var pushEnabled: Bool
     var changeTag: String?
 
     var eventTypeEnum: NotificationEventType? {
@@ -31,7 +30,6 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
          familyRecordName: String,
          eventType: String,
          enabled: Bool,
-         pushEnabled: Bool,
          changeTag: String? = nil)
     {
         self.recordName = recordName
@@ -39,7 +37,6 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
         self.familyRecordName = familyRecordName
         self.eventType = eventType
         self.enabled = enabled
-        self.pushEnabled = pushEnabled
         self.changeTag = changeTag
     }
 
@@ -50,7 +47,6 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
             familyRecordName: preference.family.recordID.recordName,
             eventType: preference.eventType.rawValue,
             enabled: preference.enabled,
-            pushEnabled: preference.pushEnabled,
             changeTag: preference.changeTag
         )
     }
@@ -62,7 +58,6 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
         familyRecordName = preference.family.recordID.recordName
         eventType = preference.eventType.rawValue
         enabled = preference.enabled
-        pushEnabled = preference.pushEnabled
         changeTag = preference.changeTag
     }
 

@@ -44,6 +44,7 @@ protocol SpendingService: Sendable {
                  familyRecordName: String,
                  description: String,
                  amount: Double,
+                 location: String?,
                  date: Date) async throws -> LedgerEntry
 
     func withdraw(profile: Profile,
@@ -51,6 +52,7 @@ protocol SpendingService: Sendable {
                   familyRecordName: String,
                   description: String,
                   amount: Double,
+                  location: String?,
                   date: Date) async throws -> LedgerEntry
 
     func delete(_ entry: LedgerEntry) async throws
@@ -73,7 +75,8 @@ extension SpendingService {
                  familyRecordName _: String,
                  description _: String,
                  amount _: Double,
-                 date _: Date) async throws -> LedgerEntry
+                 location _: String? = nil,
+                 date _: Date = Date()) async throws -> LedgerEntry
     {
         throw SpendingServiceError.unsupported
     }
@@ -83,7 +86,8 @@ extension SpendingService {
                   familyRecordName _: String,
                   description _: String,
                   amount _: Double,
-                  date _: Date) async throws -> LedgerEntry
+                  location _: String? = nil,
+                  date _: Date = Date()) async throws -> LedgerEntry
     {
         throw SpendingServiceError.unsupported
     }
@@ -218,6 +222,7 @@ final class ManualSpendingService: SpendingService {
                  familyRecordName: String,
                  description: String,
                  amount: Double,
+                 location: String? = nil,
                  date: Date = Date()) async throws -> LedgerEntry
     {
         guard let acting = appState?.currentProfile, acting.role.isParent else {
@@ -231,6 +236,7 @@ final class ManualSpendingService: SpendingService {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: abs(amount),
             description: description,
+            location: location,
             date: date,
             source: "deposit",
             family: CKRecord.Reference(recordID: family.id, action: .none)
@@ -277,6 +283,7 @@ final class ManualSpendingService: SpendingService {
                   familyRecordName: String,
                   description: String,
                   amount: Double,
+                  location: String? = nil,
                   date: Date = Date()) async throws -> LedgerEntry
     {
         guard let acting = appState?.currentProfile, acting.role.isParent else {
@@ -290,6 +297,7 @@ final class ManualSpendingService: SpendingService {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: -abs(amount),
             description: description,
+            location: location,
             date: date,
             source: "withdrawal",
             family: CKRecord.Reference(recordID: family.id, action: .none)

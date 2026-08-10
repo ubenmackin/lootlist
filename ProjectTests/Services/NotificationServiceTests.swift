@@ -77,7 +77,6 @@ struct NotificationServiceTests {
 
         // CK round-trip: the saved record carries the new value + a stable record name.
         #expect(saved.enabled == false)
-        #expect(saved.pushEnabled == false)
         #expect(saved.eventType == .questAssigned)
         #expect(!saved.id.recordName.isEmpty)
 
@@ -123,7 +122,6 @@ struct NotificationServiceTests {
             ),
             eventType: .levelUp,
             enabled: false,
-            pushEnabled: false,
             family: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
                 action: .none
@@ -203,7 +201,6 @@ struct NotificationServiceTests {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             eventType: .questAssigned,
             enabled: false,
-            pushEnabled: false,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: existingID
         )
@@ -212,14 +209,11 @@ struct NotificationServiceTests {
         // Another device's authoritative version of the SAME record won the
         // race and shipped to the server before our save landed. The mock
         // store holds this record (the post-conflict server state a follow-up
-        // `fetch` returns). It differs from BOTH the snapshot (enabled=false)
-        // and the optimistic toggle we push (pushEnabled=true) so the cache
-        // after-the-fact can prove WHICH value landed.
+        // `fetch` returns).
         let authoritative = NotificationPreference(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             eventType: .questAssigned,
             enabled: true,
-            pushEnabled: false,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: existingID
         )
@@ -231,7 +225,6 @@ struct NotificationServiceTests {
                 .first(where: { $0.recordName == existingID.recordName })
         )
         #expect(preRow.enabled == false)
-        #expect(preRow.pushEnabled == false)
 
         // The save fails with `serverRecordChanged`; signal 1 fires and the
         // failure path must re-fetch + re-upsert the authoritative server
@@ -253,10 +246,6 @@ struct NotificationServiceTests {
         #expect(
             cached.enabled == true,
             "Cache must hold the authoritative server value (enabled=true), not the stashed snapshot (enabled=false)"
-        )
-        #expect(
-            cached.pushEnabled == false,
-            "Cache must hold the authoritative server value (pushEnabled=false), not the optimistic write (pushEnabled=true)"
         )
     }
 

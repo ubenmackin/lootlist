@@ -30,8 +30,6 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
 
     case zoneSetupFailed(String)
 
-    case subscriptionSetupFailed([String: String])
-
     case invalidArguments(String)
 
     case shareFailed(String)
@@ -61,8 +59,6 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
             "CloudKit operation timed out after multiple retries."
         case let .zoneSetupFailed(msg):
             "Failed to set up family CloudKit zone: \(msg)"
-        case .subscriptionSetupFailed:
-            "Failed to configure CloudKit subscriptions."
         case let .invalidArguments(msg):
             "Invalid arguments for CloudKit operation: \(msg)"
         case let .shareFailed(msg):
@@ -72,54 +68,6 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
         case let .paginationExhausted(pageBudget):
             "CloudKit query pagination exceeded \(pageBudget) pages without a termination signal."
         }
-    }
-}
-
-actor SubscriptionManager {
-    private(set) var activeSubscriptions: Set<String> = []
-    private var changeContinuations:
-        [String: [UUID: AsyncStream<[CKRecord]>.Continuation]] = [:]
-    private var cancelledBeforeRegistration: Set<UUID> = []
-
-    func hasSubscription(_ id: String) -> Bool {
-        activeSubscriptions.contains(id)
-    }
-
-    func addSubscription(_ id: String) {
-        activeSubscriptions.insert(id)
-    }
-
-    func removeSubscription(_ id: String) {
-        activeSubscriptions.remove(id)
-    }
-
-    func registerContinuation(_ continuation: AsyncStream<[CKRecord]>.Continuation,
-                              for recordType: String,
-                              consumerID: UUID)
-    {
-        if cancelledBeforeRegistration.remove(consumerID) != nil {
-            continuation.finish()
-            return
-        }
-        changeContinuations[recordType, default: [:]][consumerID] = continuation
-    }
-
-    func unregisterContinuation(for recordType: String, consumerID: UUID) {
-        if changeContinuations[recordType]?.removeValue(forKey: consumerID) != nil {
-            if changeContinuations[recordType]?.isEmpty == true {
-                changeContinuations[recordType] = nil
-            }
-        } else {
-            cancelledBeforeRegistration.insert(consumerID)
-        }
-    }
-
-    func continuations(for recordType: String) -> [AsyncStream<[CKRecord]>.Continuation] {
-        Array((changeContinuations[recordType] ?? [:]).values)
-    }
-
-    func clearContinuations(for recordType: String) {
-        changeContinuations[recordType] = nil
     }
 }
 
@@ -173,14 +121,6 @@ class CloudKitService: CloudKitServiceProtocol {
     }
 
     let defaultZoneID: CKRecordZone.ID
-
-    let subscriptionManager = SubscriptionManager()
-
-    var activeSubscriptions: Set<String> {
-        get async {
-            await subscriptionManager.activeSubscriptions
-        }
-    }
 
     init(container: CKContainer? = nil,
          zoneID: CKRecordZone.ID = CKRecordZone.ID(zoneName: "LootListZone",
