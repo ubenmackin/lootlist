@@ -2,7 +2,7 @@
 //  NotificationSettingsView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/9/26.
 //
 
 import SwiftData
@@ -119,44 +119,27 @@ struct NotificationSettingsView: View {
                 Text("Master Toggle")
             }
 
-            // MARK: - 3. Individual Event Sub-Toggles
+            // MARK: - 3. Grouped Event Toggles
 
-            //
-            // Per-event toggles write-through optimistically to the
-            // `NotificationPreferenceCache` + CloudKit via
-            // `NotificationService.updatePreference(event:enabled:)`.
-            // The `UserDefaults` mirror write inside the setter preserves the
-            // first-launch fallback. The master toggle above remains a
+            ForEach(NotificationCategory.allCases, id: \.self) { category in
+                let events = NotificationEventType.allCases
+                    .filter { $0.category == category }
+                    .filter { profile.role.isParent ? $0.isRelevantForParent : $0.isRelevantForHero }
 
-            Section {
-                Toggle(isOn: toggleBinding(for: .questAssigned)) {
-                    Label("Quest Assignments", systemImage: "scroll.fill")
+                if !events.isEmpty {
+                    Section {
+                        ForEach(events, id: \.self) { event in
+                            Toggle(isOn: toggleBinding(for: event)) {
+                                Label(event.displayName, systemImage: event.iconSystemName)
+                            }
+                            .disabled(!masterNotificationsEnabled)
+                        }
+                    } header: {
+                        Text("\(category.icon) \(category.rawValue)")
+                    } footer: {
+                        Text(category.footer)
+                    }
                 }
-                .disabled(!masterNotificationsEnabled)
-
-                Toggle(isOn: toggleBinding(for: .questNeedsReview)) {
-                    Label("Quest Approvals", systemImage: "checkmark.shield.fill")
-                }
-                .disabled(!masterNotificationsEnabled)
-
-                Toggle(isOn: toggleBinding(for: .questCompleted)) {
-                    Label("Quest Verification Alerts", systemImage: "seal.fill")
-                }
-                .disabled(!masterNotificationsEnabled)
-
-                Toggle(isOn: toggleBinding(for: .levelUp)) {
-                    Label("Level Up Alerts", systemImage: "star.fill")
-                }
-                .disabled(!masterNotificationsEnabled)
-
-                Toggle(isOn: toggleBinding(for: .goldEarned)) {
-                    Label("Sunday Loot Day Payouts", systemImage: "banknote")
-                }
-                .disabled(!masterNotificationsEnabled)
-            } header: {
-                Text("Event Alerts")
-            } footer: {
-                Text("Choose which specific events send push notifications when master alerts are allowed.")
             }
 
             // MARK: - 4. Actions Section

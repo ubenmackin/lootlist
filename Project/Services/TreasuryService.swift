@@ -39,15 +39,8 @@ final class TreasuryService {
     }
 
     func currentBalance(for profile: Profile) async throws -> Double {
-        let earnings = try await goldFromQuests(profile: profile)
         let ledgerEntries = try await fetchAllLedgerEntries(profile: profile)
-        let bonusGold = ledgerEntries
-            .filter { $0.amount > 0 }
-            .reduce(0.0) { $0 + $1.amount }
-        let spending = ledgerEntries
-            .filter { $0.amount < 0 }
-            .reduce(0.0) { $0 + $1.amount }
-        return earnings + bonusGold + spending
+        return ledgerEntries.reduce(0.0) { $0 + $1.amount }
     }
 
     struct WeeklyBreakdown: Equatable, Sendable {
@@ -73,18 +66,12 @@ final class TreasuryService {
     {
         let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? family.payoutDay)
         let weekRange = TreasuryService.weekRange(starting: startOfWeek)
-
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: startOfWeek,
                                             weekEnding: weekRange.upperBound)
         var goldFromQuests = try await sumGold(for: logs, family: family)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
-        // Check if hero has strict All-or-Nothing payout policy enabled.
-        // Mirrors GoldCalculation.netWeeklyGold: the week pays nothing when ANY
-        // assigned quest is not fully completed — evaluated per quest against
-        // its own targetCount (approved logs), so multi-slot quests never zero
-        // out merely because their approved-log count is below the quest count.
         if profile.payoutPolicy == .allOrNothing {
             let assigned = try await fetchAssignedQuests(profile: profile, family: family, weekOf: startOfWeek)
             if !assigned.isEmpty {
@@ -103,7 +90,7 @@ final class TreasuryService {
             profile: profile, in: weekRange
         )
         let bonusGold = ledgerEntries
-            .filter { $0.amount > 0 }
+            .filter { $0.amount > 0 && $0.source != "quest" }
             .reduce(0.0) { $0 + $1.amount }
         let spent = ledgerEntries
             .filter { $0.amount < 0 }
@@ -287,9 +274,14 @@ final class TreasuryService {
 
         // Cache-first profile/family resolution so the payout finalization
         // read path skips CloudKit when the family's cache is fresh.
+        // The resolved hero is kept so the ledger mint below can consult the
+        // payout policy before writing a second entry for the week.
+        var resolvedProfile: Profile?
+        var questGoldToPayout = 0.0
         if let profile = try? await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName),
            let family = try? await resolveFamily(recordID: period.family.recordID)
         {
+            resolvedProfile = profile
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
                 // Do not prematurely close allowance periods for heroes with $0 earnings.
@@ -297,15 +289,17 @@ final class TreasuryService {
             }
             updated.totalEarned = breakdown.totalEarned
             updated.questsCompleted = breakdown.questsCount
+            questGoldToPayout = breakdown.goldFromQuests
         } else {
             guard (updated.totalEarned) > 0 else {
                 return
             }
+            questGoldToPayout = updated.totalEarned
         }
 
         updated.status = .paid
         updated.paidDate = Date()
-        updated.paidAmount = updated.totalEarned
+        updated.paidAmount = questGoldToPayout
 
         let name = period.id.recordName
         let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
@@ -322,12 +316,42 @@ final class TreasuryService {
             let saved = try await cloudKit.save(updated)
             cacheService?.upsertAllowancePeriod(saved)
 
+            // Mint a quest-earnings LedgerEntry so the ledger is the single
+            // source of truth for all money movement. Idempotent: the record
+            // name is derived from the AllowancePeriod so re-runs are no-ops.
+            //
+            // Real-time heroes settle onto the ledger as each quest completes:
+            // processRealTimeSettlement already wrote the week's "rt-" entry,
+            // so this weekly payout is only closing the period. Minting a
+            // second payout entry here would make currentBalance sum the same
+            // week's quest earnings twice.
+            if resolvedProfile?.payoutPolicy != .realTime {
+                do {
+                    try await mintPayoutLedgerEntry(
+                        periodRecordName: period.id.recordName,
+                        amount: updated.paidAmount ?? questGoldToPayout,
+                        weekOf: period.weekOf,
+                        profile: period.profile,
+                        family: period.family,
+                        date: updated.paidDate ?? Date()
+                    )
+                } catch {
+                    var rollback = updated
+                    rollback.status = .payoutPending
+                    rollback.paidAmount = nil
+                    rollback.paidDate = nil
+                    if let reverted = try? await cloudKit.save(rollback) {
+                        cacheService?.upsertAllowancePeriod(reverted)
+                    } else {
+                        cacheService?.upsertAllowancePeriod(rollback)
+                    }
+                    throw error
+                }
+            }
+
             if let notificationService {
                 Task { [logger] in
                     do {
-                        // Cache-first profile/family resolution for the weekly
-                        // summary notification. Backed by the same read-first
-                        // gate as the settlement path.
                         let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
                         let family = try await resolveFamily(recordID: period.family.recordID)
                         try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
@@ -363,13 +387,16 @@ final class TreasuryService {
     /// Process real-time settlement for heroes with `.realTime` payout policy.
     @discardableResult
     func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
-        // Real-time settlement is a self-action: the hero who completed the
-        // quest triggers this on their own profile. Identity-only check; we
-        // return nil so the real-time Task in QuestService.applyReward
-        // gracefully no-ops on identity mismatch (defense-in-depth alongside
-        // the markComplete parent-role guard).
+        // Real-time settlement is triggered either by the hero themself (an
+        // auto-approved completion) or by a parent verifying the hero's
+        // completion — QuestService.applyReward launches the settlement for
+        // any real-time hero with credited gold, and on a parent-verified
+        // quest the acting profile is the parent, not the hero. Self-or-parent
+        // guard; we return nil so the real-time Task in QuestService.applyReward
+        // gracefully no-ops for an unrelated, non-parent actor (defense-in-depth
+        // alongside the markComplete and verify parent-role guards).
         guard let acting = appState?.currentProfile,
-              acting.id == profile.id else { return nil }
+              acting.id == profile.id || acting.role.isParent else { return nil }
 
         guard profile.payoutPolicy == .realTime else { return nil }
         let weekOf = WeekMath.startOfWeek(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
@@ -377,43 +404,131 @@ final class TreasuryService {
 
         let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: weekOf)
 
+        // Compute quest earnings fresh from QuestCompletions since real-time
+        // settlement occurs before the ledger entry is minted.
+        let logs = try await fetchQuestLogs(profile: profile,
+                                            weekStarting: weekOf,
+                                            weekEnding: TreasuryService.weekRange(starting: weekOf).upperBound)
+        let questGold = try await sumGold(for: logs, family: family)
+
         var updated = period
-        updated.paidAmount = breakdown.totalEarned
+        updated.paidAmount = questGold
         updated.paidDate = Date()
         if period.paidAmount != updated.paidAmount {
-            // Persist the FRESH breakdown totals so the period's economic
-            // snapshot stays consistent with the gold settled so far. Passing
-            // the pre-settlement period values here would let `updateAllowance`
-            // keep the creation-time zeros (its `?? breakdown` fallback never
-            // fires for non-optional fields). `questsTotal` is intentionally
-            // omitted — the weekly breakdown exposes only the completed count,
-            // and the period's quest total is fixed at creation.
-            return try await updateAllowance(period: updated,
-                                             totalEarned: breakdown.totalEarned,
-                                             questsCompleted: breakdown.questsCount)
+            let saved = try await updateAllowance(period: updated,
+                                                  totalEarned: questGold,
+                                                  questsCompleted: breakdown.questsCount)
+
+            // Upsert the real-time quest-earnings ledger entry. The record name
+            // is derived from the period so each settlement upserts the same
+            // row with the cumulative amount.
+            await mintRealTimeLedgerEntry(
+                periodRecordName: period.id.recordName,
+                amount: questGold,
+                weekOf: weekOf,
+                profile: period.profile,
+                family: CKRecord.Reference(recordID: family.id, action: .none),
+                date: Date()
+            )
+
+            return saved
         }
         return period
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
-    private func goldFromQuests(profile: Profile) async throws -> Double {
+    /// Mints or skips a quest-earnings LedgerEntry for a batch/manual payout.
+    /// Idempotent: uses "payout-<periodRecordName>" as the entry's record name.
+    private func mintPayoutLedgerEntry(
+        periodRecordName: String,
+        amount: Double,
+        weekOf: Date,
+        profile: CKRecord.Reference,
+        family: CKRecord.Reference,
+        date: Date
+    ) async throws {
+        guard amount > 0 else { return }
+        let entryRecordName = "payout-\(periodRecordName)"
         if let cache = cacheService {
-            let profileName = profile.id.recordName
-            let familyName = profile.family.recordID.recordName
-            let cachedCompletions = cache.fetchQuestCompletions(family: familyName)
-                .filter { $0.completerRecordName == profileName }
-            if !cachedCompletions.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
-                let zoneID = cloudKit.resolvedZoneID
-                let logs = cachedCompletions.map { $0.toQuestCompletion(zoneID: zoneID) }
-                return try await sumGold(for: logs)
+            let cachedEntries = cache.fetchLedgerEntries(profileRecordName: profile.recordID.recordName, family: family.recordID.recordName)
+            if cachedEntries.first(where: { $0.recordName == entryRecordName }) != nil {
+                return
+            }
+            // Defense-in-depth: if the hero's payout policy was unresolvable
+            // at payout time but real-time settlement already recorded this
+            // period's earnings as an "rt-" entry, do not mint a second — it
+            // would double-count the week's quest earnings in currentBalance.
+            if cachedEntries.first(where: { $0.recordName == "rt-\(periodRecordName)" }) != nil {
+                return
             }
         }
 
-        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
-        let logs = try await cloudKit.query(QuestCompletion.self, predicate: predicate)
-        cacheService?.upsertQuestCompletions(logs)
-        return try await sumGold(for: logs)
+        // Fallback check against CloudKit when local cache is missing the entries
+        let rtID = CKRecord.ID(recordName: "rt-\(periodRecordName)", zoneID: cloudKit.resolvedZoneID)
+        if let rtEntry = try? await cloudKit.fetch(LedgerEntry.self, id: rtID) {
+            cacheService?.upsertLedgerEntry(rtEntry)
+            return
+        }
+        let payoutID = CKRecord.ID(recordName: entryRecordName, zoneID: cloudKit.resolvedZoneID)
+        if let payoutEntry = try? await cloudKit.fetch(LedgerEntry.self, id: payoutID) {
+            cacheService?.upsertLedgerEntry(payoutEntry)
+            return
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        let entry = LedgerEntry(
+            profile: profile,
+            amount: abs(amount),
+            description: "Quest earnings (week of \(formatter.string(from: weekOf)))",
+            date: date,
+            source: "quest",
+            family: family,
+            id: CKRecord.ID(recordName: entryRecordName, zoneID: cloudKit.resolvedZoneID)
+        )
+        cacheService?.upsertLedgerEntry(entry)
+        do {
+            let saved = try await cloudKit.save(entry, in: cloudKit.resolvedZoneID, using: nil)
+            cacheService?.upsertLedgerEntry(saved)
+        } catch {
+            logger.error("Failed to mint payout ledger entry: \(error, privacy: .public)")
+            cacheService?.invalidateLedgerEntry(recordName: entryRecordName)
+            throw error
+        }
+    }
+
+    /// Upserts a real-time quest-earnings LedgerEntry. The record name is derived
+    /// from the AllowancePeriod so incremental settlements update the same row.
+    private func mintRealTimeLedgerEntry(
+        periodRecordName: String,
+        amount: Double,
+        weekOf: Date,
+        profile: CKRecord.Reference,
+        family: CKRecord.Reference,
+        date: Date
+    ) async {
+        guard amount > 0 else { return }
+        let entryRecordName = "rt-\(periodRecordName)"
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        let entry = LedgerEntry(
+            profile: profile,
+            amount: abs(amount),
+            description: "Quest earnings — real-time (week of \(formatter.string(from: weekOf)))",
+            date: date,
+            source: "quest",
+            family: family,
+            id: CKRecord.ID(recordName: entryRecordName, zoneID: cloudKit.resolvedZoneID)
+        )
+        cacheService?.upsertLedgerEntry(entry)
+        do {
+            let saved = try await cloudKit.save(entry, in: cloudKit.resolvedZoneID, using: nil)
+            cacheService?.upsertLedgerEntry(saved)
+        } catch {
+            logger.error("Failed to mint real-time ledger entry: \(error, privacy: .public)")
+            cacheService?.invalidateLedgerEntry(recordName: entryRecordName)
+        }
     }
 
     /// Cache-first read. Background refresh handled by SyncEngine via push notifications.

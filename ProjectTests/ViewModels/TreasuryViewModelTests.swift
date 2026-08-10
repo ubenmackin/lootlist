@@ -27,7 +27,9 @@ final class MockSpendingService: SpendingService {
         return transactions
     }
 
-    func logManual(profile: Profile, family: Family, familyRecordName _: String, description: String, amount: Double, date: Date) async throws -> LedgerEntry {
+    func logManual(profile: Profile, family: Family, familyRecordName _: String, description: String, amount: Double, location: String? = nil,
+                   date: Date = Date()) async throws -> LedgerEntry
+    {
         if shouldFail {
             throw SpendingServiceError.underlying("Mock error")
         }
@@ -35,6 +37,7 @@ final class MockSpendingService: SpendingService {
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: -abs(amount),
             description: description,
+            location: location,
             date: date,
             source: "manual",
             family: CKRecord.Reference(recordID: family.id, action: .none)
@@ -101,6 +104,11 @@ struct TreasuryViewModelTests {
         )
         let appState = AppState()
         appState.currentProfile = profile
+        appState.family = Family(
+            name: "Test Family",
+            createdBy: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
         appState.familyZoneID = zoneID
         return TestAppState(appState: appState, zoneID: zoneID, profileName: "hero1")
     }
@@ -206,5 +214,76 @@ struct TreasuryViewModelTests {
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .active)
         #expect(viewModel.weeklyBreakdown?.paidAmount == nil)
         #expect(viewModel.allowancePeriod?.status == .active)
+    }
+
+    @Test
+    func `previousLocations extracts unique sorted locations from ledgers`() {
+        let state = makeAppState()
+        let cloudKit = CloudKitService(zoneID: state.zoneID)
+        let treasury = TreasuryService(cloudKit: cloudKit)
+        let spendingMock = MockSpendingService()
+        let viewModel = TreasuryViewModel(
+            treasury: treasury, spending: spendingMock, appState: state.appState
+        )
+
+        let ledger1 = LedgerEntryCache(
+            recordName: "l1",
+            profileRecordName: "h1",
+            familyRecordName: "fam1",
+            amount: -5.0,
+            entryDescription: "Toys",
+            location: "Home Goods",
+            date: Date(),
+            source: "manual"
+        )
+        let ledger2 = LedgerEntryCache(
+            recordName: "l2",
+            profileRecordName: "h1",
+            familyRecordName: "fam1",
+            amount: -10.0,
+            entryDescription: "Crafts",
+            location: "Hobby Lobby",
+            date: Date(),
+            source: "manual"
+        )
+        let ledger3 = LedgerEntryCache(
+            recordName: "l3",
+            profileRecordName: "h1",
+            familyRecordName: "fam1",
+            amount: -15.0,
+            entryDescription: "Tools",
+            location: "Home Depot",
+            date: Date(),
+            source: "manual"
+        )
+        let ledger4 = LedgerEntryCache(
+            recordName: "l4",
+            profileRecordName: "h1",
+            familyRecordName: "fam1",
+            amount: -2.0,
+            entryDescription: "More Toys",
+            location: "home goods",
+            date: Date(),
+            source: "manual"
+        )
+
+        let locations = viewModel.previousLocations(from: [ledger1, ledger2, ledger3, ledger4])
+        #expect(locations == ["Hobby Lobby", "Home Depot", "Home Goods"])
+    }
+
+    @Test
+    func `logging spending passes location to spending service`() async {
+        let state = makeAppState()
+        let cloudKit = CloudKitService(zoneID: state.zoneID)
+        let treasury = TreasuryService(cloudKit: cloudKit)
+        let spendingMock = MockSpendingService()
+        let viewModel = TreasuryViewModel(
+            treasury: treasury, spending: spendingMock, appState: state.appState
+        )
+
+        let success = await viewModel.logSpending(description: "Hammer", amount: 12.50, location: "Home Depot")
+        #expect(success == true)
+        #expect(spendingMock.transactions.count == 1)
+        #expect(spendingMock.transactions.first?.location == "Home Depot")
     }
 }

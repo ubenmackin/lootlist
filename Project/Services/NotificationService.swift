@@ -213,6 +213,49 @@ final class NotificationService {
         }
     }
 
+    func deliverSyncNotification(eventType: NotificationEventType,
+                                 title: String,
+                                 body: String,
+                                 profileID: String) async throws
+    {
+        guard isNotificationEnabled(for: eventType) else { return }
+        guard let currentProfile = appState.currentProfile,
+              currentProfile.id.recordName != profileID
+        else {
+            // Skip self-notifications — the acting user already sees the result.
+            return
+        }
+
+        // The deep-link payload carries the authoring peer (creator/completer/
+        // spender/verifier), NOT the viewer. `NotificationRouter` reads
+        // userInfo["profileID"] and forwards the peer wherever the peer's own
+        // data is the destination — the completer on a review banner, the
+        // spender on a spending banner — while quest-lifecycle banners land on
+        // the viewer's own quest surface.
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.userInfo = [
+            "eventType": eventType.rawValue,
+            "profileID": profileID
+        ]
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "\(eventType.rawValue):\(UUID().uuidString)",
+            content: content,
+            trigger: trigger
+        )
+
+        let center = UNUserNotificationCenter.current()
+        do {
+            try await center.add(request)
+        } catch {
+            throw NotificationServiceError.centerFailure("\(error)")
+        }
+    }
+
     func sendWeeklySummary(to profile: Profile,
                            family: Family,
                            weekOf: Date) async throws
@@ -263,6 +306,15 @@ final class NotificationService {
         } catch {
             throw NotificationServiceError.centerFailure("\(error)")
         }
+    }
+
+    func sendQuestRejected(questLog _: QuestCompletion, to hero: Profile) async throws {
+        guard isNotificationEnabled(for: .questRejected) else { return }
+
+        let title = "❌ Quest Rejected"
+        let body = "Your quest submission was not approved — check feedback and try again."
+
+        try await send(.questRejected, to: hero, title: title, body: body)
     }
 
     func handleVerificationAction(_ action: String,
@@ -325,6 +377,7 @@ extension NotificationEventType {
         switch self {
         case .questAssigned: "questAssignedNotificationsEnabled"
         case .questNeedsReview: "questNeedsReviewNotificationsEnabled"
+        case .questRejected: "questRejectedNotificationsEnabled"
         case .questCompleted: "questVerifiedNotificationsEnabled"
         case .levelUp: "levelUpNotificationsEnabled"
         case .goldEarned: "weeklySummaryNotificationsEnabled"

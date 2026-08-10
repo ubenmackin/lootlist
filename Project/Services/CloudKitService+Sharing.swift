@@ -70,8 +70,14 @@ extension CloudKitService {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
+        let targetID: CKRecord.ID = {
+            if rootRecordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
+                return rootRecordID
+            }
+            return CKRecord.ID(recordName: rootRecordID.recordName, zoneID: resolvedZoneID)
+        }()
         let serverRoot = try await retrying {
-            try await pvtDB.record(for: rootRecordID)
+            try await pvtDB.record(for: targetID)
         }
 
         let share = CKShare(rootRecord: serverRoot)

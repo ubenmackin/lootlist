@@ -176,6 +176,7 @@ struct HeroStatusCard: View {
         case .verified, .autoApproved: "checkmark.seal.fill"
         case .pending: "hourglass"
         case .rejected: "xmark.octagon.fill"
+        case .withdrawn: "arrow.uturn.backward.circle.fill"
         }
     }
 
@@ -184,6 +185,7 @@ struct HeroStatusCard: View {
         case .verified, .autoApproved: .green
         case .pending: .orange
         case .rejected: .red
+        case .withdrawn: .gray
         }
     }
 
@@ -193,6 +195,7 @@ struct HeroStatusCard: View {
         case .autoApproved: "Auto-Completed"
         case .pending: "Awaiting Review"
         case .rejected: "Rejected"
+        case .withdrawn: "Withdrawn"
         }
     }
 

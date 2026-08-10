@@ -301,4 +301,275 @@ struct FamilyDashboardViewModelTests {
         #expect(hero1Summary.weeklyGoldEarned == 20.0)
         #expect(hero2Summary.weeklyGoldEarned == 0.0)
     }
+
+    @Test
+    func `rebuildLists does not count multi-target quest as completed when targetCount is not reached`() throws {
+        let sut = makeSUT()
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let familyName = "fam1"
+
+        let hero = ProfileCache(
+            recordName: "hero1",
+            familyRecordName: familyName,
+            displayName: "Hero 1",
+            role: "hero",
+            xpTotal: 100,
+            avatarName: "warrior_01",
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 1,
+            iCloudUserRecordName: "u1",
+            avatarClass: "warrior",
+            payoutPolicy: "perQuest"
+        )
+
+        let multiTargetQuest = QuestCache(
+            recordName: "quest_multi",
+            familyRecordName: familyName,
+            assigneeRecordName: "hero1",
+            templateRecordName: "tmpl_multi",
+            weekOf: currentWeek,
+            questName: "Multi Task Quest",
+            isActive: true,
+            goldReward: 20.0,
+            xpReward: 50,
+            rarity: "common",
+            scheduleType: "daily",
+            targetCount: 2,
+            isAllOrNothing: false,
+            approvalMode: "parentVerify",
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+
+        let log1 = QuestCompletionCache(
+            recordName: "log1",
+            questRecordName: "quest_multi",
+            familyRecordName: familyName,
+            completerRecordName: "hero1",
+            completedDate: Date(),
+            weekOf: currentWeek,
+            verificationStatus: VerificationStatus.verified.rawValue,
+            approvalMode: ApprovalMode.parentVerify.rawValue,
+            verifiedByRecordName: "parent1",
+            verifiedDate: Date()
+        )
+
+        sut.vm.rebuildLists(
+            profiles: [hero],
+            quests: [multiTargetQuest],
+            logs: [log1],
+            ledgers: [],
+            allowancePeriods: [],
+            profileAchievements: [],
+            achievements: []
+        )
+
+        let summary = try #require(sut.vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero1" }))
+        #expect(summary.weeklyQuestsCompleted == 0)
+        #expect(summary.weeklyQuestsTotal == 1)
+    }
+
+    @Test
+    func `realTime hero weekly summary is not labeled pending payout`() throws {
+        let sut = makeSUT()
+        let calendar = Calendar.iso8601UTC
+        let today = calendar.startOfDay(for: Date())
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let familyName = "TestFamily"
+
+        // Create a real-time hero with completed quests
+        let realTimeHero = ProfileCache(
+            recordName: "hero_rt",
+            familyRecordName: familyName,
+            displayName: "RealTime Hero",
+            role: "hero",
+            xpTotal: 50,
+            avatarName: nil,
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 3,
+            iCloudUserRecordName: "u_rt",
+            avatarClass: nil,
+            payoutPolicy: "realTime"
+        )
+
+        let quest = QuestCache(
+            recordName: "quest1",
+            familyRecordName: familyName,
+            assigneeRecordName: "hero_rt",
+            templateRecordName: "tmpl1",
+            weekOf: currentWeek,
+            questName: "RealTime Quest",
+            isActive: true,
+            goldReward: 25.0,
+            xpReward: 30,
+            rarity: "common",
+            scheduleType: "daily",
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: "autoApprove",
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+
+        let log = QuestCompletionCache(
+            recordName: "log1",
+            questRecordName: "quest1",
+            familyRecordName: familyName,
+            completerRecordName: "hero_rt",
+            completedDate: today,
+            weekOf: currentWeek,
+            verificationStatus: VerificationStatus.autoApproved.rawValue,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+
+        sut.vm.rebuildLists(
+            profiles: [realTimeHero],
+            quests: [quest],
+            logs: [log],
+            ledgers: [],
+            allowancePeriods: [],
+            profileAchievements: [],
+            achievements: []
+        )
+
+        let summary = try #require(sut.vm.weekSummary)
+        // Real-time hero should have earned gold even without a paid period
+        #expect(summary.heroSummaries.first?.weeklyGoldEarned ?? 0 > 0)
+        // But pendingPayoutAmount must be 0 because real-time heroes have no
+        // pending weekly batch — their gold is already settled via rt- entries.
+        #expect(summary.pendingPayoutAmount == 0.0)
+        // totalEarned still shows the gross amount earned (for display purposes),
+        // but the pending amount (what the view uses for "pending" labels) is zero.
+        #expect(summary.totalEarned > 0)
+        // The view's isPending predicate uses pendingPayoutAmount, not totalEarned.
+        // So a real-time hero's summary will show "Real-time Settled" not "Pending Payout".
+        let isPending = summary.pendingPayoutAmount > 0
+        #expect(isPending == false)
+    }
+
+    @Test
+    func `mixed realTime and standard heroes use pendingPayoutAmount for non-realTime only`() throws {
+        let sut = makeSUT()
+        let calendar = Calendar.iso8601UTC
+        let today = calendar.startOfDay(for: Date())
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let familyName = "TestFamily"
+
+        let realTimeHero = ProfileCache(
+            recordName: "hero_rt",
+            familyRecordName: familyName,
+            displayName: "RealTime Hero",
+            role: "hero",
+            xpTotal: 50,
+            avatarName: nil,
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 3,
+            iCloudUserRecordName: "u_rt",
+            avatarClass: nil,
+            payoutPolicy: "realTime"
+        )
+
+        let standardHero = ProfileCache(
+            recordName: "hero_std",
+            familyRecordName: familyName,
+            displayName: "Standard Hero",
+            role: "hero",
+            xpTotal: 50,
+            avatarName: nil,
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 3,
+            iCloudUserRecordName: "u_std",
+            avatarClass: nil,
+            payoutPolicy: "perQuest"
+        )
+
+        let questRT = QuestCache(
+            recordName: "quest_rt",
+            familyRecordName: familyName,
+            assigneeRecordName: "hero_rt",
+            templateRecordName: "tmpl_rt",
+            weekOf: currentWeek,
+            questName: "RT Quest",
+            isActive: true,
+            goldReward: 50.0,
+            xpReward: 30,
+            rarity: "common",
+            scheduleType: "daily",
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: "autoApprove",
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+
+        let questStd = QuestCache(
+            recordName: "quest_std",
+            familyRecordName: familyName,
+            assigneeRecordName: "hero_std",
+            templateRecordName: "tmpl_std",
+            weekOf: currentWeek,
+            questName: "Standard Quest",
+            isActive: true,
+            goldReward: 30.0,
+            xpReward: 30,
+            rarity: "common",
+            scheduleType: "daily",
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: "autoApprove",
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+
+        let logRT = QuestCompletionCache(
+            recordName: "log_rt",
+            questRecordName: "quest_rt",
+            familyRecordName: familyName,
+            completerRecordName: "hero_rt",
+            completedDate: today,
+            weekOf: currentWeek,
+            verificationStatus: VerificationStatus.autoApproved.rawValue,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+
+        let logStd = QuestCompletionCache(
+            recordName: "log_std",
+            questRecordName: "quest_std",
+            familyRecordName: familyName,
+            completerRecordName: "hero_std",
+            completedDate: today,
+            weekOf: currentWeek,
+            verificationStatus: VerificationStatus.autoApproved.rawValue,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+
+        sut.vm.rebuildLists(
+            profiles: [realTimeHero, standardHero],
+            quests: [questRT, questStd],
+            logs: [logRT, logStd],
+            ledgers: [],
+            allowancePeriods: [],
+            profileAchievements: [],
+            achievements: []
+        )
+
+        let summary = try #require(sut.vm.weekSummary)
+        // totalEarned includes both heroes' gold
+        #expect(summary.totalEarned == 80.0)
+        // pendingPayoutAmount only includes the standard hero
+        #expect(summary.pendingPayoutAmount == 30.0)
+        // Real-time hero contribution excluded from pending
+        #expect(summary.heroSummaries.first(where: { $0.profile.recordName == "hero_rt" })?.weeklyGoldEarned ?? 0 > 0)
+        #expect(summary.heroSummaries.first(where: { $0.profile.recordName == "hero_std" })?.weeklyGoldEarned ?? 0 == 30.0)
+    }
 }

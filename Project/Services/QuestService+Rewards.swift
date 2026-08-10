@@ -55,7 +55,7 @@ extension QuestService {
         // starve a legitimate completion of its reward, so fall back to
         // treating this single completion as the approved count.
         let logs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
-        let approvedCount = max(1, logs.filter { $0.verificationStatus != .rejected }.count)
+        let approvedCount = max(1, logs.filter(\.verificationStatus.countsTowardCompletion).count)
 
         // Per-record idempotency: this completion's reward step has already
         // settled (a retry, a re-run through another path, or a concurrent
@@ -134,7 +134,7 @@ extension QuestService {
     /// or `nil` if the CAS write-back failed to settle (e.g. retries exhausted).
     private func bankXP(for quest: Quest, to hero: Profile, approvedCount: Int, completion _: QuestCompletion) async -> Int? {
         let questRecordName = quest.id.recordName
-        let inFlightKey = "xpBank:\(questRecordName)"
+        let inFlightKey = questRecordName
 
         // Register the optimistic window so a background sync skips this
         // quest row while the CAS write-back is in flight.

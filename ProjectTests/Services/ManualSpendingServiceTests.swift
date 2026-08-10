@@ -158,7 +158,7 @@ struct ManualSpendingServiceTests {
         let appState = AppState()
         let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
-        let actor = makeParent(zoneID)
+        let actor = makeHero(zoneID)
         let victimID = CKRecord.ID(recordName: "hero2", zoneID: zoneID)
         let victim = Profile(
             displayName: "Victim Hero",
@@ -278,6 +278,39 @@ struct ManualSpendingServiceTests {
         #expect(cached.isEmpty, "parent should be able to delete a hero's ledger entry")
     }
 
+    @Test
+    func `delete throws unsupported when entry source is quest`() async throws {
+        let zoneID = makeZoneID()
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let hero = makeHero(zoneID)
+        let questEntry = LedgerEntry(
+            profile: CKRecord.Reference(recordID: hero.id, action: .none),
+            amount: 50.0,
+            description: "Quest earnings",
+            date: Date(),
+            source: "quest",
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "rt-period1", zoneID: zoneID)
+        )
+        cache.upsertLedgerEntry(questEntry)
+        appState.currentProfile = hero
+
+        do {
+            try await service.delete(questEntry)
+            #expect(Bool(false), "Expected delete of quest-source entry to throw unsupported")
+        } catch {
+            #expect(error as? SpendingServiceError == .unsupported)
+        }
+
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        #expect(cached.first?.amount == 50.0, "quest entry must not be deleted")
+    }
+
     // MARK: - Snapshot fetch family scoping
 
     /// `logManual` must scope its optimistic snapshot fetch to the active
@@ -380,5 +413,97 @@ struct ManualSpendingServiceTests {
         #expect(familyBRows.count == 1, "logManual must not touch the other family's cache slice")
         #expect(familyBRows.first?.recordName == "legacy_famB_entry")
         #expect(familyBRows.first?.changeTag == "v1")
+    }
+
+    @Test
+    func `deposit creates positive ledger entry with source deposit`() async throws {
+        let zoneID = makeZoneID()
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let parent = makeParent(zoneID)
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = parent
+
+        let entry = try await service.deposit(
+            profile: hero,
+            family: family,
+            familyRecordName: family.id.recordName,
+            description: "Birthday gift from Grandpa",
+            amount: 25.0
+        )
+
+        #expect(entry.amount == 25.0)
+        #expect(entry.source == "deposit")
+        #expect(entry.description == "Birthday gift from Grandpa")
+
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        #expect(cached.count == 1)
+        #expect(cached.first?.amount == 25.0)
+        #expect(cached.first?.source == "deposit")
+    }
+
+    @Test
+    func `withdraw creates negative ledger entry with source withdrawal`() async throws {
+        let zoneID = makeZoneID()
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let parent = makeParent(zoneID)
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = parent
+
+        let entry = try await service.withdraw(
+            profile: hero,
+            family: family,
+            familyRecordName: family.id.recordName,
+            description: "Camp cash",
+            amount: 10.0
+        )
+
+        #expect(entry.amount == -10.0)
+        #expect(entry.source == "withdrawal")
+        #expect(entry.description == "Camp cash")
+
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        #expect(cached.count == 1)
+        #expect(cached.first?.amount == -10.0)
+        #expect(cached.first?.source == "withdrawal")
+    }
+
+    @Test
+    func `logManual persists location to CloudKit and SwiftData cache`() async throws {
+        let zoneID = makeZoneID()
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = hero
+
+        let entry = try await service.logManual(
+            profile: hero,
+            family: family,
+            familyRecordName: family.id.recordName,
+            description: "Board game",
+            amount: 15.0,
+            location: "Hobby Lobby"
+        )
+
+        #expect(entry.location == "Hobby Lobby")
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        #expect(cached.count == 1)
+        #expect(cached.first?.location == "Hobby Lobby")
     }
 }

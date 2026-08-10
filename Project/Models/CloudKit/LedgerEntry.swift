@@ -22,6 +22,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     var amount: Double
 
     var description: String
+    var location: String?
     var date: Date
 
     var source: String
@@ -43,6 +44,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
 
         amount = try record.extract("amount")
         description = try record.extract("description")
+        location = record["location"] as? String
 
         guard let date = record["date"] as? Date else {
             throw CKDecodingError.missingField("date")
@@ -62,6 +64,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         record["profile"] = profile as CKRecordValue
         record["amount"] = amount as CKRecordValue
         record["description"] = description as CKRecordValue
+        record["location"] = location as CKRecordValue?
         record["date"] = date as CKRecordValue
         record["source"] = source as CKRecordValue
         record["family"] = family as CKRecordValue
@@ -71,6 +74,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     init(profile: CKRecord.Reference,
          amount: Double,
          description: String,
+         location: String? = nil,
          date: Date = Date(),
          source: String = "manual",
          family: CKRecord.Reference,
@@ -80,6 +84,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         self.profile = profile
         self.amount = amount
         self.description = description
+        self.location = location
         self.date = date
         self.source = source
         self.family = family

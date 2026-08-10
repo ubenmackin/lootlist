@@ -29,19 +29,34 @@ struct QuestCardView: View {
         GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
     }
 
+    private var isPendingReview: Bool {
+        !isFullyCompleted && logs.contains { $0.verificationStatus == VerificationStatus.pending.rawValue }
+    }
+
+    private var cardBackgroundColor: Color {
+        if isFullyCompleted {
+            Color.green.opacity(0.12)
+        } else if isPendingReview {
+            Color.purple.opacity(0.12)
+        } else if isOverdue {
+            Color.red.opacity(0.10)
+        } else {
+            Color(.secondarySystemGroupedBackground)
+        }
+    }
+
     var body: some View {
         let approvalMode = quest.approvalModeEnum ?? .autoApprove
-        let rarity = quest.rarityEnum ?? .common
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
-                Image(systemName: isFullyCompleted ? "checkmark.circle.fill" : approvalMode.iconSystemName)
+                Image(systemName: isFullyCompleted ? "checkmark.circle.fill" : (isPendingReview ? "hourglass.circle.fill" : approvalMode.iconSystemName))
                     .font(.title3)
-                    .foregroundStyle(isFullyCompleted ? .green : (approvalMode == .parentVerify ? .indigo : .green))
+                    .foregroundStyle(isFullyCompleted ? .green : (isPendingReview ? .purple : (approvalMode == .parentVerify ? .indigo : .green)))
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill((isFullyCompleted ? Color.green : (approvalMode == .parentVerify ? Color.indigo : Color.green))
+                            .fill((isFullyCompleted ? Color.green : (isPendingReview ? Color.purple : (approvalMode == .parentVerify ? Color.indigo : Color.green)))
                                 .opacity(0.12))
                     )
 
@@ -49,7 +64,6 @@ struct QuestCardView: View {
                     HStack(spacing: 6) {
                         Text(quest.questName)
                             .font(.headline)
-                            .strikethrough(isFullyCompleted, color: .secondary)
                             .foregroundStyle(isFullyCompleted ? .secondary : .primary)
 
                         if isOverdue, !isFullyCompleted {
@@ -68,12 +82,14 @@ struct QuestCardView: View {
                             .font(.subheadline)
                             .foregroundStyle(.yellow)
 
-                        Label("\(rarity.rawValue) · \(quest.xpReward) XP", systemImage: rarity.iconSystemName)
-                            .labelStyle(.titleAndIcon)
-                            .font(.subheadline)
-                            .foregroundStyle(rarity.color)
-
-                        if approvalMode == .parentVerify {
+                        if isPendingReview {
+                            Text("⏳ Awaiting Review")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Color.purple.opacity(0.2)))
+                                .foregroundStyle(.purple)
+                        } else if approvalMode == .parentVerify {
                             Text("Parent Verifies")
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
@@ -88,16 +104,16 @@ struct QuestCardView: View {
 
                 if targetCount <= 1 {
                     Button {
-                        if !isFullyCompleted {
+                        if !isFullyCompleted, !isPendingReview {
                             onComplete?()
                         }
                     } label: {
-                        Image(systemName: isFullyCompleted ? "checkmark.seal.fill" : "circle")
+                        Image(systemName: isFullyCompleted ? "checkmark.seal.fill" : (isPendingReview ? "hourglass.circle.fill" : "circle"))
                             .font(.title2)
-                            .foregroundStyle(isFullyCompleted ? .green : .accentColor)
+                            .foregroundStyle(isFullyCompleted ? .green : (isPendingReview ? .purple : .accentColor))
                     }
                     .buttonStyle(.plain)
-                    .disabled(isFullyCompleted)
+                    .disabled(isFullyCompleted || isPendingReview)
                 }
             }
 
@@ -114,7 +130,8 @@ struct QuestCardView: View {
                         HStack(spacing: 8) {
                             ForEach(0 ..< targetCount, id: \.self) { index in
                                 let isDone = index < approvedCount
-                                let isNextToLog = index == approvedCount
+                                let isPendingSlot = isPendingReview && index == approvedCount
+                                let isNextToLog = index == approvedCount && !isPendingReview
 
                                 Button {
                                     if isNextToLog {
@@ -122,18 +139,20 @@ struct QuestCardView: View {
                                     }
                                 } label: {
                                     HStack(spacing: 4) {
-                                        Image(systemName: isDone ? "checkmark.circle.fill" : (isNextToLog ? "plus.circle.fill" : "circle"))
+                                        Image(systemName: isDone ? "checkmark.circle.fill" : (isPendingSlot ? "hourglass" : (isNextToLog ? "plus.circle.fill" : "circle")))
                                             .font(.caption)
-                                        Text(isDone ? "Slot \(index + 1) ✓" : (isNextToLog ? "Log #\(index + 1)" : "Slot \(index + 1)"))
+                                        Text(isDone ? "Slot \(index + 1) ✓" : (isPendingSlot ? "Pending ⏳" : (isNextToLog ? "Log #\(index + 1)" : "Slot \(index + 1)")))
                                             .font(.caption.bold())
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
                                     .background(
                                         Capsule()
-                                            .fill(isDone ? Color.green.opacity(0.2) : (isNextToLog ? Color.accentColor.opacity(0.2) : Color.gray.opacity(0.12)))
+                                            .fill(isDone ? Color.green
+                                                .opacity(0.2) :
+                                                (isPendingSlot ? Color.purple.opacity(0.2) : (isNextToLog ? Color.accentColor.opacity(0.2) : Color.gray.opacity(0.12))))
                                     )
-                                    .foregroundStyle(isDone ? Color.green : (isNextToLog ? Color.accentColor : Color.secondary))
+                                    .foregroundStyle(isDone ? Color.green : (isPendingSlot ? Color.purple : (isNextToLog ? Color.accentColor : Color.secondary)))
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(!isNextToLog)
@@ -147,8 +166,7 @@ struct QuestCardView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemGroupedBackground))
-                .opacity(isFullyCompleted ? 0.75 : 1.0)
+                .fill(cardBackgroundColor)
         )
         .contentShape(Rectangle())
     }

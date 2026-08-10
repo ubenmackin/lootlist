@@ -51,7 +51,7 @@ final class HeroDashboardViewModel {
         weekDays = HeroDashboardViewModel.currentWeekDays()
     }
 
-    func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache] = []) {
+    func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache] = [], allowancePeriods: [AllowancePeriodCache] = []) {
         guard let profileName = appState.currentProfile?.id.recordName,
               appState.family != nil
         else { return }
@@ -138,7 +138,14 @@ final class HeroDashboardViewModel {
         streak = StreakCalculator.computeStreak(from: heroLogs)
         let profileRecordName = appState.currentProfile?.id.recordName ?? ""
         let payoutPolicy = appState.currentProfile?.payoutPolicy
-        earnedThisWeek = Self.earnedThisWeek(logs: heroLogs, quests: quests, profileRecordName: profileRecordName, payoutPolicy: payoutPolicy, payoutDay: payoutDay)
+        earnedThisWeek = Self.earnedThisWeek(
+            logs: heroLogs,
+            quests: quests,
+            allowancePeriods: allowancePeriods,
+            profileRecordName: profileRecordName,
+            payoutPolicy: payoutPolicy,
+            payoutDay: payoutDay
+        )
 
         // Precompute the number of fully-completed quests once, so the view
         // body can read a plain Int instead of re-filtering logs per quest.
@@ -164,11 +171,20 @@ final class HeroDashboardViewModel {
     nonisolated static func earnedThisWeek(
         logs: [QuestCompletionCache],
         quests: [QuestCache],
+        allowancePeriods: [AllowancePeriodCache] = [],
         profileRecordName: String,
         payoutPolicy: PayoutPolicy?,
         payoutDay: PayoutDay = .sunday
     ) -> Double {
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+        let isPaid = allowancePeriods.contains {
+            $0.profileRecordName == profileRecordName &&
+                $0.statusEnum == .paid &&
+                Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf)
+        }
+        if isPaid {
+            return 0.0
+        }
         let weekRange = WeekMath.weekRange(starting: weekOf)
         return GoldCalculation.netWeeklyGold(
             quests: quests,

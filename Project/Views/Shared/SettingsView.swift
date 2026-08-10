@@ -22,7 +22,7 @@ struct SettingsView: View {
                 // Section 1: Guild Management
                 Section("Guild Management") {
                     NavigationLink {
-                        GuildSettingsView()
+                        GuildSettingsView(familyRecordName: appState.family?.id.recordName)
                     } label: {
                         Label {
                             VStack(alignment: .leading, spacing: 2) {

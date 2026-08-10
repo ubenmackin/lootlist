@@ -19,6 +19,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     var familyRecordName: String
     var amount: Double
     var entryDescription: String
+    var location: String?
     var date: Date
     var source: String
     var changeTag: String?
@@ -28,6 +29,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
          familyRecordName: String,
          amount: Double,
          entryDescription: String,
+         location: String? = nil,
          date: Date,
          source: String,
          changeTag: String? = nil)
@@ -37,6 +39,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         self.familyRecordName = familyRecordName
         self.amount = amount
         self.entryDescription = entryDescription
+        self.location = location
         self.date = date
         self.source = source
         self.changeTag = changeTag
@@ -49,6 +52,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
             familyRecordName: entry.family.recordID.recordName,
             amount: entry.amount,
             entryDescription: entry.description,
+            location: entry.location,
             date: entry.date,
             source: entry.source,
             changeTag: entry.changeTag
@@ -62,6 +66,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         familyRecordName = entry.family.recordID.recordName
         amount = entry.amount
         entryDescription = entry.description
+        location = entry.location
         date = entry.date
         source = entry.source
         changeTag = entry.changeTag

@@ -34,9 +34,11 @@ struct FamilyDashboardView: View {
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
+    private let spending: any SpendingService
     private let familyRecordName: String?
 
-    init(familyRecordName: String? = nil) {
+    init(spending: any SpendingService, familyRecordName: String? = nil) {
+        self.spending = spending
         self.familyRecordName = familyRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
@@ -325,14 +327,29 @@ struct FamilyDashboardView: View {
 
     private func weeklySummaryCard(summary: WeekendSummary?) -> some View {
         let lootDayTitle = appState.family?.payoutDay.lootDayTitle ?? "Sunday Loot Day"
+        // Pending payout only applies to non-real-time heroes. Real-time heroes
+        // have their weekly gold disbursed immediately on each quest completion,
+        // so their earnings are never "pending" a weekly batch.
+        let isPending = (summary?.pendingPayoutAmount ?? 0) > 0
+        // All heroes use real-time payouts: their gold is already settled and
+        // ready in the wallet. No weekly batch payout applies.
+        let allRealTime = summary?.heroSummaries.allSatisfy {
+            $0.profile.payoutPolicyEnum == .realTime
+        } ?? false
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("This Week's Haul")
                         .font(.headline)
-                    Text(lootDayTitle)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
+                    if allRealTime, let summary, summary.totalEarned > 0 {
+                        Text("\(lootDayTitle) · Real-time Settled")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.green)
+                    } else {
+                        Text(isPending ? "\(lootDayTitle) · Pending Payout" : lootDayTitle)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 if let summary {
@@ -343,19 +360,16 @@ struct FamilyDashboardView: View {
             }
 
             if let summary {
-                totalsRow(summary: summary)
+                totalsRow(summary: summary, isPending: isPending)
 
-                if summary.totalEarned > 0, appState.currentProfile?.role != .hero {
+                if isPending, appState.currentProfile?.role != .hero {
                     ProcessPayoutButtonView(
                         summary: summary,
                         isProcessingPayout: isProcessingPayout,
                         onConfirmPayout: processPayout
                     )
+                    .padding(.top, 4)
                 }
-
-                Divider()
-
-                whoCompletedWhatList(summary: summary)
             } else {
                 HStack(spacing: 12) {
                     ProgressView()
@@ -379,26 +393,26 @@ struct FamilyDashboardView: View {
         .padding(.horizontal)
     }
 
-    private func totalsRow(summary: WeekendSummary) -> some View {
-        HStack(spacing: 16) {
+    private func totalsRow(summary: WeekendSummary, isPending: Bool) -> some View {
+        HStack(spacing: 12) {
             statBlock(
-                icon: "banknote",
+                icon: isPending ? "hourglass" : "banknote",
                 value: CurrencyFormatter.string(summary.totalEarned),
-                label: "Earned",
-                tint: .gold
+                label: isPending ? "Pending" : "Earned",
+                tint: isPending ? .orange : .gold
             )
             Divider()
             statBlock(
-                icon: "checkmark.seal.fill",
+                icon: "checkmark.circle.fill",
                 value: "\(summary.totalQuestsCompleted)",
-                label: "Quests Completed",
+                label: "Quests",
                 tint: .green
             )
             Divider()
             statBlock(
                 icon: "person.2.fill",
                 value: "\(summary.heroSummaries.count)",
-                label: "Active Heroes",
+                label: "Heroes",
                 tint: .purple
             )
         }
@@ -411,46 +425,22 @@ struct FamilyDashboardView: View {
                            tint: Color) -> some View
     {
         VStack(spacing: 4) {
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(tint)
-                Text(value)
-                    .font(.title3.weight(.bold).monospacedDigit())
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func whoCompletedWhatList(summary: WeekendSummary) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Breakdown")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            if summary.heroSummaries.isEmpty {
-                Text("No quest activity recorded yet.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            } else {
-                ForEach(summary.heroSummaries) { hero in
-                    HStack {
-                        Text(hero.profile.displayName)
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text("\(hero.weeklyQuestsCompleted) quests")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(CurrencyFormatter.string(hero.weeklyGoldEarned))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.gold)
-                    }
-                }
-            }
-        }
     }
 
     private func heroesSection(vm: FamilyDashboardViewModel) -> some View {
@@ -469,7 +459,7 @@ struct FamilyDashboardView: View {
                 VStack(spacing: 12) {
                     ForEach(vm.weekSummary?.heroSummaries ?? []) { summary in
                         NavigationLink {
-                            QuestLogView(initialHero: summary.profile, familyRecordName: familyRecordName)
+                            HeroDetailView(hero: summary.profile, familyRecordName: familyRecordName, spending: spending)
                                 .environment(questService)
                                 .environment(familyService)
                                 .environment(appState)
@@ -537,6 +527,10 @@ struct FamilyDashboardView: View {
         isProcessingPayout = true
         defer { isProcessingPayout = false }
         guard appState.family != nil else { return }
+        // User-confirmed early payout: closes each open period (marks it .paid)
+        // but does not retire the week's quests. Quest retirement is the
+        // expired-quest sweep's job, and it only touches past weeks — never the
+        // current week — so heroes keep their remaining quests mid-week.
         let zoneID = appState.family?.id.zoneID ?? familyService.cloudKitReference.resolvedZoneID
         let matchingPeriods = cachedAllowancePeriods.filter { period in
             let status = period.statusEnum

@@ -13,9 +13,27 @@ struct SpendingLogRow: Identifiable, Equatable {
     let id: String
     let amount: Double
     let description: String
+    let location: String?
     let date: Date
     let source: String
     let rawCache: LedgerEntryCache?
+
+    init(id: String,
+         amount: Double,
+         description: String,
+         location: String? = nil,
+         date: Date,
+         source: String,
+         rawCache: LedgerEntryCache? = nil)
+    {
+        self.id = id
+        self.amount = amount
+        self.description = description
+        self.location = location
+        self.date = date
+        self.source = source
+        self.rawCache = rawCache
+    }
 }
 
 @MainActor
@@ -28,6 +46,8 @@ final class TreasuryViewModel {
     private let appState: AppState
 
     private(set) var balance: Double?
+
+    private(set) var pendingQuestGold: Double = 0.0
 
     private(set) var weeklyBreakdown: TreasuryService.WeeklyBreakdown?
 
@@ -52,19 +72,9 @@ final class TreasuryViewModel {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
 
-        let profileLogs = logs.filter { $0.completerRecordName == profileName }
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
-        let approvedLogs = profileLogs.filter {
-            $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
-        }
-
-        let goldFromQuests = GoldCalculation.totalGold(for: quests, approvedLogs: approvedLogs)
-
-        let bonusGold = profileLedgers.filter { $0.amount > 0 }.reduce(into: 0.0) { $0 += $1.amount }
-        let spent = profileLedgers.filter { $0.amount < 0 }.reduce(into: 0.0) { $0 += $1.amount }
-
-        balance = goldFromQuests + bonusGold + spent
+        balance = profileLedgers.reduce(into: 0.0) { $0 += $1.amount }
 
         let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
@@ -81,30 +91,36 @@ final class TreasuryViewModel {
             allowancePeriod = nil
         }
 
+        let weekLedgers = profileLedgers.filter { weekRange.contains($0.date) }
+        let hasPaidQuestThisWeek = weekLedgers.contains { $0.source == "quest" }
+        let weekBonusGold = weekLedgers
+            .filter { $0.source == "deposit" }
+            .reduce(into: 0.0) { $0 += $1.amount }
+        let weekSpent = weekLedgers
+            .filter { $0.source == "manual" || $0.source == "withdrawal" }
+            .reduce(into: 0.0) { $0 += $1.amount }
+
+        let profileLogs = logs.filter { $0.completerRecordName == profileName }
+        let approvedLogs = profileLogs.filter {
+            $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
+        }
         let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate) }
 
-        var weekQuestsGold = GoldCalculation.totalGold(for: quests, approvedLogs: weekLogs)
-
-        let assignedQuests = quests.filter {
-            $0.assigneeRecordName == profileName && weekRange.contains($0.weekOf)
-        }
-        let fullyCompletedCount = assignedQuests.filter { quest in
-            let qApprovedLogs = weekLogs.filter { $0.questRecordName == quest.recordName }
-            return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: qApprovedLogs.count)
-        }.count
-
-        if profile.payoutPolicy == .allOrNothing,
-           !assignedQuests.isEmpty,
-           fullyCompletedCount < assignedQuests.count
-        {
-            weekQuestsGold = 0
-        }
-
-        let weekLedgers = profileLedgers.filter { weekRange.contains($0.date) }
-        let weekBonusGold = weekLedgers.filter { $0.amount > 0 }.reduce(into: 0.0) { $0 += $1.amount }
-        let weekSpent = weekLedgers.filter { $0.amount < 0 }.reduce(into: 0.0) { $0 += $1.amount }
+        let weekQuestsGold = GoldCalculation.netWeeklyGold(
+            quests: quests,
+            logs: logs,
+            profileRecordName: profileName,
+            payoutPolicy: profile.payoutPolicy,
+            weekRange: weekRange
+        )
 
         let totalEarned = weekQuestsGold + weekBonusGold
+
+        if hasPaidQuestThisWeek || payoutStatus == .paid || profile.payoutPolicy == .realTime {
+            pendingQuestGold = 0.0
+        } else {
+            pendingQuestGold = weekQuestsGold
+        }
 
         weeklyBreakdown = TreasuryService.WeeklyBreakdown(
             questsCount: weekLogs.count,
@@ -121,34 +137,20 @@ final class TreasuryViewModel {
             ? (Date.distantPast ..< Date.distantFuture)
             : weekRange
 
-        let ledgerRows = profileLedgers
+        spendingLog = profileLedgers
             .filter { range.contains($0.date) }
             .map { ledger in
                 SpendingLogRow(
                     id: ledger.recordName,
                     amount: ledger.amount,
                     description: ledger.entryDescription,
+                    location: ledger.location,
                     date: ledger.date,
                     source: ledger.source,
                     rawCache: ledger
                 )
             }
-
-        let logRows = approvedLogs
-            .filter { range.contains($0.weekOf) }
-            .compactMap { log -> SpendingLogRow? in
-                guard let quest = quests.first(where: { $0.recordName == log.questRecordName }) else { return nil }
-                return SpendingLogRow(
-                    id: "log-\(log.recordName)",
-                    amount: quest.goldReward,
-                    description: "Completed: \(quest.questName)",
-                    date: log.completedDate,
-                    source: "quest",
-                    rawCache: nil
-                )
-            }
-
-        spendingLog = (ledgerRows + logRows).sorted { $0.date > $1.date }
+            .sorted { $0.date > $1.date }
     }
 
     func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], showAllTime: Bool) {
@@ -161,6 +163,7 @@ final class TreasuryViewModel {
                     id: ledger.recordName,
                     amount: ledger.amount,
                     description: ledger.entryDescription,
+                    location: ledger.location,
                     date: ledger.date,
                     source: ledger.source,
                     rawCache: ledger
@@ -179,9 +182,22 @@ final class TreasuryViewModel {
         }
     }
 
+    func previousLocations(from cachedLedgers: [LedgerEntryCache]) -> [String] {
+        var set = Set<String>()
+        var list: [String] = []
+        for ledger in cachedLedgers {
+            guard let loc = ledger.location?.trimmingCharacters(in: .whitespacesAndNewlines), !loc.isEmpty else { continue }
+            if set.insert(loc.lowercased()).inserted {
+                list.append(loc)
+            }
+        }
+        return list.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     @discardableResult
     func logSpending(description: String,
                      amount: Double,
+                     location: String? = nil,
                      date: Date = Date()) async -> Bool
     {
         let trimmed = description.trimmingCharacters(
@@ -202,6 +218,8 @@ final class TreasuryViewModel {
             return false
         }
         let familyRecordName = family.id.recordName
+        let trimmedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let locationValue = (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil
 
         do {
             _ = try await spending.logManual(
@@ -210,6 +228,7 @@ final class TreasuryViewModel {
                 familyRecordName: familyRecordName,
                 description: trimmed,
                 amount: amount,
+                location: locationValue,
                 date: date
             )
             errorMessage = nil

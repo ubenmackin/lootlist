@@ -56,13 +56,6 @@ struct TrophyRoomView: View {
             }
             .navigationTitle("Hall of Heroes")
             .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Image(systemName: "building.columns.fill")
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                }
-            }
             .refreshable {
                 await syncEngine?.incrementalSync()
                 if let profile = appState.currentProfile, let family = appState.family {
@@ -79,10 +72,11 @@ struct TrophyRoomView: View {
                     appState: appState
                 )
             }
+            rebuild()
             if let profile = appState.currentProfile, let family = appState.family {
                 _ = try? await achievementService.evaluateAll(for: profile, family: family)
+                rebuild()
             }
-            rebuild()
         }
         .onChange(of: cachedAchievements) { _, _ in rebuild() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
@@ -98,25 +92,33 @@ struct TrophyRoomView: View {
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let avatar = viewModel.avatarCard {
-                AvatarCardView(model: avatar)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                TrophyHeaderCardView(
+                    earnedCount: viewModel.earned.count,
+                    totalCount: viewModel.allAchievements.count,
+                    heroName: appState.currentProfile?.displayName,
+                    latestTrophyName: viewModel.latestEarnedTrophyName
+                )
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                Text("All Trophies")
+                    .font(.title2.bold())
                     .padding(.horizontal)
-                    .padding(.top, 8)
+
+                trophyGrid(using: viewModel)
+
+                if let err = viewModel.lastError {
+                    Text(err)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal)
+                }
             }
-
-            header
-
-            trophyGrid(using: viewModel)
-
-            if let err = viewModel.lastError {
-                Text(err)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-            }
+            .padding(.vertical)
         }
-        .padding(.bottom, 24)
+        .background(Color(.systemGroupedBackground))
     }
 
     private var loadingPlaceholder: some View {
@@ -130,20 +132,6 @@ struct TrophyRoomView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("Trophies")
-                .font(.title2.bold())
-            Spacer()
-            let earnedCount = viewModel?.earned.count ?? 0
-            let totalCount = viewModel?.allAchievements.count ?? 0
-            Text("\(earnedCount) / \(totalCount)")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal)
     }
 
     private func trophyGrid(using viewModel: TrophyRoomViewModel) -> some View {
@@ -162,5 +150,111 @@ struct TrophyRoomView: View {
             }
         }
         .padding(.horizontal)
+    }
+}
+
+struct TrophyHeaderCardView: View {
+    let earnedCount: Int
+    let totalCount: Int
+    let heroName: String?
+    let latestTrophyName: String?
+
+    private var progressRatio: Double {
+        guard totalCount > 0 else { return 0 }
+        return min(1.0, max(0.0, Double(earnedCount) / Double(totalCount)))
+    }
+
+    private var percentText: String {
+        "\(Int(progressRatio * 100))%"
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(LinearGradient(
+                            colors: [Color.gold.opacity(0.3), Color.orange.opacity(0.15)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                        .frame(width: 52, height: 52)
+
+                    Image(systemName: "trophy.fill")
+                        .font(.title2)
+                        .foregroundStyle(Color.gold)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Hall of Heroes Mastery")
+                        .font(.headline.weight(.bold))
+
+                    if let heroName, !heroName.isEmpty {
+                        Text("\(heroName)'s Chronicle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(percentText)
+                        .font(.title2.bold().monospacedDigit())
+                        .foregroundStyle(Color.gold)
+                    Text("\(earnedCount) / \(totalCount)")
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.15))
+                            .frame(height: 8)
+
+                        Capsule()
+                            .fill(LinearGradient(
+                                colors: [.gold, .orange],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ))
+                            .frame(width: geo.size.width * progressRatio, height: 8)
+                    }
+                }
+                .frame(height: 8)
+
+                if let latestTrophyName {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .font(.caption2)
+                            .foregroundStyle(Color.gold)
+                        Text("Latest Unlock: \(latestTrophyName)")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("Complete quests to unlock trophies!")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.gold.opacity(0.25), lineWidth: 1)
+        )
     }
 }

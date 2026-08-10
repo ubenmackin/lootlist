@@ -140,6 +140,18 @@ final class XPService {
             let saved = try await cloudKit.save(updated)
             cacheService?.upsertProfile(saved)
 
+            // Merge only the XP/level deltas into the in-memory profile. `saved`
+            // is rehydrated from the cache-derived `profile` argument, which can
+            // lag behind fields (avatar, payout settings) already reconciled
+            // into currentProfile from another device; wholesale replacement
+            // would regress that fresher UI state.
+            if let current = appState?.currentProfile, current.id == saved.id {
+                var reconciled = current
+                reconciled.xp = saved.xp
+                reconciled.level = saved.level
+                appState?.currentProfile = reconciled
+            }
+
             if saved.level > oldLevel, let notificationService {
                 let newLevel = saved.level
                 Task { [logger] in
@@ -159,7 +171,7 @@ final class XPService {
             await registry?.deregister(name)
             return saved
         } catch {
-            await OptimisticFailureHandler.handleSaveFailure(
+            let recovered = await OptimisticFailureHandler.handleSaveFailure(
                 recordID: profile.id,
                 preMutationChangeTag: preMutationChangeTag,
                 snapshot: snapshotProfile,
@@ -176,7 +188,7 @@ final class XPService {
                 error: error
             )
             await registry?.deregister(name)
-            throw error
+            return recovered ?? snapshotProfile ?? profile
         }
     }
 

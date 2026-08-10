@@ -42,7 +42,28 @@ final class AppState {
         }
     }
 
+    func updateCurrentProfileFromCache() {
+        guard let currentID = currentProfile?.id,
+              let zoneID = familyZoneID,
+              let cache = cacheService,
+              let cached = cache.fetchProfile(recordName: currentID.recordName)
+        else { return }
+
+        let updated = cached.toProfile(zoneID: zoneID)
+
+        // Compare the FULL cached profile, not a field subset. A cross-device
+        // change to payoutPolicy, payoutDay, or customAvatarImageData must
+        // propagate to currentProfile exactly like an XP/level/name/avatar
+        // change — the hero dashboard and treasury read these fields from
+        // currentProfile and would otherwise stay stale indefinitely.
+        guard updated != currentProfile else { return }
+        logger.info("Updating currentProfile from cache (XP: \(self.currentProfile?.xp ?? 0) -> \(updated.xp), Level: \(self.currentProfile?.level ?? 0) -> \(updated.level))")
+        currentProfile = updated
+    }
+
     var pendingQuickAction: QuickActionType?
+
+    var pendingNotificationRoute: NotificationRoute?
 
     var family: Family?
 
@@ -54,6 +75,9 @@ final class AppState {
 
     @ObservationIgnored
     private var quickActionTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var notificationRouteTask: Task<Void, Never>?
 
     // MARK: - Session Persistence Keys
 
@@ -76,10 +100,23 @@ final class AppState {
                 }
             }
         }
+
+        notificationRouteTask = Task { @MainActor [weak self] in
+            // Adopt a notification route retained by the router for taps that
+            // arrived before this observer was subscribed (cold start), then
+            // follow live posts.
+            self?.pendingNotificationRoute = NotificationRouter.shared.takePendingRoute()
+            for await notification in NotificationCenter.default.notifications(named: .notificationRouteTriggered) {
+                if let route = notification.object as? NotificationRoute {
+                    self?.pendingNotificationRoute = route
+                }
+            }
+        }
     }
 
     deinit {
         quickActionTask?.cancel()
+        notificationRouteTask?.cancel()
     }
 
     // MARK: - Abandoned Zone Queue Management

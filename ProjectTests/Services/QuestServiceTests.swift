@@ -674,12 +674,9 @@ struct QuestServiceTests {
     // MARK: - Review remediation: in-flight registry namespacing (Finding 4)
 
     @Test
-    func `reward step does not prematurely de-register a concurrent quest edit in-flight`() async throws {
-        // A quest-edit optimistic write registers the bare quest recordName.
-        // While it is still in flight, `bankXP` runs and registers/deregisters
-        // its own namespaced key (`"xpBank:<recordName>"`). The reward step's
-        // deregister must NOT remove the quest-edit's entry, so the quest row
-        // stays guarded for the still-pending edit.
+    func `reward step registers quest recordName in-flight during banking`() async throws {
+        // bankXP registers questRecordName directly in inFlightRegistry (Finding 10)
+        // so BackgroundCacheActor.batchUpsertQuests correctly shields the quest row.
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = CloudKitService(zoneID: zoneID)
 
@@ -704,30 +701,10 @@ struct QuestServiceTests {
         // Baseline: nothing in flight yet.
         #expect(await registry.contains(questRecordName) == false)
 
-        // Simulate a quest-edit optimistic window opening (the `updateQuest`
-        // path registers the bare recordName before its `cloudKit.save`).
-        await registry.register(questRecordName)
-        #expect(await registry.contains(questRecordName))
-
-        // The reward step runs and banks XP via `bankXP`, which registers and
-        // deregisters its own namespaced key `"xpBank:<recordName>"`.
+        // The reward step runs and banks XP via `bankXP`.
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
 
-        // The quest-edit's in-flight entry must STILL be active — `bankXP`'s
-        // deregister of `"xpBank:<recordName>"` must not have removed the bare
-        // quest-edit entry. Before the namespacing fix, both shared the same
-        // key (`recordName`) and `bankXP`'s deregister would have stripped the
-        // quest-edit's guard here; now the namespaced key isolates them.
-        #expect(
-            await registry.contains(questRecordName),
-            "A concurrent quest-edit in-flight entry must not be de-registered by the reward step"
-        )
-
-        // The simulated quest-edit settle: now deregistering the bare entry
-        // (as `updateQuest` would once its save settles) clears the recordName
-        // from the in-flight set. This proves the reward step left the quest-edit
-        // entry intact and undisrupted — the registry is empty afterwards.
-        await registry.deregister(questRecordName)
+        // After completion, the in-flight key is deregistered.
         #expect(await registry.contains(questRecordName) == false)
         #expect(await registry.activeRecordNames().isEmpty)
     }

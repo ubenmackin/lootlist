@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import SwiftData
 import SwiftUI
 
 struct LogSpendingView: View {
@@ -13,13 +14,20 @@ struct LogSpendingView: View {
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
 
+    @Query private var cachedLedgers: [LedgerEntryCache]
+
     @State private var description: String = ""
-
+    @State private var location: String = ""
     @State private var amountText: String = ""
-
     @State private var date: Date = .init()
-
     @State private var isSaving: Bool = false
+
+    init(viewModel: TreasuryViewModel, familyRecordName: String? = nil) {
+        self.viewModel = viewModel
+        let targetFamily = familyRecordName ?? ""
+        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
+    }
 
     var body: some View {
         NavigationStack {
@@ -33,6 +41,43 @@ struct LogSpendingView: View {
                     Text("Chronicle Entry")
                 } footer: {
                     Text("Tell the tale of where your money went — a short memory like \"Snack at the market.\"")
+                }
+
+                Section {
+                    HStack {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundStyle(.secondary)
+                        TextField("Location or Store (Optional)", text: $location)
+                            .autocorrectionDisabled(false)
+                    }
+
+                    if !matchingLocations.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(matchingLocations, id: \.self) { item in
+                                    Button {
+                                        location = item
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "clock.arrow.circlepath")
+                                                .font(.caption2)
+                                            Text(item)
+                                                .font(.subheadline)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(Color(.tertiarySystemFill), in: Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                } header: {
+                    Text("Location / Store")
+                } footer: {
+                    Text("Optionally log where you spent your money (e.g. \"Home Depot\").")
                 }
 
                 Section {
@@ -71,7 +116,7 @@ struct LogSpendingView: View {
                             Text("Add to Scroll")
                         }
                     }
-                    .disabled(!canSave || isSaving)
+                    .disabled(isSaving)
                 }
             }
             .interactiveDismissDisabled(isSaving)
@@ -79,25 +124,33 @@ struct LogSpendingView: View {
         }
     }
 
-    private var canSave: Bool {
-        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        guard let amount = Double(amountText), amount.isFinite, amount > 0 else {
-            return false
+    private var matchingLocations: [String] {
+        let allLocations = viewModel.previousLocations(from: cachedLedgers)
+        let trimmed = location.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return allLocations
         }
-        return true
+        return allLocations.filter { loc in
+            loc.lowercased().hasPrefix(trimmed.lowercased()) && loc.localizedCaseInsensitiveCompare(trimmed) != .orderedSame
+        }
     }
 
     private func save() {
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDescription.isEmpty else {
+            toastManager.show(message: "Please enter a description of what you bought.", type: .warning)
+            return
+        }
         guard let amount = Double(amountText), amount.isFinite, amount > 0 else {
-            toastManager.show(message: "Enter a valid positive amount.", type: .error)
+            toastManager.show(message: "Please enter a valid positive amount.", type: .warning)
             return
         }
         isSaving = true
         Task {
             let success = await viewModel.logSpending(
-                description: description,
+                description: trimmedDescription,
                 amount: amount,
+                location: location,
                 date: date
             )
             isSaving = false

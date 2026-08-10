@@ -27,6 +27,7 @@ final class AppDependencies {
     let spendingService: any SpendingService
     let appSyncCoordinator: AppSyncCoordinator
     let dataMigrationsCoordinator: DataMigrationsCoordinator
+    let autoPayoutCoordinator: AutoPayoutCoordinator
     let cacheService: CacheService?
     let syncEngine: SyncEngine?
     let toastManager: ToastManager
@@ -53,6 +54,7 @@ final class AppDependencies {
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification, cacheService: cache, treasuryService: treasury, toastManager: toast, appState: app)
         let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast)
         let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app)
+        achievement.notificationService = notification
         quest.achievementService = achievement
         let avatar = AvatarService(xp: xp)
         let manualSpending = ManualSpendingService(cloudKit: ck, cacheService: cache, appState: app)
@@ -70,7 +72,8 @@ final class AppDependencies {
         if let cache, let container = cache.container {
             let bgActor = BackgroundCacheActor(container: container, inFlightRegistry: cache.inFlightRegistry)
             sharedBgActor = bgActor
-            syncEngine = SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync)
+            syncEngine = SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync, appState: app)
+            syncEngine?.notificationService = notification
         } else {
             sharedBgActor = nil
             syncEngine = nil
@@ -79,6 +82,9 @@ final class AppDependencies {
         let migrations = DataMigrationsCoordinator()
         migrations.register(
             DataMigrationsCoordinator.questNameBackfillV1(cloudKit: ck)
+        )
+        migrations.register(
+            DataMigrationsCoordinator.questLedgerBackfillV1(cloudKit: ck, cacheService: cache)
         )
         if let sharedBgActor {
             migrations.register(
@@ -112,6 +118,13 @@ final class AppDependencies {
             }
         }
 
+        let autoPayout = AutoPayoutCoordinator(
+            treasuryService: treasury,
+            questService: quest,
+            familyService: family,
+            appState: app
+        )
+
         appState = app
         cloudKitService = ck
         familyService = family
@@ -123,6 +136,7 @@ final class AppDependencies {
         notificationService = notification
         appSyncCoordinator = appSync
         dataMigrationsCoordinator = migrations
+        autoPayoutCoordinator = autoPayout
         cacheService = cache
 
         Self.shared = self
@@ -134,6 +148,7 @@ struct LootListApp: App {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var dependencies = AppDependencies()
 
@@ -241,6 +256,10 @@ struct LootListApp: App {
 
                         // Run data migrations
                         await dataMigrationsCoordinator.runPendingMigrations()
+
+                        // Process automated payouts & quest sweeps if due on launch
+                        await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
+                        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
                     }
                 }
                 .onOpenURL { url in
@@ -252,6 +271,14 @@ struct LootListApp: App {
                         let db = cloudKitService.database(isOwner: appState.isZoneOwner)
                         await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
                         await dataMigrationsCoordinator.runPendingMigrations()
+                        await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
+                        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
+                    }
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    guard newPhase == .active, !TestEnvironment.isRunningUnitOrUITests else { return }
+                    Task {
+                        await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
                     }
                 }
                 // Toast banner overlay sits above all RootView states (splash,

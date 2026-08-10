@@ -22,21 +22,12 @@ struct PayoutHistoryView: View {
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
 
     @State private var viewModel: FamilyDashboardViewModel?
-    @State private var filter: PayoutFilter = .all
     @State private var selectedPeriod: AllowancePeriodCache?
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
-
-    enum PayoutFilter: String, CaseIterable, Identifiable {
-        case all = "All"
-        case paid = "Paid"
-        var id: String {
-            rawValue
-        }
-    }
 
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
@@ -70,37 +61,34 @@ struct PayoutHistoryView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                filterPicker
-                contentList
-            }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("Payout History")
-            .navigationBarTitleDisplayMode(.inline)
-            .task {
-                if viewModel == nil {
-                    viewModel = FamilyDashboardViewModel(
-                        questService: questService,
-                        treasury: treasury,
-                        achievementService: achievementService,
-                        familyService: familyService,
-                        appState: appState
-                    )
-                }
+            contentList
+                .background(Color(.systemGroupedBackground).ignoresSafeArea())
+                .navigationTitle("Payout History")
+                .navigationBarTitleDisplayMode(.large)
+                .task {
+                    if viewModel == nil {
+                        viewModel = FamilyDashboardViewModel(
+                            questService: questService,
+                            treasury: treasury,
+                            achievementService: achievementService,
+                            familyService: familyService,
+                            appState: appState
+                        )
+                    }
 
-                Task { await viewModel?.refresh() }
-                rebuildFromCache()
-            }
-            .refreshable {
-                rebuildFromCache()
-            }
-            .onChange(of: cachedAllowancePeriods) { _, _ in rebuildFromCache() }
-            .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
-            .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
-            .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
-            .sheet(item: $selectedPeriod) { period in
-                PayoutDetailSheet(period: period, heroName: heroName(for: period))
-            }
+                    Task { await viewModel?.refresh() }
+                    rebuildFromCache()
+                }
+                .refreshable {
+                    rebuildFromCache()
+                }
+                .onChange(of: cachedAllowancePeriods) { _, _ in rebuildFromCache() }
+                .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
+                .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
+                .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
+                .sheet(item: $selectedPeriod) { period in
+                    PayoutDetailSheet(period: period, heroName: heroName(for: period))
+                }
         }
     }
 
@@ -117,18 +105,6 @@ struct PayoutHistoryView: View {
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements
         )
-    }
-
-    private var filterPicker: some View {
-        Picker("Filter", selection: $filter) {
-            ForEach(PayoutFilter.allCases) { payoutFilter in
-                Text(payoutFilter.rawValue).tag(payoutFilter)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Color(.systemGroupedBackground))
     }
 
     @ViewBuilder
@@ -156,11 +132,7 @@ struct PayoutHistoryView: View {
 
     private var filteredPayouts: [AllowancePeriodCache] {
         guard let payouts = viewModel?.pastPayouts else { return [] }
-        let sorted = payouts.sorted { $0.weekOf > $1.weekOf }
-        switch filter {
-        case .all: return sorted
-        case .paid: return sorted.filter { $0.status == PayoutStatus.paid.rawValue }
-        }
+        return payouts.sorted { $0.weekOf > $1.weekOf }
     }
 
     private func payoutRow(_ period: AllowancePeriodCache) -> some View {
@@ -183,6 +155,7 @@ struct PayoutHistoryView: View {
                 statusBadge(for: period.statusEnum ?? .payoutPending)
             }
         }
+        .contentShape(Rectangle())
         .padding(.vertical, 4)
     }
 

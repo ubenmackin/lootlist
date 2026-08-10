@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import SwiftData
 import SwiftUI
 
 struct GuildSettingsView: View {
@@ -17,6 +18,14 @@ struct GuildSettingsView: View {
     @Environment(FamilyService.self) private var familyService
 
     @State private var viewModel: FamilyDashboardViewModel?
+
+    @Query private var cachedProfiles: [ProfileCache]
+    @Query private var cachedQuests: [QuestCache]
+    @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedAchievements: [AchievementCache]
+    @Query private var cachedProfileAchievements: [ProfileAchievementCache]
 
     @State private var draftFamilyName: String = ""
     @State private var isEditingFamilyName: Bool = false
@@ -31,6 +40,30 @@ struct GuildSettingsView: View {
     @State private var showLeaveConfirm: Bool = false
 
     @State private var actionError: String?
+
+    private let familyRecordName: String?
+
+    init(familyRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+        let targetFamily = familyRecordName ?? ""
+        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
+        let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
+
+        _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
+        _cachedQuests = Query(filter: questFilter, sort: \QuestCache.weekOf, order: .reverse)
+        _cachedCompletions = Query(filter: completionFilter, sort: \QuestCompletionCache.completedDate, order: .reverse)
+        _cachedLedgers = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date, order: .reverse)
+        _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf, order: .reverse)
+        _cachedAchievements = Query(filter: achievementFilter, sort: \AchievementCache.name)
+        _cachedProfileAchievements = Query(filter: profileAchievementFilter, sort: \ProfileAchievementCache.earnedDate, order: .reverse)
+    }
+
+    @State private var isPayoutPolicyExpanded: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -58,7 +91,30 @@ struct GuildSettingsView: View {
                         appState: appState
                     )
                 }
+                rebuildViewModel()
                 await viewModel?.refresh()
+                rebuildViewModel()
+            }
+            .onChange(of: cachedProfiles) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedQuests) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedCompletions) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedLedgers) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedAllowancePeriods) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedAchievements) { _, _ in
+                rebuildViewModel()
+            }
+            .onChange(of: cachedProfileAchievements) { _, _ in
+                rebuildViewModel()
             }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareInviteItems)
@@ -99,14 +155,26 @@ struct GuildSettingsView: View {
         }
     }
 
+    private func rebuildViewModel() {
+        guard let vm = viewModel else { return }
+        vm.rebuildLists(
+            profiles: cachedProfiles,
+            quests: cachedQuests,
+            logs: cachedCompletions,
+            ledgers: cachedLedgers,
+            allowancePeriods: cachedAllowancePeriods,
+            profileAchievements: cachedProfileAchievements,
+            achievements: cachedAchievements
+        )
+    }
+
     @ViewBuilder
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
-        familyNameSection(vm: vm)
-        inviteLinkSection
+        familyHeaderSection
+        membersSection(vm: vm)
         if appState.currentProfile?.role == .guildMaster {
             payoutSettingsSection
         }
-        membersSection(vm: vm)
         if let currentRole = appState.currentProfile?.role, currentRole != .guildMaster {
             leaveFamilySection
         }
@@ -117,7 +185,7 @@ struct GuildSettingsView: View {
 }
 
 private extension GuildSettingsView {
-    private func familyNameSection(vm _: FamilyDashboardViewModel) -> some View {
+    private var familyHeaderSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Image(systemName: "house.fill")
@@ -150,30 +218,9 @@ private extension GuildSettingsView {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-        }
-        .background(cardBackground)
-        .padding(.horizontal)
-    }
 
-    @MainActor
-    private func saveFamilyName() async {
-        guard let family = appState.family else { return }
-        let trimmed = draftFamilyName.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else {
-            isEditingFamilyName = false
-            return
-        }
-        do {
-            try await familyService.updateFamilyName(family: family, newName: trimmed)
-            isEditingFamilyName = false
-            actionError = nil
-        } catch {
-            actionError = "Could not rename family: \(error)"
-        }
-    }
+            Divider()
 
-    private var inviteLinkSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Guild Invitation Link")
@@ -200,6 +247,23 @@ private extension GuildSettingsView {
         }
         .background(cardBackground)
         .padding(.horizontal)
+    }
+
+    @MainActor
+    private func saveFamilyName() async {
+        guard let family = appState.family else { return }
+        let trimmed = draftFamilyName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            isEditingFamilyName = false
+            return
+        }
+        do {
+            try await familyService.updateFamilyName(family: family, newName: trimmed)
+            isEditingFamilyName = false
+            actionError = nil
+        } catch {
+            actionError = "Could not rename family: \(error)"
+        }
     }
 
     private var shareInviteItems: [Any] {
@@ -238,59 +302,92 @@ private extension GuildSettingsView {
                     }
                     .pickerStyle(.menu)
                 }
+            }
+            .padding(14)
+            .background(cardBackground)
 
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Default Payout Policy")
-                        .font(.subheadline.weight(.semibold))
-                    Text("New heroes added to the guild will inherit this policy by default.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    ForEach(PayoutPolicy.allCases, id: \.self) { policy in
-                        Button {
-                            Task {
-                                if let family = appState.family {
-                                    do {
-                                        _ = try await familyService.updatePayoutPolicy(family: family, policy: policy)
-                                    } catch {
-                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
-                                    }
-                                }
+            // Collapsible Default Payout Policy Radio Cards
+            VStack(alignment: .leading, spacing: 10) {
+                DisclosureGroup(
+                    isExpanded: $isPayoutPolicyExpanded,
+                    content: {
+                        VStack(spacing: 10) {
+                            ForEach(PayoutPolicy.allCases, id: \.self) { policy in
+                                familyPayoutPolicyOptionRow(policy: policy)
                             }
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: policy.iconSystemName)
-                                    .foregroundStyle(.tint)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(policy.displayName)
-                                        .font(.body.weight(.semibold))
-                                    Text(policy.subtitle)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if policy == (appState.family?.payoutPolicy ?? .perQuest) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.tint)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                            .padding(.vertical, 10)
                         }
-                        .buttonStyle(.plain)
-
-                        if policy != PayoutPolicy.allCases.last {
-                            Divider()
+                        .padding(.top, 10)
+                    },
+                    label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Default Payout Policy")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color.primary)
+                                Text(appState.family?.payoutPolicy.displayName ?? "Pay Per Quest (Standard)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
                         }
                     }
-                }
+                )
             }
             .padding(14)
             .background(cardBackground)
         }
         .padding(.horizontal)
+    }
+
+    private func familyPayoutPolicyOptionRow(policy: PayoutPolicy) -> some View {
+        let currentPolicy = appState.family?.payoutPolicy ?? .perQuest
+        let isSelected = currentPolicy == policy
+        return Button {
+            if !isSelected, let family = appState.family {
+                Task {
+                    do {
+                        _ = try await familyService.updatePayoutPolicy(family: family, policy: policy)
+                    } catch {
+                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                    }
+                }
+            }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: policy.iconSystemName)
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        Text(policy.displayName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.primary)
+                    }
+
+                    Text(policy.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(.tertiarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.8) : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func membersSection(vm: FamilyDashboardViewModel) -> some View {
@@ -340,14 +437,7 @@ private extension GuildSettingsView {
     private func memberRow(_ member: ProfileCache, vm: FamilyDashboardViewModel) -> some View {
         let role = member.roleEnum ?? .hero
         return HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(roleColor(role).opacity(0.16))
-                    .frame(width: 36, height: 36)
-                Image(systemName: role.iconSystemName)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(roleColor(role))
-            }
+            memberAvatarView(member)
             VStack(alignment: .leading, spacing: 2) {
                 Text(member.displayName)
                     .font(.body.weight(.semibold))
@@ -361,6 +451,11 @@ private extension GuildSettingsView {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+    }
+
+    private func memberAvatarView(_ member: ProfileCache) -> some View {
+        let zoneID = questService.cloudKitReference.resolvedZoneID
+        return ProfileAvatarView(profile: member.toProfile(zoneID: zoneID))
     }
 
     @ViewBuilder

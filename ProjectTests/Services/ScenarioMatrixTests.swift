@@ -632,8 +632,8 @@ struct ScenarioMatrixTests {
         sut.cache.upsertQuestCompletions([completion])
         sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
 
-        // Real-time settlement is a self-action — the hero settles their own
-        // reward, so the acting profile must match the target.
+        // Real-time settlement: here the hero settles their own reward, so
+        // the acting profile is the hero themself.
         sut.appState.currentProfile = hero
 
         // First settlement pays out the earned gold...

@@ -55,7 +55,25 @@ struct QuestLogView: View {
         )
     }
 
+    private var showsNavigationTitle: Bool {
+        initialHero == nil
+    }
+
+    private var showsHeroPicker: Bool {
+        initialHero == nil
+    }
+
     var body: some View {
+        if showsNavigationTitle {
+            content
+                .navigationTitle("Quest Log")
+                .navigationBarTitleDisplayMode(.large)
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         List {
             if viewModel?.isLoading == true, viewModel?.displayedQuests.isEmpty ?? true {
                 ProgressView("Loading quest log…")
@@ -68,11 +86,11 @@ struct QuestLogView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Quest Log")
-        .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                heroPickerMenu
+            if appState.currentProfile?.role != .hero, showsHeroPicker {
+                ToolbarItem(placement: .topBarLeading) {
+                    heroPickerMenu
+                }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 dateRangeMenu
@@ -107,6 +125,13 @@ struct QuestLogView: View {
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
 
+        if appState.currentProfile?.role == .hero, let currentHero = appState.currentProfile {
+            let heroRecordName = currentHero.id.recordName
+            if let childHeroCache = cachedProfiles.first(where: { $0.recordName == heroRecordName }) {
+                vm.selectedHero = childHeroCache
+            }
+        }
+
         // Rebuild view model lists directly from cached SwiftData rows.
         vm.rebuildLists(profiles: cachedProfiles, quests: cachedQuests, logs: cachedCompletions)
     }
@@ -136,33 +161,23 @@ struct QuestLogView: View {
     }
 
     private var dateRangeMenu: some View {
-        Menu {
-            ForEach(QuestLogViewModel.DateRangePreset.allCases) { preset in
-                Button {
-                    viewModel?.dateRangePreset = preset
-                } label: {
-                    Label(preset.rawValue, systemImage: "checkmark")
-                        .opacity(viewModel?.dateRangePreset == preset ? 1 : 0)
-                }
-            }
-        } label: {
-            Image(systemName: "calendar")
-        }
+        CheckmarkMenu(
+            systemImage: "calendar",
+            options: QuestLogViewModel.DateRangePreset.allCases,
+            selected: viewModel?.dateRangePreset,
+            onSelect: { viewModel?.dateRangePreset = $0 },
+            title: { $0.rawValue }
+        )
     }
 
     private var completionFilterMenu: some View {
-        Menu {
-            ForEach(QuestLogViewModel.CompletionFilter.allCases) { filter in
-                Button {
-                    viewModel?.completionFilter = filter
-                } label: {
-                    Label(filter.rawValue, systemImage: "checkmark")
-                        .opacity(viewModel?.completionFilter == filter ? 1 : 0)
-                }
-            }
-        } label: {
-            Image(systemName: "line.3.horizontal.decrease.circle")
-        }
+        CheckmarkMenu(
+            systemImage: "line.3.horizontal.decrease.circle",
+            options: QuestLogViewModel.CompletionFilter.allCases,
+            selected: viewModel?.completionFilter,
+            onSelect: { viewModel?.completionFilter = $0 },
+            title: { $0.rawValue }
+        )
     }
 
     // MARK: - Quest Rows
