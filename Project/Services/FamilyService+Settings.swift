@@ -10,6 +10,80 @@ import Foundation
 
 extension FamilyService {
     @discardableResult
+    func updateFamilyName(family: Family, newName: String) async throws -> Family {
+        let trimmed = newName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            throw FamilyServiceError.persistenceFailed
+        }
+        // Privileged mutation: a parent (Guild Master / Ranger) may rename the
+        // family, or the owner anchor may grant it even for a non-parent role.
+        let actingIsParent = appState.currentProfile?.role.isParent ?? false
+        // The owner-anchor grant applies only when the family carries a
+        // server-authenticated creator stamp; a legacy family (nil creator)
+        // stays strictly parent-gated.
+        let ownerAnchorGrant: Bool = if family.creatorUserRecordName != nil {
+            await isFamilyOwner(family)
+        } else {
+            false
+        }
+        guard actingIsParent || ownerAnchorGrant else {
+            throw FamilyServiceError.unauthorized
+        }
+
+        var updated = family
+        updated.name = trimmed
+
+        let name = family.id.recordName
+        let snapshot = cacheService?.fetchFamily(recordName: name)
+
+        // Capture the last-seen server changeTag BEFORE the optimistic write so
+        // we can detect a concurrent edit from another device (or background
+        let preMutationChangeTag = snapshot?.changeTag
+
+        // Capture an immutable value-type copy of the snapshot BEFORE the
+        // optimistic write. The cache-managed `snapshot` will be mutated in
+        // place by `upsertFamily`, so reading `snapshot.toFamily(...)` later
+        // would yield the *post*-mutation values. The value-type copy
+        // (`Family` struct) is unaffected by later mutations.
+        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+        let snapshotFamily: Family? = snapshot?.toFamily(zoneID: cloudKit.resolvedZoneID)
+
+        // Register the optimistic window so a background sync skips this row.
+        let registry = cacheService?.inFlightRegistry
+        await registry?.register(name)
+
+        cacheService?.upsertFamily(updated)
+        appState.family = updated
+
+        let (zoneID, db) = familyContext(for: family.id)
+        do {
+            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
+            cacheService?.upsertFamily(saved)
+            appState.family = saved
+            await registry?.deregister(name)
+            return saved
+        } catch {
+            await OptimisticFailureHandler.handleSaveFailure(
+                recordID: family.id,
+                preMutationChangeTag: preMutationChangeTag,
+                snapshot: snapshotFamily,
+                cloudKit: cloudKit,
+                toastManager: toastManager,
+                fetchCurrentTag: { self.cacheService?.fetchFamily(recordName: name)?.changeTag },
+                upsert: { restored in
+                    self.cacheService?.upsertFamily(restored)
+                    self.appState.family = restored
+                },
+                invalidate: { _ in self.cacheService?.invalidateFamily(recordName: name) },
+                error: error,
+                db: db
+            )
+            await registry?.deregister(name)
+            throw FamilyServiceError.persistenceFailed
+        }
+    }
+
+    @discardableResult
     func updatePayoutPolicy(family: Family, policy: PayoutPolicy) async throws -> Family {
         // Privileged mutation: a parent (Guild Master / Ranger) may change the
         // family payout policy, or the owner anchor may grant it.

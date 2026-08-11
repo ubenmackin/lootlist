@@ -22,6 +22,8 @@ struct ProfileView: View {
 
     @Environment(AppState.self) private var appState
 
+    @Environment(CloudKitService.self) private var cloudKitService
+
     @Environment(FamilyService.self) private var familyService
 
     @Environment(QuestService.self) private var questService
@@ -42,6 +44,8 @@ struct ProfileView: View {
     @State private var draftName: String = ""
 
     @State private var showingSignOutConfirm: Bool = false
+
+    @State private var isSigningOut: Bool = false
 
     @State private var viewModel = ProfileViewModel()
 
@@ -117,11 +121,25 @@ struct ProfileView: View {
             .navigationBarTitleDisplayMode(.large)
             .alert("Sign Out?", isPresented: $showingSignOutConfirm) {
                 Button("Sign Out", role: .destructive) {
-                    appState.signOut()
+                    isSigningOut = true
+                    Task {
+                        await appState.signOutAndDiscover(cloudKit: cloudKitService)
+                        isSigningOut = false
+                    }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Your local session will end and you'll return to the Welcome screen. Your Guild data stays synced in iCloud.")
+                Text("Your local session will end, and your Guild stays synced in iCloud. "
+                    + "If an existing Guild is found, the app will reconnect you to it; "
+                    + "otherwise you'll return to the Welcome screen.")
+            }
+            .overlay {
+                if isSigningOut {
+                    ProgressView("Signing out…")
+                        .padding(24)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
             }
             .sheet(isPresented: $showingEditName) {
                 if let profile = appState.currentProfile, profile.role == .hero {
@@ -360,7 +378,7 @@ struct ProfileView: View {
                 actionRow(
                     icon: "rectangle.portrait.and.arrow.right",
                     title: "Sign Out",
-                    subtitle: "Return to the Welcome screen",
+                    subtitle: "Sign out of this device; your Guild stays in iCloud",
                     tint: .red
                 )
             }

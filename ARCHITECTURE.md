@@ -194,39 +194,84 @@ Money is **real local currency**, not a fictional in-game currency. This drives 
 
 ```
 restoringSession ──(has saved session)──► restoreSession(cloudKit)
-                                                  │
-                        ┌─────────────────────────┼─────────────────────────┐
-                        ▼                          ▼                         ▼
-              (network fail → cache fallback)   (CloudKit OK)         (no saved session)
-                  authenticated              authenticated            checkingCloudData
-                                                                        │
-                                                               discoverExistingCloudState
-                                                                        │
-                                          ┌─────────────────────────────┼─────────────┐
-                                          ▼                              ▼             ▼
-                              detectedPreviousFamily(...)         onboarding    onboarding
-                                  (private zone: Guild Master     (shared zone:
-                                   discovered)                     Hero discovered)
-                                          │
-                            acceptDetectedFamily / rejectDetectedFamily
-                                          ▼
-                                   authenticated
+      │                                              │
+      │ (no session keys: cold install,              ├──────────────────────────┐
+      │  or relaunch after signOut)                  ▼                          ▼
+      ▼                                     (CloudKit OK)                 (network fail →
+checkingCloudData                           authenticated                 cache fallback)
+      │                                                                   authenticated
+      │
+      ▼
+discoverExistingCloudState
+      │
+┌─────┼──────────────────────┐
+▼     ▼                      ▼
+detectedPreviousFamily(...)         onboarding
+ (private zone: Guild Master        (nothing recoverable — Welcome)
+  discovered; shared zone:
+  Hero discovered)
+      │
+      ▼
+acceptDetectedFamily / rejectDetectedFamily
+      ▼
+authenticated
 ```
 
-- `discoverExistingCloudState` searches the **private** custom zones first (parent reinstall), then **shared** zones (hero), with a brief retry pulse for cold-launch share sync.
-- `DetectedFamilyView` presents the "we found your old guild" branch; the user accepts (restores session) or rejects (deletes/abandons the zone or deactivates the profile).
-- Session is persisted in `UserDefaults` (profile/family record names, zone ID, isOwner); `clearSession` wipes it.
+Recovery edge — in-session sign-out routes back through the same machine (no separate state):
+
+```
+authenticated ──(signOut / signOutAndDiscover)──► checkingCloudData
+                                                        │
+                                                        ▼
+                                              discoverExistingCloudState
+                                                        │
+                                       ┌────────────────┼────────────────┐
+                                       ▼                ▼                ▼
+                                detectedPreviousFamily      onboarding
+                                (accept → authenticated)    (no recoverable
+                                                             family/profile)
+```
+
+- `discoverExistingCloudState` is reached from **three entry points**, all funneling into the **same discovery code path**: **(1) cold install** — `AppState.init` finds no session keys and starts in `.checkingCloudData`; **(2) sign-out → relaunch** — `clearSession` wipes the session keys, so the next launch's `restoreSession` finds none and falls through to discovery; **(3) in-session sign-out** — `signOutAndDiscover` clears the session, flips to `.checkingCloudData`, and awaits `discoverExistingCloudState` immediately. Discovery predicates are unified across all three — one hero-scan + family-resolution implementation serves session recovery and hero onboarding alike.
+- Discovery searches the **private** custom zones first (returning Guild Master), then **shared** zones (returning Hero), with a brief retry pulse for cold-launch share sync. The shared-zone scan is **fail-closed**: `activeSharedHeroProfiles` matches active `Profile` records whose `iCloudUserID` equals the current user's record name and skips the zone entirely when `currentUserRecordID` is unresolved — an arbitrary active profile is never adopted (that could hand one user another user's session); `sharedZoneFamily` resolves the zone's `Family` (point lookup on the zone-named record, full-zone query fallback).
+- `DetectedFamilyView` presents the "we found your old guild" branch — reused as the post-sign-out recovery surface, so no separate "welcome back" screen exists; the user accepts (restores the session) or rejects (deletes/abandons the zone or deactivates the profile).
+- **sign-out is device-local only**: it never authors a CloudKit flag — device presence is the `UserDefaults` session keys — so recovery is entirely discovery-driven. Session is persisted in `UserDefaults` (profile/family record names, zone ID, isOwner); `clearSession` wipes it and purges the previous family's cache (sign-out → sign-into-a-different-family must not leave the previous family's rows behind).
+
+### 8.1 Identity Dedupe Contract
+
+**One iCloud user record + one Family reference = one Profile (Hero OR Guild Master).** No code path may mint a second `Profile` for the same person in the same family — whether the user is a hero re-joining via a share link, a parent re-onboarding on a new device, or either role recovering after sign-out. The contract MUST hold for `joinFamilyViaShare` AND `createFamily`, and the dedupe key is always anchored on the **server-authenticated CloudKit identity** — never on user-editable fields:
+
+- **Hero key — `Profile.iCloudUserID`** (a plain record-name `String`), scoped to the family via `Profile.family` (a `CKRecord.Reference`). The lookup predicate is `family == %@ AND iCloudUserID == %@`, evaluated against the **shared** database. `displayName` is deliberately never a dedupe key: it is user-editable and globally non-unique.
+- **Guild Master key — `Family.creatorUserRecordName`** (server-stamped, never authored locally — see the Authorization owner anchor), matched against the current user's record name across the **private** custom zones. The same field that anchors the highest-privilege owner operations is the owner-side dedupe key.
+
+Enforcement:
+
+- **`joinFamilyViaShare`** resolves the current user's identity first, then runs the hero dedupe via `findExistingHeroProfile(in:family:currentUserRecordID:)` — a 3-branch decision: (1) **active** match → reuse as-is, no save; (2) **inactive** match → reactivate (set active, refresh the family reference, allow a rename via the onboarding display name) and save; (3) **no match** → brand-new profile. Only a successful lookup that proves no match exists may create a new profile.
+- **`createFamily`** runs the parent dedupe via `findExistingOwnerFamily(currentUserRecordName:)` **before** `ensureZoneExists(zoneID)` — the reuse path never leaves an orphaned empty private zone (the existing family's zone is already present). The reuse branch resolves the existing Guild Master via `resolveExistingOwnerProfile(in:family:)`: active GM reused as-is (never overwritten from the onboarding profile), inactive GM reactivated preserving its identity, missing GM re-minted *inside the existing family's zone*. A brand-new `Family` is minted only when the lookup provably found no existing owner family.
+- **Dedupe lookups are fail-closed.** Each lookup distinguishes provable absence (`CloudKitServiceError.notFound` → the new-record branch) from every other failure: identity-resolution failure surfaces as `accountUnavailable`, and any thrown lookup/query error is rethrown as `joinFailed` / `creationFailed`. A dedupe lookup that cannot *prove* there is no existing profile never falls through to minting — a transient CloudKit failure can never mint a duplicate.
+- **Identity resolution is scoped to onboarding dedupe.** `resolveCurrentUserRecordID` caches the current user's record ID once per service session for the dedupe flows; the security-relevant owner-anchor check (`isFamilyOwner`) deliberately bypasses that cache and re-resolves `cloudKit.currentUserRecordID()` fresh on every call — an OS-level iCloud account change without an app relaunch can never authorize against a stale pre-switch identity. Owner-anchor authorization is NOT backed by the onboarding identity cache.
 
 ### 9. Onboarding Flow (fresh start)
 
 ```
 WelcomeView → "I'm a Parent" → sign in with iCloud → Create Family → Guild Master
                                                          └─ Invite Heroes via iCloud (CKShare)
-           → "I'm a Hero"   → sign in with iCloud → accept share / enter family code
-                                                         → Select Avatar Class → Ready to quest!
+           → "I'm a Hero"   → sign in with iCloud
+                                 │
+                                 ├─ existing-hero-detected (fetchSharedZones + iCloudUserID
+                                 │    match via checkForExistingHero) → DetectedFamilyView
+                                 │    ├─ "Reconnect to Guild" (acceptDetectedFamily)
+                                 │    │     → back to the existing hero → Ready to quest!
+                                 │    └─ "Join a Different Family" → continue to the
+                                 │          new-hero branch below (dismisses the card)
+                                 │
+                                 └─ no existing hero → accept share / enter family code
+                                                          → Select Avatar Class → Ready to quest!
 ```
 
 Incoming share URLs are captured in `LootListApp.handleIncomingShareURL` and passed to `OnboardingViewModel.pendingShareMetadata`.
+
+The alternate Hero entry is a defense-in-depth reconnect probe: when the hero role is selected, `OnboardingViewModel.checkForExistingHero()` scans the user's shared zones via the same `AppState.activeSharedHeroProfiles` / `sharedZoneFamily` helpers that session recovery uses (§8). If exactly one active `Profile` bound to the current iCloud user is found, `detectedHero` (a `DetectedHero` struct carrying `family`, `profile`, `zoneID`) is populated and FamilyJoinView swaps in a "Welcome back" card — "Reconnect to Guild" calls `acceptDetectedFamily` to restore the existing hero session, while "Join a Different Family" dismisses the card and proceeds down the original share-URL branch. The service layer is the authoritative duplicate guard (§8.1); the probe merely surfaces the reconnect option earlier in the flow for a better UX.
 
 ### 10. Notification System
 
@@ -249,12 +294,12 @@ There are two migration tracks:
 
 The repo follows the MVVM/Services layout below. The exact file listing is intentionally omitted — it changes frequently and is trivially inspectable via `glob`/AST tools. What matters is the **shape**: each directory's role and the contracts it owes the rest of the app.
 
-- **`Project/App/`** — `@main` (`LootListApp`), root `AppState` (auth/session state machine + session persistence), `AppDelegate`.
+- **`Project/App/`** — `@main` (`LootListApp`), root `AppState` (auth/session state machine + session persistence, plus the shared discovery helpers `activeSharedHeroProfiles` / `sharedZoneFamily` reused by both session recovery and hero-onboarding reconnect — §8, §9), `AppDelegate`.
 - **`Project/Models/CloudKit/`** — the source-of-truth record types (`Family`, `Profile`, `Quest`, `QuestTemplate`, `QuestCompletion` (CKRecordType `"QuestLog"`), `AllowancePeriod`, `LedgerEntry`, `Achievement`, `ProfileAchievement`, `NotificationPreference`) plus the `CloudKitRecord` encode/decode protocol and `CKDecodingError`. Every struct carries `changeTag: String?` mirroring CloudKit's `recordChangeTag` (see §Conflict). Where a field is a typed enum in code (`ApprovalMode`, `VerificationStatus`, `PayoutPolicy`, `PayoutStatus`, `QuestSchedule`, `QuestRarity`, `NotificationEventType`, `AvatarClass`, `AchievementCategory`, `AchievementRequirement`), it round-trips through that enum, not a raw `String`.
 - **`Project/Models/Local/`** — the SwiftData `@Model` cache classes (one per CloudKit type), the `FamilyScopedCache` protocol they conform to (mandates `familyRecordName`), and `LootListSchema.swift` (the `VersionedSchema`, see §2).
 - **`Project/Models/Enums/`** — the typed enums above, plus `CachedRecordType` (the typed delete-path enum, see §2).
 - **`Project/ViewModels/`** — screen ViewModels (`@Observable`): hero & family dashboards, quest manager, treasury, trophy room, onboarding, and quest log. ViewModels read `*Cache` models directly and never depend on CloudKit types.
-- **`Project/Services/`** — the protocol/concrete service layer: `CloudKitServiceProtocol` (the `@MainActor` seam consumed across the service layer and `AppState`), `CloudKitService` (owner/participant DB split, retry, share, zones, subscriptions), `FamilyService`, `QuestService`, `TreasuryService`, `SpendingService` (protocol; `ManualSpendingService` is the sole conformer today, `FinanceKitSpendingService` planned — §3), `AchievementService`, `NotificationService`, `AvatarService`, `XPService` (declaration site of the narrower `CloudKitServicing` protocol), `CacheService` (+ `CacheService+Fetches` / `CacheService+Invalidation` extensions), `BackgroundCacheActor`, `SyncEngine`, `AppSyncCoordinator`, `CacheConversions`, `ConcurrentEditDetector` (the `detectConcurrentEdit` guard and the actor-isolated `InFlightMutationRegistry` — see §2 and §Conflict), `ToastManager` (shared in-app/toast surface), and `DataMigrationsCoordinator`.
+- **`Project/Services/`** — the protocol/concrete service layer: `CloudKitServiceProtocol` (the `@MainActor` seam consumed across the service layer and `AppState`), `CloudKitService` (owner/participant DB split, retry, share, zones, subscriptions), `FamilyService` (owns the Identity Dedupe Contract helpers — `findExistingHeroProfile`, `findExistingOwnerFamily`, `resolveExistingOwnerProfile` — see §8.1), `QuestService`, `TreasuryService`, `SpendingService` (protocol; `ManualSpendingService` is the sole conformer today, `FinanceKitSpendingService` planned — §3), `AchievementService`, `NotificationService`, `AvatarService`, `XPService` (declaration site of the narrower `CloudKitServicing` protocol), `CacheService` (+ `CacheService+Fetches` / `CacheService+Invalidation` extensions), `BackgroundCacheActor`, `SyncEngine`, `AppSyncCoordinator`, `CacheConversions`, `ConcurrentEditDetector` (the `detectConcurrentEdit` guard and the actor-isolated `InFlightMutationRegistry` — see §2 and §Conflict), `ToastManager` (shared in-app/toast surface), and `DataMigrationsCoordinator`.
 - **`Project/Views/`** — SwiftUI screens grouped by feature: `Onboarding/`, `Hero/`, `Treasury/`, `Trophies/`, `Profile/`, `Guild/`, `Shared/`. `Shared/` holds cross-cutting components (splash, settings, share sheet, presets, badges, progress bar, toast view, validation rows, etc.).
 - **`Project/Utilities/`** — app-wide constants, ISO8601-UTC calendar helpers, `WeekMath` (half-open week ranges — see §5), reward proration, sample/seed data, and test-environment detection.
 - **`Project/Resources/`** — asset catalogs (AppIcon + avatar imagesets, AchievementIcons).

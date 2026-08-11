@@ -192,4 +192,107 @@ struct AppStateTests {
         #expect(appState.currentProfile?.payoutDay == .friday)
         #expect(appState.currentProfile?.customAvatarImageData == Data([0xAA, 0xBB, 0xCC]))
     }
+
+    // MARK: - Post-Sign-Out Discovery
+
+    /// A `MockCloudKitService` double exposing a configurable set of private and
+    /// shared custom zones so `discoverExistingCloudState` can be driven down
+    /// both its recoverable-family and fall-to-onboarding branches.
+    private final class DiscoveryCloudKitService: MockCloudKitService {
+        var privateZones: [CKRecordZone] = []
+        var sharedZones: [CKRecordZone] = []
+
+        override func fetchPrivateZones() async throws -> [CKRecordZone] {
+            privateZones
+        }
+
+        override func fetchSharedZones() async throws -> [CKRecordZone] {
+            sharedZones
+        }
+    }
+
+    /// The UserDefaults session keys `AppState` persists. Cleared before each
+    /// test so a `hasSessionKey` (or sibling session key) left behind by an
+    /// earlier test can never bleed into a later one — keeping sign-out/
+    /// sign-in transitions deterministic.
+    private func resetSessionDefaults() {
+        let keys = [
+            "session_hasActiveSession",
+            "session_profileRecordName",
+            "session_familyRecordName",
+            "session_familyZoneName",
+            "session_familyZoneOwnerName",
+            "session_isZoneOwner",
+            "session_abandonedFamilyZoneNames"
+        ]
+        for key in keys {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    @Test
+    func `signOutAndDiscover routes through discover and lands on detectedPreviousFamily`() async {
+        resetSessionDefaults()
+        // Simulate a signed-in session first so `signOutAndDiscover` demonstrably
+        // wipes it during the transition.
+        UserDefaults.standard.set(true, forKey: "session_hasActiveSession")
+
+        let zoneID = CKRecordZone.ID(zoneName: "SharedHeroZone", ownerName: "HeroOwner")
+        let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
+        let family = Family(
+            name: "Shared Guild",
+            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            id: familyID
+        )
+        let hero = Profile(
+            displayName: "Recovered Hero",
+            role: .hero,
+            // The active hero carries the mock user's server-authenticated
+            // identity so discovery's match against `currentUserRecordID` hits.
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+
+        let cloudKit = DiscoveryCloudKitService()
+        cloudKit.seedMockRecords([family, hero])
+        // No private owner zones — only a recoverable shared hero zone.
+        cloudKit.sharedZones = [CKRecordZone(zoneID: zoneID)]
+
+        let appState = AppState()
+        await appState.signOutAndDiscover(cloudKit: cloudKit)
+
+        guard case let .detectedPreviousFamily(family: detectedFamily,
+                                               profile: detectedProfile,
+                                               zoneID: detectedZoneID,
+                                               isOwner: isOwner) = appState.authStatus
+        else {
+            #expect(Bool(false), "Expected .detectedPreviousFamily, got \(appState.authStatus)")
+            return
+        }
+        // Discovery routed to the seeded hero + family in the shared zone.
+        #expect(detectedFamily.id.recordName == "SharedHeroZone")
+        #expect(detectedProfile.id.recordName == "hero1")
+        #expect(detectedProfile.role == .hero)
+        #expect(detectedZoneID == zoneID)
+        #expect(isOwner == false)
+        // The pre-existing signed-in session was cleared by sign-out.
+        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession") == false)
+    }
+
+    @Test
+    func `signOutAndDiscover falls through to onboarding when no recoverable family exists`() async {
+        resetSessionDefaults()
+        UserDefaults.standard.set(true, forKey: "session_hasActiveSession")
+
+        // No private owner zones and no shared hero zones → nothing recoverable.
+        let cloudKit = DiscoveryCloudKitService()
+
+        let appState = AppState()
+        await appState.signOutAndDiscover(cloudKit: cloudKit)
+
+        #expect(appState.authStatus == .onboarding)
+        // The signed-in session was cleared by sign-out.
+        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession") == false)
+    }
 }
