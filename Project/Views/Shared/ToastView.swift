@@ -98,6 +98,14 @@ extension View {
     func toastOverlay() -> some View {
         modifier(ToastOverlayModifier())
     }
+
+    /// Attaches the fullscreen achievement celebration overlay above the
+    /// toast overlay so trophy unlocks and streak milestones take visual
+    /// priority. Apply after `.toastOverlay()` so the celebration layer sits
+    /// above the toast banner layer.
+    func celebrationOverlay() -> some View {
+        modifier(CelebrationOverlayModifier())
+    }
 }
 
 struct ToastOverlayModifier: ViewModifier {
@@ -110,5 +118,39 @@ struct ToastOverlayModifier: ViewModifier {
                     ToastView(toastManager: toastManager)
                 }
             }
+    }
+}
+
+struct CelebrationOverlayModifier: ViewModifier {
+    @Environment(CelebrationManager.self) private var celebrationManager: CelebrationManager?
+    @Environment(AppState.self) private var appState: AppState?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                celebrationOverlay
+                    .animation(
+                        .easeInOut(duration: 0.4),
+                        value: celebrationManager?.currentFullscreenItem
+                    )
+            }
+    }
+
+    /// The currently presented fullscreen celebration, or nothing while idle.
+    /// The `.transition(.opacity)` on the overlay is driven by the enclosing
+    /// `.animation(_:value:)` keyed to `currentFullscreenItem`, mirroring how
+    /// ``ToastView`` animates toast rows via `.animation(.snappy, value: toasts)`.
+    @ViewBuilder
+    private var celebrationOverlay: some View {
+        if let celebrationManager,
+           let item = celebrationManager.currentFullscreenItem
+        {
+            CelebrationOverlayView(
+                item: item,
+                familyRecordName: appState?.family?.id.recordName,
+                onDismiss: { celebrationManager.dismissCurrent() }
+            )
+            .transition(.opacity)
+        }
     }
 }

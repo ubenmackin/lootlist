@@ -68,17 +68,22 @@ struct AvatarView: View {
     }
 
     private var avatarCircle: some View {
-        ZStack {
-            Circle()
-                .fill(classGradient)
-                .frame(width: size.diameter, height: size.diameter)
-                .overlay(
-                    Circle()
-                        .strokeBorder(
-                            Color.gold.opacity(0.75),
-                            lineWidth: max(1.5, size.diameter * 0.025)
-                        )
-                )
+        // Stock presets render in a squircle frame; custom uploaded photos and the
+        // default placeholder keep the original circular frame.
+        let isStockPreset = spec.customAvatarImageData == nil && spec.preset != nil
+        let squircleRadius = size.diameter * 0.22
+
+        return ZStack {
+            // Background fill sits behind the avatar content.
+            if isStockPreset {
+                RoundedRectangle(cornerRadius: squircleRadius, style: .continuous)
+                    .fill(classGradient)
+                    .frame(width: size.diameter, height: size.diameter)
+            } else {
+                Circle()
+                    .fill(classGradient)
+                    .frame(width: size.diameter, height: size.diameter)
+            }
 
             if let customData = spec.customAvatarImageData, let uiImage = UIImage(data: customData) {
                 Image(uiImage: uiImage)
@@ -93,8 +98,8 @@ struct AvatarView: View {
                         .interpolation(.none)
                         .aspectRatio(contentMode: .fill)
                         .frame(width: size.diameter, height: size.diameter)
-                        .offset(y: size.diameter * 0.07)
-                        .clipShape(Circle())
+                        .offset(y: size.diameter * 0.04)
+                        .clipShape(RoundedRectangle(cornerRadius: squircleRadius, style: .continuous))
                 } else {
                     Image(systemName: preset.iconSystemName)
                         .font(.system(size: size.glyphSize, weight: .regular))
@@ -109,6 +114,23 @@ struct AvatarView: View {
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(Color.gold)
                     .accessibilityHidden(true)
+            }
+
+            // Border strokes draw on top so the avatar reads as framed "inside".
+            if isStockPreset {
+                RoundedRectangle(cornerRadius: squircleRadius, style: .continuous)
+                    .strokeBorder(
+                        Color.gold.opacity(0.75),
+                        lineWidth: max(1.0, size.diameter * 0.018)
+                    )
+                    .frame(width: size.diameter, height: size.diameter)
+            } else {
+                Circle()
+                    .strokeBorder(
+                        Color.gold.opacity(0.75),
+                        lineWidth: max(1.5, size.diameter * 0.025)
+                    )
+                    .frame(width: size.diameter, height: size.diameter)
             }
 
             accessoryOverlay

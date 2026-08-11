@@ -65,11 +65,24 @@ final class AchievementService {
 
     var notificationService: NotificationService?
 
-    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil, toastManager: ToastManager? = nil, appState: AppState? = nil) {
+    /// Celebration surface for newly awarded trophies and streak milestones.
+    /// Injected alongside `toastManager` and forwarded awarded achievements
+    /// from `evaluateAll`. `nil` in tests/legacy paths — celebrations are
+    /// silently skipped when unset.
+    var celebrationManager: CelebrationManager?
+
+    init(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService? = nil,
+        toastManager: ToastManager? = nil,
+        appState: AppState? = nil,
+        celebrationManager: CelebrationManager? = nil
+    ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
         self.toastManager = toastManager
         self.appState = appState
+        self.celebrationManager = celebrationManager
     }
 
     private let cloudKit: any CloudKitServiceProtocol
@@ -269,6 +282,7 @@ final class AchievementService {
         return results
     }
 
+    @discardableResult
     func evaluateAll(for profile: Profile, family: Family) async throws -> [Achievement] {
         guard let acting = appState?.currentProfile, acting.id == profile.id || acting.role.isParent else {
             return []
@@ -323,6 +337,13 @@ final class AchievementService {
                 )
             }
         }
+
+        // Forward the full set of newly awarded achievements (trophies and
+        // streak milestones alike) to the celebration surface. The manager
+        // decides per-item whether to present a fullscreen overlay or an
+        // enhanced toast; streak milestones are distinguished inside
+        // `CelebrationItem.isStreakMilestone` from `requirementType`.
+        celebrationManager?.enqueue(achievements: awarded, for: profile)
 
         return awarded
     }

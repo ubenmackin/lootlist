@@ -21,6 +21,11 @@ struct NotificationSettingsView: View {
 
     @AppStorage("masterNotificationsEnabled") private var masterNotificationsEnabled = true
 
+    /// Plays the celebration chime (and fires the success haptic) when a trophy
+    /// or streak milestone unlocks. Defaults to on; surfaced here because this
+    /// view is the canonical home for notification/sound toggles.
+    @AppStorage("celebrationSoundEnabled") private var celebrationSoundEnabled = true
+
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showClearedToast = false
 
@@ -117,6 +122,21 @@ struct NotificationSettingsView: View {
                     .foregroundStyle(.secondary)
             } header: {
                 Text("Master Toggle")
+            }
+
+            // MARK: - 2b. Celebration Sounds Section
+
+            Section {
+                Toggle("Celebration Sound", isOn: $celebrationSoundEnabled)
+                    .tint(.accentColor)
+
+                Text(celebrationSoundEnabled
+                    ? "Plays a chime and haptic when a trophy or streak milestone is unlocked."
+                    : "Trophy and streak milestone celebrations will be silent.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Sounds")
             }
 
             // MARK: - 3. Grouped Event Toggles

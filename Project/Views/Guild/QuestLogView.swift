@@ -22,6 +22,11 @@ struct QuestLogView: View {
 
     @State private var viewModel: QuestLogViewModel?
 
+    /// Persisted date-range scope so the quest log reopens on the filter the
+    /// user last selected. Stored in `UserDefaults` via `@AppStorage` so the
+    /// selection survives app relaunches.
+    @AppStorage("questLog.calendarScope") private var scope: CalendarScope = .allTime
+
     let initialHero: ProfileCache?
 
     /// Family record name used to push the family filter down to SwiftData.
@@ -74,18 +79,25 @@ struct QuestLogView: View {
     }
 
     private var content: some View {
-        List {
-            if viewModel?.isLoading == true, viewModel?.displayedQuests.isEmpty ?? true {
-                ProgressView("Loading quest log…")
-                    .frame(maxWidth: .infinity)
-                    .listRowSeparator(.hidden)
-            } else if let vm = viewModel, vm.displayedQuests.isEmpty {
-                emptyState
-            } else {
-                questRows
+        VStack(spacing: 0) {
+            dateRangeFilter
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+            List {
+                if viewModel?.isLoading == true, viewModel?.displayedQuests.isEmpty ?? true {
+                    ProgressView("Loading quest log…")
+                        .frame(maxWidth: .infinity)
+                        .listRowSeparator(.hidden)
+                } else if let vm = viewModel, vm.displayedQuests.isEmpty {
+                    emptyState
+                } else {
+                    questRows
+                }
             }
+            .listStyle(.insetGrouped)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground))
         .toolbar {
             if appState.currentProfile?.role != .hero, showsHeroPicker {
                 ToolbarItem(placement: .topBarLeading) {
@@ -93,7 +105,6 @@ struct QuestLogView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                dateRangeMenu
                 completionFilterMenu
             }
         }
@@ -105,6 +116,7 @@ struct QuestLogView: View {
                     appState: appState
                 )
                 viewModel = vm
+                vm.dateRangePreset = scope
             }
             if let initialHero, viewModel?.selectedHero == nil {
                 viewModel?.selectedHero = initialHero
@@ -119,6 +131,9 @@ struct QuestLogView: View {
         }
         .onChange(of: cachedCompletions) { _, _ in
             rebuildViewModel()
+        }
+        .onChange(of: scope) { _, newScope in
+            viewModel?.dateRangePreset = newScope
         }
     }
 
@@ -160,16 +175,6 @@ struct QuestLogView: View {
         }
     }
 
-    private var dateRangeMenu: some View {
-        CheckmarkMenu(
-            systemImage: "calendar",
-            options: QuestLogViewModel.DateRangePreset.allCases,
-            selected: viewModel?.dateRangePreset,
-            onSelect: { viewModel?.dateRangePreset = $0 },
-            title: { $0.rawValue }
-        )
-    }
-
     private var completionFilterMenu: some View {
         CheckmarkMenu(
             systemImage: "line.3.horizontal.decrease.circle",
@@ -177,6 +182,15 @@ struct QuestLogView: View {
             selected: viewModel?.completionFilter,
             onSelect: { viewModel?.completionFilter = $0 },
             title: { $0.rawValue }
+        )
+    }
+
+    // MARK: - Date Range Filter
+
+    private var dateRangeFilter: some View {
+        CalendarScopeFilterView(
+            scope: $scope,
+            payoutDay: appState.family?.payoutDay ?? .sunday
         )
     }
 

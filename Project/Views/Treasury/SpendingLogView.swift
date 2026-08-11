@@ -12,13 +12,14 @@ struct SpendingLogView: View {
     @Bindable var viewModel: TreasuryViewModel
     let familyRecordName: String?
 
+    @Binding var scope: CalendarScope
+
     @Query private var cachedLedgers: [LedgerEntryCache]
 
-    @State private var showAllTime: Bool = false
-
-    init(viewModel: TreasuryViewModel, familyRecordName: String? = nil) {
+    init(viewModel: TreasuryViewModel, familyRecordName: String? = nil, scope: Binding<CalendarScope>) {
         self.viewModel = viewModel
         self.familyRecordName = familyRecordName
+        _scope = scope
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
@@ -34,6 +35,9 @@ struct SpendingLogView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                CalendarScopeFilterView(scope: $scope)
+                    .padding(.horizontal)
+
                 if viewModel.spendingLog.isEmpty {
                     emptyState
                 } else {
@@ -50,19 +54,14 @@ struct SpendingLogView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Scroll of Spending")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                LedgerDateRangeMenu(showAllTime: $showAllTime)
-            }
-        }
-        .onChange(of: showAllTime) { _, newValue in
-            viewModel.rebuildSpendingLog(from: cachedLedgers, showAllTime: newValue)
+        .onChange(of: scope) { _, newScope in
+            viewModel.rebuildSpendingLog(from: cachedLedgers, scope: newScope)
         }
         .onChange(of: cachedLedgers) { _, newLedgers in
-            viewModel.rebuildSpendingLog(from: newLedgers, showAllTime: showAllTime)
+            viewModel.rebuildSpendingLog(from: newLedgers, scope: scope)
         }
         .task {
-            viewModel.rebuildSpendingLog(from: cachedLedgers, showAllTime: showAllTime)
+            viewModel.rebuildSpendingLog(from: cachedLedgers, scope: scope)
         }
     }
 
@@ -73,9 +72,7 @@ struct SpendingLogView: View {
                 .foregroundStyle(.secondary)
             Text("Empty Ledger")
                 .font(.headline)
-            Text(showAllTime
-                ? "No entries yet."
-                : "No ledger activity this week.")
+            Text(scope.emptyStateCopy)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

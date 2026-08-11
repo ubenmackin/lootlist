@@ -31,6 +31,7 @@ final class AppDependencies {
     let cacheService: CacheService?
     let syncEngine: SyncEngine?
     let toastManager: ToastManager
+    let celebrationManager: CelebrationManager
 
     init() {
         let app = AppState()
@@ -48,12 +49,14 @@ final class AppDependencies {
         }
 
         let toast = ToastManager()
+        let celebration = CelebrationManager()
+        celebration.toastManager = toast
         let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache, toastManager: toast)
         let xp = XPService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
         let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification, cacheService: cache, treasuryService: treasury, toastManager: toast, appState: app)
         let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast)
-        let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app)
+        let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app, celebrationManager: celebration)
         achievement.notificationService = notification
         quest.achievementService = achievement
         let avatar = AvatarService(xp: xp)
@@ -138,6 +141,7 @@ final class AppDependencies {
         dataMigrationsCoordinator = migrations
         autoPayoutCoordinator = autoPayout
         cacheService = cache
+        celebrationManager = celebration
 
         Self.shared = self
     }
@@ -208,6 +212,10 @@ struct LootListApp: App {
         dependencies.toastManager
     }
 
+    private var celebrationManager: CelebrationManager {
+        dependencies.celebrationManager
+    }
+
     var body: some Scene {
         WindowGroup {
             rootViewContent
@@ -233,6 +241,7 @@ struct LootListApp: App {
                 .environment(cacheService)
                 .environment(syncEngine)
                 .environment(toastManager)
+                .environment(celebrationManager)
                 .task {
                     if !TestEnvironment.isRunningUnitOrUITests {
                         await checkCloudKitAvailability()
@@ -285,6 +294,9 @@ struct LootListApp: App {
                 // onboarding, authenticated) so services can surface errors
                 // universally. Hung on `baseRoot` so both branch consumers inherit it.
                 .toastOverlay()
+                // Celebration fullscreen overlay sits above the toast layer so
+                // trophy unlocks and streak milestones take visual priority.
+                .celebrationOverlay()
 
             if let container = cacheService?.container {
                 baseRoot.modelContainer(container)

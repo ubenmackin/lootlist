@@ -31,12 +31,12 @@ final class HeroLedgerViewModel {
         ledgers: [LedgerEntryCache],
         quests: [QuestCache] = [],
         completions: [QuestCompletionCache] = [],
-        showAllTime: Bool
+        scope: CalendarScope
     ) {
         let heroLedgers = ledgers.filter { $0.profileRecordName == heroProfile.recordName }
         balance = heroLedgers.reduce(0.0) { $0 + $1.amount }
 
-        let payoutDay = heroProfile.payoutDayEnum ?? .sunday
+        let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
         let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
 
         let hasPaidQuestThisWeek = heroLedgers.contains { $0.source == "quest" && weekRange.contains($0.date) }
@@ -52,11 +52,7 @@ final class HeroLedgerViewModel {
             )
         }
 
-        let filtered: [LedgerEntryCache] = if showAllTime {
-            heroLedgers
-        } else {
-            heroLedgers.filter { weekRange.contains($0.date) }
-        }
+        let filtered = heroLedgers.filter { scope.contains($0.date, payoutDay: payoutDay) }
 
         ledgerRows = filtered.map { ledger in
             SpendingLogRow(
