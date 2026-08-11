@@ -150,7 +150,7 @@ extension QuestService {
             if let achievementService, let family = appState?.family {
                 let achService = achievementService
                 Task {
-                    _ = try? await achService.evaluateAll(for: hero, family: family)
+                    try? await achService.evaluateAll(for: hero, family: family)
                 }
             }
 

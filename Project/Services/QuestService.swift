@@ -472,6 +472,59 @@ final class QuestService {
             throw FamilyServiceError.unauthorized
         }
 
+        // Carry-forward suppression tombstone. The weekly carry-forward engine
+        // replants `(template, assignee)` pairs from previous-week rows, and
+        // its idempotency gate only sees current-week quests — so a hard
+        // delete of a carried-forward quest would let the next run silently
+        // resurrect the very quest the parent just removed. When a parent
+        // unassigns a quest the engine could re-create (current carry window +
+        // backing template still active), keep the row with `active == false`
+        // instead of deleting it: the retained row occupies the pair in the
+        // engine's idempotency gate for this week only, is invisible to every
+        // active-quest query, and becomes an ordinary carry-forward source on
+        // week rollover — the suppression never leaks past the current carry
+        // window. Hero self-service unassigns and removals the engine cannot
+        // re-create (off-window, inactive or gone template — Quick Create and
+        // roster cleanup) stay hard deletes.
+        if acting.role.isParent, isCarryForwardSuppressible(quest) {
+            var tombstone = quest
+            tombstone.active = false
+
+            let name = quest.id.recordName
+            let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
+                .first(where: { $0.recordName == name })
+
+            let preMutationChangeTag = snapshot?.changeTag
+            // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
+            let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
+
+            // Register the optimistic window so a background sync skips this row.
+            let registry = cacheService?.inFlightRegistry
+            await registry?.register(name)
+
+            cacheService?.upsertQuest(tombstone)
+            do {
+                let saved = try await cloudKit.save(tombstone)
+                cacheService?.upsertQuest(saved)
+                await registry?.deregister(name)
+                return
+            } catch {
+                await handleSaveFailure(
+                    recordID: quest.id,
+                    preMutationChangeTag: preMutationChangeTag,
+                    snapshot: snapshotQuest,
+                    fetchCurrentTag: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
+                        .first(where: { $0.recordName == name })?.changeTag
+                    },
+                    upsert: { self.cacheService?.upsertQuest($0) },
+                    invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
+                    error: error
+                )
+                await registry?.deregister(name)
+                throw error
+            }
+        }
+
         let name = quest.id.recordName
         let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
             .first(where: { $0.recordName == name })
@@ -717,5 +770,26 @@ final class QuestService {
             found.insert(codes[index])
         }
         return found
+    }
+
+    /// True when `quest` is exactly what the weekly carry-forward engine would
+    /// re-create after a hard delete: a removal from the current carry window
+    /// whose backing template is still active. Mirrors the engine's own source
+    /// filter (`activeTemplates`) from the same cache, day-normalized with the
+    /// assignee's effective payout day — the same cycle `assignQuest` buckets
+    /// the quest's `weekOf` into. Quick Create quests (inactive ad-hoc
+    /// templates) and roster-cleanup quests (template gone) fail this check and
+    /// keep the plain hard-delete semantics, since the engine can never re-create
+    /// them in the first place.
+    private func isCarryForwardSuppressible(_ quest: Quest) -> Bool {
+        let assigneePayoutDay = cacheService?.fetchProfile(recordName: quest.assignee.recordID.recordName)?.payoutDayEnum
+            ?? cacheService?.fetchFamily(recordName: quest.family.recordID.recordName)?.payoutDayEnum
+            ?? .sunday
+        let currentWeekStart = WeekMath.startOfWeek(for: Date(), payoutDay: assigneePayoutDay)
+        guard Calendar.iso8601UTC.startOfDay(for: quest.weekOf) == Calendar.iso8601UTC.startOfDay(for: currentWeekStart) else {
+            return false
+        }
+        return cacheService?.fetchQuestTemplates(family: quest.family.recordID.recordName)
+            .contains { $0.recordName == quest.template.recordID.recordName && $0.isActive } ?? false
     }
 }

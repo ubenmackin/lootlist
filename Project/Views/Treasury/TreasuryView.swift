@@ -20,6 +20,11 @@ struct TreasuryView: View {
 
     @State private var isShowingLogSpending: Bool = false
 
+    /// Persisted date-range scope shared by the treasury and its pushed
+    /// Spending Log screen so both observe the same filter binding. Stored in
+    /// `UserDefaults` via `@AppStorage` so the selection survives app relaunches.
+    @AppStorage("treasury.calendarScope") private var scope: CalendarScope = .thisWeek
+
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedQuests: [QuestCache]
@@ -90,7 +95,11 @@ struct TreasuryView: View {
                 switch destination {
                 case "spendingLog" where viewModel != nil:
                     if let viewModel {
-                        SpendingLogView(viewModel: viewModel, familyRecordName: familyRecordName)
+                        SpendingLogView(
+                            viewModel: viewModel,
+                            familyRecordName: familyRecordName,
+                            scope: $scope
+                        )
                     }
                 default:
                     EmptyView()
@@ -126,6 +135,7 @@ struct TreasuryView: View {
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
+            .onChange(of: scope) { _, _ in rebuild() }
             .refreshable {
                 rebuild()
             }
@@ -146,7 +156,7 @@ struct TreasuryView: View {
             ledgers: ledgers,
             quests: quests,
             allowancePeriods: allowancePeriods,
-            showAllTime: false
+            scope: scope
         )
     }
 

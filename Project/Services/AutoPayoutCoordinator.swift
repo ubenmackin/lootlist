@@ -18,18 +18,26 @@ final class AutoPayoutCoordinator {
     private let familyService: FamilyService
     private let appState: AppState
 
+    /// Shared in-app toast surface. Mirrors the `toastManager` injection on
+    /// `AchievementService`/`QuestService`/`TreasuryService`. Optional so the
+    /// coordinator can be constructed without it (read-only test paths); when
+    /// present, a summary banner is emitted after a weekly carry-forward pass.
+    let toastManager: ToastManager?
+
     private var isProcessing = false
 
     init(
         treasuryService: TreasuryService,
         questService: QuestService,
         familyService: FamilyService,
-        appState: AppState
+        appState: AppState,
+        toastManager: ToastManager? = nil
     ) {
         self.treasuryService = treasuryService
         self.questService = questService
         self.familyService = familyService
         self.appState = appState
+        self.toastManager = toastManager
     }
 
     /// Evaluates whether payouts or quest sweeps are due for any hero in the active family
@@ -109,10 +117,243 @@ final class AutoPayoutCoordinator {
             if !sweptQuests.isEmpty {
                 logger.info("Swept \(sweptQuests.count) expired quests for family \(family.name)")
             }
+
+            // Recurring quest carry-forward: roll template-backed quests from
+            // the previous week into the current week so a parent doesn't have
+            // to reassign recurring chores each week. Parent-only by virtue of
+            // the role guard above; idempotent so re-runs in the same week don't
+            // duplicate assignments.
+            await carryForwardRecurringQuests(
+                family: family,
+                heroes: heroes,
+                currentProfile: currentProfile,
+                now: now
+            )
         } catch {
             logger.error("Failed during auto-payout evaluation: \(error, privacy: .public)")
         }
 
         return processedCount
     }
+
+    /// Carries forward recurring template-backed quests from the previous week
+    /// into the current week.
+    ///
+    /// For each unique `(template, assignee)` tuple that existed in the previous
+    /// week, a new quest is assigned for the current week — unless one for that
+    /// tuple already exists (idempotent). A pair whose current-week quest was
+    /// explicitly unassigned by a parent mid-week is protected by a suppression
+    /// tombstone (see ``QuestService.unassignQuest``): the unassigned row is
+    /// retained with `active == false`, so the pair stays occupied in the
+    /// idempotency gate for the current carry window and is never re-created
+    /// until the week rolls over. Quests backed by an inactive template
+    /// (ad-hoc Quick Create quests carry `isActive == false` templates), by a
+    /// template that has since been deleted, or assigned to a profile no longer
+    /// on the family roster are skipped. All template defaults (schedule type,
+    /// target count, specific days) are preserved by passing `nil` overrides to
+    /// ``QuestService.assignQuest``.
+    ///
+    /// **Per-assignee payout-day anchoring.** `assignQuest` stores `weekOf`
+    /// normalized to the assignee's effective payout day (profile override →
+    /// family payout day → `.sunday` fallback), so the source window, the
+    /// idempotency gate, and the `weekOf` value handed to ``assignQuest`` must
+    /// all use the same per-assignee anchor. A hero with a per-profile
+    /// override (e.g. a `.friday` hero in a `.sunday` family) has a week
+    /// shifted by up to six days from the family cycle; anchoring everything
+    /// on the family payday instead would land the stored current-week row
+    /// outside the engine's own gate (duplicate assignments on every run) AND
+    /// hide the unassign tombstone (which is keyed on the same assignee-anchored
+    /// `weekOf`) from the gate. Heroes sharing an effective payout day share
+    /// one fetch pair; override heroes get their own.
+    private func carryForwardRecurringQuests(
+        family: Family,
+        heroes: [Profile],
+        currentProfile: Profile,
+        now: Date
+    ) async {
+        guard let cache = appState.cacheService else {
+            logger.debug("Cache unavailable; skipping weekly quest carry-forward.")
+            return
+        }
+
+        let familyName = family.id.recordName
+
+        // Active templates only — ad-hoc Quick Create quests back inactive
+        // templates and must not recur; templates deleted between weeks are
+        // absent from this set and therefore skipped.
+        let activeTemplates = cache.fetchQuestTemplates(family: familyName).filter(\.isActive)
+        let heroByRecordName = Dictionary(uniqueKeysWithValues: heroes.map { ($0.id.recordName, $0) })
+        let activeTemplateByRecordName = Dictionary(uniqueKeysWithValues: activeTemplates.map { ($0.recordName, $0) })
+        let activeTemplateNames = Set(activeTemplates.map(\.recordName))
+
+        // Group heroes by their effective per-assignee current-week start so
+        // heroes sharing a payout day share one (source, gate, write) tuple.
+        // Heroes with no per-profile override collapse back onto the family
+        // payday, so the default configuration behaves identically to the
+        // pre-fix family-anchored implementation.
+        let heroesByWeekStart = Dictionary(grouping: heroes) { hero in
+            WeekMath.startOfWeek(for: now, payoutDay: hero.payoutDay ?? family.payoutDay)
+        }
+
+        var totalCarriedCount = 0
+        var totalCarriedPerAssignee: [String: Int] = [:]
+
+        for (currentWeekStart, weekHeroes) in heroesByWeekStart {
+            // Reuse the same ISO8601-UTC shift used elsewhere in this function
+            // for deriving the previous week's start.
+            let previousWeekStart = Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeekStart) ?? currentWeekStart
+
+            let previousQuests = cache.fetchQuests(
+                family: familyName,
+                weekInRange: WeekMath.weekRange(starting: previousWeekStart)
+            )
+            guard !previousQuests.isEmpty else { continue }
+
+            let weekHeroNames = Set(weekHeroes.map(\.id.recordName))
+            let pendingTuples = pendingCarryForwardTuples(
+                from: previousQuests,
+                activeTemplateNames: activeTemplateNames,
+                heroNames: weekHeroNames
+            )
+            guard !pendingTuples.isEmpty else { continue }
+
+            // Idempotency: skip tuples that already have a quest in the
+            // current week so re-runs of the coordinator never duplicate
+            // assignments. The gate deliberately spans ALL current-week rows,
+            // active or not: a parent's mid-week unassign of a carried-forward
+            // quest leaves a suppression tombstone
+            // (`QuestService.unassignQuest` retains the row with
+            // `active == false`), and that tombstone occupies the pair so the
+            // engine never resurrects a quest the parent explicitly removed
+            // for this week. Only pairs with no current-week row at all —
+            // never created this week — fall through to assignment. The gate
+            // window is anchored on the same per-assignee payout day as the
+            // stored `weekOf`, so the tombstone is always visible to it.
+            let existingPairs = Set(
+                cache.fetchQuests(family: familyName, weekInRange: WeekMath.weekRange(starting: currentWeekStart))
+                    .map { TemplateAssigneePair(template: $0.templateRecordName, assignee: $0.assigneeRecordName) }
+            )
+
+            let result = await assignCarriedForwardQuests(
+                pendingTuples: pendingTuples,
+                existingPairs: existingPairs,
+                activeTemplateByRecordName: activeTemplateByRecordName,
+                heroByRecordName: heroByRecordName,
+                weekOf: currentWeekStart,
+                currentProfile: currentProfile,
+                family: family
+            )
+
+            totalCarriedCount += result.count
+            for (assignee, count) in result.perAssignee {
+                totalCarriedPerAssignee[assignee, default: 0] += count
+            }
+        }
+
+        guard totalCarriedCount > 0 else { return }
+
+        logger.info("Carried forward \(totalCarriedCount) quest(s) for family \(family.name, privacy: .public)")
+        toastManager?.show(message: "Carried forward \(totalCarriedCount) quest(s) for the new week.", type: .info)
+        notifyCarriedForwardQuests(totalCarriedPerAssignee, heroByRecordName: heroByRecordName)
+    }
+
+    /// Groups previous-week quests into unique `(template, assignee)` tuples,
+    /// skipping quests whose backing template is inactive/gone or whose
+    /// assignee is no longer on the family roster.
+    private func pendingCarryForwardTuples(
+        from quests: [QuestCache],
+        activeTemplateNames: Set<String>,
+        heroNames: Set<String>
+    ) -> [TemplateAssigneePair] {
+        var pendingTuples: [TemplateAssigneePair] = []
+        var seenTuples = Set<TemplateAssigneePair>()
+        for quest in quests {
+            guard activeTemplateNames.contains(quest.templateRecordName) else { continue }
+            guard heroNames.contains(quest.assigneeRecordName) else { continue }
+            let pair = TemplateAssigneePair(template: quest.templateRecordName, assignee: quest.assigneeRecordName)
+            if seenTuples.insert(pair).inserted {
+                pendingTuples.append(pair)
+            }
+        }
+        return pendingTuples
+    }
+
+    /// Assigns each pending `(template, assignee)` tuple for the current week,
+    /// preserving template defaults via `nil` overrides. Returns the count of
+    /// new assignments plus a per-assignee tally for the summary notification.
+    /// `weekOf` is the current week start for this group of assignees, anchored
+    /// on their effective payout day (see ``carryForwardRecurringQuests``).
+    private func assignCarriedForwardQuests(
+        pendingTuples: [TemplateAssigneePair],
+        existingPairs: Set<TemplateAssigneePair>,
+        activeTemplateByRecordName: [String: QuestTemplateCache],
+        heroByRecordName: [String: Profile],
+        weekOf: Date,
+        currentProfile: Profile,
+        family: Family
+    ) async -> (count: Int, perAssignee: [String: Int]) {
+        var carriedCount = 0
+        var carriedPerAssignee: [String: Int] = [:]
+        let zoneID = family.id.zoneID
+
+        for pair in pendingTuples {
+            if existingPairs.contains(pair) {
+                continue
+            }
+            guard let templateCache = activeTemplateByRecordName[pair.template],
+                  let assignee = heroByRecordName[pair.assignee]
+            else { continue }
+
+            do {
+                _ = try await questService.assignQuest(
+                    template: templateCache.toQuestTemplate(zoneID: zoneID),
+                    assignee: assignee,
+                    goldOverride: nil,
+                    xpOverride: nil,
+                    approvalOverride: nil,
+                    nameOverride: nil,
+                    weekOf: weekOf,
+                    createdBy: currentProfile,
+                    family: family
+                )
+                carriedCount += 1
+                carriedPerAssignee[pair.assignee, default: 0] += 1
+            } catch {
+                logger.error(
+                    "Carry-forward assignment failed for template \(pair.template, privacy: .public) assignee \(pair.assignee, privacy: .public): \(error, privacy: .public)"
+                )
+            }
+        }
+        return (carriedCount, carriedPerAssignee)
+    }
+
+    /// Sends each affected assignee a summary notification (the parent gets the
+    /// in-app toast instead). Fire-and-forget on detached tasks so a
+    /// notification failure never blocks the carry-forward flow.
+    private func notifyCarriedForwardQuests(
+        _ carriedPerAssignee: [String: Int],
+        heroByRecordName: [String: Profile]
+    ) {
+        guard let notificationService = questService.notificationService else { return }
+        for (assigneeRecordName, count) in carriedPerAssignee {
+            guard let hero = heroByRecordName[assigneeRecordName] else { continue }
+            let title = count == 1 ? "⚔️ New Quest Assigned!" : "⚔️ New Quests Assigned!"
+            let body = "You have \(count) new quest\(count == 1 ? "" : "s") carried over for the new week."
+            Task { @Sendable [logger, notificationService, hero, title, body] in
+                do {
+                    try await notificationService.send(.questAssigned, to: hero, title: title, body: body)
+                } catch {
+                    logger.error("Carry-forward summary notification failed: \(error, privacy: .public)")
+                }
+            }
+        }
+    }
+}
+
+/// Unique key for a quest's `(templateRecordName, assigneeRecordName)` pair,
+/// used to group previous-week quests and to detect idempotency against the
+/// current week's existing quests.
+private struct TemplateAssigneePair: Hashable {
+    let template: String
+    let assignee: String
 }
