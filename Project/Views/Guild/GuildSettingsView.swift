@@ -12,6 +12,7 @@ import SwiftUI
 struct GuildSettingsView: View {
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
+    @Environment(CloudKitService.self) private var cloudKitService
     @Environment(QuestService.self) private var questService
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
@@ -40,6 +41,8 @@ struct GuildSettingsView: View {
     @State private var showLeaveConfirm: Bool = false
 
     @State private var actionError: String?
+
+    @State private var isSigningOut: Bool = false
 
     private let familyRecordName: String?
 
@@ -150,6 +153,14 @@ struct GuildSettingsView: View {
             } message: {
                 if let target = showRoleTransferConfirm {
                     Text("\(target.displayName) will become the Guild Master. You will become a Ranger.")
+                }
+            }
+            .overlay {
+                if isSigningOut {
+                    ProgressView("Signing out…")
+                        .padding(24)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
             }
         }
@@ -592,7 +603,9 @@ private extension GuildSettingsView {
         guard let current = appState.currentProfile else { return }
         do {
             try await familyService.leaveFamily(profile: current)
-            appState.signOut()
+            isSigningOut = true
+            await appState.signOutAndDiscover(cloudKit: cloudKitService)
+            isSigningOut = false
         } catch {
             actionError = "Could not leave family: \(error)"
         }
