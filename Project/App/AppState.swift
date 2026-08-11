@@ -326,30 +326,25 @@ final class AppState {
 
             for zone in sharedZones {
                 logger.info("Inspecting shared zone: '\(zone.zoneID.zoneName, privacy: .private)' (owner: '\(zone.zoneID.ownerName, privacy: .private)')")
-                let db = cloudKit.sharedDatabase
 
-                do {
-                    let profiles: [Profile] = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)
-                    logger.info("Shared zone '\(zone.zoneID.zoneName, privacy: .private)' returned \(profiles.count) Profile records.")
+                // Only adopt a profile whose server-authenticated identity
+                // matches the current user. When the current user ID cannot be
+                // resolved (nil), the helper returns no matches and this shared
+                // zone is skipped — never fall back to an arbitrary active
+                // profile, which could adopt another user's session.
+                let activeProfiles = await Self.activeSharedHeroProfiles(
+                    cloudKit: cloudKit,
+                    userRecordID: userRecordID,
+                    zoneID: zone.zoneID
+                )
+                logger.info("Shared zone '\(zone.zoneID.zoneName, privacy: .private)' returned \(activeProfiles.count) matching Profile records.")
 
-                    if let activeHeroProfile = profiles.first(where: { $0.isActive && (userRecordID == nil || $0.iCloudUserID.recordName == userRecordID?.recordName) }) ?? profiles
-                        .first(where: { $0.isActive })
-                    {
-                        let sharedFamilyID = CKRecord.ID(recordName: zone.zoneID.zoneName, zoneID: zone.zoneID)
-                        var family: Family? = try? await cloudKit.fetch(Family.self, id: sharedFamilyID, using: db)
-                        if family == nil {
-                            let families: [Family] = await (try? cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)) ?? []
-                            family = families.first
-                        }
-
-                        if let family {
-                            logger.info("SUCCESS: Detected Hero profile '\(activeHeroProfile.displayName, privacy: .private)' in shared family '\(family.name, privacy: .private)'")
-                            authStatus = .detectedPreviousFamily(family: family, profile: activeHeroProfile, zoneID: zone.zoneID, isOwner: false)
-                            return
-                        }
-                    }
-                } catch {
-                    logger.error("Error querying shared zone '\(zone.zoneID.zoneName, privacy: .private)': \(error, privacy: .private)")
+                if let activeHeroProfile = activeProfiles.first,
+                   let family = await Self.sharedZoneFamily(cloudKit: cloudKit, zoneID: zone.zoneID)
+                {
+                    logger.info("SUCCESS: Detected Hero profile '\(activeHeroProfile.displayName, privacy: .private)' in shared family '\(family.name, privacy: .private)'")
+                    authStatus = .detectedPreviousFamily(family: family, profile: activeHeroProfile, zoneID: zone.zoneID, isOwner: false)
+                    return
                 }
             }
         } catch {
@@ -358,6 +353,52 @@ final class AppState {
 
         logger.info("Discovery complete — no active family detected. Transitioning to onboarding.")
         authStatus = .onboarding
+    }
+
+    // MARK: - Shared-Zone Hero Discovery Helpers
+
+    /// Active `Profile` records in a shared zone bound to the current iCloud
+    /// user — the hero-role recovery signal used by session discovery and by
+    /// the hero onboarding reconnect probe. Fail-closed: a nil `userRecordID`
+    /// (identity unresolved) returns no matches, and a zone whose profile
+    /// query throws is skipped entirely. An arbitrary active profile is never
+    /// returned, because that could hand one user another's session.
+    static func activeSharedHeroProfiles(
+        cloudKit: any CloudKitServiceProtocol,
+        userRecordID: CKRecord.ID?,
+        zoneID: CKRecordZone.ID
+    ) async -> [Profile] {
+        guard userRecordID != nil else { return [] }
+
+        let profiles = await (try? cloudKit.query(
+            Profile.self,
+            predicate: NSPredicate(value: true),
+            in: zoneID,
+            using: cloudKit.sharedDatabase
+        )) ?? []
+
+        return profiles.filter { $0.isActive && $0.iCloudUserID.recordName == userRecordID?.recordName }
+    }
+
+    /// The `Family` record in a shared zone: a direct point lookup on the
+    /// zone-named record first, with a full-zone query as fallback when the
+    /// point lookup misses. Returns nil when neither path resolves a family.
+    static func sharedZoneFamily(
+        cloudKit: any CloudKitServiceProtocol,
+        zoneID: CKRecordZone.ID
+    ) async -> Family? {
+        let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
+        if let family = try? await cloudKit.fetch(Family.self, id: familyID, using: cloudKit.sharedDatabase) {
+            return family
+        }
+
+        let families = await (try? cloudKit.query(
+            Family.self,
+            predicate: NSPredicate(value: true),
+            in: zoneID,
+            using: cloudKit.sharedDatabase
+        )) ?? []
+        return families.first
     }
 
     func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
@@ -411,10 +452,43 @@ final class AppState {
         }
     }
 
+    /// Sign-out is device-local only: it never authors a CloudKit flag and
+    /// never touches the family data — it wipes the persisted session (and the
+    /// previous family's cache) and resets to `.onboarding`.
+    ///
+    /// Recovery is discovery-driven, not sign-out-driven. On the next full app
+    /// launch the session keys read false, so `AppState.init` starts in
+    /// `.checkingCloudData` and `restoreSession` falls through to
+    /// `discoverExistingCloudState`, which re-finds the user's private/shared
+    /// zone and lands on `.detectedPreviousFamily` (reconnect) whenever the
+    /// family and profile still exist — only falling back to `.onboarding`
+    /// (Welcome) when nothing recoverable remains. `signOutAndDiscover` runs
+    /// that same recovery immediately for the in-session case instead of
+    /// waiting for the next launch.
     func signOut() {
         clearSession()
     }
 
+    /// In-session sign-out: wipes the local session (via `clearSession()`, which
+    /// also purges the previous family's cache), flips to `.checkingCloudData`
+    /// — the state `discoverExistingCloudState`'s opening guard requires — and
+    /// immediately re-runs cloud discovery. If a recoverable family/profile
+    /// still exists in iCloud, discovery re-sets `authStatus` to
+    /// `.detectedPreviousFamily(...)` (rendering `DetectedFamilyView`); if not,
+    /// it falls through to `.onboarding` (`WelcomeView`). This covers the
+    /// in-session case, complementing the cold-relaunch recovery that happens on
+    /// the next launch. The brief `.checkingCloudData` window during discovery
+    /// is hidden by the root view's existing `ProgressView` rendering.
+    func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol) async {
+        clearSession() // wipes UserDefaults, purges family cache
+        authStatus = .checkingCloudData // flip to state discoverExistingCloudState requires
+        await discoverExistingCloudState(cloudKit: cloudKit)
+    }
+
+    /// Resets the in-memory session state back to the onboarding root. Called
+    /// by `clearSession()` after the persisted session and family cache are
+    /// wiped. Never touches CloudKit data — recovery is handled by the
+    /// discovery path documented on `signOut()` / `signOutAndDiscover()`.
     private func signOutInternal() {
         authStatus = .onboarding
         currentProfile = nil

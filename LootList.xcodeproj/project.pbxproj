@@ -199,6 +199,7 @@
 		F393DAB542CFB599BEC298C4 /* CloudKitRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652CCBB1CCECFF580964FDD0 /* CloudKitRecord.swift */; };
 		F4716A152964A87FF439BA7C /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC02F032B488C7539AE674DD /* AvatarView.swift */; };
 		FA448DF3087C205C5C912D29 /* CloudKitService+Query.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0D1C2C7EE76549042B2034 /* CloudKitService+Query.swift */; };
+		FB30481299FA04BF629CAE22 /* FamilyServiceTests+IdentityDedupe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909FB1F2378D5841120AEE35 /* FamilyServiceTests+IdentityDedupe.swift */; };
 		FBD789CA3D89EA115EF4C53F /* FamilyServiceTests+Authorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831CA0373D9645FB1500A84B /* FamilyServiceTests+Authorization.swift */; };
 /* End PBXBuildFile section */
 
@@ -341,6 +342,7 @@
 		8DFF66AC8F6E1EA894180119 /* BackgroundCacheActor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundCacheActor.swift; sourceTree = "<group>"; };
 		8FA4B6503D1684E537104F9C /* QuestManagerViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerViewModelTests.swift; sourceTree = "<group>"; };
 		909BF38F9945D5CE59C56BD8 /* BackgroundCacheActorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundCacheActorTests.swift; sourceTree = "<group>"; };
+		909FB1F2378D5841120AEE35 /* FamilyServiceTests+IdentityDedupe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyServiceTests+IdentityDedupe.swift"; sourceTree = "<group>"; };
 		931E127FC9659B8520BB240A /* GoldCalculationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoldCalculationTests.swift; sourceTree = "<group>"; };
 		948EDDDAD54F2B77BE95CE18 /* FamilyService+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyService+Settings.swift"; sourceTree = "<group>"; };
 		94FB9A652DA4D837BED9282F /* GuildSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuildSettingsView.swift; sourceTree = "<group>"; };
@@ -606,6 +608,7 @@
 				749D406B4D6BBEE27417C140 /* CacheServiceTests.swift */,
 				4281781D7DC9B5AE88396307 /* FamilyServiceTests.swift */,
 				831CA0373D9645FB1500A84B /* FamilyServiceTests+Authorization.swift */,
+				909FB1F2378D5841120AEE35 /* FamilyServiceTests+IdentityDedupe.swift */,
 				73C8BE8C58884EE28C25F335 /* FamilyServiceTests+OwnerAnchor.swift */,
 				E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */,
 				FBD501FFB54C16F2EA10C1DE /* MockCloudKitServiceTests.swift */,
@@ -1134,6 +1137,7 @@
 				52A53EA19BB89D7C3EFCB445 /* CloudKitModelTests.swift in Sources */,
 				72D4C00D8E7A0E4DDB43547C /* FamilyDashboardViewModelTests.swift in Sources */,
 				FBD789CA3D89EA115EF4C53F /* FamilyServiceTests+Authorization.swift in Sources */,
+				FB30481299FA04BF629CAE22 /* FamilyServiceTests+IdentityDedupe.swift in Sources */,
 				8D96EC37B3D9D14409727627 /* FamilyServiceTests+OwnerAnchor.swift in Sources */,
 				ED9699802AC50FDE9DE80541 /* FamilyServiceTests.swift in Sources */,
 				9A95211B018F750F1C391111 /* GoldCalculationTests.swift in Sources */,

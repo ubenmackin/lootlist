@@ -22,6 +22,16 @@ enum OnboardingStep: Hashable, Sendable {
     case done
 }
 
+/// A single active `Profile` bound to the current iCloud user, discovered in a
+/// shared zone during hero onboarding, together with the family and zone it
+/// belongs to. Lets a returning hero reconnect to their existing guild instead
+/// of minting a duplicate profile (see `checkForExistingHero`).
+struct DetectedHero {
+    let family: Family
+    let profile: Profile
+    let zoneID: CKRecordZone.ID
+}
+
 @MainActor
 @Observable
 final class OnboardingViewModel {
@@ -54,6 +64,14 @@ final class OnboardingViewModel {
     var shareURL: URL?
     var pendingShareMetadata: CKShare.Metadata?
 
+    /// Set when the hero onboarding path discovers exactly one active `Profile`
+    /// bound to the current iCloud user across the shared zones, before Avatar
+    /// Selection. Defense-in-depth UX surface: lets a returning hero reconnect
+    /// to their existing guild instead of minting a duplicate profile. The
+    /// service layer already refuses to mint a duplicate; this is the nicer
+    /// prompt on top.
+    var detectedHero: DetectedHero?
+
     private let familyService: FamilyService
 
     private let appState: AppState
@@ -71,8 +89,69 @@ final class OnboardingViewModel {
         guard let role = selectedRole else { return }
         switch role.isParent {
         case true: push(.familyCreation)
-        case false: push(.familyJoin)
+        case false:
+            if role == .hero {
+                checkForExistingHero()
+            }
+            push(.familyJoin)
         }
+    }
+
+    /// Probing helper for the hero onboarding path. Kicks off a fire-and-forget
+    /// scan of the user's shared zones looking for an existing, active `Profile`
+    /// bound to the current iCloud user. If exactly one match is found while the
+    /// user is still on the hero path, `detectedHero` is populated so the
+    /// FamilyJoin screen can offer a "Reconnect to Guild" prompt before Avatar
+    /// Selection. This is defense-in-depth only — the service layer already
+    /// refuses to mint a duplicate profile, so this scan merely surfaces the
+    /// reconnect option earlier in the flow.
+    func checkForExistingHero() {
+        guard selectedRole == .hero else { return }
+        Task { @MainActor [weak self] in
+            await self?.performExistingHeroCheck()
+        }
+    }
+
+    private func performExistingHeroCheck() async {
+        guard selectedRole == .hero else { return }
+
+        guard let userID = await (try? familyService.cloudKitReference.currentUserRecordID()) else {
+            detectedHero = nil
+            return
+        }
+
+        let sharedZones = await (try? familyService.cloudKitReference.fetchSharedZones()) ?? []
+
+        var matches: [(zoneID: CKRecordZone.ID, profile: Profile)] = []
+        for zone in sharedZones {
+            let zoneID = zone.zoneID
+            let activeProfiles = await AppState.activeSharedHeroProfiles(
+                cloudKit: familyService.cloudKitReference,
+                userRecordID: userID,
+                zoneID: zoneID
+            )
+            for profile in activeProfiles {
+                matches.append((zoneID, profile))
+            }
+        }
+
+        // Only a single discoverable active hero warrants the reconnect prompt.
+        guard matches.count == 1, let match = matches.first else {
+            detectedHero = nil
+            return
+        }
+
+        // Resolve the Family record in the matching shared zone (point lookup
+        // first, query fallback second — shared with AppState discovery).
+        guard let family = await AppState.sharedZoneFamily(
+            cloudKit: familyService.cloudKitReference,
+            zoneID: match.zoneID
+        ) else {
+            detectedHero = nil
+            return
+        }
+
+        detectedHero = DetectedHero(family: family, profile: match.profile, zoneID: match.zoneID)
     }
 
     func backToRoleSelection() {
@@ -273,6 +352,7 @@ final class OnboardingViewModel {
         builtProfile = nil
         shareURL = nil
         pendingShareMetadata = nil
+        detectedHero = nil
     }
 
     private func iCloudUserID() async throws -> CKRecord.ID {
