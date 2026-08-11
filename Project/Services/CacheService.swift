@@ -62,11 +62,7 @@ final class CacheService {
         let schema = Schema(LootListSchemaV5.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
-            container = try ModelContainer(
-                for: schema,
-                migrationPlan: LootListMigrationPlan.self,
-                configurations: config
-            )
+            container = try ModelContainer(for: schema, configurations: config)
         } catch {
             logger.error("Failed to create ModelContainer: \(error)")
             container = nil
