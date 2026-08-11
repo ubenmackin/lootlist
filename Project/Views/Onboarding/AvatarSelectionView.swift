@@ -273,9 +273,10 @@ struct AvatarSelectionView: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 50, height: 50)
                         .offset(y: 4)
-                        .clipShape(Circle())
+                        .clipShape(RoundedRectangle(cornerRadius: 50 * 0.22, style: .continuous))
                         .overlay(
-                            Circle().stroke(Color.gold.opacity(0.6), lineWidth: 1.5)
+                            RoundedRectangle(cornerRadius: 50 * 0.22, style: .continuous)
+                                .stroke(Color.gold.opacity(0.6), lineWidth: 1.5)
                         )
                 } else {
                     Image(systemName: preset.iconSystemName)

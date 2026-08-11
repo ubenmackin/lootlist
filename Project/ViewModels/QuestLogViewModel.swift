@@ -49,42 +49,11 @@ final class QuestLogViewModel {
 
     // MARK: - Types
 
-    enum DateRangePreset: String, CaseIterable, Identifiable {
-        case thisWeek = "This Week"
-        case thisMonth = "This Month"
-        case thisQuarter = "This Quarter"
-        case allTime = "All Time"
-        var id: String {
-            rawValue
-        }
-
-        var dateRange: ClosedRange<Date>? {
-            let calendar = Calendar.iso8601UTC
-            let now = Date()
-            switch self {
-            case .thisWeek:
-                let start = calendar.date(
-                    from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
-                ) ?? now
-                return start ... now
-            case .thisMonth:
-                let start = calendar.date(
-                    from: calendar.dateComponents([.year, .month], from: now)
-                ) ?? now
-                return start ... now
-            case .thisQuarter:
-                let month = calendar.component(.month, from: now)
-                let quarterStartMonth = ((month - 1) / 3) * 3 + 1
-                var comps = calendar.dateComponents([.year], from: now)
-                comps.month = quarterStartMonth
-                comps.day = 1
-                let start = calendar.date(from: comps) ?? now
-                return start ... now
-            case .allTime:
-                return nil
-            }
-        }
-    }
+    /// Date-range filter for the quest log. Typealiased to `CalendarScope` so
+    /// the quest log shares the exact scoping semantics (this week / this
+    /// month / this quarter / all time) used by the treasury and ledger
+    /// screens, including the `contains(_:)` membership predicate.
+    typealias DateRangePreset = CalendarScope
 
     enum CompletionFilter: String, CaseIterable, Identifiable {
         case all = "All Quests"
@@ -137,12 +106,8 @@ final class QuestLogViewModel {
     }
 
     func applyFilters() {
-        let range = dateRangePreset.dateRange
-        let filteredByDate: [QuestCache] = if let range {
-            rawQuests.filter { range.contains($0.weekOf) }
-        } else {
-            rawQuests
-        }
+        let familyPayoutDay = appState.family?.payoutDay ?? .sunday
+        let filteredByDate = rawQuests.filter { dateRangePreset.contains($0.weekOf, payoutDay: familyPayoutDay) }
 
         let filteredByHero: [QuestCache] = if let selectedHero {
             filteredByDate.filter {

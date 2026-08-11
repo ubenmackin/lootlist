@@ -17,9 +17,11 @@ struct HeroLedgerView: View {
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     @State private var viewModel: HeroLedgerViewModel?
-    @State private var showAllTime: Bool = false
     @State private var isShowingDeposit: Bool = false
     @State private var isShowingWithdraw: Bool = false
+
+    /// Persisted date-range scope for this hero's ledger screen.
+    @AppStorage("heroLedger.calendarScope") private var scope: CalendarScope = .thisWeek
 
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedQuests: [QuestCache]
@@ -62,6 +64,12 @@ struct HeroLedgerView: View {
                     pendingPayoutAmount: viewModel?.pendingQuestGold
                 )
 
+                CalendarScopeFilterView(
+                    scope: $scope,
+                    payoutDay: hero.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
+                )
+                .padding(.horizontal)
+
                 HStack(spacing: 12) {
                     depositButton
                     withdrawButton
@@ -73,11 +81,6 @@ struct HeroLedgerView: View {
             .padding(.vertical)
         }
         .background(Color(.systemGroupedBackground))
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                LedgerDateRangeMenu(showAllTime: $showAllTime)
-            }
-        }
         .task {
             if viewModel == nil {
                 viewModel = HeroLedgerViewModel(heroProfile: hero, spending: spending, appState: appState)
@@ -87,7 +90,7 @@ struct HeroLedgerView: View {
         .onChange(of: cachedLedgers) { _, _ in rebuild() }
         .onChange(of: cachedQuests) { _, _ in rebuild() }
         .onChange(of: cachedCompletions) { _, _ in rebuild() }
-        .onChange(of: showAllTime) { _, _ in rebuild() }
+        .onChange(of: scope) { _, _ in rebuild() }
         .sheet(isPresented: $isShowingDeposit) {
             if let vm = viewModel {
                 HeroDepositView(viewModel: vm, heroName: hero.displayName)
@@ -105,7 +108,7 @@ struct HeroLedgerView: View {
             ledgers: cachedLedgers,
             quests: cachedQuests,
             completions: cachedCompletions,
-            showAllTime: showAllTime
+            scope: scope
         )
     }
 
@@ -165,7 +168,7 @@ struct HeroLedgerView: View {
                         .foregroundStyle(.secondary)
                     Text("Empty Scroll")
                         .font(.headline)
-                    Text(showAllTime ? "No entries yet." : "No entries this week.")
+                    Text(scope.emptyStateCopy)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

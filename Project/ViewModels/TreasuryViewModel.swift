@@ -68,7 +68,7 @@ final class TreasuryViewModel {
         self.appState = appState
     }
 
-    func rebuildLists(logs: [QuestCompletionCache], ledgers: [LedgerEntryCache], quests: [QuestCache], allowancePeriods: [AllowancePeriodCache], showAllTime: Bool) {
+    func rebuildLists(logs: [QuestCompletionCache], ledgers: [LedgerEntryCache], quests: [QuestCache], allowancePeriods: [AllowancePeriodCache], scope: CalendarScope) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
 
@@ -133,12 +133,8 @@ final class TreasuryViewModel {
             paidAmount: paidAmount
         )
 
-        let range: Range<Date> = showAllTime
-            ? (Date.distantPast ..< Date.distantFuture)
-            : weekRange
-
         spendingLog = profileLedgers
-            .filter { range.contains($0.date) }
+            .filter { scope.contains($0.date, payoutDay: payoutDay) }
             .map { ledger in
                 SpendingLogRow(
                     id: ledger.recordName,
@@ -153,11 +149,13 @@ final class TreasuryViewModel {
             .sorted { $0.date > $1.date }
     }
 
-    func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], showAllTime: Bool) {
+    func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], scope: CalendarScope) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
+        let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
         let filtered = cachedLedgers
             .filter { $0.profileRecordName == profileName }
+            .filter { scope.contains($0.date, payoutDay: payoutDay) }
             .map { ledger in
                 SpendingLogRow(
                     id: ledger.recordName,
@@ -170,16 +168,7 @@ final class TreasuryViewModel {
                 )
             }
 
-        if showAllTime {
-            spendingLog = filtered.sorted { $0.date > $1.date }
-        } else {
-            let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
-            let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
-
-            spendingLog = filtered
-                .filter { weekRange.contains($0.date) }
-                .sorted { $0.date > $1.date }
-        }
+        spendingLog = filtered.sorted { $0.date > $1.date }
     }
 
     func previousLocations(from cachedLedgers: [LedgerEntryCache]) -> [String] {
