@@ -16,12 +16,14 @@ struct FamilyDashboardView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
+    @Environment(CloudKitService.self) private var cloudKitService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var viewModel: FamilyDashboardViewModel?
-    @State private var showShareSheet: Bool = false
+    @State private var showRolePicker: Bool = false
+    @State private var sharePresentation: CloudSharePresentation?
 
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedQuests: [QuestCache]
@@ -130,8 +132,13 @@ struct FamilyDashboardView: View {
             .onDisappear {
                 viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
-            .sheet(isPresented: $showShareSheet) {
-                ShareSheet(items: shareInviteItems)
+            .sheet(isPresented: $showRolePicker) {
+                InviteRolePickerView { role in
+                    await presentInviteShare(for: role)
+                }
+            }
+            .sheet(item: $sharePresentation) { presentation in
+                CloudSharingControllerWrapper(share: presentation.share, container: presentation.container)
             }
             .onChange(of: viewModel?.loadError) { _, newError in
                 if let error = newError {
@@ -211,15 +218,12 @@ struct FamilyDashboardView: View {
 
     private var inviteButton: some View {
         Button {
-            Task {
-                await viewModel?.ensureActiveShareURL()
-                showShareSheet = true
-            }
+            showRolePicker = true
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "square.and.arrow.up")
+                Image(systemName: "person.badge.plus")
                     .font(.caption.weight(.bold))
-                Text("Invite Heroes")
+                Text("Invite Members")
                     .font(.caption.weight(.semibold))
             }
             .padding(.horizontal, 12)
@@ -232,11 +236,16 @@ struct FamilyDashboardView: View {
                     )
             )
         }
-        .accessibilityLabel("Invite Heroes. Tap to share invitation link.")
+        .accessibilityLabel("Invite Members. Tap to invite a Hero or Co-Parent.")
     }
 
-    private var shareInviteItems: [Any] {
-        appState.shareInviteItems
+    @MainActor
+    private func presentInviteShare(for role: UserRole) async {
+        guard let share = await viewModel?.prepareInviteShare(for: role) else {
+            toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
+            return
+        }
+        sharePresentation = CloudSharePresentation(share: share, container: cloudKitService.container)
     }
 
     private var pendingApprovalsCard: some View {
@@ -449,7 +458,11 @@ struct FamilyDashboardView: View {
                 Text("Heroes")
                     .font(.headline)
                 Spacer()
-                inviteButton
+                // Invites are Guild-Master-only (AD-5): only the zone owner can
+                // mint a share, so Rangers see no invite affordance.
+                if appState.currentProfile?.role == .guildMaster {
+                    inviteButton
+                }
             }
             .padding(.horizontal)
 
@@ -489,7 +502,13 @@ struct FamilyDashboardView: View {
             VStack(spacing: 6) {
                 Text("Recruit Your Party!")
                     .font(.title3.weight(.heavy))
-                Text("Your guild needs heroes to embark on quests. Tap **Invite Heroes** above to share an invitation link or copy your guild code.")
+                // Keep this copy in lockstep with the Invite Members button
+                // gate above: only the Guild Master can mint a share, so a
+                // non-GM is pointed at the Guild Master, not at a button
+                // they cannot see.
+                Text(appState.currentProfile?.role == .guildMaster
+                    ? "Your guild needs heroes to embark on quests. Tap **Invite Members** above to invite a Hero to your guild."
+                    : "Your guild needs heroes to embark on quests. Ask the Guild Master to invite a Hero to your guild.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

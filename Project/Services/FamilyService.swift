@@ -36,6 +36,19 @@ enum FamilyServiceError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
+/// Outcome of removing a member from the guild. The profile deactivation is
+/// the authoritative kick and always succeeds; the share-access revocation is
+/// best-effort and may fail, which the Guild Master must be told about so the
+/// lingering access can be revoked from the Invitations panel.
+enum FamilyKickResult: Equatable, Sendable {
+    /// Member removed and their share access revoked.
+    case fully
+    /// Member removed from the roster, but their share access could not be
+    /// revoked — the Guild Master should revoke the lingering access from the
+    /// Invitations panel.
+    case partialRevocationFailed(error: String)
+}
+
 // MARK: - Protocol for testable injection into ViewModels
 
 @MainActor
@@ -44,13 +57,23 @@ protocol FamilyProfileFetching: Sendable {
 }
 
 /// The owner-family session result consumed by the onboarding flow: the
-/// resolved `Family`, the Guild Master `Profile`, and the share URL (nil when
-/// share creation failed). Backs both the brand-new and reused-family paths of
-/// `createFamily`.
+/// resolved `Family` and the Guild Master `Profile`. Backs both the brand-new
+/// and reused-family paths of `createFamily`.
 struct OwnerSessionResult {
     let family: Family
     let profile: Profile
-    let shareURL: URL?
+}
+
+/// The joiner session result consumed by the onboarding flow: the resolved
+/// `Family` and the joined `Profile`, plus a flag marking whether the join
+/// reused an existing ACTIVE profile as-is. When `didReuseActiveProfile` is
+/// true the profile's identity was preserved untouched, so the caller must
+/// skip any onboarding displayName/avatar writes; only the reactivation and
+/// fresh-mint branches (flag false) take those values.
+struct JoinedFamilyResult {
+    let family: Family
+    let profile: Profile
+    let didReuseActiveProfile: Bool
 }
 
 // MARK: - FamilyService
@@ -58,7 +81,7 @@ struct OwnerSessionResult {
 @MainActor
 @Observable
 final class FamilyService: FamilyProfileFetching {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
+    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
 
     let cloudKit: any CloudKitServiceProtocol
     let appState: AppState
@@ -84,7 +107,7 @@ final class FamilyService: FamilyProfileFetching {
     /// onboarding flow resolves the identity exactly once. CloudKit identities
     /// are immutable for a signed-in user within a session, so the cached value
     /// stays valid for the lifetime of the service. Serves the onboarding
-    /// dedupe flows (`createFamily`, `joinFamilyViaShare`) only — the
+    /// dedupe flows (`createFamily`, `joinFamilyViaAcceptedShare`) only — the
     /// security-relevant owner-anchor check (`isFamilyOwner`) deliberately
     /// bypasses this cache and re-resolves the identity on every call so an
     /// OS-level iCloud account change without an app relaunch cannot authorize
@@ -103,7 +126,7 @@ final class FamilyService: FamilyProfileFetching {
 
     @discardableResult
     func createFamily(name: String,
-                      ownerProfile: Profile) async throws -> (family: Family, profile: Profile, shareURL: URL?) // swiftlint:disable:this large_tuple
+                      ownerProfile: Profile) async throws -> (family: Family, profile: Profile)
     {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else {
             throw FamilyServiceError.creationFailed
@@ -113,22 +136,12 @@ final class FamilyService: FamilyProfileFetching {
         let zoneID = CKRecordZone.ID(zoneName: familyID.recordName,
                                      ownerName: CKCurrentUserDefaultName)
 
-        // Step 1: Parent-side dedupe (run BEFORE ensuring the candidate zone).
-        // If this iCloud user already owns a family in one of their private
-        // custom zones (e.g. they are re-onboarding after a prior session or
-        // sign-out), route them back to the existing guild instead of minting a
-        // duplicate Family and Guild Master profile. Mirrors the Hero dedupe in
-        // `joinFamilyViaShare` and is likewise fail-closed: the current user's
-        // identity resolution is required, and a dedupe lookup that cannot
-        // prove there is no existing owner family throws rather than falling
-        // through to the brand-new-family branch, so a transient CloudKit
-        // failure cannot mint a duplicate Family + Guild Master profile. Only a
-        // successful lookup that returns no match proceeds to create a new
-        // family. Crucially the candidate zone for the brand-new family is NOT
-        // ensured up front: on the reuse path the existing family's zone is
-        // already present, and an early `ensureZoneExists` would leave an
-        // orphaned empty custom zone in the user's private database on every
-        // parent re-onboarding.
+        // Step 1: Parent-side dedupe BEFORE ensuring the candidate zone — if
+        // this iCloud user already owns a family, reuse it rather than minting a
+        // duplicate. Run before `ensureZoneExists` because the reuse path already
+        // has a zone; an early ensure would orphan an empty custom zone on every
+        // re-onboarding. Fail-closed: a transient lookup failure throws rather
+        // than falling through and minting a duplicate.
         let currentUserRecordName = try await resolveCurrentUserRecordID().recordName
         let existingOwner: (family: Family, zoneID: CKRecordZone.ID)?
         do {
@@ -137,19 +150,9 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.creationFailed
         }
         if let existing = existingOwner {
-            // Branch 1 — the user already owns a family: reuse it. The existing
-            // family's zone is already present in the private database, so
-            // `ensureZoneExists` is intentionally NOT called on this branch (an
-            // orphaned empty zone would accumulate on every re-onboarding
-            // otherwise). Resolve — and reactivate-or-create — the Guild Master
-            // profile within the EXISTING family's zone so a parent re-onboarding
-            // is never a hard failure (mirrors the Hero reactivation branch).
-            // Existing profile values (display name, avatar, role overrides) are
-            // accepted as-is and are NOT overwritten from the passed-in
-            // ownerProfile; a missing GM is minted fresh in the existing zone,
-            // never as a duplicate Family. Lookup failures inside the resolver
-            // are translated to `creationFailed` so no raw `CloudKitServiceError`
-            // escapes `createFamily`.
+            // Reuse path: do NOT `ensureZoneExists` (would orphan an empty zone on
+            // every re-onboarding). Resolve/recreate the GM in the existing zone;
+            // existing profile values preserved, not overwritten from `ownerProfile`.
             let existingZoneID = existing.zoneID
             let existingFamily = existing.family
             let resolvedOwner: Profile
@@ -165,25 +168,13 @@ final class FamilyService: FamilyProfileFetching {
             cacheService?.upsertFamily(existingFamily)
             cacheService?.upsertProfile(resolvedOwner)
 
-            // shareURL is generated lazily from the existing share (owner path).
-            var shareURL: URL?
-            do {
-                shareURL = try await cloudKit.fetchOrCreateShareURL(in: existingZoneID,
-                                                                    rootRecordID: existingFamily.id)
-            } catch {
-                logger.error("CKShare creation failed for reused family: \(error, privacy: .private)")
-            }
-
             let session = finalizeOwnerSession(family: existingFamily,
                                                profile: resolvedOwner,
-                                               zoneID: existingZoneID,
-                                               shareURL: shareURL)
-            return (family: session.family, profile: session.profile, shareURL: session.shareURL)
+                                               zoneID: existingZoneID)
+            return (family: session.family, profile: session.profile)
         }
 
-        // Step 2: Brand-new family — NOW ensure the candidate zone exists. This
-        // is reached only when the dedupe lookup provably found no existing owner
-        // family, so the zone is actually going to be used and is never orphaned.
+        // Brand-new path: zone is actually used (post-dedupe), never orphaned.
         do {
             try await cloudKit.ensureZoneExists(zoneID)
         } catch {
@@ -196,7 +187,6 @@ final class FamilyService: FamilyProfileFetching {
 
         let pvtDB = cloudKit.privateDatabase
 
-        // Step 3: Save the Family record in the private database.
         do {
             family = try await cloudKit.save(family, in: zoneID, using: pvtDB)
             cacheService?.upsertFamily(family)
@@ -204,16 +194,6 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.creationFailed
         }
 
-        // Step 4: Create a CKShare for the Family record.
-        var shareURL: URL?
-        do {
-            let targetID = CKRecord.ID(recordName: familyID.recordName, zoneID: zoneID)
-            shareURL = try await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: targetID)
-        } catch {
-            logger.error("CKShare creation failed: \(error, privacy: .private)")
-        }
-
-        // Step 5: Save the Guild Master profile in the private database.
         var owner = ownerProfile
         owner.role = .guildMaster
         owner.family = CKRecord.Reference(recordID: family.id, action: .none)
@@ -227,77 +207,82 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.creationFailed
         }
 
-        // Hand the newly-created Family + Guild Master to the shared session path.
+        // Share minting deferred to the GM's first role-specific invitation.
         let session = finalizeOwnerSession(family: family,
                                            profile: savedOwner,
-                                           zoneID: zoneID,
-                                           shareURL: shareURL)
-        return (family: session.family, profile: session.profile, shareURL: session.shareURL)
+                                           zoneID: zoneID)
+        return (family: session.family, profile: session.profile)
     }
 
-    // MARK: - Join Family (Hero Flow via CKShare Link)
+    // MARK: - Join Family (Joiner Flow via CKShare Link)
 
-    /// The metadata is optional because `CKShare.Metadata` cannot be directly
-    /// constructed in this SDK (it must come from `CKFetchShareMetadataOperation`
-    /// or a platform scene/app-delegate callback). Production callers always
-    /// pass a resolved metadata; tests may pass `nil` to drive the hero dedupe
-    /// branches, in which case the share accept is skipped and the Family record
-    /// is located via the `"root"` fallback below.
-    func joinFamilyViaShare(metadata: CKShare.Metadata?,
-                            heroProfile: Profile) async throws -> (family: Family, profile: Profile)
+    /// `metadata` is optional only for tests (`CKShare.Metadata` cannot be
+    /// synthesized in this SDK); production callers always pass a resolved value.
+    /// `displayName`/`avatarClass` are written by the fresh-mint and reactivation
+    /// branches, preserved by the active-reuse branch. `didReuseActiveProfile`
+    /// flags whether the caller must skip overwriting identity fields. The role
+    /// is decoded from the share title, not passed in, so one path serves all roles.
+    func joinFamilyViaAcceptedShare(metadata: CKShare.Metadata?,
+                                    displayName: String?,
+                                    avatarClass: AvatarClass?,
+                                    progressHandler: ((String, Double) -> Void)? = nil) async throws -> JoinedFamilyResult
     {
-        // Hero dedupe on re-join. Before creating a brand-new profile we look up
-        // whether this iCloud user already has a hero in the joined zone, then
-        // branch on what we find:
-        //   1. ACTIVE match exists      → skip the save entirely, reuse its id.
-        //   2. INACTIVE match exists    → reactivate it (set active, refresh the
-        //      family reference, allow a rename via the passed-in display name).
-        //   3. NO match                 → proceed with the brand-new profile.
-        // The dedupe is fail-closed: if the hero lookup cannot PROVE there is
-        // no existing profile (a transient CloudKit query failure — flaky
-        // network, quota, transient server error), we surface the failure to
-        // the user to retry rather than falling through to the brand-new-profile
-        // branch and minting a duplicate hero for an iCloud user who may already
-        // have one in this family. Only a successful lookup that returns no
-        // match may proceed to create a new profile. Resolving the joining
-        // user's identity is likewise required — an unavailable iCloud account
-        // throws `accountUnavailable` rather than silently minting a duplicate
-        // hero the user cannot identify with.
-
-        // Step 1: Accept the CKShare. A nil metadata defers to the caller (only
-        // tests pass nil); production always resolves metadata before joining.
+        logger.info("Joining family via accepted share started. hasMetadata=\(metadata != nil)")
+        // Step 1: Accept the share. `metadata` is nil only for tests; production
+        // callers always resolve it before joining.
         if let metadata {
+            progressHandler?("Accepting family invitation...", 0.4)
+            logger.info("Invoking cloudKit.acceptShare(metadata)...")
             do {
                 try await cloudKit.acceptShare(metadata: metadata)
+                logger.info("Accept family share succeeded.")
             } catch {
-                throw FamilyServiceError.joinFailed
+                logger.error("Accept family share failed: \(error, privacy: .private)")
+                // Preserve the underlying error (which carries the symbolic
+                // `CKError.Code`) so the caller can surface an
+                // invalid-or-expired-invitation message for the not-found codes
+                // instead of losing the classification behind a generic wrapper.
+                throw error
             }
         }
 
-        // Step 2: Discover the shared zone.
+        // Step 2: Discover shared zones. Fetched unconditionally because the
+        // metadata-absent test fallback needs `.first`; production derives the
+        // zone from the metadata root ID instead (a user can belong to several
+        // shared families, and zone-list order is not family-specific).
+        progressHandler?("Connecting to family Guild...", 0.65)
+        logger.info("Fetching shared zones from cloudKit...")
         let sharedZones: [CKRecordZone]
         do {
             sharedZones = try await cloudKit.fetchSharedZones()
+            logger.info("Found \(sharedZones.count) shared zones.")
         } catch {
-            throw FamilyServiceError.joinFailed
-        }
-
-        guard let familyZone = sharedZones.first else {
+            logger.error("Fetching shared zones failed: \(error, privacy: .private)")
             throw FamilyServiceError.joinFailed
         }
 
         let sharedDB = cloudKit.sharedDatabase
-        let zoneID = familyZone.zoneID
 
-        // Step 3: Fetch the Family record from the shared zone directly by ID (no query index required).
+        // Step 3: Point-lookup the Family by ID (no query index required).
+        // Zone and record name both derive from the metadata's
+        // `hierarchicalRootRecordID`, targeting the exact family accepted; only
+        // the metadata-absent test path falls back to `.first` + `"root"`.
+        let metadataRoot: CKRecord.ID? = metadata?.hierarchicalRootRecordID
         let family: Family
-        let targetRecordID: CKRecord.ID = if #available(iOS 16.0, *) {
-            metadata?.hierarchicalRootRecordID ?? CKRecord.ID(recordName: "root")
+        let zoneID: CKRecordZone.ID
+        let rootRecordID: CKRecord.ID
+        if let metadataRoot {
+            zoneID = metadataRoot.zoneID
+            rootRecordID = metadataRoot
         } else {
-            metadata?.rootRecordID ?? CKRecord.ID(recordName: "root")
+            guard let familyZone = sharedZones.first else {
+                throw FamilyServiceError.joinFailed
+            }
+            zoneID = familyZone.zoneID
+            rootRecordID = CKRecord.ID(recordName: "root")
         }
         let sharedFamilyID = CKRecord.ID(
-            recordName: targetRecordID.recordName,
+            recordName: rootRecordID.recordName,
             zoneID: zoneID
         )
 
@@ -308,19 +293,15 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.joinFailed
         }
 
-        // Step 3.5: Hero dedupe — resolve the current user's record ID and look
-        // up an existing hero profile in the joined zone so a re-join reactivates
-        // rather than duplicates. Both the identity resolution and the lookup are
-        // fail-closed: an unavailable iCloud account surfaces as
-        // `accountUnavailable`, and a dedupe lookup that cannot prove there is no
-        // existing profile (a thrown query error) surfaces as `joinFailed` so the
-        // user can retry — the brand-new-profile branch below is reached only when
-        // a successful lookup proves no match exists.
+        // Identity dedupe: resolve the current user and look up an existing
+        // profile (any role). Both are fail-closed — `accountUnavailable` for an
+        // unavailable iCloud account, `joinFailed` for a transient lookup error.
+        progressHandler?("Setting up your Hero profile...", 0.85)
         let userRecordID = try await resolveCurrentUserRecordID()
 
-        let existingHero: Profile?
+        let existingProfile: Profile?
         do {
-            existingHero = try await findExistingHeroProfile(
+            existingProfile = try await findExistingProfileForCurrentUser(
                 in: zoneID,
                 family: family,
                 currentUserRecordID: userRecordID
@@ -329,56 +310,75 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.joinFailed
         }
 
-        // Step 4: Resolve the saved Hero profile, branching on the dedupe result.
-        let savedHero: Profile
-        if let existing = existingHero, existing.isActive {
-            // Branch 1 — ACTIVE match exists: reuse it; do not create a duplicate.
-            logger.info("Rejoining existing active Hero \(existing.displayName, privacy: .public) (record \(existing.id.recordName, privacy: .private))")
-            savedHero = existing
-        } else if let existing = existingHero {
-            // Branch 2 — INACTIVE match exists: reactivate it (the user is
-            // actively re-onboarding, so allow a rename via the passed-in name).
+        // Role is decoded from the share title, not passed in. An unrecognized or
+        // legacy title falls back to `.hero` — recoverable, the GM can re-invite.
+        let decodedRole = UserRole.fromShareTitle(metadata?.share[CKShare.SystemFieldKey.title] as? String) ?? .hero
+
+        let savedProfile: Profile
+        let didReuseActiveProfile: Bool
+        if let existing = existingProfile, existing.isActive {
+            // Active match: reuse as-is, do not overwrite identity fields.
+            logger.info("Rejoining existing active profile \(existing.displayName, privacy: .private) (record \(existing.id.recordName, privacy: .private))")
+            savedProfile = existing
+            didReuseActiveProfile = true
+        } else if let existing = existingProfile {
+            // Inactive match: reactivate, applying onboarding display name/avatar
+            // and updating role to match the decoded invitation share role.
             var reactivated = existing
             reactivated.isActive = true
+            reactivated.role = decodedRole
             reactivated.family = CKRecord.Reference(recordID: family.id, action: .none)
-            reactivated.displayName = heroProfile.displayName.trimmingCharacters(in: .whitespaces)
+            if let displayName {
+                reactivated.displayName = displayName.trimmingCharacters(in: .whitespaces)
+            }
+            if let avatarClass {
+                reactivated.avatarClass = avatarClass
+            }
             do {
-                savedHero = try await cloudKit.save(reactivated, in: zoneID, using: sharedDB)
-                logger.info("Reactivating inactive Hero \(savedHero.displayName, privacy: .public) (record \(savedHero.id.recordName, privacy: .private))")
+                savedProfile = try await cloudKit.save(reactivated, in: zoneID, using: sharedDB)
+                logger
+                    .info(
+                        "Reactivating inactive profile \(savedProfile.displayName, privacy: .private) with role '\(decodedRole.displayName)' (record \(savedProfile.id.recordName, privacy: .private))"
+                    )
             } catch {
                 throw FamilyServiceError.persistenceFailed
             }
+            didReuseActiveProfile = false
         } else {
-            // Branch 3 — NO match: brand-new Hero profile in the shared zone.
-            var hero = heroProfile
-            hero.role = .hero
-            hero.family = CKRecord.Reference(recordID: family.id, action: .none)
-            hero.isActive = true
+            // No match: mint a fresh profile with the decoded role.
+            let profile = Profile(
+                displayName: displayName?.trimmingCharacters(in: .whitespaces) ?? "",
+                avatarClass: avatarClass,
+                role: decodedRole,
+                iCloudUserID: userRecordID,
+                family: CKRecord.Reference(recordID: family.id, action: .none)
+            )
 
             do {
-                savedHero = try await cloudKit.save(hero, in: zoneID, using: sharedDB)
+                savedProfile = try await cloudKit.save(profile, in: zoneID, using: sharedDB)
             } catch {
                 throw FamilyServiceError.joinFailed
             }
+            didReuseActiveProfile = false
         }
-        cacheService?.upsertProfile(savedHero)
+        cacheService?.upsertProfile(savedProfile)
 
-        // Update AppState and CloudKitService with zone participant info.
         appState.familyZoneID = zoneID
         appState.isZoneOwner = false
-        appState.activeShareURL = nil
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = false
-        appState.saveSession(profile: savedHero, family: family, zoneID: zoneID, isOwner: false)
+        appState.saveSession(profile: savedProfile, family: family, zoneID: zoneID, isOwner: false)
 
-        // Genuinely-required immediate refresh: the joiner's cache holds only
-        // the Family + their own hero so far. Hydrate the roster now (deduped
-        // by the in-flight guard) so the hero dashboard shows siblings without
-        // waiting for the next push-driven sync. Routine background updates
-        // belong to SyncEngine's push-driven pipeline.
+        // Immediate roster refresh — the joiner's cache only has the Family +
+        // their own profile. Routine updates stay push-driven via SyncEngine.
         await refreshProfilesFromCloudKit(for: family)
 
-        return (family, savedHero)
+        progressHandler?("Joined Guild!", 1.0)
+        return JoinedFamilyResult(
+            family: family,
+            profile: savedProfile,
+            didReuseActiveProfile: didReuseActiveProfile
+        )
     }
 
     // MARK: - Role & Membership Management
@@ -445,7 +445,10 @@ final class FamilyService: FamilyProfileFetching {
         // Legacy families without an owner anchor fall back to the parent-role
         // check (Guild Master / Ranger).
         let family = await family(for: profile)
-        if let family, family.creatorUserRecordName != nil {
+        guard let family else {
+            throw FamilyServiceError.unauthorized
+        }
+        if family.creatorUserRecordName != nil {
             guard await isFamilyOwner(family) else {
                 throw FamilyServiceError.unauthorized
             }
@@ -508,14 +511,34 @@ final class FamilyService: FamilyProfileFetching {
     func leaveFamily(profile: Profile) async throws {
         await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile)
+
+        // Best-effort removal of the leaver's own share participant entry. Only
+        // the zone owner can mutate a `CKShare` participant list, and the family
+        // zone lives in the owner's private database — so for a non-owner leave
+        // this resolves against the leaver's own databases and either silently
+        // no-ops (no shares found there) or fails server-side. The profile
+        // deactivation above is the authoritative leave; the owner-side share
+        // reconciler and Invitations panel observe the departed identity still
+        // on the share and surface it for owner-side revocation.
+        let family = await family(for: profile)
+        let rootRecordID = family?.id ?? profile.family.recordID
+        do {
+            try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
+        } catch {
+            logger.error("Failed to remove leaving member's share participant: \(error, privacy: .private)")
+        }
     }
 
-    func kickMember(profile: Profile) async throws {
+    @discardableResult
+    func kickMember(profile: Profile) async throws -> FamilyKickResult {
         // Privileged mutation: removing a member from the guild is reserved for
         // the owner anchor (server-authenticated family owner). Legacy families
         // without an owner anchor fall back to the parent-role check.
         let family = await family(for: profile)
-        if let family, family.creatorUserRecordName != nil {
+        guard let family else {
+            throw FamilyServiceError.unauthorized
+        }
+        if family.creatorUserRecordName != nil {
             guard await isFamilyOwner(family) else {
                 throw FamilyServiceError.unauthorized
             }
@@ -525,6 +548,36 @@ final class FamilyService: FamilyProfileFetching {
             }
         }
         await unassignActiveQuests(for: profile)
+        try await deactivateProfile(profile)
+
+        // Revoke the kicked member's share access so a deactivated profile
+        // cannot keep reading the shared zone. Best-effort: the deactivation
+        // above is the authoritative kick and already succeeded, so a failed
+        // revocation here must NOT throw (that would imply the kick itself
+        // rolled back). Surface the partial outcome to the caller via
+        // `FamilyKickResult.partialRevocationFailed` so the Guild Master is
+        // told their share access persists and can revoke it from the
+        // Invitations panel.
+        let rootRecordID = family.id
+        do {
+            try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
+            return .fully
+        } catch {
+            logger.error("Failed to remove kicked member's share participant: \(error, privacy: .private)")
+            return .partialRevocationFailed(
+                error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+    }
+
+    /// Deactivates a member profile whose CloudKit share access was revoked at
+    /// the access layer — used by the share-reconciliation observer when a
+    /// participant is removed out-of-band (e.g. through the system share
+    /// sheet), which the app's `Profile` records do not observe directly.
+    /// Best-effort: a failure leaves the profile active and is logged
+    /// privately; the in-app membership list stays as-is until a later
+    /// reconciliation pass reconciles it.
+    func deactivateMemberAfterShareRevocation(_ profile: Profile) async throws {
         try await deactivateProfile(profile)
     }
 
@@ -554,7 +607,7 @@ final class FamilyService: FamilyProfileFetching {
 
     /// Resolves the current user's CloudKit record ID exactly once per session,
     /// caching it so the onboarding dedupe flows (`createFamily`,
-    /// `joinFamilyViaShare`) resolve the identity a single time instead of
+    /// `joinFamilyViaAcceptedShare`) resolve the identity a single time instead of
     /// re-issuing the network round-trip on each lookup. The
     /// security-relevant owner-anchor check (`isFamilyOwner`) does NOT use this
     /// helper — it re-resolves `cloudKit.currentUserRecordID()` fresh on every
@@ -619,16 +672,16 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    /// Looks up the joining user's existing hero `Profile` within the joined
-    /// shared zone so a re-join can reactivate rather than duplicate. The
-    /// predicate keys on `iCloudUserID + family` — never `displayName`, which is
+    /// Looks up the joining user's existing `Profile` (any role) within the
+    /// joined shared zone so a re-join can reactivate rather than duplicate.
+    /// The predicate keys on `iCloudUserID + family` — never `displayName`, which is
     /// user-editable and not unique — so the match is anchored on the
     /// server-authenticated CloudKit identity scoped to this family. Returns the
-    /// first active hero (reactivation path), else the first hero overall
-    /// (inactive-reactivate branch), else nil when the user has no hero here yet.
-    func findExistingHeroProfile(in zoneID: CKRecordZone.ID,
-                                 family: Family,
-                                 currentUserRecordID: CKRecord.ID) async throws -> Profile?
+    /// first active profile (reactivation path), else the first profile overall
+    /// (inactive-reactivate branch), else nil when the user has no profile here yet.
+    func findExistingProfileForCurrentUser(in zoneID: CKRecordZone.ID,
+                                           family: Family,
+                                           currentUserRecordID: CKRecord.ID) async throws -> Profile?
     {
         // `iCloudUserID` is stored as a plain record-name String
         // (`Profile.toRecord()`), so the query constant must be a String — only
@@ -640,189 +693,6 @@ final class FamilyService: FamilyProfileFetching {
                                                in: zoneID,
                                                using: cloudKit.sharedDatabase)
         return matches.first(where: { $0.isActive }) ?? matches.first
-    }
-
-    /// Parent-side dedupe: looks up whether the current user is already the
-    /// creator (owner) of a family in one of their private custom zones, so a
-    /// re-onboarding Guild Master is routed back to the existing guild instead
-    /// of minting a duplicate. Mirrors `AppState.discoverExistingCloudState`:
-    /// for each private custom zone (zoneName not `_defaultZone` / `LootListZone`)
-    /// it attempts a direct point-lookup of the `Family` whose record name
-    /// equals the zone name, then checks the server-stamped
-    /// `creatorUserRecordName` (never authored locally) against the current
-    /// user. Returns the first matching Family plus its zoneID, or nil when the
-    /// user owns no private family zone yet. FAIL-CLOSED: any fetch/query error
-    /// (flaky network, quota, transient server error) throws rather than
-    /// returning nil, so a caller can never mistake an unresolved lookup for a
-    /// provable "no existing family" and mint a duplicate.
-    private func findExistingOwnerFamily(currentUserRecordName: String) async throws -> (family: Family, zoneID: CKRecordZone.ID)? {
-        let privateZones: [CKRecordZone] = try await cloudKit.fetchPrivateZones()
-
-        let customZones = privateZones.filter { $0.zoneID.zoneName != "_defaultZone" && $0.zoneID.zoneName != "LootListZone" }
-        let db = cloudKit.privateDatabase
-
-        for zone in customZones {
-            let familyID = CKRecord.ID(recordName: zone.zoneID.zoneName, zoneID: zone.zoneID)
-            let family: Family
-            do {
-                family = try await cloudKit.fetch(Family.self, id: familyID, using: db)
-            } catch let error as CloudKitServiceError {
-                // Fail-closed per-zone lookup: only a provable absence
-                // (`notFound`) means this zone holds no owner family — keep
-                // scanning the next candidate. Any other (transient/unknown)
-                // fetch error is rethrown so the caller maps it to
-                // `creationFailed` rather than branching to the
-                // brand-new-family path and minting a duplicate.
-                guard case .notFound = error else { throw error }
-                continue
-            }
-
-            if family.creatorUserRecordName == currentUserRecordName {
-                logger.info("Parent dedupe found existing owner family '\(family.name, privacy: .private)' in zone '\(zone.zoneID.zoneName, privacy: .private)'")
-                return (family, zone.zoneID)
-            }
-        }
-        return nil
-    }
-
-    /// Resolves the existing Guild Master `Profile` for a reused owner family,
-    /// reactivating-or-creating one within the EXISTING family's zone so a
-    /// parent re-onboarding is never a hard failure (mirrors the Hero
-    /// reactivation branch in `joinFamilyViaShare`):
-    ///   1. ACTIVE GM exists   → reuse it as-is (no save, no overwrite).
-    ///   2. INACTIVE GM exists → reactivate it (set `isActive = true`, re-save).
-    ///      Existing profile values (display name, avatar, role overrides) are
-    ///      preserved and are NOT overwritten from the passed-in onboarding
-    ///      profile — the parent dedupe contract is stricter than the hero one
-    ///      (which allows a rename).
-    ///   3. NO GM at all       → mint a fresh Guild Master in the EXISTING
-    ///      family's zone using the passed-in onboarding profile values, so the
-    ///      owner re-onboards against their original family rather than
-    ///      minting a duplicate Family.
-    /// The lookup mirrors `AppState.discoverExistingCloudState`: a direct
-    /// point-lookup on the family's creator first, then a query fallback for any
-    /// Guild Master in the zone.
-    ///
-    /// Fail-closed error contract: only a provable absence
-    /// (`CloudKitServiceError.notFound`) from the point-lookup falls through to
-    /// the query fallback. Any other lookup failure — point-lookup transient
-    /// error OR query error — is translated to `FamilyServiceError.creationFailed`
-    /// before it can escape, so no raw `CloudKitServiceError` reaches the caller
-    /// of `createFamily`. This matches Architectural Decision 8's "lookup errors
-    /// rethrow as creationFailed" contract on BOTH the dedupe-family lookup and
-    /// the resolve-profile lookup.
-    private func resolveExistingOwnerProfile(in zoneID: CKRecordZone.ID,
-                                             family: Family,
-                                             ownerProfile ownerOnboarding: Profile) async throws -> Profile
-    {
-        let db = cloudKit.privateDatabase
-        let creatorID = CKRecord.ID(recordName: family.createdBy.recordName, zoneID: zoneID)
-        do {
-            // `cloudKit.fetch` returns a non-optional `Profile` and throws on
-            // absence, so the provable-absence vs error distinction is made in
-            // the catch clauses (fail-closed) rather than via `try?` (which
-            // would swallow transient errors).
-            let fetched: Profile = try await cloudKit.fetch(Profile.self, id: creatorID, using: db)
-            if fetched.isActive {
-                logger.info("Direct point lookup found active Guild Master profile: '\(fetched.displayName, privacy: .public)'")
-                return fetched
-            }
-            // Branch 2 — INACTIVE GM: reactivate it, preserving the existing
-            // identity (display name, avatar, role) rather than overwriting
-            // from the onboarding profile.
-            logger.info("Direct point lookup found inactive Guild Master profile '\(fetched.displayName, privacy: .public)'; reactivating")
-            return try await reactivateOrSaveOwner(fetched, in: zoneID, family: family, using: db)
-        } catch let error as CloudKitServiceError {
-            // Fail-closed direct lookup: only a provable absence (`notFound`)
-            // falls through to the query fallback below; any other
-            // transient/unknown error is translated to `creationFailed` so it
-            // never escapes as a raw `CloudKitServiceError` and never silently
-            // resolves against a stale or wrong profile.
-            guard case .notFound = error else { throw FamilyServiceError.creationFailed }
-        }
-
-        let profiles: [Profile]
-        do {
-            profiles = try await cloudKit.query(
-                Profile.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID,
-                using: db
-            )
-        } catch {
-            // Translate the query path's transient/unknown errors to
-            // `creationFailed` — no raw `CloudKitServiceError` escapes.
-            throw FamilyServiceError.creationFailed
-        }
-        // Prefer the family's actual creator if present (active OR inactive) so
-        // the reactivation path repairs the original identity rather than
-        // minting a parallel GM for the same user.
-        let existingGM = profiles.first(where: { $0.role == .guildMaster && $0.id == creatorID })
-            ?? profiles.first(where: { $0.role == .guildMaster })
-            ?? profiles.first(where: { $0.isActive })
-        if let gm = existingGM {
-            if gm.isActive {
-                logger.info("Query fallback found active Guild Master profile: '\(gm.displayName, privacy: .public)'")
-                return gm
-            }
-            logger.info("Query fallback found inactive Guild Master profile '\(gm.displayName, privacy: .public)'; reactivating")
-            return try await reactivateOrSaveOwner(gm, in: zoneID, family: family, using: db)
-        }
-        // Branch 3 — NO GM at all: mint a fresh Guild Master in the EXISTING
-        // family's zone from the onboarding profile. The family record itself is
-        // reused (no duplicate Family minted), preserving one-identity-per-family
-        // at the family-record level even though the GM profile is missing.
-        logger.info("No existing Guild Master profile found in reused family zone; creating fresh GM")
-        return try await reactivateOrSaveOwner(ownerOnboarding, in: zoneID, family: family, using: db, forceCreate: true)
-    }
-
-    /// Shared save path for `resolveExistingOwnerProfile`: either reactivates an
-    /// existing inactive Guild Master (`forceCreate == false`, preserving its
-    /// identity) or mints a fresh Guild Master from an onboarding profile
-    /// (`forceCreate == true`, normalizing role/family/active as in the
-    /// brand-new-family branch). Both shapes are persisted via a single
-    /// private-database save so the result lands in CloudKit and is re-decoded
-    /// with any server-stamped fields. A save failure surfaces as
-    /// `FamilyServiceError.creationFailed` (no orphaned optimistic state).
-    private func reactivateOrSaveOwner(_ profile: Profile,
-                                       in zoneID: CKRecordZone.ID,
-                                       family: Family,
-                                       using db: CKDatabase?,
-                                       forceCreate: Bool = false) async throws -> Profile
-    {
-        var owner = profile
-        if forceCreate {
-            owner.role = .guildMaster
-            owner.family = CKRecord.Reference(recordID: family.id, action: .none)
-        }
-        // Ensure reactivation flips the active bit (idempotent when already
-        // active — Branch 1 returns earlier and never reaches this path).
-        owner.isActive = true
-        do {
-            let saved = try await cloudKit.save(owner, in: zoneID, using: db)
-            cacheService?.upsertProfile(saved)
-            return saved
-        } catch {
-            throw FamilyServiceError.creationFailed
-        }
-    }
-
-    /// Shared session-saving tail for both the brand-new and reused owner-family
-    /// paths of `createFamily`. Writes the resolved zone/ownership state to
-    /// `AppState`, activates the owner path on `CloudKitService`, persists the
-    /// session, and returns the owner-triple consumed by the onboarding flow.
-    private func finalizeOwnerSession(family: Family,
-                                      profile: Profile,
-                                      zoneID: CKRecordZone.ID,
-                                      shareURL: URL?) -> OwnerSessionResult
-    {
-        appState.familyZoneID = zoneID
-        appState.isZoneOwner = true
-        appState.activeShareURL = shareURL
-        cloudKit.activeFamilyZoneID = zoneID
-        cloudKit.activeIsOwner = true
-        appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: true)
-        return OwnerSessionResult(family: family, profile: profile, shareURL: shareURL)
     }
 
     private func unassignActiveQuests(for profile: Profile) async {

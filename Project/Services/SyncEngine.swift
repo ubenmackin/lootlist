@@ -349,7 +349,7 @@ final class SyncEngine {
                 lastSyncedAt = Date()
                 let outcome: SyncOutcome = syncError == nil ? (recordsChanged ? .changed : .noChange) : .failed
                 NotificationCenter.default.post(name: .syncDidComplete, object: self, userInfo: [SyncOutcome.userInfoKey: outcome])
-                Task { @MainActor [weak self] in
+                Task { [weak self] in
                     self?.appState?.updateCurrentProfileFromCache()
                 }
                 // After saving the change token marking byte progress, set pendingSync = incremental if moreComing.
@@ -428,7 +428,7 @@ final class SyncEngine {
                 await dispatchFullSync(familyRecordName: familyRecordName)
             } else {
                 logger.error("incrementalSync transient failure: \(error, privacy: .private)")
-                syncError = error.localizedDescription
+                syncError = (error as? LocalizedError)?.errorDescription ?? "Sync failed. Please try again."
             }
         }
     }
@@ -588,9 +588,9 @@ final class SyncEngine {
                     await incrementalSync(familyRecordName: familyRecordName)
                 case let .shareAccepted(shareID):
                     let acceptedZoneID = shareID.zoneID
-                    UserDefaults.standard.removeObject(forKey: tokenKey(for: acceptedZoneID, isShared: true))
                     do {
                         try cacheService.clearAll()
+                        UserDefaults.standard.removeObject(forKey: tokenKey(for: acceptedZoneID, isShared: true))
                     } catch {
                         logger.error("Failed to clear cache on share accept \(acceptedZoneID.zoneName, privacy: .private): \(error, privacy: .private)")
                         // A failed invalidation leaves the cache partially wiped;
@@ -602,9 +602,9 @@ final class SyncEngine {
                     cloudKit.activeIsOwner = false
                     await syncAll(familyRecordName: acceptedZoneID.zoneName)
                 case .zoneReset:
-                    UserDefaults.standard.removeObject(forKey: tokenKey(for: cloudKit.resolvedZoneID, isShared: !cloudKit.activeIsOwner))
                     do {
                         try cacheService.clearAll()
+                        UserDefaults.standard.removeObject(forKey: tokenKey(for: cloudKit.resolvedZoneID, isShared: !cloudKit.activeIsOwner))
                     } catch {
                         logger.error("Failed to clear cache on zone reset: \(error, privacy: .private)")
                         continue

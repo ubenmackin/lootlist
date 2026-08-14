@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import Observation
+import os
 
 struct SpendingLogRow: Identifiable, Equatable {
     let id: String
@@ -39,6 +40,8 @@ struct SpendingLogRow: Identifiable, Equatable {
 @MainActor
 @Observable
 final class TreasuryViewModel {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Treasury")
+
     private let treasury: TreasuryService
 
     private let spending: any SpendingService
@@ -226,7 +229,8 @@ final class TreasuryViewModel {
             // explicit `refresh()` needed here.
             return true
         } catch {
-            errorMessage = "\(error)"
+            logger.error("Failed to log spending: \(error, privacy: .private)")
+            errorMessage = "Could not log your spending. Please try again."
             return false
         }
     }

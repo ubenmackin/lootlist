@@ -7,10 +7,13 @@
 
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
 final class HeroLedgerViewModel {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroLedger")
+
     let heroProfile: ProfileCache
     private let spending: any SpendingService
     private let appState: AppState
@@ -92,7 +95,8 @@ final class HeroLedgerViewModel {
             return true
         } catch {
             isLoading = false
-            errorMessage = error.localizedDescription
+            logger.error("Failed to deposit: \(error, privacy: .private)")
+            errorMessage = "Could not deposit. Please try again."
             return false
         }
     }
@@ -122,7 +126,8 @@ final class HeroLedgerViewModel {
             return true
         } catch {
             isLoading = false
-            errorMessage = error.localizedDescription
+            logger.error("Failed to withdraw: \(error, privacy: .private)")
+            errorMessage = "Could not withdraw. Please try again."
             return false
         }
     }

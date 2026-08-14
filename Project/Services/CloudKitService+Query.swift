@@ -47,7 +47,7 @@ extension CloudKitService {
             case .notFound:
                 // Record type or zone does not exist yet on CloudKit server — return empty results.
                 return []
-            case let .invalidArguments(msg) where msg.contains("not marked queryable") || msg.contains("recordName"):
+            case let .invalidArguments(msg) where msg.contains("not marked queryable") || msg.contains("not marked indexable") || msg.contains("recordName"):
                 // Record type lacks a queryable index on CloudKit server — return empty results.
                 return []
             default:

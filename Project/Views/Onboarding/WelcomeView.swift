@@ -59,7 +59,7 @@ struct WelcomeView: View {
             Spacer()
 
             Button {
-                viewModel.selectedRole = nil
+                viewModel.userIntent = nil
                 viewModel.goToRoleSelection()
             } label: {
                 Label("Begin Your Quest", systemImage: "sparkles")

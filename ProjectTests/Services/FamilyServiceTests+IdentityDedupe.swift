@@ -10,14 +10,14 @@ import Foundation
 @testable import LootList
 import Testing
 
-/// Hero dedupe branches exercised through `joinFamilyViaShare`:
-///   1. an ACTIVE hero already in the joined zone → reuse, no save;
-///   2. an INACTIVE hero already in the joined zone → reactivate + resave;
-///   3. no hero yet             → brand-new profile save;
+/// Joiner dedupe branches exercised through `joinFamilyViaAcceptedShare`:
+///   1. an ACTIVE profile already in the joined zone → reuse, no save;
+///   2. an INACTIVE profile already in the joined zone → reactivate + resave;
+///   3. no profile yet             → brand-new profile save;
 ///   4. duplicate `displayName`  → must NOT mint a duplicate (dedupe keyed on
 ///      `iCloudUserID + family`, never `displayName`) — the regression that
 ///      originally orphaned profiles;
-///   5. `findExistingHeroProfile` against an empty zone → nil.
+///   5. `findExistingProfileForCurrentUser` against an empty zone → nil.
 /// Parent-side dedupe is covered in this file's sibling sections below.
 @MainActor
 struct FamilyServiceIdentityDedupeTests {
@@ -25,13 +25,13 @@ struct FamilyServiceIdentityDedupeTests {
     /// seeded hero must carry for the dedupe lookup to match it.
     private static let mockUserRecordName = MockCloudKitService.mockUserRecordName
 
-    /// A `MockCloudKitService` double tailored to the hero-join flow:
+    /// A `MockCloudKitService` double tailored to the joiner-join flow:
     ///  - reports a configurable set of shared zones so `fetchSharedZones()`
     ///    returns the just-accepted fixture zone;
     ///  - counts + captures Profile saves so the reactivate / create branches
     ///    can assert exactly one save of the right shape;
     ///  - emulates real CloudKit's typed field matching for the
-    ///    `findExistingHeroProfile` predicate. The mock stores `iCloudUserID`
+    ///    `findExistingProfileForCurrentUser` predicate. The mock stores `iCloudUserID`
     ///    as a record-name String (`Profile.toRecord()`) and the predicate
     ///    compares it to a plain String constant of the same shape, so the
     ///    shim matches the stored String directly — no reference coercion.
@@ -68,7 +68,7 @@ struct FamilyServiceIdentityDedupeTests {
             sortDescriptors: [NSSortDescriptor]? = nil,
             using db: CKDatabase? = nil
         ) async throws -> [T] {
-            // Only the hero-dedupe predicate (an `iCloudUserID == <record-name
+            // Only the joiner-dedupe predicate (an `iCloudUserID == <record-name
             // String>` comparison against a `family == <reference>`) needs the
             // typed-constant shim; every other Profile query (e.g.
             // `refreshProfilesFromCloudKit`'s family filter) falls through to
@@ -133,8 +133,8 @@ struct FamilyServiceIdentityDedupeTests {
         userID: CKRecord.ID
     ) {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        // The join flow is driven with `nil` metadata (see `makeHeroProfile`'s
-        // note), so `joinFamilyViaShare` falls back to the `"root"` record name
+        // The join flow is driven with `nil` metadata (see `makeJoiningProfile`'s
+        // note), so `joinFamilyViaAcceptedShare` falls back to the `"root"` record name
         // when locating the Family in the shared zone. Seed the family under
         // that name so the end-to-end fetch resolves.
         let familyID = CKRecord.ID(recordName: "root", zoneID: zoneID)
@@ -163,15 +163,15 @@ struct FamilyServiceIdentityDedupeTests {
         return (familyService, appState)
     }
 
-    /// `joinFamilyViaShare` is driven with `nil` metadata in these tests because
+    /// `joinFamilyViaAcceptedShare` is driven with `nil` metadata in these tests because
     /// `CKShare.Metadata` cannot be directly constructed in this SDK (it must
     /// come from `CKFetchShareMetadataOperation` or a platform scene/app-delegate
     /// callback). The metadata's only field the join flow consults is
     /// `hierarchicalRootRecordID` — with `nil` metadata it falls back to the
     /// `"root"` record name, which is exactly the seeded family name below. A
     /// `nil` metadata also skips the share-accept step, which is a mock no-op
-    /// anyway, so the five hero-dedupe branches are unaffected.
-    private func makeHeroProfile(userID: CKRecord.ID, displayName: String) -> Profile {
+    /// anyway, so the five joiner-dedupe branches are unaffected.
+    private func makeJoiningProfile(userID: CKRecord.ID, displayName: String) -> Profile {
         Profile(
             displayName: displayName,
             avatarClass: .knight,
@@ -181,10 +181,10 @@ struct FamilyServiceIdentityDedupeTests {
         )
     }
 
-    // MARK: - Branch 1: Active Hero Reuse
+    // MARK: - Branch 1: Active Profile Reuse
 
     @Test
-    func `joinFamilyViaShare reuses active Hero Profile when one exists`() async throws {
+    func `joinFamilyViaAcceptedShare reuses active profile when one exists`() async throws {
         let fixture = makeFixture()
         let cloudKit = makeJoinService(zoneID: fixture.zoneID)
         let seededHero = Profile(
@@ -197,25 +197,27 @@ struct FamilyServiceIdentityDedupeTests {
         cloudKit.seedMockRecords([fixture.family, seededHero])
 
         let (familyService, appState) = makeService(cloudKit: cloudKit)
-        // Re-onboarding session: the user's existing active hero is current.
+        // Re-onboarding session: the user's existing active profile is current.
         appState.currentProfile = seededHero
 
         // The joining profile carries the same iCloud identity (dedupe key).
-        let heroProfile = makeHeroProfile(userID: fixture.userID, displayName: "Onboarding Hero")
-        let result = try await familyService.joinFamilyViaShare(metadata: nil, heroProfile: heroProfile)
+        let heroProfile = makeJoiningProfile(userID: fixture.userID, displayName: "Onboarding Hero")
+        let result = try await familyService.joinFamilyViaAcceptedShare(metadata: nil, displayName: heroProfile.displayName, avatarClass: heroProfile.avatarClass)
 
         // The returned profile is the seeded hero — not a freshly-minted UUID.
         #expect(result.profile.id.recordName == "hero1")
         // Reuse path performs no save.
         #expect(cloudKit.profileSaveCount == 0)
+        // The reuse flag is surfaced so callers preserve the existing identity.
+        #expect(result.didReuseActiveProfile == true)
         // The session's current profile still points at the reused hero.
         #expect(appState.currentProfile?.id.recordName == "hero1")
     }
 
-    // MARK: - Branch 2: Inactive Hero Reactivation
+    // MARK: - Branch 2: Inactive Profile Reactivation
 
     @Test
-    func `joinFamilyViaShare reactivates inactive Hero Profile when one exists`() async throws {
+    func `joinFamilyViaAcceptedShare reactivates inactive profile when one exists`() async throws {
         let fixture = makeFixture()
         let cloudKit = makeJoinService(zoneID: fixture.zoneID)
         var seededHero = Profile(
@@ -229,8 +231,8 @@ struct FamilyServiceIdentityDedupeTests {
         cloudKit.seedMockRecords([fixture.family, seededHero])
 
         let (familyService, _) = makeService(cloudKit: cloudKit)
-        let heroProfile = makeHeroProfile(userID: fixture.userID, displayName: "Rejoining Hero")
-        let result = try await familyService.joinFamilyViaShare(metadata: nil, heroProfile: heroProfile)
+        let heroProfile = makeJoiningProfile(userID: fixture.userID, displayName: "Rejoining Hero")
+        let result = try await familyService.joinFamilyViaAcceptedShare(metadata: nil, displayName: heroProfile.displayName, avatarClass: heroProfile.avatarClass)
 
         // The reactivated profile is the SEEDED record (same id), not a new one.
         #expect(result.profile.id.recordName == "hero1")
@@ -239,33 +241,65 @@ struct FamilyServiceIdentityDedupeTests {
         // The saved profile is reactivated.
         #expect(cloudKit.savedProfiles.first?.isActive == true)
         #expect(result.profile.isActive == true)
+        // Reactivation is not an active-reuse: the identity write path stays on.
+        #expect(result.didReuseActiveProfile == false)
     }
 
-    // MARK: - Branch 3: Brand-New Hero Creation
+    @Test
+    func `joinFamilyViaAcceptedShare updates role on reactivated profile when re-invited with different role`() async throws {
+        let fixture = makeFixture()
+        let cloudKit = makeJoinService(zoneID: fixture.zoneID)
+        var seededRanger = Profile(
+            displayName: "Former Ranger",
+            role: .ranger,
+            iCloudUserID: fixture.userID,
+            family: fixture.familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: fixture.zoneID)
+        )
+        seededRanger.isActive = false
+
+        cloudKit.seedMockRecords([fixture.family, seededRanger])
+
+        let (familyService, _) = makeService(cloudKit: cloudKit)
+        let result = try await familyService.joinFamilyViaAcceptedShare(
+            metadata: nil,
+            displayName: "Rejoining Hero",
+            avatarClass: .knight
+        )
+
+        #expect(result.profile.id.recordName == "hero1")
+        #expect(result.profile.isActive == true)
+        #expect(result.profile.role == .hero)
+        #expect(cloudKit.savedProfiles.first?.role == .hero)
+    }
+
+    // MARK: - Branch 3: Brand-New Profile Creation
 
     @Test
-    func `joinFamilyViaShare creates new Hero Profile when none exists`() async throws {
+    func `joinFamilyViaAcceptedShare creates new profile when none exists`() async throws {
         let fixture = makeFixture()
         let cloudKit = makeJoinService(zoneID: fixture.zoneID)
         // No profiles seeded — the dedupe lookup finds nothing.
         cloudKit.seedMockRecords([fixture.family])
 
         let (familyService, _) = makeService(cloudKit: cloudKit)
-        let heroProfile = makeHeroProfile(userID: fixture.userID, displayName: "Brand New Hero")
-        let result = try await familyService.joinFamilyViaShare(metadata: nil, heroProfile: heroProfile)
+        let heroProfile = makeJoiningProfile(userID: fixture.userID, displayName: "Brand New Hero")
+        let result = try await familyService.joinFamilyViaAcceptedShare(metadata: nil, displayName: heroProfile.displayName, avatarClass: heroProfile.avatarClass)
 
-        // The new profile carries the passed-in hero's fresh UUID.
-        #expect(result.profile.id.recordName == heroProfile.id.recordName)
-        // Exactly one Profile save for the brand-new hero.
+        // The new profile is a fresh mint, distinct from the seeded zone records.
+        #expect(result.profile.id.recordName != "hero1")
+        // Exactly one Profile save for the brand-new profile.
         #expect(cloudKit.profileSaveCount == 1)
         #expect(cloudKit.savedProfiles.first?.displayName == "Brand New Hero")
         #expect(cloudKit.savedProfiles.first?.role == .hero)
+        // Fresh mint is not an active-reuse: the identity write path stays on.
+        #expect(result.didReuseActiveProfile == false)
     }
 
     // MARK: - Regression: Duplicate DisplayName
 
     @Test
-    func `joinFamilyViaShare rejects duplicate displayName without creating duplicate Profile`() async throws {
+    func `joinFamilyViaAcceptedShare rejects duplicate displayName without creating duplicate Profile`() async throws {
         let fixture = makeFixture()
         let cloudKit = makeJoinService(zoneID: fixture.zoneID)
         let seededHero = Profile(
@@ -278,9 +312,9 @@ struct FamilyServiceIdentityDedupeTests {
         cloudKit.seedMockRecords([fixture.family, seededHero])
 
         let (familyService, _) = makeService(cloudKit: cloudKit)
-        // Same display name as the seeded hero — the dedupe must NOT key on it.
-        let heroProfile = makeHeroProfile(userID: fixture.userID, displayName: "Bob")
-        let result = try await familyService.joinFamilyViaShare(metadata: nil, heroProfile: heroProfile)
+        // Same display name as the seeded profile — the dedupe must NOT key on it.
+        let heroProfile = makeJoiningProfile(userID: fixture.userID, displayName: "Bob")
+        let result = try await familyService.joinFamilyViaAcceptedShare(metadata: nil, displayName: heroProfile.displayName, avatarClass: heroProfile.avatarClass)
 
         // The returned profile is the seeded hero, not a displayName-minted dup.
         #expect(result.profile.id.recordName == "hero1")
@@ -290,13 +324,13 @@ struct FamilyServiceIdentityDedupeTests {
     // MARK: - Sanity: Empty Zone
 
     @Test
-    func `findExistingHeroProfile returns nil for empty zone`() async throws {
+    func `findExistingProfileForCurrentUser returns nil for empty zone`() async throws {
         let fixture = makeFixture()
         let cloudKit = makeJoinService(zoneID: fixture.zoneID)
         cloudKit.seedMockRecords([fixture.family])
 
         let (familyService, _) = makeService(cloudKit: cloudKit)
-        let found = try await familyService.findExistingHeroProfile(
+        let found = try await familyService.findExistingProfileForCurrentUser(
             in: fixture.zoneID,
             family: fixture.family,
             currentUserRecordID: fixture.userID
@@ -316,7 +350,7 @@ struct FamilyServiceIdentityDedupeTests {
     ///  - records every zone passed to `ensureZoneExists` so the reuse path can
     ///    assert it never ensures the existing family's zone;
     ///  - counts + captures `Profile` saves so the reactivate / create branches
-    ///    can assert exactly one save of the right shape (mirroring the hero
+    ///    can assert exactly one save of the right shape (mirroring the joiner
     ///    dedupe double's `profileSaveCount` / `savedProfiles`);
     ///  - optionally injects a `profileQueryError` so the resolve-profile query
     ///    fallback can be driven down the raw-error → `creationFailed` path.
@@ -569,10 +603,11 @@ struct FamilyServiceIdentityDedupeTests {
     func `createFamily reactivates inactive Guild Master profile instead of failing`() async throws {
         // The seeded family is owned by the acting iCloud user, but the Guild
         // Master profile is inactive (e.g. the parent previously left their own
-        // family and is now re-onboarding). Mirrors the hero Branch 2 path:
-        // the family is reused, the GM profile is reactivated (no rename, no
-        // role overwrite — the parent-dedupe contract preserves the existing
-        // identity), and no new Family is minted.
+        // family and is now re-onboarding). Mirrors the joiner reactivation
+        // branch (joiner Branch 2): the family is reused, the GM profile is
+        // reactivated (no rename, no role overwrite — the parent-dedupe
+        // contract preserves the existing identity), and no new Family is
+        // minted.
         let fixture = makeOwnerDedupeFixture(
             creatorUserRecordName: Self.mockUserRecordName,
             gmSeed: .inactive
@@ -589,7 +624,7 @@ struct FamilyServiceIdentityDedupeTests {
         // (no identity mint), `isActive == true` (reactivation took effect),
         // role preserved (not overwritten from the onboarding ownerProfile),
         // display name preserved (not renamed — the parent-dedupe contract is
-        // stricter than the hero one).
+        // stricter than the joiner one).
         #expect(result.profile.id.recordName == "existing-gm")
         #expect(result.profile.isActive == true)
         #expect(result.profile.role == .guildMaster)
@@ -644,11 +679,11 @@ struct FamilyServiceIdentityDedupeTests {
     @Test
     func `createFamily translates raw resolve-profile query error to creationFailed`() async throws {
         // The dedupe succeeds (the family is reused), but the resolver's query
-        // fallback throws a raw `CloudKitServiceError.networkUnavailable` —
-        // the bug pattern finding 4 called out: a transport error must NOT
-        // escape `createFamily` raw. The resolver wraps it as
-        // `FamilyServiceError.creationFailed`; the caller surfaces the same.
-        // No duplicate Family is minted and no orphaned zone is ensured.
+        // fallback throws a raw `CloudKitServiceError.networkUnavailable` — a
+        // transport error must NOT escape `createFamily` raw. The resolver
+        // wraps it as `FamilyServiceError.creationFailed`; the caller surfaces
+        // the same. No duplicate Family is minted and no orphaned zone is
+        // ensured.
         let fixture = makeOwnerDedupeFixture(
             creatorUserRecordName: Self.mockUserRecordName,
             gmSeed: .absent

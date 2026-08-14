@@ -70,6 +70,43 @@ struct ZoneChangesResult: Sendable {
     let moreComing: Bool
 }
 
+/// Lightweight mirror of a `CKShare` participant's identity and acceptance
+/// status, consumed by the share-reconciliation pass. `CKShare.Participant`
+/// cannot be synthesized with a chosen acceptance status in unit tests, so the
+/// reconciler reads this testable form rather than the raw participant object.
+struct ShareParticipantStatus: Sendable, Equatable {
+    let identityKey: String?
+    let recordName: String?
+    let isRemoved: Bool
+
+    init(identityKey: String? = nil, recordName: String?, isRemoved: Bool) {
+        self.identityKey = identityKey
+        self.recordName = recordName
+        self.isRemoved = isRemoved
+    }
+}
+
+/// Canonical identity key resolution for a `CKShare.Participant`. Prefixes
+/// identity tokens so record names, emails, phone numbers, and participant IDs
+/// stay disambiguated across fetches, dictionary keys, and cross-layer revocation matching.
+enum ShareParticipantKey {
+    static func key(for participant: CKShare.Participant) -> String? {
+        if let recordName = participant.userIdentity.userRecordID?.recordName {
+            return "record:\(recordName)"
+        }
+        if let email = participant.userIdentity.lookupInfo?.emailAddress {
+            return "email:\(email)"
+        }
+        if let phone = participant.userIdentity.lookupInfo?.phoneNumber {
+            return "phone:\(phone)"
+        }
+        if !participant.participantID.isEmpty {
+            return "participantID:\(participant.participantID)"
+        }
+        return nil
+    }
+}
+
 @MainActor
 protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
     static var defaultContainer: CKContainer { get }
@@ -96,10 +133,27 @@ protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
     func ensureZoneExists(_ zoneID: CKRecordZone.ID) async throws
     func fetchZoneChanges(in zoneID: CKRecordZone.ID?, since token: CKServerChangeToken?, using db: CKDatabase?) async throws -> ZoneChangesResult
 
-    func createShare(for rootRecordID: CKRecord.ID) async throws -> CKShare
-    func fetchOrCreateShareURL(in zoneID: CKRecordZone.ID, rootRecordID: CKRecord.ID) async throws -> URL
+    func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare
+    func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare
     func acceptShare(metadata: CKShare.Metadata) async throws
-    func fetchShareMetadata(for url: URL) async throws -> CKShare.Metadata
+    func removeParticipant(iCloudUserRecordName: String, from rootRecordID: CKRecord.ID) async throws
+    /// Aggregated `CKShare` participants across all role shares for the family
+    /// root, deduplicated by identity. Used to render the in-app Invitations
+    /// panel (pending invites and their acceptance state).
+    func fetchShareParticipants(for rootRecordID: CKRecord.ID) async throws -> [CKShare.Participant]
+    /// Removes a specific participant (matched by identity) from the family
+    /// shares. Covers pending invites that have no iCloud user record name yet.
+    func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws
+
+    /// Lightweight view of each participant's identity and acceptance status
+    /// across all role shares. The share-reconciliation pass reads this instead
+    /// of raw `CKShare.Participant` objects so its suspicious-departure logic
+    /// stays unit-testable (statuses can be synthesized in tests).
+    func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus]
+
+    /// Maps each share participant's stable identity key or record name to the
+    /// target `UserRole` decoded from the title of the `CKShare` they belong to.
+    func fetchShareParticipantRoles(for rootRecordID: CKRecord.ID) async throws -> [String: UserRole]
 
     func processAbandonedZonesQueue(appState: AppState) async
     func currentUserRecordID() async throws -> CKRecord.ID

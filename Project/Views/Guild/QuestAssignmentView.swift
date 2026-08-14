@@ -6,12 +6,15 @@
 //
 
 import CloudKit
+import os
 import SwiftData
 import SwiftUI
 
 struct QuestAssignmentView: View {
     var mode: Mode = .fromTemplate
     @Bindable var viewModel: QuestManagerViewModel
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestAssignment")
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
@@ -672,7 +675,8 @@ struct QuestAssignmentView: View {
                 dismiss()
             } catch {
                 isSubmitting = false
-                toastManager.show(message: error.localizedDescription, type: .error)
+                logger.error("Failed to assign quest from template: \(error, privacy: .private)")
+                toastManager.show(message: "Could not assign the quest. Please try again.", type: .error)
             }
         }
     }
@@ -719,7 +723,8 @@ struct QuestAssignmentView: View {
                 dismiss()
             } catch {
                 isSubmitting = false
-                toastManager.show(message: error.localizedDescription, type: .error)
+                logger.error("Failed to create quest: \(error, privacy: .private)")
+                toastManager.show(message: "Could not create the quest. Please try again.", type: .error)
             }
         }
     }
@@ -774,7 +779,8 @@ struct QuestAssignmentView: View {
                 dismiss()
             } catch {
                 isSubmitting = false
-                toastManager.show(message: error.localizedDescription, type: .error)
+                logger.error("Failed to update quest: \(error, privacy: .private)")
+                toastManager.show(message: "Could not update the quest. Please try again.", type: .error)
             }
         }
     }

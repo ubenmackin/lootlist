@@ -26,6 +26,25 @@ class MockCloudKitService: CloudKitServiceProtocol {
     var activeFamilyZoneID: CKRecordZone.ID?
     var activeIsOwner: Bool = true
     var mockRecords: [CKRecord.ID: CKRecord] = [:]
+    /// Role-targeted `CKShare`s minted for the current test, mirroring a family
+    /// root's multiple coexisting shares (Hero + Ranger). Powers the mock's
+    /// share participant aggregation and revocation paths.
+    var mockShares: [CKShare] = []
+    /// Simulated share membership: per role share, the set of participant
+    /// identity keys (the strings the sharing service's `participantKey`
+    /// produces) currently holding access. CloudKit cannot fabricate
+    /// `CKShare.Participant` instances client-side, so the mock stands the
+    /// server-minted participant list in with these keys.
+    var mockShareMemberships: [CKRecord.ID: Set<String>] = [:]
+    /// Identities (participant identity keys) whose server-side acceptance
+    /// status is `.removed` (a GM revoked the identity but it has not yet
+    /// dropped off the share). Mirrors how CloudKit keeps a removed participant
+    /// visible with `.removed` status for a propagation window.
+    var mockRemovedMemberships: Set<String> = []
+    /// Every role share (in revocation order) that a remove call stripped the
+    /// target identity from. Lets tests assert that revocation spans all
+    /// matching role shares rather than returning after the first match.
+    private(set) var revokedShareIDs: [CKRecord.ID] = []
     var fetchError: Error?
     /// Optional per-test injection: when set, `save` throws this error after
     /// persisting the record's `CKRecord` form into the mock store. Mirrors
@@ -180,22 +199,141 @@ class MockCloudKitService: CloudKitServiceProtocol {
         )
     }
 
-    func createShare(for rootRecordID: CKRecord.ID) async throws -> CKShare {
+    func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
         let root = mockRecords[rootRecordID] ?? CKRecord(recordType: Family.recordType, recordID: rootRecordID)
-        return CKShare(rootRecord: root)
+        let share = CKShare(rootRecord: root)
+        share[CKShare.SystemFieldKey.title] = "\(root["name"] as? String ?? "Family Guild")\(role.shareTitleSuffix)"
+        share.publicPermission = .none
+        mockShares.append(share)
+        return share
     }
 
-    func fetchOrCreateShareURL(in _: CKRecordZone.ID, rootRecordID _: CKRecord.ID) async throws -> URL {
-        guard let url = URL(string: "https://www.icloud.com/share/mock") else {
-            throw CloudKitServiceError.invalidArguments("Malformed mock share URL")
+    func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
+        // Find-or-create over the stored role shares, mirroring the real
+        // service: a family root carries one share per role, so a repeated
+        // fetch for the same role returns the minted share rather than a copy.
+        if let existing = mockShares.first(where: { share in
+            share.recordID.zoneID == rootRecordID.zoneID
+                && UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) == role
+        }) {
+            return existing
         }
-        return url
+        return try await createShare(for: rootRecordID, role: role)
     }
 
     func acceptShare(metadata _: CKShare.Metadata) async throws {}
 
-    func fetchShareMetadata(for _: URL) async throws -> CKShare.Metadata {
-        throw CloudKitServiceError.notFound("Mock share metadata not configured")
+    /// Records an identity (as a `participantKey` string) as a participant of
+    /// the family's `role` share, standing in for CloudKit's server-minted
+    /// participant list which unit tests cannot fabricate.
+    @discardableResult
+    func simulateParticipation(key: String, rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
+        let share = try await fetchOrCreateShare(for: rootRecordID, role: role)
+        mockShareMemberships[share.recordID, default: []].insert(key)
+        return share
+    }
+
+    /// Core revocation pass shared by both overloads: removes the identity key
+    /// from EVERY role share in the zone that contains it. A member can sit on
+    /// both the Hero and the Ranger share, so stopping at the first match would
+    /// leave live access through the second. A share is revoked only when it
+    /// actually contained the identity (no-op for no match).
+    private func revokeIdentityKey(_ key: String, inZone zoneID: CKRecordZone.ID) {
+        for share in mockShares where share.recordID.zoneID == zoneID {
+            guard mockShareMemberships[share.recordID]?.remove(key) != nil else { continue }
+            revokedShareIDs.append(share.recordID)
+        }
+    }
+
+    func removeParticipant(iCloudUserRecordName: String, from rootRecordID: CKRecord.ID) async throws {
+        let key = "record:\(iCloudUserRecordName)"
+        let zoneID = rootRecordID.zoneID
+        // A revocation with no matching membership must never be a silent
+        // no-op. Mirror the object overload (and the real service's
+        // propagation-race surface the VM reports through `loadError`): when no
+        // role share contains the identity, throw so the caller does not assume
+        // access was revoked.
+        guard mockShares.contains(where: { share in
+            share.recordID.zoneID == zoneID && mockShareMemberships[share.recordID]?.contains(key) == true
+        }) else {
+            throw CloudKitServiceError.shareFailed(
+                "No role share contains a participant matching this identity — the revocation was not performed"
+            )
+        }
+        revokeIdentityKey(key, inZone: zoneID)
+    }
+
+    func fetchShareParticipants(for rootRecordID: CKRecord.ID) async throws -> [CKShare.Participant] {
+        var seen = Set<String>()
+        var participants: [CKShare.Participant] = []
+        for share in mockShares where share.recordID.zoneID == rootRecordID.zoneID {
+            for participant in share.participants {
+                guard let key = ShareParticipantKey.key(for: participant) else { continue }
+                if seen.insert(key).inserted {
+                    participants.append(participant)
+                }
+            }
+        }
+        return participants
+    }
+
+    /// Emulated server participant summary. Reads the membership registry
+    /// (`mockShareMemberships`) rather than fabricated `CKShare.Participant`
+    /// objects, which unit tests cannot create with a chosen acceptance status.
+    /// `recordName` is derived from `"record:"`-prefixed identity keys; keys
+    /// without that prefix are pending invites with no iCloud identity yet.
+    func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus] {
+        var seen = Set<String>()
+        var statuses: [ShareParticipantStatus] = []
+        let memberships = mockShareMemberships.filter { $0.key.zoneID == rootRecordID.zoneID }
+        for (_, keys) in memberships {
+            for key in keys where seen.insert(key).inserted {
+                let recordName = key.hasPrefix("record:") ? String(key.dropFirst("record:".count)) : nil
+                statuses.append(ShareParticipantStatus(
+                    identityKey: key,
+                    recordName: recordName,
+                    isRemoved: mockRemovedMemberships.contains(key)
+                ))
+            }
+        }
+        return statuses
+    }
+
+    func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws {
+        // Mirrors the real service: a participant with no matchable identity
+        // (no user record name, email, phone, or participant ID) or no matching
+        // membership anywhere must surface a failure — never a silent no-op.
+        let key = ShareParticipantKey.key(for: participant)
+        guard let key else {
+            throw CloudKitServiceError.shareFailed(
+                "Cannot revoke a share participant with no CloudKit identity (no user record name, email, phone, or participant ID)"
+            )
+        }
+        let zoneID = rootRecordID.zoneID
+        guard mockShares.contains(where: { share in
+            share.recordID.zoneID == zoneID && mockShareMemberships[share.recordID]?.contains(key) == true
+        }) else {
+            throw CloudKitServiceError.shareFailed(
+                "No role share contains a participant matching this identity — the revocation was not performed"
+            )
+        }
+        revokeIdentityKey(key, inZone: zoneID)
+    }
+
+    func fetchShareParticipantRoles(for rootRecordID: CKRecord.ID) async throws -> [String: UserRole] {
+        var rolesByIdentity: [String: UserRole] = [:]
+        for share in mockShares where share.recordID.zoneID == rootRecordID.zoneID {
+            guard let title = share[CKShare.SystemFieldKey.title] as? String,
+                  let role = UserRole.fromShareTitle(title) else { continue }
+            if let keys = mockShareMemberships[share.recordID] {
+                for key in keys {
+                    rolesByIdentity[key] = role
+                    let cleanKey = key.replacingOccurrences(of: "record:", with: "")
+                    rolesByIdentity[cleanKey] = role
+                }
+            }
+        }
+        return rolesByIdentity
     }
 
     func processAbandonedZonesQueue(appState _: AppState) async {}

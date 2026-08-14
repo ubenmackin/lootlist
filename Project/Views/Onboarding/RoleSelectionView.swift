@@ -16,7 +16,7 @@ struct RoleSelectionView: View {
                 Text("Choose Your Path")
                     .font(.system(size: 32, weight: .heavy,
                                   design: .rounded))
-                Text("Are you the master of a guild, or a brave hero?")
+                Text("Start your own family, or join an existing one.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -25,18 +25,18 @@ struct RoleSelectionView: View {
             Spacer()
 
             VStack(spacing: 20) {
-                roleCard(
-                    role: .guildMaster,
-                    title: "I'm a Parent",
-                    subtitle: "Found the family & become the Guild Master.",
+                intentCard(
+                    intent: .createFamily,
+                    title: "Create a Family",
+                    subtitle: "Become the Guild Master and invite your family.",
                     icon: "crown.fill",
                     gradient: [.orange, .yellow]
                 )
 
-                roleCard(
-                    role: .hero,
-                    title: "I'm a Hero",
-                    subtitle: "Join an existing guild to complete quests and earn money.",
+                intentCard(
+                    intent: .joinFamily,
+                    title: "Join a Family",
+                    subtitle: "Tap to wait for your parent's invitation.",
                     icon: "figure.and.child.holdinghands",
                     gradient: [.blue, .purple]
                 )
@@ -64,15 +64,15 @@ struct RoleSelectionView: View {
         }
     }
 
-    private func roleCard(role: UserRole,
-                          title: String,
-                          subtitle: String,
-                          icon: String,
-                          gradient: [Color]) -> some View
+    private func intentCard(intent: UserIntent,
+                            title: String,
+                            subtitle: String,
+                            icon: String,
+                            gradient: [Color]) -> some View
     {
         Button {
-            viewModel.selectedRole = role
-            viewModel.advanceFromRoleSelection()
+            viewModel.userIntent = intent
+            viewModel.advanceFromIntentSelection()
         } label: {
             HStack(spacing: 20) {
                 Image(systemName: icon)
@@ -110,6 +110,6 @@ struct RoleSelectionView: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("role.\(role.rawValue)")
+        .accessibilityIdentifier("role.\(intent.rawValue)")
     }
 }
