@@ -52,7 +52,7 @@ final class FamilyShareReconciler {
     /// Passes an identity must be observed absent from the participant list
     /// before its profile is deactivated, riding out CloudKit's asynchronous
     /// propagation for freshly joined members.
-    private let absenceThreshold = 2
+    private let absenceThreshold = AppConstants.CloudKit.shareAbsenceThreshold
 
     private var isStarted = false
     private var observerTask: Task<Void, Never>?

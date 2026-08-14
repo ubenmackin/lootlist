@@ -252,7 +252,13 @@ final class AppState {
         guard authStatus == .checkingCloudData else { return }
 
         logger.info("Starting iCloud family discovery...")
-        let userRecordID = try? await cloudKit.currentUserRecordID()
+        let userRecordID: CKRecord.ID?
+        do {
+            userRecordID = try await cloudKit.currentUserRecordID()
+        } catch {
+            logger.warning("Could not resolve current iCloud user record ID: \(error, privacy: .private)")
+            userRecordID = nil
+        }
         logger.info("Current user record ID: \(userRecordID?.recordName ?? "nil", privacy: .private)")
 
         do {
@@ -267,9 +273,13 @@ final class AppState {
                 var family: Family?
 
                 let familyID = CKRecord.ID(recordName: zone.zoneID.zoneName, zoneID: zone.zoneID)
-                if let fetched: Family = try? await cloudKit.fetch(Family.self, id: familyID, using: db) {
-                    family = fetched
-                    logger.info("Direct point lookup found Family: '\(fetched.name, privacy: .private)'")
+                do {
+                    family = try await cloudKit.fetch(Family.self, id: familyID, using: db)
+                    if let family {
+                        logger.info("Direct point lookup found Family: '\(family.name, privacy: .private)'")
+                    }
+                } catch {
+                    logger.debug("Direct point lookup for Family in zone '\(zone.zoneID.zoneName, privacy: .private)' did not hit: \(error, privacy: .private)")
                 }
 
                 if family == nil {

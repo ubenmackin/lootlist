@@ -66,19 +66,12 @@ struct SpendingLogView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "scroll.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-            Text("Empty Ledger")
-                .font(.headline)
-            Text(scope.emptyStateCopy)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-        }
-        .padding(.top, 64)
+        EmptyStateView(
+            systemImage: "scroll.fill",
+            title: "Empty Ledger",
+            description: scope.emptyStateCopy,
+            topPadding: 64
+        )
     }
 }
 

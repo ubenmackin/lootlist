@@ -238,9 +238,9 @@ enum SampleData {
         let calendar = Calendar.iso8601UTC
         let currentWeek = startOfWeek(for: Date())
 
-        let week1 = calendar.date(byAdding: .day, value: -7, to: currentWeek)!
-        let week2 = calendar.date(byAdding: .day, value: -14, to: currentWeek)!
-        let week3 = calendar.date(byAdding: .day, value: -21, to: currentWeek)!
+        let week1 = calendar.date(byAdding: .day, value: -7, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 7)
+        let week2 = calendar.date(byAdding: .day, value: -14, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 14)
+        let week3 = calendar.date(byAdding: .day, value: -21, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 21)
 
         var p0 = AllowancePeriod(
             weekOf: currentWeek,

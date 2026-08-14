@@ -159,7 +159,7 @@ struct TemplateManagerView: View {
         guard let editing else { return }
         name = editing.name
         descriptionText = editing.description
-        defaultGoldText = String(format: "%.2f", editing.defaultGold)
+        defaultGoldText = String(editing.defaultGold)
         selectedRarity = editing.rarity
         schedule = editing.scheduleType
         specificDays = Set(editing.specificDays)

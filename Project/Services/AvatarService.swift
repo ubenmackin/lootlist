@@ -213,7 +213,7 @@ final class AvatarService {
         let resized = renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: newSize))
         }
-        return resized.jpegData(compressionQuality: 0.8)
+        return resized.jpegData(compressionQuality: AppConstants.UserInterface.avatarJpegCompression)
     }
 }
 

@@ -81,8 +81,10 @@ final class HeroLedgerViewModel {
         }
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
+        isLoading = true
+        defer { isLoading = false }
+
         do {
-            isLoading = true
             _ = try await spending.deposit(
                 profile: profile,
                 family: family,
@@ -91,10 +93,8 @@ final class HeroLedgerViewModel {
                 amount: amount,
                 date: date
             )
-            isLoading = false
             return true
         } catch {
-            isLoading = false
             logger.error("Failed to deposit: \(error, privacy: .private)")
             errorMessage = "Could not deposit. Please try again."
             return false
@@ -112,8 +112,10 @@ final class HeroLedgerViewModel {
         }
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
+        isLoading = true
+        defer { isLoading = false }
+
         do {
-            isLoading = true
             _ = try await spending.withdraw(
                 profile: profile,
                 family: family,
@@ -122,10 +124,8 @@ final class HeroLedgerViewModel {
                 amount: amount,
                 date: date
             )
-            isLoading = false
             return true
         } catch {
-            isLoading = false
             logger.error("Failed to withdraw: \(error, privacy: .private)")
             errorMessage = "Could not withdraw. Please try again."
             return false

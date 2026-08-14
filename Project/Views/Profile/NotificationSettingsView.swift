@@ -187,7 +187,7 @@ struct NotificationSettingsView: View {
         }
         .task(id: showClearedToast) {
             if showClearedToast {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: DesignSystemConstants.AnimationDuration.toggleFeedbackNanos)
                 showClearedToast = false
             }
         }

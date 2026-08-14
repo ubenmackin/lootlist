@@ -45,7 +45,7 @@ final class SyncEngine {
     /// pass. The set is count-limited so a pathological zone cannot grow
     /// memory without bound; `failedRecordCount` stays exact and non-zero is
     /// the signal that the zone change token must not advance.
-    private static let maxTrackedFailedRecords = 100
+    private static let maxTrackedFailedRecords = AppConstants.CloudKit.maxTrackedFailedRecords
     private var failedRecordNames: Set<String> = []
     private var failedRecordCount = 0
 

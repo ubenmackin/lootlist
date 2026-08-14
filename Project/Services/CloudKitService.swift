@@ -223,19 +223,15 @@ class CloudKitService: CloudKitServiceProtocol {
         return result
     }
 
-    private static let maxRetries = 3
+    private static let maxRetries = AppConstants.CloudKit.maxRetries
 
     /// Defensive upper bound on cursor pagination. CloudKit's contract is that a
     /// non-nil cursor always means more results exist, but if the server ever
     /// returns a non-nil cursor alongside an empty page we abort here rather
     /// than loop indefinitely.
-    static let maxFetchPages = 10000
+    static let maxFetchPages = AppConstants.CloudKit.maxFetchPages
 
-    private static let backoffSchedule: [UInt64] = [
-        500_000_000,
-        1_500_000_000,
-        4_000_000_000
-    ]
+    private static let backoffSchedule: [UInt64] = AppConstants.CloudKit.backoffScheduleNanos
 
     func retrying<T>(_ operation: () async throws -> T) async throws -> T {
         var lastWrappedError: CloudKitServiceError?

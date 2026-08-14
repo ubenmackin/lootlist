@@ -268,19 +268,12 @@ struct QuestManagerView: View {
     }
 
     private var emptyAssignmentsState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "calendar.badge.exclamationmark")
-                .font(.system(size: 44))
-                .foregroundStyle(.secondary)
-            Text("No active assignments for this week")
-                .font(.headline)
-            Text("Tap “Assign New Quest” to send a quest to a hero.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .font(.subheadline)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 64)
+        EmptyStateView(
+            systemImage: "calendar.badge.exclamationmark",
+            title: "No active assignments for this week",
+            description: "Tap “Assign New Quest” to send a quest to a hero.",
+            verticalPadding: 64
+        )
     }
 
     private func templatesTab(vm: QuestManagerViewModel) -> some View {
