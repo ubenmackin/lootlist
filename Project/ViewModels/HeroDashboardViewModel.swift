@@ -277,13 +277,14 @@ final class HeroDashboardViewModel {
             let isPast = dayStart < todayStart
             let isFuture = dayStart > todayStart
             let dayNum = calendar.component(.day, from: dayDate)
-            let dayWeekdayIndex = calendar.component(.weekday, from: dayDate) - 1
+            let rawIndex = calendar.component(.weekday, from: dayDate) - 1
+            let safeIndex = max(0, min(codes.count - 1, rawIndex))
 
             return DayInfo(
-                id: codes[dayWeekdayIndex],
+                id: codes[safeIndex],
                 date: dayDate,
-                weekdayCode: codes[dayWeekdayIndex],
-                shortName: shortNames[dayWeekdayIndex],
+                weekdayCode: codes[safeIndex],
+                shortName: shortNames[safeIndex],
                 dayNumber: dayNum,
                 isToday: isToday,
                 isPast: isPast,

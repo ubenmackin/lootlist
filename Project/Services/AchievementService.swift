@@ -93,7 +93,7 @@ final class AchievementService {
         }
 
         let familyName = family.id.recordName
-        if let cached = cacheService?.fetchAchievements(family: familyName), cached.count >= 12 {
+        if let cached = cacheService?.fetchAchievements(family: familyName), cached.count >= AppConstants.Economy.totalDefaultAchievementsCount {
             return
         }
 
@@ -476,7 +476,7 @@ final class AchievementService {
             weekCompletionCounts[quest.weekOf, default: 0] += 1
 
             let hour = calendar.component(.hour, from: log.completedDate)
-            if hour < 9 {
+            if hour < AppConstants.Economy.earlyBirdHourCutoff {
                 earlyBird = true
             }
         }

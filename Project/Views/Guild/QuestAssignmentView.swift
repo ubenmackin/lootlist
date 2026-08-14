@@ -201,196 +201,35 @@ struct QuestAssignmentView: View {
 
     // MARK: - Template assignment sections
 
-    @ViewBuilder
     private var templateAssignmentSections: some View {
-        Section("Template") {
-            if viewModel.templates.filter(\.isActive).isEmpty {
-                Text("No active templates. Create one in the Templates tab or use Quick Create.")
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("Template", selection: $selectedTemplate) {
-                    Text("Choose…").tag(nil as QuestTemplateCache?)
-                    ForEach(viewModel.templates.filter(\.isActive)) { template in
-                        Text(template.name).tag(template as QuestTemplateCache?)
-                    }
-                }
-                .onChange(of: selectedTemplate) { _, newTemplate in
-                    guard mode == .fromTemplate else { return }
-                    editQuestName = newTemplate?.name ?? ""
-                    userEditedQuestName = false
-                }
-            }
-        }
-
-        // Edit-mode name override (fromTemplate path)
-        Section {
-            TextField("Quest Name", text: $editQuestName)
-                .onChange(of: editQuestName) { _, _ in
-                    userEditedQuestName = true
-                }
-            if let template = selectedTemplate {
-                Text("From template: \(template.name)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        } header: {
-            Text("Quest Name")
-        } footer: {
-            Text("Leave blank to use the template name.")
-        }
-
-        Section("Hero") {
-            heroPicker
-        }
-
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Reward Override")
-                    .foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
-                            PresetPill(
-                                text: CurrencyFormatter.string(Double(preset) ?? 0),
-                                isSelected: goldOverrideText == preset,
-                                action: { goldOverrideText = preset }
-                            )
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-                TextField(selectedTemplate?.goldReward.mapToText() ?? "",
-                          text: $goldOverrideText)
-                    .keyboardType(.decimalPad)
-            }
-
-            HStack {
-                Text("XP Override")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                TextField(selectedTemplate?.xpReward.mapToText() ?? "",
-                          text: $xpOverrideText)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 80)
-            }
-
-            Picker("Approval", selection: $approvalOverride) {
-                ForEach(ApprovalModeSelection.allCases) { sel in
-                    Text(sel.rawValue).tag(sel)
-                }
-            }
-        } header: {
-            Text("Overrides (optional)")
-        } footer: {
-            Text("Leaving a field blank uses the template's default value.")
-        }
+        TemplateAssignmentFormView(
+            viewModel: viewModel,
+            isFromTemplateMode: mode == .fromTemplate,
+            selectedTemplate: $selectedTemplate,
+            editQuestName: $editQuestName,
+            userEditedQuestName: $userEditedQuestName,
+            selectedHero: $selectedHero,
+            goldOverrideText: $goldOverrideText,
+            xpOverrideText: $xpOverrideText,
+            approvalOverride: $approvalOverride
+        )
     }
 
     // MARK: - Quick Create sections
 
-    @ViewBuilder
     private var quickCreateSections: some View {
-        Section("One-Off Quest Details") {
-            TextField("Quest Name (e.g. Wash the Car)", text: $quickName)
-
-            TextField("Description (optional)", text: $quickDescription, axis: .vertical)
-                .lineLimit(2 ... 3)
-        }
-
-        Section("Hero") {
-            heroPicker
-        }
-
-        Section("Rewards") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Reward")
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
-                            PresetPill(
-                                text: CurrencyFormatter.string(Double(preset) ?? 0),
-                                isSelected: quickGoldText == preset,
-                                action: { quickGoldText = preset }
-                            )
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-                TextField("1.00", text: $quickGoldText)
-                    .keyboardType(.decimalPad)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Quest Rarity & XP")
-                        .font(.subheadline)
-                    Spacer()
-                    Text("\(quickRarity.xpReward) XP")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(quickRarity.color)
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(QuestRarity.allCases) { rarity in
-                            PresetPill(
-                                text: "\(rarity.rawValue) (\(rarity.xpReward) XP)",
-                                isSelected: quickRarity == rarity,
-                                action: { quickRarity = rarity },
-                                systemImage: rarity.iconSystemName,
-                                color: rarity.color
-                            )
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
-        }
-
-        Section("Schedule & Approval") {
-            Picker("Schedule", selection: $quickSchedule) {
-                ForEach(QuestSchedule.allCases, id: \.self) { schedule in
-                    Text(schedule.displayName).tag(schedule)
-                }
-            }
-
-            if quickSchedule == .weeklyFlexible {
-                Stepper("Required Times Per Week: \(quickTargetCount)", value: $quickTargetCount, in: 1 ... 7)
-            }
-
-            if quickSchedule == .specificDays {
-                VStack(alignment: .leading) {
-                    Text("Repeat On")
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(Array(Self.weekdayCodes.indices), id: \.self) { idx in
-                                let code = Self.weekdayCodes[idx]
-                                PresetPill(
-                                    text: AppConstants.weekdayAbbreviated[idx],
-                                    isSelected: quickSpecificDays.contains(code),
-                                    action: {
-                                        if quickSpecificDays.contains(code) {
-                                            quickSpecificDays.remove(code)
-                                        } else {
-                                            quickSpecificDays.insert(code)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    }
-                }
-            }
-
-            Picker("Approval", selection: $quickApproval) {
-                ForEach(ApprovalMode.allCases, id: \.self) { approval in
-                    Text(approval.displayName).tag(approval)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
+        QuickCreateFormView(
+            viewModel: viewModel,
+            quickName: $quickName,
+            quickDescription: $quickDescription,
+            selectedHero: $selectedHero,
+            quickGoldText: $quickGoldText,
+            quickRarity: $quickRarity,
+            quickSchedule: $quickSchedule,
+            quickSpecificDays: $quickSpecificDays,
+            quickTargetCount: $quickTargetCount,
+            quickApproval: $quickApproval
+        )
     }
 
     // MARK: - Edit sections
@@ -527,21 +366,6 @@ struct QuestAssignmentView: View {
     // MARK: - Hero pickers
 
     @ViewBuilder
-    private var heroPicker: some View {
-        if viewModel.heroes.isEmpty {
-            Text("No heroes in the family.")
-                .foregroundStyle(.secondary)
-        } else {
-            Picker("Hero", selection: $selectedHero) {
-                Text("Choose…").tag(nil as ProfileCache?)
-                ForEach(viewModel.heroes) { hero in
-                    Text(hero.displayName).tag(hero as ProfileCache?)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
     private var heroPickerEdit: some View {
         if viewModel.heroes.isEmpty {
             Text("No heroes in the family.")
@@ -604,7 +428,7 @@ struct QuestAssignmentView: View {
         userEditedQuestName = true
         editQuestName = quest.questName
         editQuestDescription = quest.descriptionText ?? ""
-        editGoldText = String(format: "%.2f", quest.goldReward)
+        editGoldText = String(quest.goldReward)
         editXpText = "\(quest.xpReward)"
         editSchedule = quest.scheduleTypeEnum ?? .weeklyFlexible
         editTargetCount = quest.targetCount
@@ -787,17 +611,5 @@ struct QuestAssignmentView: View {
 
     private static func defaultWeekOf() -> Date {
         QuestService.mondayOfWeek(for: Date())
-    }
-}
-
-private extension Double {
-    func mapToText() -> String {
-        String(format: "%.2f", self)
-    }
-}
-
-private extension Int {
-    func mapToText() -> String {
-        String(self)
     }
 }

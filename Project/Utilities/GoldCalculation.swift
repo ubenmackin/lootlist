@@ -208,7 +208,7 @@ enum GoldCalculation: Sendable {
         // Use Decimal for precise calculation
         let rate = Decimal(baseRate)
         let xpDecimal = Decimal(xp)
-        return xpDecimal * rate / 100
+        return xpDecimal * rate / Decimal(AppConstants.Economy.percentageBase)
     }
 
     static func creditAsDouble(xp: Int, baseRate: Double) -> Double {
@@ -322,7 +322,7 @@ enum GoldCalculation: Sendable {
         let missingIDs = uniqueQuestIDs.filter { questMap[$0] == nil }
 
         if !missingIDs.isEmpty {
-            for chunk in missingIDs.chunked(into: 100) {
+            for chunk in missingIDs.chunked(into: AppConstants.CloudKit.batchQueryChunkSize) {
                 let predicate = NSPredicate(format: "recordID IN %@", chunk)
                 do {
                     let fetched: [Quest] = try await cloudKit.query(Quest.self, predicate: predicate)

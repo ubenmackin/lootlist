@@ -75,7 +75,7 @@ struct ProgressBar: View {
     }
 
     private func animateFill() {
-        withAnimation(.easeInOut(duration: 0.45)) {
+        withAnimation(.easeInOut(duration: DesignSystemConstants.AnimationDuration.progressFill)) {
             appeared = true
         }
     }

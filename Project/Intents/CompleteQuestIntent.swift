@@ -42,14 +42,11 @@ struct CompleteQuestIntent: AppIntent, Sendable {
             }
         }
 
-        let questModel: Quest? = await MainActor.run {
-            let zoneID = dep.questService.cloudKitReference.resolvedZoneID
-            let familyName = dep.appState.family?.id.recordName
-            guard let cache = dep.cacheService?.fetchQuests(family: familyName, weekInRange: nil)
-                .first(where: { $0.recordName == targetQuestEntity.id && $0.isActive })
-            else { return nil }
-            return cache.toQuest(zoneID: zoneID)
-        }
+        let zoneID = dep.questService.cloudKitReference.resolvedZoneID
+        let familyName = dep.appState.family?.id.recordName
+        let questModel = dep.cacheService?.fetchQuests(family: familyName, weekInRange: nil)
+            .first(where: { $0.recordName == targetQuestEntity.id && $0.isActive })?
+            .toQuest(zoneID: zoneID)
 
         guard let questModel else {
             return .result(dialog: "Quest '\(targetQuestEntity.title)' was not found.")

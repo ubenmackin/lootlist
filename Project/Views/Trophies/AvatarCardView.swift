@@ -17,9 +17,9 @@ struct AvatarCardView: View {
                 .padding(.bottom, 24)
                 .padding(.horizontal, 20)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.modal, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.modal, style: .continuous)
                 .strokeBorder(Color.gold.opacity(0.5), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
@@ -65,7 +65,7 @@ struct AvatarCardView: View {
                 Image(uiImage: uiImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(width: 120, height: 120)
+                    .frame(width: DesignSystemConstants.AvatarSize.large, height: DesignSystemConstants.AvatarSize.large)
                     .clipShape(Circle())
                     .overlay(
                         Circle().strokeBorder(Color.gold.opacity(0.7), lineWidth: 2.5)
@@ -73,7 +73,7 @@ struct AvatarCardView: View {
             } else {
                 Circle()
                     .fill(Color.white.opacity(0.16))
-                    .frame(width: 120, height: 120)
+                    .frame(width: DesignSystemConstants.AvatarSize.large, height: DesignSystemConstants.AvatarSize.large)
                     .overlay(
                         Circle().strokeBorder(Color.gold.opacity(0.7), lineWidth: 2.5)
                     )
@@ -143,7 +143,7 @@ struct AvatarCardView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                 .fill(Color.black.opacity(0.25))
         )
     }

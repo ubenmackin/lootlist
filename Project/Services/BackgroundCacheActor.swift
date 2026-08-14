@@ -249,13 +249,25 @@ actor BackgroundCacheActor {
     /// positive `targetCount` are never clobbered.
     func backfillTargetCountGlobally() {
         // QuestCache — iterate by recordName (global, not per-family).
-        let quests = (try? modelContext.fetch(FetchDescriptor<QuestCache>())) ?? []
+        let quests: [QuestCache]
+        do {
+            quests = try modelContext.fetch(FetchDescriptor<QuestCache>())
+        } catch {
+            logger.error("Failed to fetch QuestCache for backfill: \(error, privacy: .public)")
+            quests = []
+        }
         for quest in quests where quest.targetCount <= 0 {
             quest.targetCount = 1
         }
 
         // QuestTemplateCache — same global-by-recordName iteration.
-        let templates = (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>())) ?? []
+        let templates: [QuestTemplateCache]
+        do {
+            templates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>())
+        } catch {
+            logger.error("Failed to fetch QuestTemplateCache for backfill: \(error, privacy: .public)")
+            templates = []
+        }
         for template in templates where template.targetCount <= 0 {
             template.targetCount = 1
         }
@@ -265,11 +277,24 @@ actor BackgroundCacheActor {
         // Defense-in-depth: surface any rows that still carry a non-positive targetCount
         // after the backfill sweep. The runtime GoldCalculation.isFullyCompleted guard
         // tolerates a residual zero, but surfacing it here narrows the diagnostic window.
-        let zeroQuests = (try? modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.targetCount <= 0 }))) ?? []
+        let zeroQuests: [QuestCache]
+        do {
+            zeroQuests = try modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.targetCount <= 0 }))
+        } catch {
+            logger.error("Failed to fetch zero-target QuestCache post-backfill: \(error, privacy: .public)")
+            zeroQuests = []
+        }
         for quest in zeroQuests {
             logger.warning("QuestCache targetCount stuck at zero post-backfill: \(quest.recordName, privacy: .private)")
         }
-        let zeroTemplates = (try? modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.targetCount <= 0 }))) ?? []
+
+        let zeroTemplates: [QuestTemplateCache]
+        do {
+            zeroTemplates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.targetCount <= 0 }))
+        } catch {
+            logger.error("Failed to fetch zero-target QuestTemplateCache post-backfill: \(error, privacy: .public)")
+            zeroTemplates = []
+        }
         for template in zeroTemplates {
             logger.warning("QuestTemplateCache targetCount stuck at zero post-backfill: \(template.recordName, privacy: .private)")
         }

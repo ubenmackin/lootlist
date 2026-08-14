@@ -272,7 +272,7 @@ struct FamilyDashboardView: View {
                         Spacer()
 
                         Button {
-                            Task {
+                            Task { @MainActor in
                                 let zoneID = questService.cloudKitReference.resolvedZoneID
                                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
                                 if let parent = appState.currentProfile {
@@ -295,7 +295,7 @@ struct FamilyDashboardView: View {
                         .buttonStyle(.plain)
 
                         Button {
-                            Task {
+                            Task { @MainActor in
                                 let zoneID = questService.cloudKitReference.resolvedZoneID
                                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
                                 if let parent = appState.currentProfile {

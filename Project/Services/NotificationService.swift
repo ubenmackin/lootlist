@@ -197,7 +197,7 @@ final class NotificationService {
             "profileID": profile.id.recordName
         ]
 
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: DesignSystemConstants.AnimationDuration.notificationTriggerInterval, repeats: false)
         let request = UNNotificationRequest(
             identifier: "\(eventType.rawValue):\(UUID().uuidString)",
             content: content,
@@ -240,7 +240,7 @@ final class NotificationService {
             "profileID": profileID
         ]
 
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: DesignSystemConstants.AnimationDuration.notificationTriggerInterval, repeats: false)
         let request = UNNotificationRequest(
             identifier: "\(eventType.rawValue):\(UUID().uuidString)",
             content: content,
@@ -292,7 +292,7 @@ final class NotificationService {
             "questLogID": questLog.id.recordName
         ]
 
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: DesignSystemConstants.AnimationDuration.notificationTriggerInterval, repeats: false)
         let request = UNNotificationRequest(
             identifier: "questNeedsReview:\(questLog.id.recordName):\(UUID().uuidString)",
             content: content,
