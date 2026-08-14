@@ -6,20 +6,31 @@
 //
 
 import CloudKit
+import os
 import SwiftUI
 
 struct FamilyJoinView: View {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyJoin")
+
     @Bindable var viewModel: OnboardingViewModel
 
     @Environment(AppState.self) private var appState
     @Environment(CloudKitService.self) private var cloudKitService
+    @Environment(ToastManager.self) private var toastManager
+
+    #if DEBUG
+        @State private var showDebugSharePrompt = false
+        @State private var debugShareURLText = ""
+    #endif
 
     var body: some View {
         Group {
             if viewModel.detectedHero != nil {
                 heroWelcomeBody
+            } else if viewModel.isLoading || viewModel.joinProgressStatus != nil {
+                loadingBody
             } else {
-                joinBody
+                waitingBody
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -37,78 +48,165 @@ struct FamilyJoinView: View {
                 } label: {
                     Label("Back", systemImage: "chevron.left")
                 }
+                .disabled(viewModel.isLoading || viewModel.joinProgressStatus != nil)
             }
         }
+        .onChange(of: viewModel.pendingShareMetadata) { _, metadata in
+            logger.info("FamilyJoinView pendingShareMetadata changed: \(metadata != nil ? "has metadata" : "nil")")
+            guard metadata != nil else { return }
+            Task { @MainActor in
+                await viewModel.joinFamilyViaAcceptedShare()
+            }
+        }
+        .onChange(of: viewModel.error) { _, newError in
+            if let error = newError {
+                logger.error("FamilyJoinView surfaced error: \(error, privacy: .private)")
+                toastManager.show(message: error, type: .error)
+            }
+        }
+        #if DEBUG
+        .alert("Simulate Invite Link", isPresented: $showDebugSharePrompt) {
+                TextField("https://www.icloud.com/share/…", text: $debugShareURLText)
+                Button("Accept Link") {
+                    Task { @MainActor in
+                        await simulateShareLink()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Paste a CloudKit share URL to run the accept flow as if the invite were tapped in Messages.")
+            }
+        #endif
     }
 
-    private var joinBody: some View {
+    /// Loading view surface shown when fetching share metadata or accepting invitation
+    private var loadingBody: some View {
         VStack(spacing: 24) {
-            header
-
             Spacer()
 
-            if viewModel.hasShareInvitation {
-                VStack(spacing: 12) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.green)
+            ProgressView()
+                .controlSize(.large)
+                .tint(.blue)
 
-                    Text("Invitation Link Received!")
-                        .font(.headline.weight(.bold))
+            VStack(spacing: 12) {
+                Text(viewModel.joinProgressStatus ?? "Joining Guild...")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
 
-                    Text("You're ready to join your family's guild party.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                if let fraction = viewModel.joinProgressFraction {
+                    ProgressView(value: fraction)
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+                        .frame(maxWidth: 240)
+                        .animation(.easeInOut(duration: 0.3), value: fraction)
                 }
-                .padding(24)
-                .background(.thinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 24)
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    Label("Invitation Link", systemImage: "link.badge.plus")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.primary)
 
-                    TextField("https://www.icloud.com/share/...", text: $viewModel.shareURLString)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.subheadline)
-                        .padding(16)
-                        .background(.thinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14)
-                                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                        )
-                        .accessibilityIdentifier("joinFamily.linkField")
-
-                    Text("Tap the invitation link sent by your Guild Master, or paste the link here.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 24)
+                Text("Please keep LootList open while we set up your family Guild.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
             }
 
             Spacer()
-
-            Button {
-                viewModel.advanceToAvatarSelection()
-            } label: {
-                Label("Next: Choose Your Hero", systemImage: "sparkles")
-                    .font(.headline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.blue)
-            .disabled(!viewModel.hasShareInvitation && viewModel.shareURLString.trimmingCharacters(in: .whitespaces).isEmpty)
-            .padding(.horizontal, 24)
-
-            Spacer().frame(height: 32)
         }
+        .padding(.horizontal, 24)
     }
+
+    /// Pure waiting surface for the joiner path: no inputs, no buttons — the
+    /// user simply waits for an apple share invitation from their parent. When
+    /// the invitation arrives, `pendingShareMetadata` is populated and the
+    /// `.onChange(of:)` above accepts it, advancing to Avatar Selection.
+    private var waitingBody: some View {
+        VStack(spacing: 28) {
+            Spacer()
+
+            VStack(spacing: 16) {
+                Image(systemName: "envelope.badge.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+
+                Text("Waiting for your invite…")
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+                    .multilineTextAlignment(.center)
+
+                Text(
+                    "Ask your family's parent to invite you through their LootList app. When they send the invitation, you'll get a message invitation — tap it to join the family."
+                )
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 24)
+
+                Text("If you already received an invitation link, tap it in Messages to begin.")
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 24)
+            }
+
+            #if DEBUG
+                Button {
+                    showDebugSharePrompt = true
+                } label: {
+                    Label("Simulate Share Link (Dev)", systemImage: "hammer")
+                        .font(.footnote)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.tertiary)
+                .padding(.top, 8)
+            #endif
+
+            Spacer()
+
+            Spacer().frame(height: 24)
+        }
+        .padding(.horizontal, 24)
+        .accessibilityIdentifier("joinFamily.waitingScreen")
+    }
+
+    #if DEBUG
+        /// Development-only stand-in for an incoming Apple Messages share link: the
+        /// Simulator can't generate or receive CloudKit invites, so let the tester
+        /// paste a share URL and push it through the same accept machinery as a
+        /// real device tap — `container.shareMetadata(for:)` resolves the URL into
+        /// `pendingShareMetadata`, which the `.onChange(of:)` above then accepts.
+        @MainActor
+        private func simulateShareLink() async {
+            let trimmed = debugShareURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+            logger.info("Simulating share link with URL string: \(trimmed, privacy: .private)")
+            guard let url = URL(string: trimmed) else {
+                logger.error("Simulated share link URL parsing failed")
+                toastManager.show(message: "That doesn't look like a valid URL.", type: .error)
+                return
+            }
+            viewModel.joinProgressStatus = "Reading invitation link..."
+            viewModel.joinProgressFraction = 0.15
+            logger.info("Requesting container.shareMetadata(for: URL)...")
+            do {
+                let metadata = try await cloudKitService.container.shareMetadata(for: url)
+                let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
+                let zone = metadata.hierarchicalRootRecordID?.zoneID.zoneName ?? "nil"
+                logger.info("Resolved share metadata: zone='\(zone, privacy: .private)' title='\(title, privacy: .private)'")
+                viewModel.joinProgressStatus = "Invitation verified! Connecting to family..."
+                viewModel.joinProgressFraction = 0.3
+                viewModel.pendingShareMetadata = metadata
+            } catch {
+                viewModel.joinProgressStatus = nil
+                viewModel.joinProgressFraction = nil
+                logger.error("Resolving share metadata failed: \(error, privacy: .private)")
+                let friendlyMessage = friendlyInviteAcceptError(error)
+                    ?? "Could not read that share link. Please try again."
+                viewModel.error = friendlyMessage
+                toastManager.show(message: friendlyMessage, type: .error)
+            }
+        }
+    #endif
 
     // MARK: - Detected Hero ("Welcome back") surface
 
@@ -244,26 +342,5 @@ struct FamilyJoinView: View {
             .tint(.blue)
             .accessibilityIdentifier("detectedHero.differentButton")
         }
-    }
-
-    private var header: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "figure.and.child.holdinghands")
-                .font(.system(size: 56))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.blue, .purple],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-            Text("Join Your Party")
-                .font(.system(size: 28, weight: .heavy, design: .rounded))
-            Text("Heroes partake in quests to earn money and glory.")
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 24)
-        }
-        .padding(.top, 24)
     }
 }

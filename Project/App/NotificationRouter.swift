@@ -158,7 +158,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
             return
         }
 
-        Task { @MainActor in
+        Task {
             let zoneID = deps.questService.cloudKitReference.resolvedZoneID
             let recordID = CKRecord.ID(recordName: questLogID, zoneID: zoneID)
 

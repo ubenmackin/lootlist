@@ -6,6 +6,10 @@
 	<array>
 		<string>iCloud.com.volcrypt.lootlist</string>
 	</array>
+	<key>com.apple.developer.icloud-extended-share-access</key>
+	<array>
+		<string>InProcessOneTimeLinks</string>
+	</array>
 	<key>com.apple.developer.icloud-services</key>
 	<array>
 		<string>CloudKit</string>

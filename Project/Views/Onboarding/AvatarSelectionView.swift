@@ -314,7 +314,7 @@ struct AvatarSelectionView: View {
                 if viewModel.isParentFlow {
                     await viewModel.createFamily(name: viewModel.familyName)
                 } else {
-                    await viewModel.joinFamilyViaShareLink()
+                    await viewModel.completeJoinedProfile()
                 }
             }
         } label: {

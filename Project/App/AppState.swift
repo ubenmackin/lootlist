@@ -28,8 +28,8 @@ final class AppState {
 
         var errorDescription: String? {
             switch self {
-            case let .cacheInitializationFailed(message):
-                "Failed to initialize the local cache: \(message)"
+            case .cacheInitializationFailed:
+                "Failed to initialize the local cache. Please try relaunching the app."
             }
         }
     }
@@ -69,7 +69,6 @@ final class AppState {
 
     var familyZoneID: CKRecordZone.ID?
     var isZoneOwner: Bool = false
-    var activeShareURL: URL?
     var cacheService: CacheService?
     var cacheInitError: AppStateError?
 
@@ -89,11 +88,14 @@ final class AppState {
     private static let hasSessionKey = "session_hasActiveSession"
     private static let abandonedZoneIDsKey = "session_abandonedFamilyZoneNames"
 
-    init() {
-        let hasSession = UserDefaults.standard.bool(forKey: Self.hasSessionKey)
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let hasSession = defaults.bool(forKey: Self.hasSessionKey)
         authStatus = hasSession ? .restoringSession : .checkingCloudData
 
-        quickActionTask = Task { @MainActor [weak self] in
+        quickActionTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
                 if let action = notification.object as? QuickActionType {
                     self?.pendingQuickAction = action
@@ -101,7 +103,7 @@ final class AppState {
             }
         }
 
-        notificationRouteTask = Task { @MainActor [weak self] in
+        notificationRouteTask = Task { [weak self] in
             // Adopt a notification route retained by the router for taps that
             // arrived before this observer was subscribed (cold start), then
             // follow live posts.
@@ -123,10 +125,10 @@ final class AppState {
 
     var abandonedZoneIDs: [String] {
         get {
-            UserDefaults.standard.stringArray(forKey: Self.abandonedZoneIDsKey) ?? []
+            defaults.stringArray(forKey: Self.abandonedZoneIDsKey) ?? []
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: Self.abandonedZoneIDsKey)
+            defaults.set(newValue, forKey: Self.abandonedZoneIDsKey)
         }
     }
 
@@ -145,7 +147,6 @@ final class AppState {
     }
 
     func saveSession(profile: Profile, family: Family, zoneID: CKRecordZone.ID, isOwner: Bool) {
-        let defaults = UserDefaults.standard
         defaults.set(profile.id.recordName, forKey: Self.profileIDKey)
         defaults.set(family.id.recordName, forKey: Self.familyIDKey)
         defaults.set(zoneID.zoneName, forKey: Self.zoneNameKey)
@@ -155,8 +156,6 @@ final class AppState {
     }
 
     func clearSession() {
-        let defaults = UserDefaults.standard
-
         // Purge the previous family's cache before its record name is wiped
         // below. sign-out → sign-into-different-family must not leave the
         // previous family's rows behind for the new family to read.
@@ -174,7 +173,6 @@ final class AppState {
     }
 
     func restoreSession(cloudKit: any CloudKitServiceProtocol) async {
-        let defaults = UserDefaults.standard
         guard defaults.bool(forKey: Self.hasSessionKey),
               let profileRecordName = defaults.string(forKey: Self.profileIDKey),
               let familyRecordName = defaults.string(forKey: Self.familyIDKey),
@@ -206,19 +204,28 @@ final class AppState {
             family = familyResult
             currentProfile = profile
 
-            if isOwner {
-                activeShareURL = try? await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: familyID)
-            } else {
-                activeShareURL = nil
-            }
-
             authStatus = .authenticated
         } catch {
             logger.error("Session restoration failed: \(error, privacy: .private)")
-            if let ckErr = error as? CloudKitServiceError, case .notFound = ckErr {
+            let isUnrecoverableSession: Bool = {
+                if let ckErr = error as? CloudKitServiceError {
+                    switch ckErr {
+                    case .notFound, .invalidArguments, .zoneNotFound:
+                        return true
+                    default:
+                        return false
+                    }
+                }
+                return false
+            }()
+
+            if isUnrecoverableSession {
+                logger.info("Unrecoverable CloudKit session error — clearing session and running cloud discovery")
                 clearSession()
+                authStatus = .checkingCloudData
+                await discoverExistingCloudState(cloudKit: cloudKit)
             } else {
-                // Network error — try cache fallback for offline launch
+                // Transient network error — try cache fallback for offline launch
                 if let cache = cacheService,
                    let cachedProfile = cache.fetchProfile(recordName: profileRecordName),
                    let cachedFamily = cache.fetchFamily(recordName: familyRecordName)
@@ -409,13 +416,6 @@ final class AppState {
         currentProfile = profile
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = isOwner
-        if isOwner {
-            do {
-                activeShareURL = try await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
-            } catch {
-                logger.error("Failed to generate share URL on accept: \(error, privacy: .private)")
-            }
-        }
         authStatus = .authenticated
     }
 
@@ -439,17 +439,6 @@ final class AppState {
             }
         }
         clearSession()
-    }
-
-    var shareInviteItems: [Any] {
-        let name = family?.name ?? "our guild"
-        if let activeShareURL {
-            let message = "Join \(name) on LootList! Tap the link to join our guild:\n\(activeShareURL.absoluteString)"
-            return [message]
-        } else {
-            let message = "Join \(name) on LootList!"
-            return [message]
-        }
     }
 
     /// Sign-out is device-local only: it never authors a CloudKit flag and
@@ -495,6 +484,5 @@ final class AppState {
         family = nil
         familyZoneID = nil
         isZoneOwner = false
-        activeShareURL = nil
     }
 }

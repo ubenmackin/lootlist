@@ -33,11 +33,11 @@ Loot List is a family chore and allowance tracker for iOS, themed as a fantasy R
 The family is a CloudKit **custom zone**. The database a participant reads from depends on their role — this is the core distinction the app is built around.
 
 - **Guild Master (owner):** Creates the `Family` record in their **`privateCloudDatabase`**, then shares the zone via `CKShare`. The owner always operates on `privateDatabase` for that family.
-- **Hero (participant):** Accepts the `CKShare` invitation, after which the family zone becomes visible in their **`sharedCloudDatabase`**. All their reads/writes go to `sharedDatabase`.
+- **Hero / Ranger (participant):** Added by the Guild Master as an explicit `.readWrite` participant via `UICloudSharingController`; after accepting the `CKShare` invitation, the family zone becomes visible in their **`sharedCloudDatabase`**. All their reads/writes go to `sharedDatabase`.
 - **`CloudKitService` encodes this split explicitly:** `database(isOwner:)`, `activeFamilyZoneID`, `activeIsOwner`, `activeFamilyDatabase`, `resolvedZoneID`, plus `privateDatabase` / `sharedDatabase` accessors. `AppState.isZoneOwner` drives which DB is selected.
 - **Real-time sync:** `CKSubscription` per zone pushes changes to all devices; `AppSyncCoordinator` fans these events out to subscribers (see §2).
 - **Offline:** CloudKit queues local changes and syncs when online; the local cache (§2) keeps reads working with no network.
-- **Share lifecycle:** `createShare` / `fetchOrCreateShareURL` / `acceptShare`; incoming share URLs are handled via `.onOpenURL` in `LootListApp` and surfaced to the onboarding view model as `pendingShareMetadata`.
+- **Share lifecycle:** shares are **private** (`publicPermission = .none`) — membership is per-participant, never via a public bearer link. The Guild Master invites a Hero or Co-Parent through a role-targeted share minted by `createShare(for:role:)` (resolved/reused by `fetchOrCreateShare(for:role:)`) and presented via `UICloudSharingController`; joiners accept via `acceptShare`. The joiner's role travels in the share title (`UserRole.shareTitleSuffix`) and is decoded at accept time via `UserRole.fromShareTitle` (see the CloudKit Share Permission section). Incoming share URLs (Apple Messages invites) are handled via `.onOpenURL` in `LootListApp` and surfaced to the onboarding view model as `pendingShareMetadata`.
 - **Zone cleanup:** Rejected/abandoned family zones are tracked in `AppState.abandonedZoneIDs` (persisted in UserDefaults) and drained by `CloudKitService.processAbandonedZonesQueue` at launch.
 
 > ⚠ Do **not** treat the family data as "all in the shared database." Every CloudKit call must go through `CloudKitService.database(isOwner:)` so it targets the correct database for the current user.
@@ -239,14 +239,14 @@ authenticated ──(signOut / signOutAndDiscover)──► checkingCloudData
 
 ### 8.1 Identity Dedupe Contract
 
-**One iCloud user record + one Family reference = one Profile (Hero OR Guild Master).** No code path may mint a second `Profile` for the same person in the same family — whether the user is a hero re-joining via a share link, a parent re-onboarding on a new device, or either role recovering after sign-out. The contract MUST hold for `joinFamilyViaShare` AND `createFamily`, and the dedupe key is always anchored on the **server-authenticated CloudKit identity** — never on user-editable fields:
+**One iCloud user record + one Family reference = one Profile (Hero OR Guild Master).** No code path may mint a second `Profile` for the same person in the same family — whether the user is a hero re-joining via a share link, a parent re-onboarding on a new device, or either role recovering after sign-out. The contract MUST hold for `joinFamilyViaAcceptedShare` AND `createFamily`, and the dedupe key is always anchored on the **server-authenticated CloudKit identity** — never on user-editable fields:
 
 - **Hero key — `Profile.iCloudUserID`** (a plain record-name `String`), scoped to the family via `Profile.family` (a `CKRecord.Reference`). The lookup predicate is `family == %@ AND iCloudUserID == %@`, evaluated against the **shared** database. `displayName` is deliberately never a dedupe key: it is user-editable and globally non-unique.
 - **Guild Master key — `Family.creatorUserRecordName`** (server-stamped, never authored locally — see the Authorization owner anchor), matched against the current user's record name across the **private** custom zones. The same field that anchors the highest-privilege owner operations is the owner-side dedupe key.
 
 Enforcement:
 
-- **`joinFamilyViaShare`** resolves the current user's identity first, then runs the hero dedupe via `findExistingHeroProfile(in:family:currentUserRecordID:)` — a 3-branch decision: (1) **active** match → reuse as-is, no save; (2) **inactive** match → reactivate (set active, refresh the family reference, allow a rename via the onboarding display name) and save; (3) **no match** → brand-new profile. Only a successful lookup that proves no match exists may create a new profile.
+- **`joinFamilyViaAcceptedShare`** resolves the current user's identity first, then runs the hero dedupe via `findExistingProfileForCurrentUser(in:family:currentUserRecordID:)` — a 3-branch decision: (1) **active** match → reuse as-is, no save; (2) **inactive** match → reactivate (set active, refresh the family reference, allow a rename via the onboarding display name) and save; (3) **no match** → brand-new profile (minted with the role decoded from the share's title — see the CloudKit Share Permission section). Only a successful lookup that proves no match exists may create a new profile.
 - **`createFamily`** runs the parent dedupe via `findExistingOwnerFamily(currentUserRecordName:)` **before** `ensureZoneExists(zoneID)` — the reuse path never leaves an orphaned empty private zone (the existing family's zone is already present). The reuse branch resolves the existing Guild Master via `resolveExistingOwnerProfile(in:family:)`: active GM reused as-is (never overwritten from the onboarding profile), inactive GM reactivated preserving its identity, missing GM re-minted *inside the existing family's zone*. A brand-new `Family` is minted only when the lookup provably found no existing owner family.
 - **Dedupe lookups are fail-closed.** Each lookup distinguishes provable absence (`CloudKitServiceError.notFound` → the new-record branch) from every other failure: identity-resolution failure surfaces as `accountUnavailable`, and any thrown lookup/query error is rethrown as `joinFailed` / `creationFailed`. A dedupe lookup that cannot *prove* there is no existing profile never falls through to minting — a transient CloudKit failure can never mint a duplicate.
 - **Identity resolution is scoped to onboarding dedupe.** `resolveCurrentUserRecordID` caches the current user's record ID once per service session for the dedupe flows; the security-relevant owner-anchor check (`isFamilyOwner`) deliberately bypasses that cache and re-resolves `cloudKit.currentUserRecordID()` fresh on every call — an OS-level iCloud account change without an app relaunch can never authorize against a stale pre-switch identity. Owner-anchor authorization is NOT backed by the onboarding identity cache.
@@ -254,22 +254,29 @@ Enforcement:
 ### 9. Onboarding Flow (fresh start)
 
 ```
-WelcomeView → "I'm a Parent" → sign in with iCloud → Create Family → Guild Master
-                                                         └─ Invite Heroes via iCloud (CKShare)
-           → "I'm a Hero"   → sign in with iCloud
-                                 │
-                                 ├─ existing-hero-detected (fetchSharedZones + iCloudUserID
-                                 │    match via checkForExistingHero) → DetectedFamilyView
-                                 │    ├─ "Reconnect to Guild" (acceptDetectedFamily)
-                                 │    │     → back to the existing hero → Ready to quest!
-                                 │    └─ "Join a Different Family" → continue to the
-                                 │          new-hero branch below (dismisses the card)
-                                 │
-                                 └─ no existing hero → accept share / enter family code
-                                                          → Select Avatar Class → Ready to quest!
+WelcomeView → "Begin Your Quest" → "Create a Family"
+                                       ├─ Family Creation → Guild Master
+                                       │    └─ invite later: "Invite Members" → role picker
+                                       │       (Hero / Co-Parent) → UICloudSharingController
+                                       │       → Apple Messages invite → joiner taps it
+                                       │
+                                       └─ "Join a Family" → FamilyJoinView (waiting screen:
+                                            "Waiting for your invite…")
+                                            │
+                                            ├─ Apple Messages invite arrives (tap →
+                                            │    onOpenURL → container.shareMetadata(for:) →
+                                            │    pendingShareMetadata → acceptShare — role
+                                            │    decoded from the share title)
+                                            │    → Select Avatar Class → Ready to quest!
+                                            │
+                                            └─ existing-hero-detected (fetchSharedZones +
+                                                 iCloudUserID match via checkForExistingHero)
+                                                 ├─ "Reconnect to Guild" → Ready to quest!
+                                                 └─ "Join a Different Family" → back to the
+                                                      waiting screen above
 ```
 
-Incoming share URLs are captured in `LootListApp.handleIncomingShareURL` and passed to `OnboardingViewModel.pendingShareMetadata`.
+Incoming share URLs (from Apple Messages invites) are captured in `LootListApp.handleIncomingShareURL` and passed to `OnboardingViewModel.pendingShareMetadata`; the accepting path — `OnboardingViewModel.joinFamilyViaAcceptedShare` → `FamilyService.joinFamilyViaAcceptedShare` — accepts the share and mints the profile with the role decoded from the share's title (see the CloudKit Share Permission section).
 
 The alternate Hero entry is a defense-in-depth reconnect probe: when the hero role is selected, `OnboardingViewModel.checkForExistingHero()` scans the user's shared zones via the same `AppState.activeSharedHeroProfiles` / `sharedZoneFamily` helpers that session recovery uses (§8). If exactly one active `Profile` bound to the current iCloud user is found, `detectedHero` (a `DetectedHero` struct carrying `family`, `profile`, `zoneID`) is populated and FamilyJoinView swaps in a "Welcome back" card — "Reconnect to Guild" calls `acceptDetectedFamily` to restore the existing hero session, while "Join a Different Family" dismisses the card and proceeds down the original share-URL branch. The service layer is the authoritative duplicate guard (§8.1); the probe merely surfaces the reconnect option earlier in the flow for a better UX.
 
@@ -299,7 +306,7 @@ The repo follows the MVVM/Services layout below. The exact file listing is inten
 - **`Project/Models/Local/`** — the SwiftData `@Model` cache classes (one per CloudKit type), the `FamilyScopedCache` protocol they conform to (mandates `familyRecordName`), and `LootListSchema.swift` (the `VersionedSchema`, see §2).
 - **`Project/Models/Enums/`** — the typed enums above, plus `CachedRecordType` (the typed delete-path enum, see §2).
 - **`Project/ViewModels/`** — screen ViewModels (`@Observable`): hero & family dashboards, quest manager, treasury, trophy room, onboarding, and quest log. ViewModels read `*Cache` models directly and never depend on CloudKit types.
-- **`Project/Services/`** — the protocol/concrete service layer: `CloudKitServiceProtocol` (the `@MainActor` seam consumed across the service layer and `AppState`), `CloudKitService` (owner/participant DB split, retry, share, zones, subscriptions), `FamilyService` (owns the Identity Dedupe Contract helpers — `findExistingHeroProfile`, `findExistingOwnerFamily`, `resolveExistingOwnerProfile` — see §8.1), `QuestService`, `TreasuryService`, `SpendingService` (protocol; `ManualSpendingService` is the sole conformer today, `FinanceKitSpendingService` planned — §3), `AchievementService`, `NotificationService`, `AvatarService`, `XPService` (declaration site of the narrower `CloudKitServicing` protocol), `CacheService` (+ `CacheService+Fetches` / `CacheService+Invalidation` extensions), `BackgroundCacheActor`, `SyncEngine`, `AppSyncCoordinator`, `CacheConversions`, `ConcurrentEditDetector` (the `detectConcurrentEdit` guard and the actor-isolated `InFlightMutationRegistry` — see §2 and §Conflict), `ToastManager` (shared in-app/toast surface), and `DataMigrationsCoordinator`.
+- **`Project/Services/`** — the protocol/concrete service layer: `CloudKitServiceProtocol` (the `@MainActor` seam consumed across the service layer and `AppState`), `CloudKitService` (owner/participant DB split, retry, share, zones, subscriptions), `FamilyService` (owns the Identity Dedupe Contract helpers — `findExistingProfileForCurrentUser`, `findExistingOwnerFamily`, `resolveExistingOwnerProfile` — see §8.1), `QuestService`, `TreasuryService`, `SpendingService` (protocol; `ManualSpendingService` is the sole conformer today, `FinanceKitSpendingService` planned — §3), `AchievementService`, `NotificationService`, `AvatarService`, `XPService` (declaration site of the narrower `CloudKitServicing` protocol), `CacheService` (+ `CacheService+Fetches` / `CacheService+Invalidation` extensions), `BackgroundCacheActor`, `SyncEngine`, `AppSyncCoordinator`, `CacheConversions`, `ConcurrentEditDetector` (the `detectConcurrentEdit` guard and the actor-isolated `InFlightMutationRegistry` — see §2 and §Conflict), `ToastManager` (shared in-app/toast surface), and `DataMigrationsCoordinator`.
 - **`Project/Views/`** — SwiftUI screens grouped by feature: `Onboarding/`, `Hero/`, `Treasury/`, `Trophies/`, `Profile/`, `Guild/`, `Shared/`. `Shared/` holds cross-cutting components (splash, settings, share sheet, presets, badges, progress bar, toast view, validation rows, etc.).
 - **`Project/Utilities/`** — app-wide constants, ISO8601-UTC calendar helpers, `WeekMath` (half-open week ranges — see §5), reward proration, sample/seed data, and test-environment detection.
 - **`Project/Resources/`** — asset catalogs (AppIcon + avatar imagesets, AchievementIcons).
@@ -394,11 +401,12 @@ These remain tracked as hardening items:
 
 ## CloudKit Share Permission (load-bearing — do not change)
 
-`CKShare.publicPermission` is set to `.readWrite` in `CloudKitService.createShare` and `fetchOrCreateShareURL`. This is **REQUIRED**, not a misconfiguration:
+`CKShare.publicPermission` is set to `.none` on every share-mint path — `CloudKitService.createShare(for:)`, `createShare(for:role:)`, and `fetchOrCreateShare(for:role:)`. This is **REQUIRED**, not a misconfiguration:
 
-- The public share link is the **only** family-join mechanism. Users are never added as explicit participants.
-- A user who accepts a share via the public link becomes a participant whose permission mirrors the share's `publicPermission`. With `.readOnly` they would be read-only and every hero write (profile save, quest completion, spending, payout) would fail — the app would be unusable for non-owners.
-- The share URL is a **bearer credential** for family membership (read **and** write). Treat it as sensitive. If it leaks, create a new share to rotate it.
+- The public share link is **not** a family-join mechanism; it carries no membership grant. A user joins only after the Guild Master adds them as an explicit `.readWrite` participant via `UICloudSharingController` (Apple Messages invite). The share URL is therefore not a bearer credential — there is no public link to leak or rotate.
+- Every added participant joins as `.readWrite`, so Hero/Ranger writes (profile save, quest completion, spending, payout) work identically to the retired public-link model — the app remains fully usable for non-owners.
+- Role-targeted invitations are minted as distinct `CKShare` records against the same family root, one per role. `createShare(for:role:)` titles each share `"<familyName>: Hero Invitation"` (`UserRole.hero`) or `"<familyName>: Co-Parent Invitation"` (`UserRole.ranger`) via `UserRole.shareTitleSuffix`; `fetchOrCreateShare(for:role:)` reuses an existing role-matching share (matched by title suffix) or mints a new one.
+- At accept time the joiner's role is decoded from the share's title (`UserRole.fromShareTitle` on the `CKShare.Metadata` share record); an unrecognized or legacy family-name-only title falls back to `.hero` — recoverable, since the Guild Master can re-issue a role-targeted invite.
 - Role-based rules are enforced client-side only; CloudKit provides no server-side business-rule validation. See §Authorization Model below.
 
 ---
@@ -411,7 +419,7 @@ It does **not** by itself stop a malicious CloudKit participant from forging raw
 
 ## Authorization owner anchor
 
-Role field alone is forgeable — a malicious participant who accepts the public `readWrite` share link can issue a raw `CKRecord` write creating a `Profile` with `role = .guildMaster` bound to their own iCloud user ID, and every parent-role guard would then pass. To close this, the highest-privilege, irreversible family operations are anchored on the **server-authenticated CloudKit identity** rather than the forgeable `Profile.role` field:
+Role field alone is forgeable — a malicious participant who has joined the family (the join gate is now at the CloudKit layer: shares are private with `publicPermission = .none`, and only a Guild Master can add participants via `UICloudSharingController`, so a stranger cannot self-join) can still issue a raw `CKRecord` write creating a `Profile` with `role = .guildMaster` bound to their own iCloud user ID, and every parent-role guard would then pass. To close this, the highest-privilege, irreversible family operations are anchored on the **server-authenticated CloudKit identity** rather than the forgeable `Profile.role` field:
 
 - **`Family.creatorUserRecordName`** mirrors CloudKit's server-stamped, read-only `CKRecord.creatorUserRecordID` — the iCloud user record name of the user who created the family record. It is decoded **only** on the read path in `init(record:)` (from `record.creatorUserRecordID?.recordName`) and is **never authored locally**: `toRecord()` does not write the field, exactly mirroring the `changeTag` precedent for server-owned fields. Because CloudKit itself controls the creator stamp (saves cannot spoof it), a participant cannot rewrite the anchor — unlike a locally-authored field. The value is mirrored into `FamilyCache` for cache-first reads.
 - **Irreversible owner-gated operations** — `deleteFamilyAndReset`, `updateMemberRole`, `kickMember` — require the server-authenticated user to equal the family's creator (`isFamilyOwner`), evaluated against `currentUserRecordID()` at enforcement time. Deny-by-default when the creator is unresolved: a nil `creatorUserRecordName` (record not yet stamped, or legacy row) never grants ownership on its own.
@@ -419,7 +427,7 @@ Role field alone is forgeable — a malicious participant who accepts the public
 - **Legacy fallback:** families predating the anchor (nil `creatorUserRecordName` — the creator is unresolved) fall back to the legacy check — parent-role for `updateMemberRole`/`kickMember`, and zone-owner + parent-role for `deleteFamilyAndReset`. This keeps existing families fully functional without a backfill.
 - **Profile self-service operations** (`updateProfilePayoutPolicy`, `updateProfilePayoutDay`, `updateProfileDisplayName`, `updateProfileAvatar`) are unchanged — they gate on self/Parent and are not owner-anchored.
 
-**Accepted residual risk:** reward minting (quest verify/reject, `runPayout`, `applyReward`) runs client-side and remains forgeable by a participant; fully closing it requires a server-side validation layer. **V2 note:** replace the public bearer-URL share link with explicit per-participant invites and integrate FinanceKit (both already planned for V2) to shrink the remaining attack surface.
+**Accepted residual risk:** reward minting (quest verify/reject, `runPayout`, `applyReward`) runs client-side and remains forgeable by a participant; fully closing it requires a server-side validation layer (FinanceKit integration remains a deferred V2 item). The V2 join-gate change is realized: the public bearer-URL share link has been replaced by explicit per-participant invites on private shares (`publicPermission = .none`), shrinking the residual risk surface to a **post-join** participant forging the `Profile.role` field — against which the immutable owner anchor continues to defend the irreversible operations above.
 
 ---
 
@@ -427,25 +435,23 @@ Role field alone is forgeable — a malicious participant who accepts the public
 
 This register codifies deliberate, load-bearing security decisions that are **accepted risk**, not defects. The security-audit gate must classify findings that merely restate the blast radius of an entry in this register — without introducing a new, concrete, in-scope exploit or a concrete alternative design — as **non-findings** and must NOT fail the build on them.
 
-### AR-001 — `CKShare.publicPermission = .readWrite` bearer share link
+### AR-001 — `CKShare.publicPermission = .readWrite` bearer share link (RESOLVED)
 
-**Location:** `Project/Services/CloudKitService+Sharing.swift` (`createShare` sets `share.publicPermission = .readWrite`; `fetchOrCreateShareURL` also enforces `existingShare.publicPermission = .readWrite` on the retrieve path).
+**Location:** `Project/Services/CloudKitService+Sharing.swift` (`createShare(for:)` / `createShare(for:role:)` / `fetchOrCreateShare(for:role:)` all set `share.publicPermission = .none`; the retired `fetchOrCreateShareURL` no longer exists).
 
-**Status:** ACCEPTED (load-bearing; do not alter).
+**Status:** RESOLVED via V2-mode-A per-participant invites.
 
-**Rationale:**
+**Resolution summary:**
 
-a. The public share link is the **sole** family-join mechanism; participants join via `FamilyService.joinFamilyViaShare` → `CloudKitService.acceptShare`, never as explicit per-user `recordID` participants.
+a. The public bearer link is retired. Every share mints with `publicPermission = .none`, so the share URL carries no membership grant — a participant joins only after the Guild Master adds them as an explicit `.readWrite` participant via `UICloudSharingController` (Apple Messages invite). The join gate now lives at the CloudKit layer: there is no public link to leak, rotate, or re-mint for access control.
 
-b. CloudKit applies one `publicPermission` to **all** participants who accept via the public link. Setting `.readOnly` would strip write access for every Hero — profile saves, quest completions, spending logging, and payout would all fail, making the app unusable for every non-owner participant. The app currently has NO server-side business-rule layer where authenticated write-gating could be enforced.
+b. Role-targeted invitations are distinct `CKShare` records against the same family root, titled `"<familyName>: Hero Invitation"` / `"<familyName>: Co-Parent Invitation"` (`UserRole.shareTitleSuffix`). At accept time `FamilyService.joinFamilyViaAcceptedShare` decodes the role from the share title via `UserRole.fromShareTitle` (unrecognized or legacy titles fall back to `.hero`). Participants join as `.readWrite`, so Hero/Ranger writes (profile saves, quest completions, spending logging, payout) work identically to the pre-V2 public-link model.
 
-c. Highest-privilege irreversible operations are already defended against the read/write bearer link by the server-stamped `Family.creatorUserRecordName` owner anchor (see Authorization owner anchor): `deleteFamilyAndReset`, `updateMemberRole`, `kickMember` require the caller's server-authenticated identity to equal the family creator, so accepting the public readWrite link does not grant zone-deletion or role/kick powers.
+c. Highest-privilege irreversible operations remain defended by the server-stamped `Family.creatorUserRecordName` owner anchor (see Authorization owner anchor): `deleteFamilyAndReset`, `updateMemberRole`, `kickMember` require the caller's server-authenticated identity to equal the family creator, so a post-join participant forging `Profile.role` cannot gain zone-deletion or role/kick powers.
 
-**Mitigations already in place:** client-side role gating in the service layer; the creator anchor above; share rotation (mint a new share to rotate a leaked URL).
+**Remaining residual risk:** the join gate has moved to the CloudKit layer, but a participant who has legitimately joined can still forge the client-side `Profile.role` field; the immutable owner anchor continues to defend the irreversible operations. See AR-002 for the absence of a server-side business-rule layer.
 
-**Closure note:** the public bearer link is an accepted residual risk until V2 replaces it.
-
-**Security-audit directive:** A finding that merely restates the readWrite/read-only blast radius of this share WITHOUT introducing a new, concrete, in-scope exploit OR a concrete per-participant-write design must be classified as a NON-FINDING (matches this register) and must NOT fail the gate.
+**Security-audit directive:** A finding that merely restates the post-join role-forgery blast radius of the private-share model WITHOUT introducing a new, concrete, in-scope exploit OR a concrete design change must be classified as a NON-FINDING (matches this register) and must NOT fail the gate.
 
 ### AR-002 — Local auth is client-side only; CloudKit provides no server-side business-rule validation
 
@@ -469,7 +475,7 @@ The absence of a CloudKit-side business-rule layer means authenticated write-gat
 - **Database selection:** always go through `CloudKitService.database(isOwner:)` — never assume `sharedCloudDatabase`.
 - **Subscriptions:** `CKSubscription` per zone (owner DB) and per database (shared DB), registered by `AppSyncCoordinator.registerSubscriptions(for:in:)` with `shouldSendContentAvailable = true` (silent push — sync-only, not user-visible alerts). CKRecord change delivery reaches the client via silent push; no in-process `AsyncStream` continuation layer is needed.
 - **Retry/backoff:** `CloudKitService.retrying()` with `backoffSchedule = [0.5s, 1.5s, 4s]`, `maxRetries = 3`. Failures surface as `CloudKitServiceError` (the full case set lives in `Project/Services/CloudKitService.swift`; notably `serverRecordChanged` is the canonical concurrent-edit signal used by §Conflict).
-- **Shares:** `createShare` / `fetchOrCreateShareURL` / `acceptShare`; incoming share URLs handled via `.onOpenURL` → `pendingShareMetadata`.
+- **Shares:** private role-targeted shares (`publicPermission = .none`) via `createShare(for:role:)` / `fetchOrCreateShare(for:role:)` / `acceptShare`; the Guild Master adds participants through `UICloudSharingController`; incoming share URLs handled via `.onOpenURL` → `pendingShareMetadata`; the joiner's role decoded from the share title (`UserRole.fromShareTitle`).
 - **Tests:** CloudKit mocks are returned when `TestEnvironment.isRunningUnitOrUITests`; use `SampleData.populate` to seed both CloudKit mocks and the in-memory cache.
 
 ### Local Cache Integration

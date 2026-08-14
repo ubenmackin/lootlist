@@ -506,4 +506,24 @@ struct ManualSpendingServiceTests {
         #expect(cached.count == 1)
         #expect(cached.first?.location == "Hobby Lobby")
     }
+
+    @Test
+    func `spending service error underlying does not leak raw string`() {
+        let raw = "<CKErrorDomain: 20> \"serverRejectedRequest\"; _zoneID=PrivateZone"
+        let error = SpendingServiceError.underlying(raw)
+        let description = error.errorDescription
+        #expect(description == "Something went wrong. Please try again.")
+        #expect(!(description ?? "").contains(raw))
+        #expect(!(description ?? "").contains("CKErrorDomain"))
+    }
+
+    @Test
+    func `app state error cache initialization failed does not leak raw string`() {
+        let raw = "SwiftData.SwiftDataError(_error: SwiftData.SwiftDataError.loadIssueModelContainer)"
+        let error = AppState.AppStateError.cacheInitializationFailed(raw)
+        let description = error.errorDescription
+        #expect(description == "Failed to initialize the local cache. Please try relaunching the app.")
+        #expect(!(description ?? "").contains(raw))
+        #expect(!(description ?? "").contains("SwiftDataError"))
+    }
 }

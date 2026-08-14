@@ -34,6 +34,13 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
 
     case shareFailed(String)
 
+    /// Accepting a share invitation failed. The underlying `CKError.Code` is
+    /// preserved (when CloudKit supplied one) so callers can classify the
+    /// failure symbolically — e.g. `.unknownItem` / `.zoneNotFound` mean the
+    /// shared zone was deleted or the invite expired — instead of probing
+    /// numeric codes or localized/domain error text.
+    case shareAcceptFailed(code: CKError.Code?, message: String)
+
     /// Cursor pagination exceeded a sane page budget without CloudKit signaling
     /// completion (`cursor == nil`). Defensive guard against pathological infinite
     /// loops where CloudKit returns a non-nil cursor alongside an empty page.
@@ -45,8 +52,8 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
             "iCloud account is unavailable or not authenticated. Please check Settings."
         case .networkUnavailable:
             "Network connection is unavailable."
-        case let .notFound(details):
-            "Requested record was not found (\(details))."
+        case .notFound:
+            "The requested record could not be found."
         case .serverRecordChanged:
             "Another device modified this record. Refresh to see the latest."
         case .changeTokenExpired:
@@ -57,14 +64,16 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
             "CloudKit service is temporarily busy (code: \(code ?? 0))."
         case .exhaustedBudget:
             "CloudKit operation timed out after multiple retries."
-        case let .zoneSetupFailed(msg):
-            "Failed to set up family CloudKit zone: \(msg)"
-        case let .invalidArguments(msg):
-            "Invalid arguments for CloudKit operation: \(msg)"
-        case let .shareFailed(msg):
-            "iCloud share operation failed: \(msg)"
-        case let .underlying(msg):
-            "CloudKit error: \(msg)"
+        case .zoneSetupFailed:
+            "Could not set up the family CloudKit zone. Please try again."
+        case .invalidArguments:
+            "Invalid arguments for this operation. Please try again."
+        case .shareFailed:
+            "Could not create the iCloud share. Please try again."
+        case .shareAcceptFailed:
+            "Could not accept the share invitation."
+        case .underlying:
+            "Something went wrong. Please try again."
         case let .paginationExhausted(pageBudget):
             "CloudKit query pagination exceeded \(pageBudget) pages without a termination signal."
         }
@@ -282,10 +291,6 @@ class CloudKitService: CloudKitServiceProtocol {
         }
 
         throw lastWrappedError ?? CloudKitServiceError.exhaustedBudget(attempt: Self.maxRetries)
-    }
-
-    func fetchShareMetadata(for url: URL) async throws -> CKShare.Metadata {
-        try await Self.defaultContainer.shareMetadata(for: url)
     }
 
     func wrapError(_ error: Error) -> CloudKitServiceError {

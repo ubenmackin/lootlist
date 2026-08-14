@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct FatalCacheErrorView: View {
-    let message: String
+    var message: String?
 
     var body: some View {
         ZStack {
@@ -51,19 +51,23 @@ struct FatalCacheErrorView: View {
                     .padding(.horizontal, 24)
                 }
 
-                ScrollView {
-                    Text(message)
-                        .font(.system(.footnote, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.75))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.black.opacity(0.35))
-                        )
-                        .padding(.horizontal, 24)
-                }
-                .frame(maxHeight: 180)
+                #if DEBUG
+                    if let message, !message.isEmpty {
+                        ScrollView {
+                            Text(message)
+                                .font(.system(.footnote, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.75))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color.black.opacity(0.35))
+                                )
+                                .padding(.horizontal, 24)
+                        }
+                        .frame(maxHeight: 180)
+                    }
+                #endif
 
                 Button {
                     // Offer a relaunch affordance; terminating is the only way back

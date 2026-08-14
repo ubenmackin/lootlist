@@ -6,12 +6,15 @@
 //
 
 import CloudKit
+import os
 import SwiftData
 import SwiftUI
 
 struct QuestDetailView: View {
     let quest: Quest
     let initialLog: QuestCompletion?
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestDetail")
 
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
@@ -376,7 +379,8 @@ struct QuestDetailView: View {
         } catch let questError as QuestServiceError {
             toastManager?.show(message: questError.localizedDescription, type: .error)
         } catch {
-            toastManager?.show(message: error.localizedDescription, type: .error)
+            logger.error("Failed to complete quest: \(error, privacy: .private)")
+            toastManager?.show(message: "Could not complete the quest. Please try again.", type: .error)
         }
     }
 
@@ -388,7 +392,8 @@ struct QuestDetailView: View {
             try await questService.withdrawCompletion(questLog: log, by: profile)
             toastManager?.show(message: "Completion unsubmitted.", type: .info)
         } catch {
-            toastManager?.show(message: "Could not unsubmit: \(error.localizedDescription)", type: .error)
+            logger.error("Failed to unsubmit completion: \(error, privacy: .private)")
+            toastManager?.show(message: "Could not unsubmit the quest. Please try again.", type: .error)
         }
     }
 }

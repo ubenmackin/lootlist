@@ -7,11 +7,14 @@
 
 import AppIntents
 import Foundation
+import os
 import SwiftData
 
 struct CompleteQuestIntent: AppIntent, Sendable {
     static let title: LocalizedStringResource = "Complete Quest"
     static let description = IntentDescription("Marks a quest or chore as completed.")
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CompleteQuestIntent")
 
     @Parameter(title: "Quest")
     var quest: QuestEntity?
@@ -58,7 +61,8 @@ struct CompleteQuestIntent: AppIntent, Sendable {
         } catch let err as QuestServiceError {
             return .result(dialog: IntentDialog(stringLiteral: err.errorDescription ?? "Could not complete the quest."))
         } catch {
-            return .result(dialog: "Could not complete the quest: \(error.localizedDescription)")
+            logger.error("Failed to complete quest: \(error, privacy: .private)")
+            return .result(dialog: "Could not complete the quest. Please try again.")
         }
     }
 }

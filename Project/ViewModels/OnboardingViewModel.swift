@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 enum OnboardingStep: Hashable, Sendable {
     case welcome
@@ -22,6 +23,14 @@ enum OnboardingStep: Hashable, Sendable {
     case done
 }
 
+/// The intent a new user declares on the role-selection screen. The joiner's
+/// role is deliberately unknown here — it arrives baked into the accepted share
+/// — so onboarding captures only the family-vs-join choice.
+enum UserIntent: String, Hashable, Sendable {
+    case createFamily
+    case joinFamily
+}
+
 /// A single active `Profile` bound to the current iCloud user, discovered in a
 /// shared zone during hero onboarding, together with the family and zone it
 /// belongs to. Lets a returning hero reconnect to their existing guild instead
@@ -35,7 +44,9 @@ struct DetectedHero {
 @MainActor
 @Observable
 final class OnboardingViewModel {
-    var selectedRole: UserRole?
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Onboarding")
+
+    var userIntent: UserIntent?
 
     var displayName: String = ""
 
@@ -44,10 +55,6 @@ final class OnboardingViewModel {
     var avatarPresetID: String?
 
     var customAvatarImageData: Data?
-
-    var shareURLString: String = ""
-
-    var sharedMetadata: CKShare.Metadata?
 
     var familyName: String = ""
 
@@ -61,7 +68,10 @@ final class OnboardingViewModel {
 
     var isLoading: Bool = false
 
-    var shareURL: URL?
+    var joinProgressStatus: String?
+
+    var joinProgressFraction: Double?
+
     var pendingShareMetadata: CKShare.Metadata?
 
     /// Set when the hero onboarding path discovers exactly one active `Profile`
@@ -80,40 +90,55 @@ final class OnboardingViewModel {
 
     private(set) var builtProfile: Profile?
 
+    /// True when `joinFamilyViaAcceptedShare` reused an existing ACTIVE profile
+    /// as-is (service-layer dedupe Branch 1). Active profiles are reused with
+    /// their identity untouched, so `completeJoinedProfile()` skips the
+    /// onboarding displayName/avatar writes on this branch and finalizes with
+    /// the existing identity preserved. Fresh-mint and reactivation joins
+    /// (flag false) keep the writes.
+    private(set) var didReuseActiveProfile = false
+
     init(familyService: FamilyService, appState: AppState) {
         self.familyService = familyService
         self.appState = appState
     }
 
-    func advanceFromRoleSelection() {
-        guard let role = selectedRole else { return }
-        switch role.isParent {
-        case true: push(.familyCreation)
-        case false:
-            if role == .hero {
-                checkForExistingHero()
-            }
+    func advanceFromIntentSelection() {
+        switch userIntent {
+        case .createFamily:
+            push(.familyCreation)
+        case .joinFamily:
+            checkForExistingHero()
             push(.familyJoin)
+            // The share invitation may already be resolved (e.g. the app
+            // launched from a share URL before the user reached the join path);
+            // accept it immediately instead of stranding the user on the
+            // waiting screen. A nil metadata is a no-op.
+            Task { [weak self] in
+                await self?.joinFamilyViaAcceptedShare()
+            }
+        case nil:
+            break
         }
     }
 
-    /// Probing helper for the hero onboarding path. Kicks off a fire-and-forget
-    /// scan of the user's shared zones looking for an existing, active `Profile`
-    /// bound to the current iCloud user. If exactly one match is found while the
-    /// user is still on the hero path, `detectedHero` is populated so the
-    /// FamilyJoin screen can offer a "Reconnect to Guild" prompt before Avatar
-    /// Selection. This is defense-in-depth only — the service layer already
-    /// refuses to mint a duplicate profile, so this scan merely surfaces the
-    /// reconnect option earlier in the flow.
+    /// Probing helper for the joining path. Kicks off a fire-and-forget scan of
+    /// the user's shared zones looking for an existing, active `Profile` bound
+    /// to the current iCloud user. If exactly one match is found while the user
+    /// is still on the join path, `detectedHero` is populated so the FamilyJoin
+    /// screen can offer a "Reconnect to Guild" prompt before Avatar Selection.
+    /// This is defense-in-depth only — the service layer already refuses to
+    /// mint a duplicate profile, so this scan merely surfaces the reconnect
+    /// option earlier in the flow.
     func checkForExistingHero() {
-        guard selectedRole == .hero else { return }
-        Task { @MainActor [weak self] in
+        guard userIntent == .joinFamily else { return }
+        Task { [weak self] in
             await self?.performExistingHeroCheck()
         }
     }
 
     private func performExistingHeroCheck() async {
-        guard selectedRole == .hero else { return }
+        guard userIntent == .joinFamily else { return }
 
         guard let userID = await (try? familyService.cloudKitReference.currentUserRecordID()) else {
             detectedHero = nil
@@ -235,22 +260,93 @@ final class OnboardingViewModel {
 
             builtFamily = result.family
             builtProfile = result.profile
-            shareURL = result.shareURL
             familyName = trimmed
             push(.done)
         } catch let familyError as FamilyServiceError {
-            print("Failed to create family: \(familyError.localizedDescription)")
-            error = familyError.localizedDescription
+            logger.error("Failed to create family: \(familyError.localizedDescription, privacy: .private)")
+            error = "Could not create your guild. Please try again."
         } catch {
-            print("Failed to create family: \(error)")
-            self.error = "Could not found your guild: \(error)"
+            logger.error("Failed to create family: \(error, privacy: .private)")
+            self.error = "Could not create your guild. Please try again."
         }
     }
 
-    func joinFamilyViaShareLink() async {
+    /// Joiner entry: consumes the pending share metadata that an apple share
+    /// invitation resolved (see `pendingShareMetadata`) and accepts the invite
+    /// via `FamilyService.joinFamilyViaAcceptedShare`. The joiner's role is
+    /// decoded from the share's title by the service — the flow never asks for a
+    /// role up front. The accept path mints the Profile with empty
+    /// display-name/avatar defaults, so the flow advances straight to Avatar
+    /// Selection for the user to pick them.
+    func joinFamilyViaAcceptedShare() async {
+        let intent = String(describing: self.userIntent)
+        let hasMetadata = self.pendingShareMetadata != nil
+        logger.info(
+            "Joining family via accepted share called. userIntent=\(intent), hasMetadata=\(hasMetadata), isLoading=\(self.isLoading)"
+        )
+        guard userIntent == .joinFamily,
+              let metadata = pendingShareMetadata,
+              !isLoading
+        else {
+            logger.info(
+                "Joining family via accepted share guard check failed. (userIntent=\(intent), hasMetadata=\(hasMetadata), isLoading=\(self.isLoading))"
+            )
+            return
+        }
+        isLoading = true
+        joinProgressStatus = "Accepting family invitation..."
+        joinProgressFraction = 0.25
+        defer {
+            isLoading = false
+            joinProgressStatus = nil
+            joinProgressFraction = nil
+        }
+
+        logger.info("Calling familyService.joinFamilyViaAcceptedShare...")
+        do {
+            let result = try await familyService.joinFamilyViaAcceptedShare(
+                metadata: metadata,
+                displayName: displayName,
+                avatarClass: avatarClass,
+                progressHandler: { [weak self] status, fraction in
+                    self?.joinProgressStatus = status
+                    self?.joinProgressFraction = fraction
+                }
+            )
+            logger.info("Joined family '\(result.family.name, privacy: .private)' as profile '\(result.profile.displayName, privacy: .private)'")
+            builtFamily = result.family
+            builtProfile = result.profile
+            didReuseActiveProfile = result.didReuseActiveProfile
+            pendingShareMetadata = nil
+            push(.avatarSelection)
+        } catch {
+            logger.error("Joining family via accepted share failed: \(error, privacy: .private)")
+            if let friendly = friendlyInviteAcceptError(error) {
+                self.error = friendly
+            } else {
+                // Non-invalid-invitation failure: surface a static generic
+                // message rather than the raw CloudKit error text.
+                self.error = genericJoinerErrorFallback
+            }
+        }
+    }
+
+    /// Completes the joiner flow after the share was accepted: persists the
+    /// display name and avatar picked on Avatar Selection onto the joined
+    /// Profile, then finishes onboarding. When the join reused an existing
+    /// ACTIVE profile as-is (`didReuseActiveProfile`), the profile's identity
+    /// is preserved and the name/avatar writes are skipped — the flow still
+    /// finalizes. The session profile is registered on `appState` first so the
+    /// profile-update service calls can authorize the user's own profile.
+    func completeJoinedProfile() async {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
+
+        guard let profile = builtProfile else {
+            error = "Join your family's invitation before setting up your hero."
+            return
+        }
 
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
@@ -259,74 +355,41 @@ final class OnboardingViewModel {
         }
 
         error = nil
+        appState.currentProfile = profile
 
-        // 1. If user pasted a share URL string into the join field, resolve its metadata first
-        if pendingShareMetadata == nil {
-            let rawURL = shareURLString.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let url = URL(string: rawURL) {
-                do {
-                    let metadata = try await familyService.cloudKitReference.fetchShareMetadata(for: url)
-                    pendingShareMetadata = metadata
-                } catch {
-                    self.error = "Could not open share invitation: \(error.localizedDescription)"
-                    return
-                }
-            } else if !rawURL.isEmpty {
-                error = "The invitation link is not a valid URL."
-                return
-            }
-        }
-
-        guard let metadata = pendingShareMetadata else {
-            error = "No share invitation found. Ask your Guild Master to send an invitation link."
+        guard !didReuseActiveProfile else {
+            // The join reused an existing ACTIVE profile as-is; its identity
+            // (display name, avatar) is preserved, so the onboarding picks are
+            // NOT written over it — finalize with the profile untouched.
+            builtProfile = profile
+            push(.done)
             return
         }
 
-        // Resolve the iCloud user ID up front. Surfacing a failure here (vs.
-        // synthesizing a random UUID) prevents duplicate `Profile` records on
-        // re-runs over a flaky network. The finalize button serves as the
-        // retry affordance — see `iCloudUserID()` docs.
-        let heroiCloudID: CKRecord.ID
         do {
-            heroiCloudID = try await iCloudUserID()
-        } catch {
-            self.error = "Could not reach iCloud to identify your account. Check your network and tap Join the Quest to retry."
-            return
-        }
-
-        let heroProfile = Profile(
-            displayName: trimmedName,
-            avatarClass: avatarClass,
-            avatarPresetID: avatarPresetID,
-            customAvatarImageData: customAvatarImageData,
-            role: .hero,
-            iCloudUserID: heroiCloudID,
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
-                                       action: .none)
-        )
-
-        do {
-            let result = try await familyService.joinFamilyViaShare(
-                metadata: metadata,
-                heroProfile: heroProfile
+            let renamed = try await familyService.updateProfileDisplayName(
+                profile: profile,
+                newName: trimmedName
             )
-            builtFamily = result.family
-            builtProfile = result.profile
-            pendingShareMetadata = nil
+            let saved = try await familyService.updateProfileAvatar(
+                profile: renamed,
+                avatarClass: avatarClass,
+                avatarPresetID: avatarPresetID,
+                customAvatarImageData: customAvatarImageData
+            )
+            builtProfile = saved
             push(.done)
         } catch let familyError as FamilyServiceError {
-            error = familyError.localizedDescription
+            logger.error("Failed to finalize joined profile: \(familyError.localizedDescription, privacy: .private)")
+            error = "Could not set up your hero profile. Please try again."
         } catch {
-            self.error = "Could not join the guild: \(error)"
+            logger.error("Failed to finalize joined profile: \(error, privacy: .private)")
+            self.error = genericJoinerErrorFallback
         }
     }
 
     var isParentFlow: Bool {
-        selectedRole?.isParent ?? false
-    }
-
-    var hasShareInvitation: Bool {
-        pendingShareMetadata != nil
+        userIntent == .createFamily
     }
 
     func completeOnboarding(family: Family?, profile: Profile?) {
@@ -338,19 +401,18 @@ final class OnboardingViewModel {
     }
 
     func reset() {
-        selectedRole = nil
+        userIntent = nil
         displayName = ""
         avatarClass = nil
         avatarPresetID = nil
         customAvatarImageData = nil
-        shareURLString = ""
         familyName = ""
         error = nil
         isLoading = false
         path = []
         builtFamily = nil
         builtProfile = nil
-        shareURL = nil
+        didReuseActiveProfile = false
         pendingShareMetadata = nil
         detectedHero = nil
     }

@@ -19,7 +19,7 @@ enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
         case .unsupported: "This action isn't supported on this device."
         case .invalidAmount: "Enter a valid positive amount."
         case .persistenceFailed: "Could not save your spending. Please try again."
-        case let .underlying(msg): msg
+        case .underlying: "Something went wrong. Please try again."
         }
     }
 }
