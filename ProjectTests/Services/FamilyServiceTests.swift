@@ -552,6 +552,64 @@ struct FamilyServiceTests {
     }
 
     @Test
+    func `kickMember share-revocation failure returns partial result without re-deactivating`() async throws {
+        let (familyService, cloudKit, appState, _) = makeDependencies()
+        let cache = try CacheService(inMemory: true)
+        familyService.cacheService = cache
+
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let hero = Profile(
+            displayName: "Kicked Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        let guildMaster = Profile(
+            displayName: "Guild Master",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
+        cache.upsertFamily(family)
+        cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([family, hero])
+        appState.family = family
+        appState.currentProfile = guildMaster
+
+        // The hero has NO share participation, so the share-revocation step
+        // throws (the mock only revokes identities actually present on a role
+        // share). The kick must surface the partial outcome rather than throw or
+        // roll back the already-succeeded deactivation.
+        let result = try await familyService.kickMember(profile: hero)
+
+        guard case let .partialRevocationFailed(error) = result else {
+            #expect(Bool(false), "Expected a partial-revocation failure, got \(result)")
+            return
+        }
+
+        // The surfaced message is non-PII guidance for the Guild Master — it
+        // tells them the departed identity still holds share access.
+        #expect(!error.isEmpty)
+
+        // The authoritative kick still succeeded: the profile stays deactivated
+        // and is not re-activated by the share-revocation failure.
+        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
+        #expect(freshHero.isActive == false)
+        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.isActive == false)
+    }
+
+    @Test
     func `hero self-leave unassigns their active quests instead of orphaning them`() async throws {
         let (familyService, cloudKit, appState, _) = makeDependencies()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -605,6 +663,14 @@ struct FamilyServiceTests {
         await #expect(throws: CloudKitServiceError.self) {
             _ = try await cloudKit.fetch(Quest.self, id: quest.id)
         }
+
+        // (c) A self-leave is not a raw share revocation: a non-owner cannot
+        // mutate the family share's participant list (and the family zone does
+        // not live in the leaver's private database), so the leave must not be
+        // treated as having revoked CloudKit access — the owner-side reconciler
+        // and Invitations panel own that. The mock's share membership is
+        // untouched by the leave.
+        #expect(cloudKit.revokedShareIDs.isEmpty)
     }
 
     @Test

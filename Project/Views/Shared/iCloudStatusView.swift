@@ -6,10 +6,13 @@
 //
 
 import CloudKit
+import os
 import SwiftData
 import SwiftUI
 
 struct iCloudStatusView: View {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "iCloudStatus")
+
     @Environment(AppState.self) private var appState
     @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
@@ -137,7 +140,7 @@ struct iCloudStatusView: View {
             await fetchAccountStatus()
         }
         .onChange(of: syncEngine?.syncError) { _, newError in
-            if let newError {
+            if let newError, !newError.isEmpty {
                 toastManager?.show(message: newError, type: .error)
             }
         }
@@ -278,8 +281,9 @@ struct iCloudStatusView: View {
             accountStatus = status
             accountStatusError = nil
         } catch {
-            accountStatusError = error.localizedDescription
-            toastManager?.show(message: error.localizedDescription, type: .error)
+            logger.error("Failed to fetch iCloud account status: \(error, privacy: .private)")
+            accountStatusError = "Could not check your iCloud account status. Please try again."
+            toastManager?.show(message: "Could not check your iCloud account status. Please try again.", type: .error)
         }
     }
 }

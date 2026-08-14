@@ -32,6 +32,7 @@ final class AppDependencies {
     let syncEngine: SyncEngine?
     let toastManager: ToastManager
     let celebrationManager: CelebrationManager
+    let familyShareReconciler: FamilyShareReconciler
 
     init() {
         let app = AppState()
@@ -39,10 +40,12 @@ final class AppDependencies {
 
         let isTest = TestEnvironment.isRunningUnitOrUITests
         let cache: CacheService?
+        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "App")
         do {
             cache = try CacheService(inMemory: isTest)
         } catch {
             cache = nil
+            logger.error("Failed to initialize CacheService: \(error, privacy: .private)")
             if !isTest {
                 app.cacheInitError = .cacheInitializationFailed(error.localizedDescription)
             }
@@ -56,6 +59,12 @@ final class AppDependencies {
         let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification, cacheService: cache, treasuryService: treasury, toastManager: toast, appState: app)
         let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast)
+        let reconciler = FamilyShareReconciler(familyService: family)
+        // Reconciliation is owner-scoped; skip it in the test environment so
+        // seeded fixture profiles are never deactivated by an empty mock share.
+        if !TestEnvironment.isRunningUnitOrUITests {
+            reconciler.start()
+        }
         let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app, celebrationManager: celebration)
         achievement.notificationService = notification
         quest.achievementService = achievement
@@ -95,7 +104,6 @@ final class AppDependencies {
             )
         }
 
-        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Security")
         if TestEnvironment.isRunningUnitOrUITests {
             logger.info("Tests detected — seeding mock data and setting test auth state")
             SampleData.populate(cloudKit: ck, cacheService: cache)
@@ -142,6 +150,7 @@ final class AppDependencies {
         autoPayoutCoordinator = autoPayout
         cacheService = cache
         celebrationManager = celebration
+        familyShareReconciler = reconciler
 
         Self.shared = self
     }
@@ -225,7 +234,14 @@ struct LootListApp: App {
     @ViewBuilder
     private var rootViewContent: some View {
         if let error = appState.cacheInitError {
-            FatalCacheErrorView(message: error.localizedDescription)
+            #if DEBUG
+                let debugMessage: String = switch error {
+                case let .cacheInitializationFailed(msg): msg
+                }
+                FatalCacheErrorView(message: debugMessage)
+            #else
+                FatalCacheErrorView()
+            #endif
         } else {
             let baseRoot = RootView(pendingShareMetadata: pendingShareMetadata)
                 .environment(appState)
@@ -331,15 +347,18 @@ struct LootListApp: App {
 
     private func handleIncomingShareURL(_ url: URL) {
         guard !TestEnvironment.isRunningUnitOrUITests else { return }
+        logger.info("Handling incoming share URL: \(String(describing: url), privacy: .private)")
         let container = cloudKitService.container
         Task {
             do {
                 let metadata = try await container.shareMetadata(for: url)
+                let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
+                logger.info("Resolved share metadata for incoming share URL (title '\(title, privacy: .private)')")
                 await MainActor.run {
                     pendingShareMetadata = metadata
                 }
             } catch {
-                logger.error("Share metadata fetch failed: \(error, privacy: .private)")
+                logger.error("Share metadata fetch failed for incoming URL: \(error, privacy: .private)")
             }
         }
     }

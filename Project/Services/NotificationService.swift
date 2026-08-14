@@ -17,7 +17,7 @@ enum NotificationServiceError: Error, LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case let .centerFailure(msg): msg
+        case .centerFailure: "Could not update notification settings. Please try again."
         case .persistenceFailed: "Could not save notification preferences. Please try again."
         }
     }

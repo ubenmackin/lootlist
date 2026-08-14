@@ -55,7 +55,13 @@ actor BackgroundCacheActor {
     ) async {
         let inFlight = await inFlightRegistry?.activeRecordNames() ?? []
         let pending = items.filter { !inFlight.contains($0.id.recordName) }
-        let existing = (try? modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))) ?? []
+        let existing: [T]
+        do {
+            existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
+        } catch {
+            logger.error("Failed to fetch existing \(T.self, privacy: .public) for batchUpsert: \(error, privacy: .public)")
+            existing = []
+        }
         let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
         for item in pending {
             let name = item.id.recordName
@@ -92,7 +98,13 @@ actor BackgroundCacheActor {
         guard !validRecordNames.isEmpty else { return }
 
         let inFlight = await inFlightRegistry?.activeRecordNames() ?? []
-        let existing = (try? modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))) ?? []
+        let existing: [T]
+        do {
+            existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
+        } catch {
+            logger.error("Failed to fetch existing \(T.self, privacy: .public) for purgeMissing: \(error, privacy: .public)")
+            existing = []
+        }
         for cached in existing where !validRecordNames.contains(cached.recordName) && !inFlight.contains(cached.recordName) {
             modelContext.delete(cached)
         }
@@ -331,7 +343,13 @@ actor BackgroundCacheActor {
     private func deleteRecordByRecordName<T: CacheMergeable>(_: T.Type, recordName: String) async {
         let inFlight = await inFlightRegistry?.activeRecordNames() ?? []
         guard !inFlight.contains(recordName) else { return }
-        let match = (try? modelContext.fetch(T.fetchDescriptor(recordName: recordName)))?.first
+        let match: T?
+        do {
+            match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first
+        } catch {
+            logger.error("Failed to fetch \(T.self, privacy: .public) for record deletion (\(recordName, privacy: .private)): \(error, privacy: .public)")
+            match = nil
+        }
         if let match {
             modelContext.delete(match)
         }

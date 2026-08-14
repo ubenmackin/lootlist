@@ -7,11 +7,14 @@
 
 import AppIntents
 import Foundation
+import os
 import SwiftData
 
 struct LogSpendingIntent: AppIntent, Sendable {
     static let title: LocalizedStringResource = "Log Spending"
     static let description = IntentDescription("Logs spending or a transaction on your scroll.")
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LogSpendingIntent")
 
     @Parameter(title: "Amount")
     var amount: Double
@@ -58,7 +61,8 @@ struct LogSpendingIntent: AppIntent, Sendable {
         } catch let err as SpendingServiceError {
             return .result(dialog: IntentDialog(stringLiteral: err.errorDescription ?? "Could not log spending."))
         } catch {
-            return .result(dialog: "Could not log spending: \(error.localizedDescription)")
+            logger.error("Failed to log spending: \(error, privacy: .private)")
+            return .result(dialog: "Could not log your spending. Please try again.")
         }
     }
 }

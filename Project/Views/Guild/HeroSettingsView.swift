@@ -6,10 +6,13 @@
 //
 
 import CloudKit
+import os
 import SwiftUI
 
 struct HeroSettingsView: View {
     let hero: Profile
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroSettings")
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
@@ -120,7 +123,8 @@ struct HeroSettingsView: View {
                                 _ = try await familyService.updateProfilePayoutDay(profile: hero, day: newDay)
                             } catch {
                                 selectedDayOverride = previous
-                                actionError = "Could not update payout day: \(error.localizedDescription)"
+                                logger.error("Failed to update payout day: \(error, privacy: .private)")
+                                actionError = "Could not update payout day. Please try again."
                             }
                         }
                     }
@@ -178,7 +182,8 @@ struct HeroSettingsView: View {
                         _ = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: policy)
                     } catch {
                         selectedPolicy = previousPolicy
-                        actionError = "Could not update payout policy: \(error.localizedDescription)"
+                        logger.error("Failed to update payout policy: \(error, privacy: .private)")
+                        actionError = "Could not update payout policy. Please try again."
                     }
                 }
             }

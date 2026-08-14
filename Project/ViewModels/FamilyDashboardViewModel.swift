@@ -17,6 +17,13 @@ final class FamilyDashboardViewModel {
 
     private(set) var parents: [ProfileCache] = []
 
+    /// `CKShare` participants shown in the Invitations panel in Guild Settings.
+    /// Active member Profiles are excluded (they're owned by `heroes` /
+    /// `parents`); the rows are pending invites, departed members whose
+    /// identity still holds share access, and recently revoked (`.removed`)
+    /// identities.
+    private(set) var invitations: [FamilyInvitation] = []
+
     private(set) var weekSummary: WeekendSummary?
 
     private(set) var pastPayouts: [AllowancePeriodCache] = []
@@ -61,7 +68,6 @@ final class FamilyDashboardViewModel {
         isLoading = true
         defer { isLoading = false }
 
-        await ensureActiveShareURL()
         if let family = appState.family {
             try? await achievements.seedDefaultAchievements(family: family)
         }
@@ -70,16 +76,335 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    @MainActor
-    func ensureActiveShareURL() async {
-        guard appState.isZoneOwner else { return }
-        guard appState.activeShareURL == nil else { return }
-        guard let zoneID = appState.familyZoneID, let family = appState.family else { return }
+    /// Resolves the family's `CKShare` for the given invite role, fetching the
+    /// existing share or creating a new one. Returns nil when the current user
+    /// is not the zone owner or the share cannot be resolved.
+    func prepareInviteShare(for role: UserRole) async -> CKShare? {
+        guard appState.isZoneOwner,
+              appState.familyZoneID != nil,
+              let family = appState.family
+        else { return nil }
         let cloudKit = questService.cloudKitReference
         do {
-            appState.activeShareURL = try await cloudKit.fetchOrCreateShareURL(in: zoneID, rootRecordID: family.id)
+            return try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
         } catch {
-            logger.error("Failed to fetch or create active share URL: \(error, privacy: .private)")
+            logger.error("Failed to fetch or create invitation share: \(error, privacy: .private)")
+            return nil
+        }
+    }
+
+    /// Reloads the Invitations panel from the family's `CKShare` participant
+    /// records. Classification is driven by `fetchShareParticipantStatuses`
+    /// (identity + acceptance status, testable without fabricated
+    /// `CKShare.Participant` objects) and the participant objects enrich the
+    /// rows with display handles and revocation handles. Rows are classified
+    /// three ways: active member Profiles are skipped (shown in `heroes` /
+    /// `parents`); deactivated member Profiles whose identity is still an
+    /// accepted participant are flagged as departed members so the Guild Master
+    /// can revoke their lingering share access; recently revoked (`.removed`)
+    /// identities surface read-only while CloudKit propagates the removal.
+    /// Pending invites that have not yet established an iCloud identity
+    /// (email/phone only) have no status entry and are rendered from the
+    /// participant objects directly. The share owner's own participant entry —
+    /// the signed-in user's identity — is never rendered as a revocable row.
+    func refreshInvitations() async {
+        guard appState.isZoneOwner, let family = appState.family else {
+            invitations = []
+            return
+        }
+        let cloudKit = questService.cloudKitReference
+        do {
+            // Resolve the signed-in user's identity before classifying rows:
+            // the share owner's participant entry is that identity, and it must
+            // never surface as a revocable row (revoking it would strip the
+            // current user's own zone access). Resolution failure is
+            // fail-closed — the panel loads nothing rather than risk offering a
+            // revoke button on the user's own access.
+            let currentUserRecordName = try await cloudKit.currentUserRecordID().recordName
+
+            let activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
+            // Deactivated member profiles: their identity can remain an
+            // accepted share participant (a self-leave cannot revoke a share it
+            // does not own), which is why the panel flags them for owner-side
+            // revocation instead of hiding them.
+            let inactiveIdentities = await departedMemberIdentities(for: family)
+
+            let participants = try await cloudKit.fetchShareParticipants(for: family.id)
+            let participantByRecordName = Dictionary(
+                participants.compactMap { participant -> (String, CKShare.Participant)? in
+                    guard let recordName = participant.userIdentity.userRecordID?.recordName else { return nil }
+                    return (recordName, participant)
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let statuses = try await cloudKit.fetchShareParticipantStatuses(for: family.id)
+            let roleMap = await (try? cloudKit.fetchShareParticipantRoles(for: family.id)) ?? [:]
+
+            var result: [FamilyInvitation] = []
+            var handledRecordNames = Set<String>()
+            var handledKeys = Set<String>()
+
+            // Statuses are the authoritative identity view (they include
+            // `.removed` markers that object-only reading has to filter).
+            for status in statuses {
+                let key = status.identityKey ?? status.recordName.map { "record:\($0)" }
+                guard let key else { continue }
+                handledKeys.insert(key)
+                if let recordName = status.recordName {
+                    handledRecordNames.insert(recordName)
+                }
+                if let invitation = buildStatusInvitation(
+                    status: status,
+                    currentUserRecordName: currentUserRecordName,
+                    activeRecordNames: activeRecordNames,
+                    inactiveIdentities: inactiveIdentities,
+                    participantByRecordName: participantByRecordName,
+                    roleMap: roleMap
+                ) {
+                    result.append(invitation)
+                }
+            }
+
+            // Pending invites without an established iCloud identity have no
+            // status entry; render them from the participant objects.
+            for participant in participants {
+                if let invitation = buildParticipantInvitation(
+                    participant: participant,
+                    currentUserRecordName: currentUserRecordName,
+                    handledRecordNames: handledRecordNames,
+                    handledKeys: handledKeys,
+                    roleMap: roleMap
+                ) {
+                    result.append(invitation)
+                }
+            }
+
+            invitations = result
+        } catch {
+            logger.error("Failed to load share invitations: \(error, privacy: .private)")
+            invitations = []
+        }
+    }
+
+    private func buildStatusInvitation(
+        status: ShareParticipantStatus,
+        currentUserRecordName: String,
+        activeRecordNames: Set<String>,
+        inactiveIdentities: [String: String],
+        participantByRecordName: [String: CKShare.Participant],
+        roleMap: [String: UserRole]
+    ) -> FamilyInvitation? {
+        let key = status.identityKey ?? status.recordName.map { "record:\($0)" }
+        guard let key else { return nil }
+        let participant = status.recordName != nil ? participantByRecordName[status.recordName!] : nil
+        let targetRole = (status.recordName != nil ? roleMap[status.recordName!] : nil) ?? roleMap[key]
+
+        if participant?.role == .owner || status.recordName == currentUserRecordName {
+            return nil
+        }
+        if let recordName = status.recordName, activeRecordNames.contains(recordName) {
+            return nil
+        }
+        if status.isRemoved {
+            return FamilyInvitation(
+                id: Self.opaqueIdentityToken(key),
+                identity: identityDisplay(for: key, recordName: status.recordName, participant: participant),
+                statusText: "Removed",
+                participant: participant,
+                identityRecordName: status.recordName,
+                kind: .removedIdentity,
+                targetRole: targetRole
+            )
+        }
+        if let recordName = status.recordName, let displayName = inactiveIdentities[recordName] {
+            return FamilyInvitation(
+                id: Self.opaqueIdentityToken(key),
+                identity: displayName,
+                statusText: "Left the guild — revoke share access",
+                participant: participant,
+                identityRecordName: recordName,
+                kind: .departedMember,
+                targetRole: targetRole
+            )
+        }
+        if let recordName = status.recordName {
+            return FamilyInvitation(
+                id: Self.opaqueIdentityToken(key),
+                identity: identityDisplay(for: key, recordName: recordName, participant: participant),
+                statusText: "Accepted",
+                participant: participant,
+                identityRecordName: recordName,
+                kind: .pendingInvite,
+                targetRole: targetRole
+            )
+        }
+        return nil
+    }
+
+    private func buildParticipantInvitation(
+        participant: CKShare.Participant,
+        currentUserRecordName: String,
+        handledRecordNames: Set<String>,
+        handledKeys: Set<String>,
+        roleMap: [String: UserRole]
+    ) -> FamilyInvitation? {
+        let recordName = participant.userIdentity.userRecordID?.recordName
+        if participant.role == .owner || (recordName != nil && recordName == currentUserRecordName) {
+            return nil
+        }
+        if let recordName, handledRecordNames.contains(recordName) {
+            return nil
+        }
+        let pKey = ShareParticipantKey.key(for: participant)
+        if let pKey, handledKeys.contains(pKey) {
+            return nil
+        }
+        let targetRole = (recordName != nil ? roleMap[recordName!] : nil) ?? (pKey != nil ? roleMap[pKey!] : nil)
+        let isRemoved = participant.acceptanceStatus == .removed
+        return FamilyInvitation(
+            id: Self.invitationID(for: participant),
+            identity: participantIdentityDisplay(participant),
+            statusText: isRemoved ? "Removed" : Self.invitationStatusText(participant.acceptanceStatus),
+            participant: participant,
+            identityRecordName: recordName,
+            kind: isRemoved ? .removedIdentity : .pendingInvite,
+            targetRole: targetRole
+        )
+    }
+
+    /// Maps each deactivated member's identity record name to their display
+    /// name for the Invitations panel. Best-effort: when the profile query
+    /// fails the map is empty and departed members degrade to plain invitation
+    /// rows rather than blocking the panel.
+    private func departedMemberIdentities(for family: Family) async -> [String: String] {
+        guard let profiles = try? await familyService.fetchAllProfilesForFamily(family) else {
+            return [:]
+        }
+        var identities: [String: String] = [:]
+        for profile in profiles where !profile.isActive && !profile.iCloudUserID.recordName.isEmpty {
+            identities[profile.iCloudUserID.recordName] = profile.displayName
+        }
+        return identities
+    }
+
+    /// Display handle for a status-driven row: the participant's name/contact
+    /// when an object is available (production), else the formatted identity key or raw record name.
+    private func identityDisplay(for key: String, recordName: String?, participant: CKShare.Participant?) -> String {
+        if let participant {
+            return participantIdentityDisplay(participant)
+        }
+        if let recordName {
+            return recordName
+        }
+        if key.hasPrefix("email:") {
+            return String(key.dropFirst("email:".count))
+        }
+        if key.hasPrefix("phone:") {
+            return String(key.dropFirst("phone:".count))
+        }
+        if key.hasPrefix("record:") {
+            return String(key.dropFirst("record:".count))
+        }
+        return key
+    }
+
+    /// Revokes a pending invitation or a departed member's lingering share access
+    /// by removing the participant from the family shares (owner-side access
+    /// layer only — pending invites have no `Profile` to deactivate, and
+    /// departed members' `Profile`s are already inactive). Uses the matched
+    /// participant object when present (covers pending invites without an
+    /// iCloud record name), else falls back to revocation by record name.
+    func revokeInvitation(_ invitation: FamilyInvitation) async {
+        guard appState.isZoneOwner, let family = appState.family else { return }
+        let cloudKit = questService.cloudKitReference
+        // Defense in depth: classification never yields a revocable row for the
+        // share owner or the signed-in user, but refuse anyway if a stale row
+        // slips through — revoking either would strip the current user's own
+        // zone access. `.removed` identities are read-only by construction:
+        // CloudKit keeps the identity visible only while propagation finishes,
+        // so there is nothing left to revoke.
+        if invitation.kind == .removedIdentity {
+            return
+        }
+        if invitation.participant?.role == .owner {
+            return
+        }
+        if let identityRecordName = invitation.identityRecordName,
+           let currentUserRecordName = try? await cloudKit.currentUserRecordID().recordName,
+           identityRecordName == currentUserRecordName
+        {
+            logger.error("Refusing to revoke the current user's own share access")
+            return
+        }
+        do {
+            if let participant = invitation.participant {
+                try await cloudKit.removeParticipant(participant, from: family.id)
+            } else if let identityRecordName = invitation.identityRecordName {
+                try await cloudKit.removeParticipant(iCloudUserRecordName: identityRecordName, from: family.id)
+            } else {
+                logger.error("Failed to revoke invitation: no participant identity to revoke")
+                return
+            }
+            invitations.removeAll { $0.id == invitation.id }
+        } catch {
+            logger.error("Failed to revoke invitation: \(error, privacy: .private)")
+            // The revocation must never be a silent no-op: when the service
+            // cannot match the participant in any role share it throws, and
+            // that failure is surfaced to the Invitations panel so the caller
+            // knows access was not actually revoked.
+            loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private static func invitationID(for participant: CKShare.Participant) -> String {
+        // Row identifiers must never embed the raw identity (iCloud record
+        // name, email, or phone number): they surface in accessibility
+        // identifiers and UI-test queries. Hash the identity key instead so
+        // the token stays stable across refreshes while leaking nothing.
+        // Fallback ordering mirrors `ShareParticipantKey`: record name → email
+        // → phone → server-assigned `participantID`, then the
+        // `ObjectIdentifier` key as a last resort.
+        if let key = ShareParticipantKey.key(for: participant) {
+            return opaqueIdentityToken(key)
+        }
+        return opaqueIdentityToken("object:\(ObjectIdentifier(participant))")
+    }
+
+    /// Stable, non-PII row token for the Invitations panel. The raw CloudKit
+    /// identity (iCloud record name, email, or phone number) must never appear
+    /// in a `FamilyInvitation` identifier — those identifiers back SwiftUI row
+    /// identity and surface in accessibility identifiers / UI-test queries.
+    /// FNV-1a keeps the token deterministic across refreshes and launches while
+    /// leaking nothing about the identity.
+    private static func opaqueIdentityToken(_ value: String) -> String {
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        return String(format: "inv-%08x", UInt32(truncatingIfNeeded: hash))
+    }
+
+    private func participantIdentityDisplay(_ participant: CKShare.Participant) -> String {
+        if let name = participant.userIdentity.nameComponents {
+            return PersonNameComponentsFormatter().string(from: name)
+        }
+        if let email = participant.userIdentity.lookupInfo?.emailAddress {
+            return email
+        }
+        if let phone = participant.userIdentity.lookupInfo?.phoneNumber {
+            return phone
+        }
+        return "Invited member"
+    }
+
+    private static func invitationStatusText(_ status: CKShare.ParticipantAcceptanceStatus) -> String {
+        switch status {
+        case .pending: "Invited"
+        case .accepted: "Accepted"
+        case .removed: "Removed"
+        case .unknown: "Pending"
+        @unknown default: "Invited"
         }
     }
 
@@ -279,4 +604,57 @@ struct HeroSummary: Equatable, Identifiable {
     let trophiesEarned: Int
 
     var avatarRenderSpec: AvatarRenderSpec?
+}
+
+/// A `CKShare` participant (or participant-derived identity) shown in the Guild
+/// Settings Invitations panel: with a human-readable handle, a CloudKit
+/// acceptance status, a `kind` that drives presentation and availability of the
+/// revocation action, and identity fields for the revocation call itself —
+/// `participant` when an object is available, else `identityRecordName`. `id`
+/// is a stable opaque token derived from the identity (never the raw iCloud
+/// record name, email, or phone number) — it backs SwiftUI row identity and
+/// accessibility identifiers only, so no contact data leaks into UI tests.
+struct FamilyInvitation: Identifiable {
+    let id: String
+    let identity: String
+    let statusText: String
+    let participant: CKShare.Participant?
+    let identityRecordName: String?
+    let kind: FamilyInvitationKind
+    let targetRole: UserRole?
+
+    init(
+        id: String,
+        identity: String,
+        statusText: String,
+        participant: CKShare.Participant?,
+        identityRecordName: String?,
+        kind: FamilyInvitationKind,
+        targetRole: UserRole? = nil
+    ) {
+        self.id = id
+        self.identity = identity
+        self.statusText = statusText
+        self.participant = participant
+        self.identityRecordName = identityRecordName
+        self.kind = kind
+        self.targetRole = targetRole
+    }
+}
+
+/// How an Invitations-panel row should be presented. Explicit `Equatable` so
+/// row-kind comparisons in the panel and its tests stay compile-time stable.
+enum FamilyInvitationKind: Equatable {
+    /// A not-yet-member invite: pending or accepted on the share, with no
+    /// active `Profile` yet. The Guild Master can revoke it.
+    case pendingInvite
+    /// A member whose `Profile` was deactivated (left the guild) but whose
+    /// identity still holds shared-zone access — e.g. after a hero self-leave,
+    /// since a non-owner device cannot revoke a share it does not own. The
+    /// Guild Master revokes here to close the access-layer gap.
+    case departedMember
+    /// An identity the Guild Master already revoked; CloudKit keeps it visible
+    /// on the share with `.removed` status until propagation completes.
+    /// Read-only row.
+    case removedIdentity
 }

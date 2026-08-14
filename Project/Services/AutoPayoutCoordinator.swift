@@ -104,7 +104,7 @@ final class AutoPayoutCoordinator {
                         try await treasuryService.runPayout(period: period)
                         processedCount += 1
                     } catch {
-                        logger.error("Error processing auto-payout for hero \(hero.displayName): \(error, privacy: .public)")
+                        logger.error("Error processing auto-payout for hero \(hero.displayName, privacy: .private): \(error, privacy: .public)")
                     }
                 }
             }
@@ -252,7 +252,7 @@ final class AutoPayoutCoordinator {
 
         guard totalCarriedCount > 0 else { return }
 
-        logger.info("Carried forward \(totalCarriedCount) quest(s) for family \(family.name, privacy: .public)")
+        logger.info("Carried forward \(totalCarriedCount) quest(s) for family \(family.name, privacy: .private)")
         toastManager?.show(message: "Carried forward \(totalCarriedCount) quest(s) for the new week.", type: .info)
         notifyCarriedForwardQuests(totalCarriedPerAssignee, heroByRecordName: heroByRecordName)
     }

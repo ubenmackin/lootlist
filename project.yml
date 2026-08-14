@@ -63,6 +63,8 @@ targets:
       properties:
         com.apple.developer.icloud-container-identifiers:
           - iCloud.com.volcrypt.lootlist
+        com.apple.developer.icloud-extended-share-access:
+          - InProcessOneTimeLinks
         com.apple.developer.icloud-services:
           - CloudKit
 

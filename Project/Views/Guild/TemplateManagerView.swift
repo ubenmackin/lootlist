@@ -6,10 +6,13 @@
 //
 
 import CloudKit
+import os
 import SwiftUI
 
 struct TemplateManagerView: View {
     @Bindable var viewModel: QuestManagerViewModel
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TemplateManager")
 
     let editing: QuestTemplate?
 
@@ -219,7 +222,8 @@ struct TemplateManagerView: View {
                 dismiss()
             } catch {
                 isSaving = false
-                toastManager.show(message: error.localizedDescription, type: .error)
+                logger.error("Failed to save template: \(error, privacy: .private)")
+                toastManager.show(message: "Could not save the template. Please try again.", type: .error)
             }
         }
     }
