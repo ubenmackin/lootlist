@@ -37,9 +37,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // the silent-push path handled in `didReceiveRemoteNotification`.
         // Installing the router makes banners tappable in the foreground and
         // turns taps into tab navigation / inline review actions.
-        Task { @MainActor in
-            UNUserNotificationCenter.current().delegate = NotificationRouter.shared
-        }
+        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
         return true
     }
 

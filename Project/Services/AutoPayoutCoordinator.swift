@@ -78,12 +78,12 @@ final class AutoPayoutCoordinator {
                 // Check current week and previous week for open allowance periods
                 let candidateWeeks = [
                     currentWeekStart,
-                    Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeekStart) ?? currentWeekStart
+                    Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.previousWeekDayOffset, to: currentWeekStart) ?? currentWeekStart
                 ]
 
                 for weekOf in candidateWeeks {
                     // Check if today has reached or passed the payout day for this week
-                    let payoutDate = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: weekOf) ?? weekOf
+                    let payoutDate = Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.payoutCutoffDayOffset, to: weekOf) ?? weekOf
                     guard now >= Calendar.iso8601UTC.startOfDay(for: payoutDate) else {
                         continue
                     }
@@ -201,7 +201,7 @@ final class AutoPayoutCoordinator {
         for (currentWeekStart, weekHeroes) in heroesByWeekStart {
             // Reuse the same ISO8601-UTC shift used elsewhere in this function
             // for deriving the previous week's start.
-            let previousWeekStart = Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeekStart) ?? currentWeekStart
+            let previousWeekStart = Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.previousWeekDayOffset, to: currentWeekStart) ?? currentWeekStart
 
             let previousQuests = cache.fetchQuests(
                 family: familyName,

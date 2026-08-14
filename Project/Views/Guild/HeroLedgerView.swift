@@ -93,12 +93,12 @@ struct HeroLedgerView: View {
         .onChange(of: scope) { _, _ in rebuild() }
         .sheet(isPresented: $isShowingDeposit) {
             if let vm = viewModel {
-                HeroDepositView(viewModel: vm, heroName: hero.displayName)
+                HeroTransactionView(mode: .deposit, viewModel: vm, heroName: hero.displayName)
             }
         }
         .sheet(isPresented: $isShowingWithdraw) {
             if let vm = viewModel {
-                HeroWithdrawView(viewModel: vm, heroName: hero.displayName)
+                HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: hero.displayName)
             }
         }
     }
@@ -162,18 +162,12 @@ struct HeroLedgerView: View {
     private var ledgerList: some View {
         if let vm = viewModel {
             if vm.ledgerRows.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: "scroll.fill")
-                        .font(.system(size: 44))
-                        .foregroundStyle(.secondary)
-                    Text("Empty Scroll")
-                        .font(.headline)
-                    Text(scope.emptyStateCopy)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.top, 32)
+                EmptyStateView(
+                    systemImage: "scroll.fill",
+                    title: "Empty Scroll",
+                    description: scope.emptyStateCopy,
+                    topPadding: 32
+                )
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(vm.ledgerRows) { entry in

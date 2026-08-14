@@ -84,7 +84,7 @@ final class CelebrationManager {
     var toastManager: ToastManager?
 
     /// Auto-dismiss delay for the fullscreen overlay.
-    private static let fullscreenAutoDismissSeconds: UInt64 = 6
+    private static let fullscreenAutoDismissSeconds: UInt64 = AppConstants.UserInterface.celebrationAutoDismissSeconds
 
     /// Active auto-dismiss task for the fullscreen overlay, cancelled on
     /// manual skip.
@@ -117,8 +117,9 @@ final class CelebrationManager {
     func dismissCurrent() {
         autoDismissTask?.cancel()
         autoDismissTask = nil
+        guard isPresentingFullscreen || !queue.isEmpty else { return }
         if !queue.isEmpty {
-            queue.removeFirst()
+            _ = queue.removeFirst()
         }
         isPresentingFullscreen = false
 

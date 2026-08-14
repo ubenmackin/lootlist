@@ -79,7 +79,7 @@ final class ToastManager {
     private(set) var toasts: [Toast] = []
 
     /// Auto-dismiss delay for newly shown toasts.
-    private static let autoDismissDuration: UInt64 = 7_000_000_000 // 7 seconds
+    private static let autoDismissDuration: UInt64 = AppConstants.UserInterface.toastAutoDismissNanos // 7 seconds
 
     /// Active auto-dismiss tasks keyed by toast id, so we can cancel them when a
     /// toast is dismissed manually before the timer elapses.
@@ -126,7 +126,7 @@ final class ToastManager {
     /// and hops back to MainActor only to remove the toast by id.
     private func scheduleAutoDismiss(for id: UUID) {
         let task = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(7))
+            try? await Task.sleep(for: .seconds(AppConstants.UserInterface.toastAutoDismissSeconds))
             if !Task.isCancelled {
                 self?.dismiss(id: id)
             }

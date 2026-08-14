@@ -229,8 +229,8 @@ final class XPService {
             return titles[level - 1]
         }
 
-        let cycle = (level - titles.count - 1) % 4
-        let magnitude = (level - titles.count - 1) / 4
+        let cycle = (level - titles.count - 1) % AppConstants.Economy.prestigeTitleCycle
+        let magnitude = (level - titles.count - 1) / AppConstants.Economy.prestigeTitleCycle
         let suffix = magnitude > 0 ? " \(romanNumeral(magnitude + 1))" : ""
         switch cycle {
         case 0: return "Heroic" + suffix

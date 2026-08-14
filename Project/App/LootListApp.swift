@@ -290,21 +290,17 @@ struct LootListApp: App {
                 .onOpenURL { url in
                     handleIncomingShareURL(url)
                 }
-                .onChange(of: appState.familyZoneID) { _, newZoneID in
-                    guard let zoneID = newZoneID, !TestEnvironment.isRunningUnitOrUITests else { return }
-                    Task {
-                        let db = cloudKitService.database(isOwner: appState.isZoneOwner)
-                        await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
-                        await dataMigrationsCoordinator.runPendingMigrations()
-                        await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
-                        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
-                    }
+                .task(id: appState.familyZoneID) {
+                    guard let zoneID = appState.familyZoneID, !TestEnvironment.isRunningUnitOrUITests else { return }
+                    let db = cloudKitService.database(isOwner: appState.isZoneOwner)
+                    await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
+                    await dataMigrationsCoordinator.runPendingMigrations()
+                    await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
+                    AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
                 }
-                .onChange(of: scenePhase) { _, newPhase in
-                    guard newPhase == .active, !TestEnvironment.isRunningUnitOrUITests else { return }
-                    Task {
-                        await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
-                    }
+                .task(id: scenePhase) {
+                    guard scenePhase == .active, !TestEnvironment.isRunningUnitOrUITests else { return }
+                    await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
                 }
                 // Toast banner overlay sits above all RootView states (splash,
                 // onboarding, authenticated) so services can surface errors

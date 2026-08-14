@@ -77,7 +77,7 @@ struct CelebrationOverlayView: View {
                 .buttonStyle(.borderedProminent)
             }
             .padding(28)
-            .scaleEffect(appeared ? 1.0 : 0.3)
+            .scaleEffect(appeared ? 1.0 : DesignSystemConstants.Celebration.initialScale)
             .opacity(appeared ? 1 : 0)
             .animation(.spring(response: 0.5, dampingFraction: 0.6), value: appeared)
             .accessibilityElement(children: .combine)
@@ -144,8 +144,8 @@ struct CelebrationOverlayView: View {
 private struct ConfettiView: View {
     @State private var start: Date?
 
-    private static let particleCount = 50
-    private static let lifetime: TimeInterval = 5
+    private static let particleCount = DesignSystemConstants.Celebration.confettiParticleCount
+    private static let lifetime: TimeInterval = DesignSystemConstants.Celebration.confettiLifetime
     private static let palette: [Color] = [
         .red, .orange, .yellow, .green, .blue, .purple, .pink, .teal
     ]

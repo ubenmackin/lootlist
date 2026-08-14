@@ -56,15 +56,15 @@ struct ToastView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 14)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.button, style: .continuous)
                 .fill(.regularMaterial)
                 .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.button, style: .continuous)
                 .strokeBorder(toast.type.color.opacity(0.35), lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.button, style: .continuous))
         .onTapGesture {
             if let dismissAction = toast.dismissAction {
                 dismissAction()

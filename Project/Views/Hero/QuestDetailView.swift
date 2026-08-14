@@ -208,10 +208,10 @@ struct QuestDetailView: View {
 
     private func statusCard(log: QuestCompletion) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: statusIcon(log.verificationStatus))
-                .foregroundStyle(statusColor(log.verificationStatus))
+            Image(systemName: log.verificationStatus.iconSystemName)
+                .foregroundStyle(log.verificationStatus.tintColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(statusLabel(log.verificationStatus))
+                Text(log.verificationStatus.detailedDescription)
                     .font(.subheadline.bold())
                 Text(log.completedDate, style: .date)
                     .font(.caption)
@@ -222,7 +222,7 @@ struct QuestDetailView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(statusColor(log.verificationStatus).opacity(0.12))
+                .fill(log.verificationStatus.tintColor.opacity(0.12))
         )
     }
 
@@ -315,36 +315,6 @@ struct QuestDetailView: View {
 
     private var nonRejected: Int {
         allLogs.filter(\.verificationStatus.countsTowardCompletion).count
-    }
-
-    private func statusIcon(_ status: VerificationStatus) -> String {
-        switch status {
-        case .autoApproved: "checkmark.seal.fill"
-        case .verified: "checkmark.seal.fill"
-        case .pending: "hourglass"
-        case .rejected: "xmark.octagon.fill"
-        case .withdrawn: "arrow.uturn.backward.circle.fill"
-        }
-    }
-
-    private func statusColor(_ status: VerificationStatus) -> Color {
-        switch status {
-        case .autoApproved: .green
-        case .verified: .green
-        case .pending: .orange
-        case .rejected: .red
-        case .withdrawn: .gray
-        }
-    }
-
-    private func statusLabel(_ status: VerificationStatus) -> String {
-        switch status {
-        case .autoApproved: "Auto-approved — money & XP earned"
-        case .verified: "Verified by parent — money & XP earned"
-        case .pending: "Awaiting parent verification"
-        case .rejected: "Rejected by parent — try again"
-        case .withdrawn: "Unsubmitted — try again"
-        }
     }
 
     private func load() async {

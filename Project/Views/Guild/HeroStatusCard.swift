@@ -156,47 +156,19 @@ struct HeroStatusCard: View {
 
     private func recentLogRow(_ log: QuestCompletion) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: statusIcon(log.verificationStatus))
-                .foregroundStyle(statusColor(log.verificationStatus))
+            Image(systemName: log.verificationStatus.iconSystemName)
+                .foregroundStyle(log.verificationStatus.tintColor)
                 .font(.caption)
             Text(log.completedDate, format: .dateTime.month().day().hour().minute())
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
             Spacer()
-            Text(statusLabel(log.verificationStatus))
+            Text(log.verificationStatus.displayLabel)
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(statusColor(log.verificationStatus))
+                .foregroundStyle(log.verificationStatus.tintColor)
         }
         .padding(.vertical, 2)
-    }
-
-    private func statusIcon(_ status: VerificationStatus) -> String {
-        switch status {
-        case .verified, .autoApproved: "checkmark.seal.fill"
-        case .pending: "hourglass"
-        case .rejected: "xmark.octagon.fill"
-        case .withdrawn: "arrow.uturn.backward.circle.fill"
-        }
-    }
-
-    private func statusColor(_ status: VerificationStatus) -> Color {
-        switch status {
-        case .verified, .autoApproved: .green
-        case .pending: .orange
-        case .rejected: .red
-        case .withdrawn: .gray
-        }
-    }
-
-    private func statusLabel(_ status: VerificationStatus) -> String {
-        switch status {
-        case .verified: "Verified"
-        case .autoApproved: "Auto-Completed"
-        case .pending: "Awaiting Review"
-        case .rejected: "Rejected"
-        case .withdrawn: "Withdrawn"
-        }
     }
 
     private var accessibilityLabel: String {
