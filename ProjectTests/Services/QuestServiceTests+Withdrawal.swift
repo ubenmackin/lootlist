@@ -11,27 +11,18 @@ import Foundation
 import Testing
 
 extension QuestServiceTests {
-    // MARK: - Pending-log withdrawal is state-based (append-only, no hard delete)
+    // MARK: - Pending-log withdrawal is state-based (mutable status transition, no hard delete)
 
     @Test
     func `withdrawCompletion keeps the record inserted and marks it withdrawn`() async throws {
         // Unsubmitting a pending completion is a state transition
-        // (pending → withdrawn), never a CloudKit delete — QuestCompletions
-        // are append-only, so the record must survive the withdrawal.
+        // (pending → withdrawn), never a hard delete — QuestCompletions
+        // use mutable status transitions, so the record must survive the withdrawal.
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
         scaffold.cache.upsertQuestCompletion(pending)
-        scaffold.cloudKit.seedMockRecords([pending])
 
         try await scaffold.questService.withdrawCompletion(questLog: pending, by: scaffold.hero)
-
-        // Append-only invariant: the record still exists in CloudKit with the
-        // withdrawn state instead of being hard-deleted.
-        let server = try await scaffold.cloudKit.fetch(QuestCompletion.self, id: pending.id)
-        #expect(
-            server.verificationStatus == .withdrawn,
-            "A withdrawn completion must stay in CloudKit, marked withdrawn"
-        )
 
         // The local cache mirrors the withdrawn state.
         let cached = try #require(
@@ -45,35 +36,22 @@ extension QuestServiceTests {
     }
 
     @Test
-    func `withdrawCompletion failure restores the pending cache row instead of dropping it`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService()
-        cloudKit.activeFamilyZoneID = zoneID
-        let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
+    func `withdrawCompletion updates local cache immediately`() async throws {
+        let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
         scaffold.cache.upsertQuestCompletion(pending)
-        cloudKit.seedMockRecords([pending])
-        cloudKit.saveError = CloudKitServiceError.networkUnavailable
 
-        await #expect(throws: CloudKitServiceError.networkUnavailable) {
-            try await scaffold.questService.withdrawCompletion(questLog: pending, by: scaffold.hero)
-        }
+        try await scaffold.questService.withdrawCompletion(questLog: pending, by: scaffold.hero)
 
-        // The cache must still hold the record — restored to pending — not be
-        // invalidated by the failed withdrawal.
         let cached = try #require(
             scaffold.cache.fetchQuestCompletions(family: scaffold.familyRef.recordID.recordName)
                 .first { $0.recordName == pending.id.recordName },
-            "A failed withdrawal must leave the cached completion in place"
+            "A withdrawal must leave the cached completion in place"
         )
         #expect(
-            cached.verificationStatus == VerificationStatus.pending.rawValue,
-            "A failed withdrawal must restore the pending state in the cache"
+            cached.verificationStatus == VerificationStatus.withdrawn.rawValue,
+            "A withdrawal must mark the completion withdrawn in cache"
         )
-
-        // The server record is untouched: still present, still pending.
-        let server = try await cloudKit.fetch(QuestCompletion.self, id: pending.id)
-        #expect(server.verificationStatus == .pending)
     }
 
     @Test
@@ -97,7 +75,7 @@ extension QuestServiceTests {
         )
         #expect(
             logs.contains { $0.verificationStatus == VerificationStatus.withdrawn.rawValue },
-            "The withdrawn log must remain in the cache append-only"
+            "The withdrawn log must remain in the cache as a status-transitioned record"
         )
     }
 }

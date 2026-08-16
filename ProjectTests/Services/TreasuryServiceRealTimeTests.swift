@@ -108,6 +108,8 @@ struct TreasuryServiceRealTimeTests {
             cache.upsertQuest(quest(goldReward: goldReward))
             cache.upsertQuestCompletions([completion()])
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
         }
 
         func settle() async throws -> AllowancePeriod? {
@@ -288,6 +290,8 @@ struct TreasuryServiceRealTimeTests {
             cache.upsertQuestCompletions([completion])
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
         }
 
         /// The hero self-settles their reward (the QuestService.applyReward

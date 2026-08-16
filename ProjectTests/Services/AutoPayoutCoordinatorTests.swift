@@ -18,7 +18,7 @@ struct AutoPayoutCoordinatorTests {
         let questService: QuestService
         let familyService: FamilyService
         let appState: AppState
-        let cloudKit: CloudKitService
+        let cloudKit: MockCloudKitService
         let cache: CacheService
         let toastManager: ToastManager
         let family: Family
@@ -28,7 +28,7 @@ struct AutoPayoutCoordinatorTests {
 
     private func setupServices(heroPayoutPolicy: PayoutPolicy = .perQuest, heroPayoutDay: PayoutDay? = nil) throws -> TestContext {
         let zoneID = CKRecordZone.ID(zoneName: "TestFamily", ownerName: "Owner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         appState.cacheService = cache
@@ -70,6 +70,7 @@ struct AutoPayoutCoordinatorTests {
         appState.currentProfile = parentProfile
         appState.family = familyObj
         appState.familyZoneID = zoneID
+        appState.isZoneOwner = cloudKit.activeIsOwner
         appState.authStatus = .authenticated
 
         cache.upsertFamily(familyObj)

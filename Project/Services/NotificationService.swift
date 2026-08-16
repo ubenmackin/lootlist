@@ -34,6 +34,7 @@ final class NotificationService {
     private let appState: AppState
 
     var cacheService: CacheService?
+    var syncCoordinator: CKSyncEngineCoordinator?
 
     var toastManager: ToastManager?
 
@@ -45,12 +46,14 @@ final class NotificationService {
     init(cloudKit: any CloudKitServiceProtocol,
          appState: AppState,
          cacheService: CacheService? = nil,
-         toastManager: ToastManager? = nil)
+         toastManager: ToastManager? = nil,
+         syncCoordinator: CKSyncEngineCoordinator? = nil)
     {
         self.cloudKit = cloudKit
         self.appState = appState
         self.cacheService = cacheService
         self.toastManager = toastManager
+        self.syncCoordinator = syncCoordinator
     }
 
     @discardableResult
@@ -90,6 +93,25 @@ final class NotificationService {
         return userDefaultsFallback(for: eventType)
     }
 
+    func isNotificationEnabled(for eventType: NotificationEventType, profileRecordName: String?, familyRecordName: String?) -> Bool {
+        guard let profileRecordName, let familyRecordName, let cacheService else {
+            return isNotificationEnabled(for: eventType)
+        }
+        if let cached = cacheService.fetchNotificationPreference(
+            profileRecordName: profileRecordName,
+            familyRecordName: familyRecordName,
+            eventType: eventType.rawValue
+        ) {
+            return cached.enabled
+        }
+        // Local device user fallback to UserDefaults
+        if profileRecordName == appState.currentProfile?.id.recordName {
+            return userDefaultsFallback(for: eventType)
+        }
+        // For peer profiles without a cached preference row, default to false (fail-closed)
+        return false
+    }
+
     private func cachedPreference(for eventType: NotificationEventType) -> NotificationPreferenceCache? {
         guard let cacheService,
               let profile = appState.currentProfile,
@@ -104,13 +126,13 @@ final class NotificationService {
 
     private func userDefaultsFallback(for eventType: NotificationEventType) -> Bool {
         let defaults = UserDefaults.standard
-        let master = defaults.object(forKey: Self.masterDefaultsKey) as? Bool ?? true
+        let master = defaults.object(forKey: Self.masterDefaultsKey) as? Bool ?? false
         guard master else { return false }
 
         if let value = defaults.object(forKey: eventType.userDefaultsKey) as? Bool {
             return value
         }
-        return true
+        return false
     }
 
     private func mirrorToUserDefaults(event: NotificationEventType, enabled: Bool) {
@@ -127,13 +149,8 @@ final class NotificationService {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let zoneID = family.id.zoneID
 
-        let snapshot = cachedPreference(for: event)
-        let preMutationChangeTag = snapshot?.changeTag
-        let recordID = if let existingName = snapshot?.recordName {
-            CKRecord.ID(recordName: existingName, zoneID: zoneID)
-        } else {
-            CKRecord.ID(recordName: UUID().uuidString, zoneID: zoneID)
-        }
+        let deterministicRecordName = "pref-\(profile.id.recordName)-\(family.id.recordName)-\(event.rawValue)"
+        let recordID = CKRecord.ID(recordName: deterministicRecordName, zoneID: zoneID)
 
         let preference = NotificationPreference(
             profile: profileRef,
@@ -143,38 +160,12 @@ final class NotificationService {
             id: recordID
         )
 
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(recordID.recordName)
-
-        // Optimistic local write + UserDefaults mirror for fallback continuity.
         cacheService?.upsertNotificationPreference(preference)
         mirrorToUserDefaults(event: event, enabled: enabled)
 
-        do {
-            let saved = try await cloudKit.save(preference)
-            cacheService?.upsertNotificationPreference(saved)
-            await registry?.deregister(recordID.recordName)
-            return saved
-        } catch {
-            let snapshotModel = snapshot?.toNotificationPreference(zoneID: cloudKit.resolvedZoneID)
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: recordID,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotModel,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { self.cachedPreference(for: event)?.changeTag },
-                upsert: { restored in
-                    self.cacheService?.upsertNotificationPreference(restored)
-                    UserDefaults.standard.set(restored.enabled, forKey: event.userDefaultsKey)
-                },
-                invalidate: { _ in self.cacheService?.invalidateNotificationPreference(recordName: recordID.recordName) },
-                error: error
-            )
-            await registry?.deregister(recordID.recordName)
-            throw NotificationServiceError.persistenceFailed
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: preference.id, isOwner: isOwner)
+        return preference
     }
 
     // MARK: - UserDefaults Keys
@@ -186,7 +177,8 @@ final class NotificationService {
               title: String,
               body: String) async throws
     {
-        guard isNotificationEnabled(for: eventType) else { return }
+        let familyRecordName = profile.family.recordID.recordName
+        guard isNotificationEnabled(for: eventType, profileRecordName: profile.id.recordName, familyRecordName: familyRecordName) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = title
@@ -217,13 +209,14 @@ final class NotificationService {
                                  body: String,
                                  profileID: String) async throws
     {
-        guard isNotificationEnabled(for: eventType) else { return }
         guard let currentProfile = appState.currentProfile,
               currentProfile.id.recordName != profileID
         else {
             // Skip self-notifications — the acting user already sees the result.
             return
         }
+        let familyRecordName = appState.family?.id.recordName ?? currentProfile.family.recordID.recordName
+        guard isNotificationEnabled(for: eventType, profileRecordName: currentProfile.id.recordName, familyRecordName: familyRecordName) else { return }
 
         // The deep-link payload carries the authoring peer (creator/completer/
         // spender/verifier), NOT the viewer. `NotificationRouter` reads
@@ -259,7 +252,7 @@ final class NotificationService {
                            family: Family,
                            weekOf: Date) async throws
     {
-        guard isNotificationEnabled(for: .goldEarned) else { return }
+        guard isNotificationEnabled(for: .goldEarned, profileRecordName: profile.id.recordName, familyRecordName: family.id.recordName) else { return }
 
         let title = "🎁 Sunday Loot Day"
         let body: String = if let provider = weeklySummaryProvider {
@@ -274,7 +267,11 @@ final class NotificationService {
     func sendQuestNeedsReview(questLog: QuestCompletion,
                               to parent: Profile) async throws
     {
-        guard isNotificationEnabled(for: .questNeedsReview) else { return }
+        guard isNotificationEnabled(
+            for: .questNeedsReview,
+            profileRecordName: parent.id.recordName,
+            familyRecordName: parent.family.recordID.recordName
+        ) else { return }
 
         await registerVerificationCategoryIfNeeded()
 
@@ -308,7 +305,11 @@ final class NotificationService {
     }
 
     func sendQuestRejected(questLog _: QuestCompletion, to hero: Profile) async throws {
-        guard isNotificationEnabled(for: .questRejected) else { return }
+        guard isNotificationEnabled(
+            for: .questRejected,
+            profileRecordName: hero.id.recordName,
+            familyRecordName: hero.family.recordID.recordName
+        ) else { return }
 
         let title = "❌ Quest Rejected"
         let body = "Your quest submission was not approved — check feedback and try again."

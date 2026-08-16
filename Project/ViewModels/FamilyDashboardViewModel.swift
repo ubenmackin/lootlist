@@ -57,7 +57,7 @@ final class FamilyDashboardViewModel {
         self.appState = appState
     }
 
-    func refresh(syncEngine: SyncEngine? = nil) async {
+    func refresh() async {
         guard appState.family != nil else {
             heroes = []
             parents = []
@@ -70,9 +70,6 @@ final class FamilyDashboardViewModel {
 
         if let family = appState.family {
             try? await achievements.seedDefaultAchievements(family: family)
-        }
-        if let syncEngine {
-            await syncEngine.incrementalSync(familyRecordName: appState.family?.id.recordName, forceFullFetch: true)
         }
     }
 
@@ -196,8 +193,8 @@ final class FamilyDashboardViewModel {
     ) -> FamilyInvitation? {
         let key = status.identityKey ?? status.recordName.map { "record:\($0)" }
         guard let key else { return nil }
-        let participant = status.recordName != nil ? participantByRecordName[status.recordName!] : nil
-        let targetRole = (status.recordName != nil ? roleMap[status.recordName!] : nil) ?? roleMap[key]
+        let participant = status.recordName.flatMap { participantByRecordName[$0] }
+        let targetRole = status.recordName.flatMap { roleMap[$0] } ?? roleMap[key]
 
         if participant?.role == .owner || status.recordName == currentUserRecordName {
             return nil
@@ -259,7 +256,7 @@ final class FamilyDashboardViewModel {
         if let pKey, handledKeys.contains(pKey) {
             return nil
         }
-        let targetRole = (recordName != nil ? roleMap[recordName!] : nil) ?? (pKey != nil ? roleMap[pKey!] : nil)
+        let targetRole = recordName.flatMap { roleMap[$0] } ?? pKey.flatMap { roleMap[$0] }
         let isRemoved = participant.acceptanceStatus == .removed
         return FamilyInvitation(
             id: Self.invitationID(for: participant),
@@ -535,8 +532,9 @@ final class FamilyDashboardViewModel {
     }
 
     private func handleRecordChangedSync() {
-        // SyncEngine's incrementalSync handles writing incoming push changes to
-        // SwiftData, which automatically re-fires `.onChange` → `rebuildLists()`.
+        // CKSyncEngine (via `CKSyncEngineDelegateHandler`) handles writing
+        // incoming push changes to SwiftData, which automatically re-fires
+        // `.onChange` → `rebuildLists()`.
     }
 
     func unsubscribeFromSyncEvents(_ coordinator: AppSyncCoordinator) {

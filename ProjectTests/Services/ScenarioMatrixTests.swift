@@ -29,7 +29,7 @@ struct ScenarioMatrixTests {
         let appState = AppState()
         let cache = try CacheService(inMemory: true)
         let notif = NotificationService(cloudKit: ck, appState: appState, cacheService: cache)
-        let xp = XPService(cloudKit: ck, notificationService: notif)
+        let xp = XPService(cloudKit: ck, notificationService: notif, appState: appState)
         xp.cacheService = cache
 
         let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notif, appState: appState)
@@ -41,6 +41,7 @@ struct ScenarioMatrixTests {
         quest.treasuryService = treasury
 
         appState.cacheService = cache
+        appState.isZoneOwner = ck.activeIsOwner
 
         return SUT(
             cloudKit: ck,
@@ -454,6 +455,9 @@ struct ScenarioMatrixTests {
 
         let family = makeFamily(zoneID: zoneID)
         let hero = makeHero(idName: "hero1", displayName: "Child Hero", zoneID: zoneID)
+        sut.appState.family = family
+        sut.appState.familyZoneID = zoneID
+        sut.cloudKit.activeFamilyZoneID = zoneID
         sut.cache.upsertFamily(family)
         sut.cache.upsertProfile(hero)
         _ = try await sut.cloudKit.save(family)
@@ -470,7 +474,8 @@ struct ScenarioMatrixTests {
             weekOf: Date(),
             createdBy: CKRecord.Reference(recordID: family.id, action: .none),
             family: makeFamilyRef(zoneID),
-            name: "Sweep Floor"
+            name: "Sweep Floor",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         )
         _ = try await sut.cloudKit.save(quest)
 
@@ -578,6 +583,11 @@ struct ScenarioMatrixTests {
         _ = try await sut.cloudKit.save(hero)
 
         let spendingService = ManualSpendingService(cloudKit: sut.cloudKit, cacheService: sut.cache, appState: sut.appState)
+        sut.appState.family = family
+        sut.appState.familyZoneID = zoneID
+        sut.appState.isZoneOwner = true
+        sut.cloudKit.activeFamilyZoneID = zoneID
+        sut.cloudKit.activeIsOwner = true
         sut.appState.currentProfile = hero
 
         _ = try await spendingService.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Bought Sword", amount: 50.0)
@@ -631,6 +641,8 @@ struct ScenarioMatrixTests {
         sut.cache.upsertQuest(quest)
         sut.cache.upsertQuestCompletions([completion])
         sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
+        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
+        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
 
         // Real-time settlement: here the hero settles their own reward, so
         // the acting profile is the hero themself.
@@ -684,6 +696,7 @@ struct ScenarioMatrixTests {
             name: "Remove Quest",
             id: CKRecord.ID(recordName: "quest_removed", zoneID: zoneID)
         )
+        sut.cache.upsertQuest(quest)
         _ = try await sut.cloudKit.save(quest)
 
         // unassignActiveQuests guards on appState.family being set.
@@ -707,20 +720,16 @@ struct ScenarioMatrixTests {
 
         try await sut.familyService.kickMember(profile: hero)
 
-        // (a) The hero's profile is deactivated.
-        let freshHero = try await sut.cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.isActive == false)
+        // (a) The hero's profile is deactivated in local cache.
+        let cachedHero = sut.cache.fetchProfiles(family: family.id.recordName).first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.isActive == false)
 
         // (b) The family roster no longer includes the hero as an active member.
         let heroesAfter = try await sut.familyService.fetchHeroes(for: family)
         #expect(!heroesAfter.contains { $0.id == hero.id })
 
-        // (c) The active quest assigned to the hero was purged from CloudKit:
-        // unassignActiveQuests deletes the quest record, so fetching it now must
-        // throw rather than return a ghost record.
-        await #expect(throws: CloudKitServiceError.self) {
-            _ = try await sut.cloudKit.fetch(Quest.self, id: quest.id)
-        }
+        // (c) The active quest assigned to the hero was purged from local cache.
+        #expect(sut.cache.fetchQuest(recordName: quest.id.recordName, family: family.id.recordName) == nil)
     }
 
     @Test

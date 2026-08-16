@@ -14,7 +14,9 @@ struct iCloudStatusView: View {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "iCloudStatus")
 
     @Environment(AppState.self) private var appState
-    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+    @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     // iCloudStatusView intentionally omits familyRecordName filters on all @Query
@@ -96,13 +98,16 @@ struct iCloudStatusView: View {
     // MARK: Sync Status
 
     private var syncStatusLabel: String {
-        if syncEngine?.syncError != nil {
+        if syncCoordinator?.syncError != nil {
             return "Failed"
         }
-        if syncEngine?.isSyncing == true {
+        if syncCoordinator?.isSyncing == true {
             return "Syncing"
         }
-        if syncEngine?.lastSyncedAt == nil {
+        if (syncCoordinator?.pendingUploadCount ?? 0) > 0 {
+            return "Pending Uploads"
+        }
+        if syncCoordinator?.lastSyncedAt == nil {
             return "Pending"
         }
         return "Synced"
@@ -112,14 +117,14 @@ struct iCloudStatusView: View {
         switch syncStatusLabel {
         case "Failed": .red
         case "Syncing": .blue
-        case "Pending": .orange
+        case "Pending Uploads", "Pending": .orange
         case "Synced": .green
         default: .secondary
         }
     }
 
     private var lastSyncedText: String {
-        guard let lastSyncedAt = syncEngine?.lastSyncedAt else {
+        guard let lastSyncedAt = syncCoordinator?.lastSyncedAt else {
             return "Never synced"
         }
         return lastSyncedAt.formatted(.relative(presentation: .named))
@@ -130,6 +135,7 @@ struct iCloudStatusView: View {
     var body: some View {
         List {
             syncStatusSection
+            networkSection
             recordCountsSection
             cloudKitAccountSection
             actionsSection
@@ -139,7 +145,7 @@ struct iCloudStatusView: View {
         .task {
             await fetchAccountStatus()
         }
-        .onChange(of: syncEngine?.syncError) { _, newError in
+        .onChange(of: syncCoordinator?.syncError) { _, newError in
             if let newError, !newError.isEmpty {
                 toastManager?.show(message: newError, type: .error)
             }
@@ -149,7 +155,7 @@ struct iCloudStatusView: View {
     // MARK: Section 1 — Sync Status
 
     private var syncStatusSection: some View {
-        Section {
+        Section("CKSyncEngine Status") {
             HStack {
                 Text("Status")
                 Spacer()
@@ -162,6 +168,14 @@ struct iCloudStatusView: View {
                         Capsule()
                             .fill(syncStatusColor.opacity(0.15))
                     )
+            }
+
+            HStack {
+                Text("Pending Uploads")
+                Spacer()
+                Text("\(syncCoordinator?.pendingUploadCount ?? 0)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle((syncCoordinator?.pendingUploadCount ?? 0) > 0 ? Color.orange : Color.secondary)
             }
 
             HStack {
@@ -178,16 +192,57 @@ struct iCloudStatusView: View {
         switch syncStatusLabel {
         case "Failed": "xmark.circle.fill"
         case "Syncing": "arrow.triangle.2.circlepath"
+        case "Pending Uploads": "arrow.up.circle.fill"
         case "Pending": "clock.fill"
         case "Synced": "checkmark.circle.fill"
         default: "questionmark.circle.fill"
         }
     }
 
-    // MARK: Section 2 — Record Counts
+    // MARK: Section 2 — Network Reachability
+
+    private var networkSection: some View {
+        Section("Network Connectivity") {
+            HStack {
+                Text("Connection")
+                Spacer()
+                if let monitor = networkMonitor {
+                    Label(monitor.connectionType.displayName, systemImage: monitor.connectionType.iconName)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(monitor.isConnected ? Color.green : Color.red)
+                } else {
+                    Text("Unknown")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let monitor = networkMonitor, monitor.isConnected {
+                if monitor.isConstrained {
+                    HStack {
+                        Text("Low Data Mode")
+                        Spacer()
+                        Text("Enabled")
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                    }
+                }
+                if monitor.isExpensive {
+                    HStack {
+                        Text("Cellular / Metered")
+                        Spacer()
+                        Text("Active")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Section 3 — Record Counts
 
     private var recordCountsSection: some View {
-        Section("Record Counts") {
+        Section("Cached Record Counts") {
             countRow(label: "Profiles", count: profileCount)
             countRow(label: "Quests", count: questCount)
             countRow(label: "Quest Templates", count: templateCount)
@@ -217,12 +272,12 @@ struct iCloudStatusView: View {
         }
     }
 
-    // MARK: Section 3 — CloudKit Account
+    // MARK: Section 4 — CloudKit Account
 
     private var cloudKitAccountSection: some View {
-        Section("CloudKit Account") {
+        Section("iCloud Account") {
             HStack {
-                Text("Account")
+                Text("Account Status")
                 Spacer()
                 Text(accountStatus.displayName)
                     .font(.subheadline.weight(.medium))
@@ -242,29 +297,26 @@ struct iCloudStatusView: View {
         }
     }
 
-    // MARK: Section 4 — Actions
+    // MARK: Section 5 — Actions
 
     private var actionsSection: some View {
         Section {
             Button {
-                // Manual "Force Sync" user action in iCloud settings — a
-                // full refresh of the currently resolved family zone. The
-                // zone is named after the Family record, so the resolved
-                // zone's name is the family scope; purges are scoped to it
-                // so other families' cached rows are never deleted.
-                Task { await syncEngine?.syncAllForActiveZone() }
+                Task {
+                    await lifecycleCoordinator?.performManualSync()
+                }
             } label: {
                 HStack {
-                    Label("Force Sync", systemImage: "arrow.triangle.2.circlepath")
-                    if syncEngine?.isSyncing == true {
+                    Label("Sync Now", systemImage: "arrow.triangle.2.circlepath")
+                    if syncCoordinator?.isSyncing == true {
                         Spacer()
                         ProgressView()
                     }
                 }
             }
-            .disabled(syncEngine?.isSyncing == true)
+            .disabled(syncCoordinator?.isSyncing == true)
 
-            if let lastSyncedAt = syncEngine?.lastSyncedAt {
+            if let lastSyncedAt = syncCoordinator?.lastSyncedAt {
                 Text("Last synced \(lastSyncedAt.formatted(date: .abbreviated, time: .shortened))")
                     .font(.caption)
                     .foregroundStyle(.secondary)

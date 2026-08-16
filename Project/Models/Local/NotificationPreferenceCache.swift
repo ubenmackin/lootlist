@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,14 +13,18 @@ import SwiftData
 final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = NotificationPreference
 
-    #Index<NotificationPreferenceCache>([\.familyRecordName, \.profileRecordName, \.eventType])
+    #Index<NotificationPreferenceCache>([\.familyRecordName, \.recordName], [\.familyRecordName, \.profileRecordName, \.eventType])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var profileRecordName: String
     var familyRecordName: String
     var eventType: String
     var enabled: Bool
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     var eventTypeEnum: NotificationEventType? {
         NotificationEventType(rawValue: eventType)
@@ -30,7 +35,11 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
          familyRecordName: String,
          eventType: String,
          enabled: Bool,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.profileRecordName = profileRecordName
@@ -38,6 +47,10 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
         self.eventType = eventType
         self.enabled = enabled
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from preference: NotificationPreference) {
@@ -47,18 +60,28 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
             familyRecordName: preference.family.recordID.recordName,
             eventType: preference.eventType.rawValue,
             enabled: preference.enabled,
-            changeTag: preference.changeTag
+            changeTag: preference.changeTag,
+            encodedSystemFields: preference.encodedSystemFields,
+            sourceZoneName: preference.id.zoneID.zoneName,
+            sourceZoneOwnerName: preference.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: preference.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from preference: NotificationPreference) {
+    func update(from preference: NotificationPreference, isServerSync: Bool = false) {
         profileRecordName = preference.profile.recordID.recordName
         familyRecordName = preference.family.recordID.recordName
         eventType = preference.eventType.rawValue
         enabled = preference.enabled
         changeTag = preference.changeTag
+        sourceZoneName = preference.id.zoneID.zoneName
+        sourceZoneOwnerName = preference.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: preference.id.zoneID)
+        if isServerSync, preference.encodedSystemFields != nil {
+            encodedSystemFields = preference.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<NotificationPreferenceCache> {

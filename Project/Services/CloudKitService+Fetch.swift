@@ -14,20 +14,22 @@ extension CloudKitService {
                                   using db: CKDatabase? = nil) async throws -> T
     {
         if isTestingOrMocking {
-            if let record = mockRecords[id.recordName] {
-                return try T(record: record)
-            }
-            throw CloudKitServiceError.notFound(id.recordName)
+            let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+            return try mockStore.fetch(T.self, id: id, activeZoneID: activeFamilyZoneID, databaseScope: scope)
         }
 
         guard let targetDB = db ?? activeFamilyDatabase else {
+            logger.error("CloudKitService.fetch rejected: no target database provided and no activeFamilyDatabase available")
             throw CloudKitServiceError.accountUnavailable
         }
         let targetID: CKRecord.ID = {
             if id.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
                 return id
             }
-            return CKRecord.ID(recordName: id.recordName, zoneID: resolvedZoneID)
+            if let activeZone = activeFamilyZoneID {
+                return CKRecord.ID(recordName: id.recordName, zoneID: activeZone)
+            }
+            return id
         }()
         let record = try await retrying {
             try await targetDB.record(for: targetID)

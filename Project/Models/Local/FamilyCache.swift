@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,12 +13,9 @@ import SwiftData
 final class FamilyCache: CacheMergeable {
     typealias DomainModel = Family
 
-    // The `#Index<FamilyCache>([\.recordName])` macro was removed: it
-    // duplicated the implicit unique index already provided by
-    // `@Attribute(.unique) var recordName` below. Query predicates on
-    // `recordName` continue to use the unique attribute's implicit index.
+    #Index<FamilyCache>([\.recordName])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var name: String
     var createdByRecordName: String
     var createdAt: Date
@@ -30,6 +28,10 @@ final class FamilyCache: CacheMergeable {
     /// `Family.creatorUserRecordName` (server-stamped `creatorUserRecordID`).
     /// Optional so legacy rows predating the anchor migrate in cleanly with nil.
     var creatorUserRecordName: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     /// `FamilyCache` is the root record and is never family-scoped.
     var familyRecordName: String {
@@ -51,7 +53,11 @@ final class FamilyCache: CacheMergeable {
          payoutPolicy: String,
          payoutDay: String = PayoutDay.sunday.rawValue,
          changeTag: String? = nil,
-         creatorUserRecordName: String? = nil)
+         creatorUserRecordName: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.name = name
@@ -61,6 +67,10 @@ final class FamilyCache: CacheMergeable {
         self.payoutDay = payoutDay
         self.changeTag = changeTag
         self.creatorUserRecordName = creatorUserRecordName
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from family: Family) {
@@ -72,13 +82,17 @@ final class FamilyCache: CacheMergeable {
             payoutPolicy: family.payoutPolicy.rawValue,
             payoutDay: family.payoutDay.rawValue,
             changeTag: family.changeTag,
-            creatorUserRecordName: family.creatorUserRecordName
+            creatorUserRecordName: family.creatorUserRecordName,
+            encodedSystemFields: family.encodedSystemFields,
+            sourceZoneName: family.id.zoneID.zoneName,
+            sourceZoneOwnerName: family.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: family.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from family: Family) {
+    func update(from family: Family, isServerSync: Bool = false) {
         name = family.name
         createdByRecordName = family.createdBy.recordName
         createdAt = family.createdAt
@@ -86,6 +100,12 @@ final class FamilyCache: CacheMergeable {
         payoutDay = family.payoutDay.rawValue
         changeTag = family.changeTag
         creatorUserRecordName = family.creatorUserRecordName
+        sourceZoneName = family.id.zoneID.zoneName
+        sourceZoneOwnerName = family.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: family.id.zoneID)
+        if isServerSync, family.encodedSystemFields != nil {
+            encodedSystemFields = family.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName _: String?) -> FetchDescriptor<FamilyCache> {

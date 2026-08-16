@@ -353,6 +353,71 @@ struct CacheConversionsTests {
 
     // MARK: - Fixture helpers
 
+    @Test
+    func `persistedDatabaseScope parses valid database scopes and handles nil or unknown gracefully`() {
+        let questPrivate = questCacheFixture(
+            recordName: "q_pvt",
+            familyRecordName: "fam_1",
+            assigneeRecordName: "hero_1",
+            templateRecordName: "tpl_1",
+            weekOf: Date(),
+            questName: "Quest Pvt",
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            sourceZoneName: "CustomZone",
+            sourceZoneOwnerName: "_user1",
+            sourceDatabaseScope: "private"
+        )
+        #expect(questPrivate.persistedDatabaseScope == CKDatabase.Scope.private)
+        #expect(questPrivate.validatedDatabaseScope(expectedScope: .private) == CKDatabase.Scope.private)
+        #expect(questPrivate.validatedDatabaseScope(expectedScope: .shared) == nil)
+
+        let questShared = questCacheFixture(
+            recordName: "q_shd",
+            familyRecordName: "fam_1",
+            assigneeRecordName: "hero_1",
+            templateRecordName: "tpl_1",
+            weekOf: Date(),
+            questName: "Quest Shd",
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            sourceZoneName: "CustomZone",
+            sourceZoneOwnerName: "_user2",
+            sourceDatabaseScope: "shared"
+        )
+        #expect(questShared.persistedDatabaseScope == CKDatabase.Scope.shared)
+        #expect(questShared.validatedDatabaseScope(expectedScope: .shared) == CKDatabase.Scope.shared)
+        #expect(questShared.validatedDatabaseScope(expectedScope: .private) == nil)
+
+        let familyRow = FamilyCache(
+            recordName: "fam_1",
+            name: "Guild",
+            createdByRecordName: "creator_1",
+            createdAt: Date(),
+            payoutPolicy: PayoutPolicy.perQuest.rawValue,
+            sourceZoneName: "FamilyZone",
+            sourceZoneOwnerName: "_owner",
+            sourceDatabaseScope: "private"
+        )
+        #expect(familyRow.persistedDatabaseScope == CKDatabase.Scope.private)
+        #expect(familyRow.validatedDatabaseScope(expectedScope: .private) == CKDatabase.Scope.private)
+        #expect(familyRow.validatedDatabaseScope(expectedScope: .shared) == nil)
+
+        let unpersistedScope = questCacheFixture(
+            recordName: "q_none",
+            familyRecordName: "fam_1",
+            assigneeRecordName: "hero_1",
+            templateRecordName: "tpl_1",
+            weekOf: Date(),
+            questName: "Quest None",
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            sourceDatabaseScope: nil
+        )
+        #expect(unpersistedScope.persistedDatabaseScope == nil)
+        #expect(unpersistedScope.validatedDatabaseScope(expectedScope: .shared) == CKDatabase.Scope.shared)
+        #expect(inferDatabaseScope(from: CKRecordZone.ID(zoneName: "Zone", ownerName: CKCurrentUserDefaultName)) == "private")
+        #expect(inferDatabaseScope(from: CKRecordZone.ID(zoneName: "Zone", ownerName: "TestOwner")) == "private")
+        #expect(inferDatabaseScope(from: CKRecordZone.ID(zoneName: "Zone", ownerName: "_sharedUser123")) == "shared")
+    }
+
     private func questCacheFixture(
         recordName: String,
         familyRecordName: String,
@@ -360,7 +425,10 @@ struct CacheConversionsTests {
         templateRecordName: String,
         weekOf: Date,
         questName: String,
-        approvalMode: String
+        approvalMode: String,
+        sourceZoneName: String? = nil,
+        sourceZoneOwnerName: String? = nil,
+        sourceDatabaseScope: String? = nil
     ) -> QuestCache {
         QuestCache(
             recordName: recordName,
@@ -377,7 +445,10 @@ struct CacheConversionsTests {
             isAllOrNothing: false,
             approvalMode: approvalMode,
             descriptionText: "Tidy up",
-            createdByRecordName: "creator_1"
+            createdByRecordName: "creator_1",
+            sourceZoneName: sourceZoneName,
+            sourceZoneOwnerName: sourceZoneOwnerName,
+            sourceDatabaseScope: sourceDatabaseScope
         )
     }
 }

@@ -308,32 +308,36 @@ enum GoldCalculation: Sendable {
         let uniqueQuestIDs = Array(Set(completedLogs.map(\.quest.recordID)))
         var questMap: [CKRecord.ID: Quest] = [:]
 
+        var isFresh = false
         if let cache = cacheService {
             let familyName = family?.id.recordName
-            let quests = await MainActor.run {
-                let zoneID = cloudKit.resolvedZoneID
-                return cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
+            isFresh = await MainActor.run {
+                if let familyName {
+                    return cache.isCacheFresh(familyRecordName: familyName, type: .quest)
+                }
+                return false
             }
-            for quest in quests {
-                questMap[quest.id] = quest
+            if isFresh {
+                let quests = await MainActor.run {
+                    let zoneID = family?.id.zoneID ?? completedLogs.first?.quest.recordID.zoneID ?? CKRecordZone.default().zoneID
+                    return cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
+                }
+                for quest in quests {
+                    questMap[quest.id] = quest
+                }
             }
         }
 
-        let missingIDs = uniqueQuestIDs.filter { questMap[$0] == nil }
+        if !isFresh {
+            let missingIDs = uniqueQuestIDs.filter { questID in
+                questMap[questID] == nil && !questMap.keys.contains { $0.recordName == questID.recordName }
+            }
 
-        if !missingIDs.isEmpty {
-            for chunk in missingIDs.chunked(into: AppConstants.CloudKit.batchQueryChunkSize) {
-                let predicate = NSPredicate(format: "recordID IN %@", chunk)
-                do {
-                    let fetched: [Quest] = try await cloudKit.query(Quest.self, predicate: predicate)
-                    for quest in fetched {
-                        questMap[quest.id] = quest
-                    }
-                } catch {
-                    for questID in chunk {
-                        if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
-                            questMap[questID] = fetched
-                        }
+            if !missingIDs.isEmpty {
+                for questID in missingIDs {
+                    if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                        questMap[questID] = fetched
+                        questMap[fetched.id] = fetched
                     }
                 }
             }
@@ -346,7 +350,7 @@ enum GoldCalculation: Sendable {
 
         var total: Double = 0
         for (questID, approvedCount) in approvedCountByQuest {
-            if let quest = questMap[questID] {
+            if let quest = questMap[questID] ?? questMap.values.first(where: { $0.id.recordName == questID.recordName }) {
                 total += creditAsDouble(for: quest, approvedCount: approvedCount)
             }
         }

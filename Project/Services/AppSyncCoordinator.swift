@@ -65,6 +65,12 @@ final class AppSyncCoordinator {
 
     func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase?) async {
         guard let database else { return }
+        let subscriptionID = "lootlist-changes-\(zoneID.zoneName)"
+        if await (try? database.subscription(for: subscriptionID)) != nil {
+            logger.debug("CloudKit subscription \(subscriptionID, privacy: .private) already registered")
+            return
+        }
+
         // Dual-path subscription strategy:
         // - Owner (private) database: use a zone-scoped CKRecordZoneSubscription so
         //   change notifications only fire for this family's zone, avoiding spurious
@@ -73,9 +79,9 @@ final class AppSyncCoordinator {
         //   CKRecordZoneSubscription may not work with shared zones; participants
         //   observe the shared zone through a database-level subscription instead.
         let subscription: CKSubscription = if database.databaseScope == .shared {
-            CKDatabaseSubscription(subscriptionID: "lootlist-changes-\(zoneID.zoneName)")
+            CKDatabaseSubscription(subscriptionID: subscriptionID)
         } else {
-            CKRecordZoneSubscription(zoneID: zoneID, subscriptionID: "lootlist-changes-\(zoneID.zoneName)")
+            CKRecordZoneSubscription(zoneID: zoneID, subscriptionID: subscriptionID)
         }
 
         let notificationInfo = CKSubscription.NotificationInfo()
@@ -86,6 +92,10 @@ final class AppSyncCoordinator {
             _ = try await database.save(subscription)
             logger.info("CloudKit subscription registered for zone \(zoneID.zoneName, privacy: .private)")
         } catch {
+            if let ckError = error as? CKError, ckError.code == .serverRejectedRequest {
+                logger.debug("CloudKit subscription already registered: \(subscriptionID, privacy: .private)")
+                return
+            }
             logger.error("Failed to register CloudKit subscription: \(error, privacy: .private)")
         }
     }

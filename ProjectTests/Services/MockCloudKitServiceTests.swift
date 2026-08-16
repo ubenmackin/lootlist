@@ -74,6 +74,54 @@ struct MockCloudKitServiceTests {
         #expect(mock.mockShareMemberships[rangerShareID]?.contains("record:otherParent") == true)
     }
 
+    @Test
+    func `mock storage strictly isolates records across zones and database scopes`() async throws {
+        let mock = MockCloudKitService()
+        let zoneA = CKRecordZone.ID(zoneName: "ZoneA", ownerName: "OwnerA")
+        let zoneB = CKRecordZone.ID(zoneName: "ZoneB", ownerName: "OwnerB")
+
+        let famA = Family(name: "Family A", createdBy: CKRecord.ID(recordName: "uA", zoneID: zoneA), id: CKRecord.ID(recordName: "fam1", zoneID: zoneA))
+        let famB = Family(name: "Family B", createdBy: CKRecord.ID(recordName: "uB", zoneID: zoneB), id: CKRecord.ID(recordName: "fam1", zoneID: zoneB))
+
+        // Save famA in zoneA under private database
+        mock.activeFamilyZoneID = zoneA
+        mock.activeIsOwner = true
+        _ = try await mock.save(famA, in: zoneA)
+
+        // Save famB in zoneB under shared database
+        mock.activeFamilyZoneID = zoneB
+        mock.activeIsOwner = false
+        _ = try await mock.save(famB, in: zoneB)
+
+        // Query zoneA in private db
+        mock.activeFamilyZoneID = zoneA
+        mock.activeIsOwner = true
+        let resultsA = try await mock.query(Family.self, predicate: NSPredicate(value: true), in: zoneA, sortDescriptors: nil)
+        #expect(resultsA.count == 1)
+        #expect(resultsA.first?.name == "Family A")
+
+        // Query zoneB in shared db
+        mock.activeFamilyZoneID = zoneB
+        mock.activeIsOwner = false
+        let resultsB = try await mock.query(Family.self, predicate: NSPredicate(value: true), in: zoneB, sortDescriptors: nil)
+        #expect(resultsB.count == 1)
+        #expect(resultsB.first?.name == "Family B")
+    }
+
+    @Test
+    func `mock predicate evaluator handles compound and comparison predicates accurately`() {
+        let record = CKRecord(recordType: "Quest", recordID: CKRecord.ID(recordName: "q1"))
+        record["name"] = "Clean Room"
+        record["xpReward"] = 50
+        record["active"] = true
+
+        let matchingPredicate = NSPredicate(format: "name == %@ AND xpReward >= %d", "Clean Room", 25)
+        #expect(MockPredicateEvaluator.recordMatches(record, predicate: matchingPredicate) == true)
+
+        let nonMatchingPredicate = NSPredicate(format: "name == %@ AND xpReward > %d", "Clean Room", 100)
+        #expect(MockPredicateEvaluator.recordMatches(record, predicate: nonMatchingPredicate) == false)
+    }
+
     // No-match revocations must never be silent no-ops: `MockCloudKitService`
     // throws `shareFailed` on both overloads when no role share contains the
     // passed identity. The object overload's unmatchable path cannot be driven

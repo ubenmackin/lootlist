@@ -25,7 +25,7 @@ struct SaveGateState {
 /// for both, so tests can assert a mutation path performs zero CloudKit
 /// READS (the save path is left intact via the mock storage).
 class NetworkCountingCloudKitService: MockCloudKitService {
-    init(zoneID: CKRecordZone.ID? = nil) {
+    override init(zoneID: CKRecordZone.ID? = nil) {
         super.init()
         self.activeFamilyZoneID = zoneID
     }
@@ -122,63 +122,6 @@ final class SaveGate: Sendable {
     }
 }
 
-/// A CloudKitService double that rejects the Nth `Quest` record save with
-/// `CloudKitServiceError.serverRecordChanged` — the exact error surface the
-/// production `CloudKitService.save` wraps `CKError.serverRecordChanged` into.
-/// Lets a test force the change-tag CAS retry path in `QuestService.applyReward`
-/// deterministically: the first quest save (device A's bank) succeeds, the
-/// second (device B's stale attempt) is rejected, and the retry must re-fetch
-/// the authoritative quest and recompute the marginal to 0.
-final class OneShotQuestConflictCloudKitService: MockCloudKitService {
-    private var questSaveCount = 0
-    private let conflictOnQuestSave: Int
-
-    init(zoneID: CKRecordZone.ID, conflictOnQuestSave: Int = 2) {
-        self.conflictOnQuestSave = conflictOnQuestSave
-        super.init()
-        self.activeFamilyZoneID = zoneID
-    }
-
-    override func save<T: CloudKitRecord>(
-        _ model: T,
-        in zoneID: CKRecordZone.ID? = nil,
-        using db: CKDatabase? = nil
-    ) async throws -> T {
-        if T.recordType == Quest.recordType {
-            questSaveCount += 1
-            if questSaveCount == conflictOnQuestSave {
-                throw CloudKitServiceError.serverRecordChanged
-            }
-        }
-        return try await super.save(model, in: zoneID, using: db)
-    }
-}
-
-/// A CloudKitService double that rejects EVERY `Quest` save with
-/// `CloudKitServiceError.serverRecordChanged` — simulating sustained
-/// contention where the CAS retry loop in `QuestService.bankXP` exhausts its
-/// bounded attempts without ever settling. Used to prove that a completion
-/// which loses the CAS race is NOT permanently marked settled
-/// (`QuestCompletion.xpCredited` stays `nil` → re-grantable on a future run),
-/// rather than being silently stamped with a `0` that suppresses re-grant.
-final class AlwaysConflictQuestCloudKitService: MockCloudKitService {
-    init(zoneID: CKRecordZone.ID? = nil) {
-        super.init()
-        self.activeFamilyZoneID = zoneID
-    }
-
-    override func save<T: CloudKitRecord>(
-        _ model: T,
-        in zoneID: CKRecordZone.ID? = nil,
-        using db: CKDatabase? = nil
-    ) async throws -> T {
-        if T.recordType == Quest.recordType {
-            throw CloudKitServiceError.serverRecordChanged
-        }
-        return try await super.save(model, in: zoneID, using: db)
-    }
-}
-
 /// A CloudKitService double that records every `query` call synchronously
 /// (incrementing a counter before doing anything else) and parks the caller
 /// until released, without touching the network. Used to prove `markComplete`
@@ -188,7 +131,7 @@ final class AlwaysConflictQuestCloudKitService: MockCloudKitService {
 /// stays 0; `releaseQueries` releases any (none, post-remediation) parked
 /// caller so the test tears down cleanly.
 final class QueryParkingCloudKitService: MockCloudKitService {
-    init(zoneID: CKRecordZone.ID? = nil) {
+    override init(zoneID: CKRecordZone.ID? = nil) {
         super.init()
         self.activeFamilyZoneID = zoneID
     }
@@ -314,10 +257,6 @@ extension QuestServiceTests {
             // Verify/reject resolve the acting profile from the authenticated
             // session. The scaffold's default acting profile is the hero, so a
             // `markComplete(quest:by:hero)` self-completion passes the identity
-            // guard without further setup; verify/reject callers must override
-            // `appState.currentProfile` to the parent (or ranger) acting profile.
-            appState = AppState()
-
             familyRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
             )
@@ -328,7 +267,17 @@ extension QuestServiceTests {
                 avatarPresetID: "knight_01",
                 role: .guildMaster,
                 iCloudUserID: parentID,
-                family: familyRef
+                family: familyRef,
+                id: parentID
+            )
+
+            appState = AppState()
+            appState.familyZoneID = zoneID
+            appState.isZoneOwner = resolvedCloudKit.activeIsOwner
+            appState.family = Family(
+                name: "fam1",
+                createdBy: parentID,
+                id: familyRef.recordID
             )
             questService.appState = appState
             questService.xpService.appState = appState

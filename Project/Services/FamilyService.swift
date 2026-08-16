@@ -87,7 +87,13 @@ final class FamilyService: FamilyProfileFetching {
     let appState: AppState
     private let questService: QuestService
 
-    var cacheService: CacheService?
+    var cacheService: CacheService? {
+        didSet {
+            questService.cacheService = cacheService
+        }
+    }
+
+    var syncCoordinator: CKSyncEngineCoordinator?
 
     var cloudKitReference: any CloudKitServiceProtocol {
         cloudKit
@@ -99,27 +105,35 @@ final class FamilyService: FamilyProfileFetching {
     /// `"<operation>|<familyRecordName>"`. Actor-isolated dedupe guard: when a
     /// genuinely-required immediate refresh for the same operation + family is
     /// already running, concurrent callers collapse onto it instead of issuing
-    /// duplicate CloudKit queries that race SyncEngine's push-driven incremental
-    /// sync and duplicate server-derived writes.
+    /// duplicate CloudKit queries that race CKSyncEngine's push-driven sync
+    /// and duplicate server-derived writes.
     private let refreshInFlightKeys = Mutex<Set<String>>([])
 
     /// The current user's CloudKit record ID, resolved lazily and cached so an
     /// onboarding flow resolves the identity exactly once. CloudKit identities
     /// are immutable for a signed-in user within a session, so the cached value
     /// stays valid for the lifetime of the service. Serves the onboarding
-    /// dedupe flows (`createFamily`, `joinFamilyViaAcceptedShare`) only — the
-    /// security-relevant owner-anchor check (`isFamilyOwner`) deliberately
-    /// bypasses this cache and re-resolves the identity on every call so an
-    /// OS-level iCloud account change without an app relaunch cannot authorize
-    /// operations against a stale pre-switch identity.
+    /// checks (`checkForExistingFamily`, `findOwnedFamily`) without repeated
+    /// network round-trips to `CKContainer.fetchUserRecordID()`.
     private var cachedUserRecordID: CKRecord.ID?
 
-    init(cloudKit: any CloudKitServiceProtocol, appState: AppState, questService: QuestService, cacheService: CacheService? = nil, toastManager: ToastManager? = nil) {
+    init(
+        cloudKit: any CloudKitServiceProtocol,
+        appState: AppState,
+        questService: QuestService,
+        cacheService: CacheService? = nil,
+        toastManager: ToastManager? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) {
         self.cloudKit = cloudKit
         self.appState = appState
         self.questService = questService
         self.cacheService = cacheService
+        if let cacheService {
+            questService.cacheService = cacheService
+        }
         self.toastManager = toastManager
+        self.syncCoordinator = syncCoordinator
     }
 
     // MARK: - Family Creation (Guild Master Flow)
@@ -370,7 +384,7 @@ final class FamilyService: FamilyProfileFetching {
         appState.saveSession(profile: savedProfile, family: family, zoneID: zoneID, isOwner: false)
 
         // Immediate roster refresh — the joiner's cache only has the Family +
-        // their own profile. Routine updates stay push-driven via SyncEngine.
+        // their own profile. Routine updates stay push-driven via CKSyncEngine.
         await refreshProfilesFromCloudKit(for: family)
 
         progressHandler?("Joined Guild!", 1.0)
@@ -384,23 +398,28 @@ final class FamilyService: FamilyProfileFetching {
     // MARK: - Role & Membership Management
 
     /// Cache-first read. A fresh cache is served as-is;
-    /// background updates flow through SyncEngine's push-driven pipeline, so no
+    /// background updates flow through CKSyncEngine's push-driven pipeline, so no
     /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
     /// partial cache falls through to a single synchronous CloudKit query that
     /// write-throughs the cache.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
-            let cached = cache.fetchProfiles(family: familyName)
-                .filter { $0.role == UserRole.hero.rawValue && $0.isActive }
-                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
-                return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
+            let allProfiles = cache.fetchProfiles(family: familyName)
+            if cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
+                return allProfiles
+                    .filter { $0.role == UserRole.hero.rawValue && $0.isActive }
+                    .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+                    .map { $0.toProfile(zoneID: family.id.zoneID) }
             }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = try await cloudKit.query(Profile.self, predicate: predicate)
+        let isOwner = (family.id.recordName == appState.family?.id.recordName)
+            ? appState.isZoneOwner
+            : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
+        let db = cloudKit.database(isOwner: isOwner)
+        let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
         cacheService?.upsertProfiles(all)
         return all
             .filter { $0.role == .hero && $0.isActive }
@@ -408,7 +427,7 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     /// Cache-first read. A fresh cache is served as-is;
-    /// background updates flow through SyncEngine's push-driven pipeline, so no
+    /// background updates flow through CKSyncEngine's push-driven pipeline, so no
     /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
     /// partial cache falls through to a single synchronous CloudKit query that
     /// write-throughs the cache.
@@ -416,8 +435,8 @@ final class FamilyService: FamilyProfileFetching {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchProfiles(family: familyName)
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
-                return cached.map { $0.toProfile(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
+                return cached.map { $0.toProfile(zoneID: family.id.zoneID) }
                     .sorted { lhs, rhs in
                         if lhs.isActive != rhs.isActive {
                             return lhs.isActive && !rhs.isActive
@@ -429,7 +448,11 @@ final class FamilyService: FamilyProfileFetching {
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = try await cloudKit.query(Profile.self, predicate: predicate)
+        let isOwner = (family.id.recordName == appState.family?.id.recordName)
+            ? appState.isZoneOwner
+            : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
+        let db = cloudKit.database(isOwner: isOwner)
+        let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
         cacheService?.upsertProfiles(all)
         return all.sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive {
@@ -461,51 +484,12 @@ final class FamilyService: FamilyProfileFetching {
         var updated = profile
         updated.role = newRole
 
-        let name = profile.id.recordName
-        let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
-            .first(where: { $0.recordName == name })
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-
-        let (zoneID, db) = familyContext(for: profile.family.recordID)
-        do {
-            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
-            cacheService?.upsertProfile(saved)
-            if appState.currentProfile?.id == saved.id {
-                appState.currentProfile = saved
-            }
-            await registry?.deregister(name)
-        } catch {
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: profile.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotProfile,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { self.cacheService?.fetchProfile(recordName: name)?.changeTag },
-                upsert: { restored in
-                    self.cacheService?.upsertProfile(restored)
-                    if self.appState.currentProfile?.id == restored.id {
-                        self.appState.currentProfile = restored
-                    }
-                },
-                invalidate: { _ in self.cacheService?.invalidateProfile(recordName: name) },
-                error: error,
-                db: db
-            )
-            await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }
 
     func leaveFamily(profile: Profile) async throws {
@@ -527,6 +511,8 @@ final class FamilyService: FamilyProfileFetching {
         } catch {
             logger.error("Failed to remove leaving member's share participant: \(error, privacy: .private)")
         }
+
+        appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
 
     @discardableResult
@@ -602,6 +588,10 @@ final class FamilyService: FamilyProfileFetching {
             }
             return false
         }
+        // Legacy fallback: require supplied family zone matches active zone
+        guard family.id.zoneID == appState.familyZoneID else {
+            return false
+        }
         return appState.isZoneOwner
     }
 
@@ -636,7 +626,7 @@ final class FamilyService: FamilyProfileFetching {
     private func family(for profile: Profile) async -> Family? {
         let familyID = profile.family.recordID
         if let cached = cacheService?.fetchFamily(recordName: familyID.recordName) {
-            return cached.toFamily(zoneID: cloudKit.resolvedZoneID)
+            return cached.toFamily(zoneID: familyID.zoneID)
         }
         let (_, db) = familyContext(for: familyID)
         return try? await cloudKit.fetch(Family.self, id: familyID, using: db)
@@ -646,10 +636,10 @@ final class FamilyService: FamilyProfileFetching {
     /// write-throughs the cache via this service's own write path. Deduped by
     /// an actor-isolated in-flight guard keyed by operation + family, so
     /// concurrent callers collapse to a single query instead of racing
-    /// SyncEngine's push-driven incremental sync with duplicate
+    /// CKSyncEngine's push-driven sync with duplicate
     /// server-derived writes. Reserved for the few places where an
     /// immediate refresh is genuinely required (e.g. joining a family via
-    /// share link) — routine background updates belong to SyncEngine, and
+    /// share link) — routine background updates belong to CKSyncEngine, and
     /// stale cache-first reads already fall through to the synchronous query
     /// in `fetchHeroes`/`fetchAllProfilesForFamily`. Internal so tests can
     /// exercise the in-flight dedupe.
@@ -667,7 +657,11 @@ final class FamilyService: FamilyProfileFetching {
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate) {
+        let isOwner = (family.id.recordName == appState.family?.id.recordName)
+            ? appState.isZoneOwner
+            : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
+        let db = cloudKit.database(isOwner: isOwner)
+        if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db) {
             cacheService?.upsertProfiles(fresh)
         }
     }
@@ -717,9 +711,10 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    func familyContext(for _: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase?) {
-        let zoneID = cloudKit.resolvedZoneID // already set with correct ownerName
-        let db = cloudKit.database(isOwner: appState.isZoneOwner)
+    func familyContext(for recordID: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase?) {
+        let zoneID = recordID.zoneID
+        let isOwner = (recordID.zoneID.ownerName == CKCurrentUserDefaultName) || (appState.family?.id.recordName == recordID.recordName && appState.isZoneOwner)
+        let db = cloudKit.database(isOwner: isOwner)
         return (zoneID, db)
     }
 
@@ -736,51 +731,12 @@ final class FamilyService: FamilyProfileFetching {
         var updated = profile
         updated.isActive = false
 
-        let name = profile.id.recordName
-        let snapshot = cacheService?.fetchProfiles(family: profile.family.recordID.recordName)
-            .first(where: { $0.recordName == name })
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotProfile: Profile? = snapshot?.toProfile(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-
-        let (zoneID, db) = familyContext(for: profile.family.recordID)
-        do {
-            let saved = try await cloudKit.save(updated, in: zoneID, using: db)
-            cacheService?.upsertProfile(saved)
-            if appState.currentProfile?.id == saved.id {
-                appState.currentProfile = saved
-            }
-            await registry?.deregister(name)
-        } catch {
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: profile.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotProfile,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { self.cacheService?.fetchProfile(recordName: name)?.changeTag },
-                upsert: { restored in
-                    self.cacheService?.upsertProfile(restored)
-                    if self.appState.currentProfile?.id == restored.id {
-                        self.appState.currentProfile = restored
-                    }
-                },
-                invalidate: { _ in self.cacheService?.invalidateProfile(recordName: name) },
-                error: error,
-                db: db
-            )
-            await registry?.deregister(name)
-            throw FamilyServiceError.persistenceFailed
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }
 
     func deleteFamilyAndReset(family: Family) async throws {
@@ -788,6 +744,12 @@ final class FamilyService: FamilyProfileFetching {
         // for the owner anchor (server-authenticated family owner). Legacy
         // families without an owner anchor fall back to the zone-owner +
         // parent-role check.
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
+
         let isOwner = await isFamilyOwner(family)
         let actingRoleIsParent = appState.currentProfile?.role.isParent ?? false
         let isAuthorized: Bool = if let anchor = family.creatorUserRecordName, anchor != "__defaultOwner__", anchor != "_defaultOwner_" {
@@ -799,28 +761,15 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.unauthorized
         }
         // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
-        if let zoneID = appState.familyZoneID {
-            do {
-                try await cloudKit.deleteZone(zoneID)
-            } catch {
-                logger.error("Could not delete zone immediately; queueing abandoned zone: \(error, privacy: .private)")
-                appState.addAbandonedZoneID(zoneID.zoneName)
-            }
+        let targetZoneID = family.id.zoneID
+        do {
+            try await cloudKit.deleteZone(targetZoneID)
+        } catch {
+            logger.error("Could not delete zone immediately; queueing abandoned zone: \(error, privacy: .private)")
+            appState.addAbandonedZoneID(targetZoneID.zoneName)
         }
 
-        // 2. Clear CloudKit active state.
-        cloudKit.activeFamilyZoneID = nil
-        cloudKit.activeIsOwner = true
-
-        // 3. Purge this family's local SwiftData cache.  Fall back to a
-        //    global clearAll() only if the family recordName is unavailable.
-        let familyRecordName = family.id.recordName
-        if !familyRecordName.isEmpty {
-            cacheService?.purgeFamily(recordName: familyRecordName)
-        } else if let cacheService {
-            try cacheService.clearAll()
-        }
-
-        appState.clearSession()
+        // 2. Clear CloudKit active state, purge family cache, reset sync coordinator, and clear session.
+        appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
 }

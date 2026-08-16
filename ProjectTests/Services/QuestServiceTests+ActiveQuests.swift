@@ -16,7 +16,7 @@ extension QuestServiceTests {
     @Test
     func `fetchActiveQuests makes zero CloudKit save calls`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
@@ -75,7 +75,7 @@ extension QuestServiceTests {
     @Test
     func `fetchActiveQuests respects non-Sunday payout day when profile has none`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
@@ -136,7 +136,7 @@ extension QuestServiceTests {
     @Test
     func `fetchActiveQuests falls back to CloudKit query when cache is missing target quest`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)

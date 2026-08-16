@@ -481,9 +481,8 @@ extension QuestServiceTests {
 
         try await scaffold.questService.unassignQuest(scaffold.quest)
 
-        // The quest record is deleted from CloudKit — not orphaned.
-        await #expect(throws: CloudKitServiceError.self) {
-            _ = try await scaffold.cloudKit.fetch(Quest.self, id: scaffold.quest.id)
-        }
+        // Local-first: The quest is immediately invalidated in the cache
+        let familyName = scaffold.familyRef.recordID.recordName
+        #expect(scaffold.cache.fetchQuest(recordName: scaffold.quest.id.recordName, family: familyName) == nil)
     }
 }

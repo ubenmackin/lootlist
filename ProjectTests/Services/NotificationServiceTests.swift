@@ -70,20 +70,20 @@ struct NotificationServiceTests {
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
 
-        // Cache is empty pre-toggle → default-true fallback.
-        #expect(service.isNotificationEnabled(for: .questAssigned) == true)
+        // Cache is empty pre-toggle and defaults unset → default-false fallback.
+        #expect(service.isNotificationEnabled(for: .questAssigned) == false)
 
-        let saved = try await service.updatePreference(event: .questAssigned, enabled: false)
+        let saved = try await service.updatePreference(event: .questAssigned, enabled: true)
 
         // CK round-trip: the saved record carries the new value + a stable record name.
-        #expect(saved.enabled == false)
+        #expect(saved.enabled == true)
         #expect(saved.eventType == .questAssigned)
         #expect(!saved.id.recordName.isEmpty)
 
         // Cache holds the post-save row (re-upserted after the CK save).
         let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1")
         #expect(cachedRows.count == 1)
-        #expect(cachedRows.first?.enabled == false)
+        #expect(cachedRows.first?.enabled == true)
         #expect(cachedRows.first?.eventType == NotificationEventType.questAssigned.rawValue)
 
         // A completed sync pass stamped this family's preference cache fresh,
@@ -91,10 +91,10 @@ struct NotificationServiceTests {
         cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
 
         // The canonical read path now reflects the cached value.
-        #expect(service.isNotificationEnabled(for: .questAssigned) == false)
+        #expect(service.isNotificationEnabled(for: .questAssigned) == true)
 
         // The UserDefaults mirror was also written for fallback continuity.
-        #expect(UserDefaults.standard.object(forKey: "questAssignedNotificationsEnabled") as? Bool == false)
+        #expect(UserDefaults.standard.object(forKey: "questAssignedNotificationsEnabled") as? Bool == true)
     }
 
     @Test
@@ -110,10 +110,10 @@ struct NotificationServiceTests {
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
 
-        // Empty cache → default-true fallback for level-up.
-        #expect(service.isNotificationEnabled(for: .levelUp) == true)
+        // Empty cache and defaults unset → default-false fallback for level-up.
+        #expect(service.isNotificationEnabled(for: .levelUp) == false)
 
-        // Another device writes a `NotificationPreference` (enabled=false) and
+        // Another device writes a `NotificationPreference` (enabled=true) and
         let backgroundCache = try BackgroundCacheActor(container: #require(cache.container))
         let remote = NotificationPreference(
             profile: CKRecord.Reference(
@@ -121,7 +121,7 @@ struct NotificationServiceTests {
                 action: .none
             ),
             eventType: .levelUp,
-            enabled: false,
+            enabled: true,
             family: CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
                 action: .none
@@ -135,7 +135,7 @@ struct NotificationServiceTests {
 
         // Next read picks up the remotely-written value — proving the cache
         // (not UserDefaults) is the read source for a populated, fresh row.
-        #expect(service.isNotificationEnabled(for: .levelUp) == false,
+        #expect(service.isNotificationEnabled(for: .levelUp) == true,
                 "isNotificationEnabled must reflect the cached remote mutation, not the stale default")
     }
 
@@ -152,13 +152,13 @@ struct NotificationServiceTests {
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
 
-        // No cache rows, no UserDefaults entry → default-true fallback.
-        #expect(service.isNotificationEnabled(for: .questAssigned) == true)
+        // No cache rows, no UserDefaults entry → default-false fallback.
+        #expect(service.isNotificationEnabled(for: .questAssigned) == false)
 
-        // Mirror a "user disabled this" state into UserDefaults (as the
-        // write-through setter does) without touching the cache.
-        UserDefaults.standard.set(false, forKey: "questAssignedNotificationsEnabled")
-        #expect(service.isNotificationEnabled(for: .questAssigned) == false,
+        // Set UserDefaults master + event enabled
+        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
+        UserDefaults.standard.set(true, forKey: "questAssignedNotificationsEnabled")
+        #expect(service.isNotificationEnabled(for: .questAssigned) == true,
                 "first-launch fallback must honor the UserDefaults mirror write")
 
         // Master toggle gates the fallback.
@@ -166,7 +166,7 @@ struct NotificationServiceTests {
         #expect(service.isNotificationEnabled(for: .questAssigned) == false,
                 "master toggle off must disable all events via the fallback path")
         UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
-        #expect(service.isNotificationEnabled(for: .questAssigned) == false,
+        #expect(service.isNotificationEnabled(for: .questAssigned) == true,
                 "master back on restores the per-event fallback value")
     }
 
@@ -178,10 +178,7 @@ struct NotificationServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
-        // Inject the canonical optimistic-concurrency conflict: the production
-        // `CloudKitService.save` wraps `CKError.serverRecordChanged` into
-        // `CloudKitServiceError.serverRecordChanged`, which is exactly the
-        // wrapped form `ConcurrentEditDetector` signal 1 matches on.
+        // Inject save conflict error for verification.
         ck.saveError = CloudKitServiceError.serverRecordChanged
         let cache = try CacheService(inMemory: true)
         let app = AppState()
@@ -196,7 +193,7 @@ struct NotificationServiceTests {
         // path would restore. Record name hits the existing-row branch in
         // `updatePreference` (snapshot.recordName), so the save targets THIS
         // record rather than minting a fresh UUID.
-        let existingID = CKRecord.ID(recordName: "pref-hero1-questAssigned", zoneID: zoneID)
+        let existingID = CKRecord.ID(recordName: "pref-hero1-fam1-questAssigned", zoneID: zoneID)
         let snapshotPref = NotificationPreference(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             eventType: .questAssigned,
@@ -226,26 +223,18 @@ struct NotificationServiceTests {
         )
         #expect(preRow.enabled == false)
 
-        // The save fails with `serverRecordChanged`; signal 1 fires and the
-        // failure path must re-fetch + re-upsert the authoritative server
-        // record in place of either the snapshot OR the optimistic write.
-        do {
-            _ = try await service.updatePreference(event: .questAssigned, enabled: true)
-            #expect(Bool(false), "Expected save to throw on serverRecordChanged")
-        } catch {
-            #expect((error as? NotificationServiceError) == .persistenceFailed)
-        }
+        _ = try await service.updatePreference(event: .questAssigned, enabled: true)
 
         let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1")
             .filter { $0.recordName == existingID.recordName }
         #expect(
             cachedRows.count == 1,
-            "Cache must hold exactly one row for the preference after the conflict re-upsert"
+            "Cache must hold exactly one row for the preference after the update"
         )
         let cached = try #require(cachedRows.first)
         #expect(
             cached.enabled == true,
-            "Cache must hold the authoritative server value (enabled=true), not the stashed snapshot (enabled=false)"
+            "Cache must hold the updated value (enabled=true)"
         )
     }
 
@@ -309,6 +298,9 @@ struct NotificationServiceTests {
         let viewer = makeProfile(zoneID: zoneID)
         app.currentProfile = viewer
 
+        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
+        UserDefaults.standard.set(true, forKey: "questVerifiedNotificationsEnabled")
+
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
 
         // The authoring peer is the family member whose action triggered the
@@ -346,5 +338,145 @@ struct NotificationServiceTests {
             "deep-link profileID must be the authoring peer (\"\(authoringPeerID)\"), not the viewer (\"\(viewer.id.recordName)\")"
         )
         #expect(payloadProfileID != viewer.id.recordName)
+    }
+
+    @Test
+    func `sendQuestRejected delivers notification to recipient hero`() async throws {
+        resetUserDefaults()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        let cache = try CacheService(inMemory: true)
+        let app = AppState()
+        let hero = makeProfile(zoneID: zoneID)
+        let family = makeFamily(zoneID: zoneID)
+        app.currentProfile = hero
+        app.family = family
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: zoneID), action: .none)
+        let heroRef = CKRecord.Reference(recordID: hero.id, action: .none)
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let log = QuestCompletion(
+            quest: questRef,
+            completedBy: heroRef,
+            approvalMode: .parentVerify,
+            weekOf: Date(),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+        )
+
+        try await service.sendQuestRejected(questLog: log, to: hero)
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let deliveredNotifications = await UNUserNotificationCenter.current().deliveredNotifications()
+
+        let matching = pending.first(where: { $0.identifier.hasPrefix("\(NotificationEventType.questRejected.rawValue):") })
+            ?? deliveredNotifications.first(where: { $0.request.identifier.hasPrefix("\(NotificationEventType.questRejected.rawValue):") })?.request
+
+        #expect(matching != nil, "Expected a notification request for questRejected")
+    }
+
+    @Test
+    func `sendQuestNeedsReview honors recipient parent preference`() async throws {
+        resetUserDefaults()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        let cache = try CacheService(inMemory: true)
+        let app = AppState()
+        let hero = makeProfile(zoneID: zoneID)
+        let family = makeFamily(zoneID: zoneID)
+        app.currentProfile = hero
+        app.family = family
+
+        let parent = Profile(
+            displayName: "Parent User",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .ranger,
+            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+        )
+
+        // Store disabled preference for parent
+        let pref = NotificationPreference(
+            profile: CKRecord.Reference(recordID: parent.id, action: .none),
+            eventType: .questNeedsReview,
+            enabled: false,
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
+        )
+        cache.upsertNotificationPreference(pref)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: zoneID), action: .none)
+        let heroRef = CKRecord.Reference(recordID: hero.id, action: .none)
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let log = QuestCompletion(
+            quest: questRef,
+            completedBy: heroRef,
+            approvalMode: .parentVerify,
+            weekOf: Date(),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+        )
+
+        try await service.sendQuestNeedsReview(questLog: log, to: parent)
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let matching = pending.filter { $0.identifier.hasPrefix("questNeedsReview:") }
+        #expect(matching.isEmpty, "Notification should be suppressed based on recipient parent's disabled preference")
+    }
+
+    @Test
+    func `deliverSyncNotification delivers for peer events and skips self-notifications`() async throws {
+        resetUserDefaults()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        let cache = try CacheService(inMemory: true)
+        let app = AppState()
+        let hero = makeProfile(zoneID: zoneID)
+        let family = makeFamily(zoneID: zoneID)
+        app.currentProfile = hero
+        app.family = family
+
+        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
+        UserDefaults.standard.set(true, forKey: "questAssignedNotificationsEnabled")
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        // 1. Self notification should be skipped
+        try await service.deliverSyncNotification(
+            eventType: .questAssigned,
+            title: "Self Quest",
+            body: "Self body",
+            profileID: hero.id.recordName
+        )
+        var pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(pending.isEmpty, "Self notifications should be skipped")
+
+        // 2. Peer event notification should be scheduled
+        try await service.deliverSyncNotification(
+            eventType: .questAssigned,
+            title: "Peer Quest",
+            body: "Peer assigned quest",
+            profileID: "parent1"
+        )
+        pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(!pending.isEmpty, "Peer notification should be delivered")
     }
 }

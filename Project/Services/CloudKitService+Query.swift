@@ -16,16 +16,18 @@ extension CloudKitService {
                                   using db: CKDatabase? = nil) async throws -> [T]
     {
         if isTestingOrMocking {
-            let matching = mockRecords.values.filter { record in
-                guard record.recordType == T.recordType else { return false }
-                return evaluateMockPredicate(predicate, record: record)
-            }
-            let sorted = sortMockRecords(Array(matching), sortDescriptors: sortDescriptors)
-            return try sorted.map { try T(record: $0) }
+            let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+            let zone = zoneID ?? activeFamilyZoneID
+            return try mockStore.query(type, predicate: predicate, in: zone, sortDescriptors: sortDescriptors, databaseScope: scope)
         }
 
-        let zone = zoneID ?? resolvedZoneID
+        guard let zone = zoneID ?? activeFamilyZoneID else {
+            logger.error("CloudKitService.query rejected: no explicit zoneID or activeFamilyZoneID available")
+            throw CloudKitServiceError.invalidArguments("CloudKitService.query requires an explicit zoneID or activeFamilyZoneID")
+        }
+
         guard let targetDB = db ?? activeFamilyDatabase else {
+            logger.error("CloudKitService.query rejected: no target database provided and no activeFamilyDatabase available")
             throw CloudKitServiceError.accountUnavailable
         }
         let query = CKQuery(recordType: type.recordType, predicate: predicate)

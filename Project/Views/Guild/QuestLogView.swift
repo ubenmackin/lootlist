@@ -241,7 +241,8 @@ struct QuestLogView: View {
                                     if let pendingLog = cachedCompletions
                                         .first(where: { $0.questRecordName == questName && $0.verificationStatus == VerificationStatus.pending.rawValue })
                                     {
-                                        let zoneID = questService.cloudKitReference.resolvedZoneID
+                                        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? pendingLog
+                                            .validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
                                         if let parent = appState.currentProfile {
                                             do {
@@ -268,7 +269,8 @@ struct QuestLogView: View {
                                     if let pendingLog = cachedCompletions
                                         .first(where: { $0.questRecordName == questName && $0.verificationStatus == VerificationStatus.pending.rawValue })
                                     {
-                                        let zoneID = questService.cloudKitReference.resolvedZoneID
+                                        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? pendingLog
+                                            .validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
                                         if let parent = appState.currentProfile {
                                             do {

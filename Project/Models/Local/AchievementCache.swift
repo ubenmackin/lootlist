@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,9 +13,9 @@ import SwiftData
 final class AchievementCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = Achievement
 
-    #Index<AchievementCache>([\.familyRecordName])
+    #Index<AchievementCache>([\.familyRecordName, \.recordName])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var familyRecordName: String
     var name: String
     var achievementDescription: String
@@ -23,6 +24,10 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
     var requirementType: String
     var requirementValue: Int
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     var categoryEnum: AchievementCategory? {
         AchievementCategory(rawValue: category)
@@ -40,7 +45,11 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
          category: String,
          requirementType: String,
          requirementValue: Int,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.familyRecordName = familyRecordName
@@ -51,6 +60,10 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
         self.requirementType = requirementType
         self.requirementValue = requirementValue
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from achievement: Achievement) {
@@ -63,13 +76,17 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
             category: achievement.category.rawValue,
             requirementType: achievement.requirementType.rawValue,
             requirementValue: achievement.requirementValue,
-            changeTag: achievement.changeTag
+            changeTag: achievement.changeTag,
+            encodedSystemFields: achievement.encodedSystemFields,
+            sourceZoneName: achievement.id.zoneID.zoneName,
+            sourceZoneOwnerName: achievement.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: achievement.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from achievement: Achievement) {
+    func update(from achievement: Achievement, isServerSync: Bool = false) {
         familyRecordName = achievement.family.recordID.recordName
         name = achievement.name
         achievementDescription = achievement.description
@@ -78,6 +95,12 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
         requirementType = achievement.requirementType.rawValue
         requirementValue = achievement.requirementValue
         changeTag = achievement.changeTag
+        sourceZoneName = achievement.id.zoneID.zoneName
+        sourceZoneOwnerName = achievement.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: achievement.id.zoneID)
+        if isServerSync, achievement.encodedSystemFields != nil {
+            encodedSystemFields = achievement.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<AchievementCache> {

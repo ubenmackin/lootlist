@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,9 +13,9 @@ import SwiftData
 final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = QuestCompletion
 
-    #Index<QuestCompletionCache>([\.familyRecordName, \.completerRecordName, \.questRecordName, \.weekOf])
+    #Index<QuestCompletionCache>([\.familyRecordName, \.recordName], [\.familyRecordName, \.completerRecordName, \.questRecordName, \.weekOf])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var questRecordName: String
     var familyRecordName: String
     var completerRecordName: String
@@ -29,6 +30,10 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
     /// so a reward-step re-run can detect an already-settled completion.
     var xpCredited: Int?
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     var verificationStatusEnum: VerificationStatus? {
         VerificationStatus(rawValue: verificationStatus)
@@ -49,7 +54,11 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
          verifiedByRecordName: String?,
          verifiedDate: Date?,
          xpCredited: Int? = nil,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.questRecordName = questRecordName
@@ -63,6 +72,10 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
         self.verifiedDate = verifiedDate
         self.xpCredited = xpCredited
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from completion: QuestCompletion) {
@@ -81,13 +94,17 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
             verifiedByRecordName: completion.verifiedBy?.recordID.recordName,
             verifiedDate: completion.verifiedDate,
             xpCredited: completion.xpCredited,
-            changeTag: completion.changeTag
+            changeTag: completion.changeTag,
+            encodedSystemFields: completion.encodedSystemFields,
+            sourceZoneName: completion.id.zoneID.zoneName,
+            sourceZoneOwnerName: completion.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: completion.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from completion: QuestCompletion) {
+    func update(from completion: QuestCompletion, isServerSync: Bool = false) {
         questRecordName = completion.quest.recordID.recordName
         familyRecordName = completion.family.recordID.recordName
         completerRecordName = completion.completedBy.recordID.recordName
@@ -101,6 +118,12 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
         verifiedDate = completion.verifiedDate
         xpCredited = completion.xpCredited
         changeTag = completion.changeTag
+        sourceZoneName = completion.id.zoneID.zoneName
+        sourceZoneOwnerName = completion.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: completion.id.zoneID)
+        if isServerSync, completion.encodedSystemFields != nil {
+            encodedSystemFields = completion.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestCompletionCache> {

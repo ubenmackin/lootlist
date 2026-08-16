@@ -235,7 +235,7 @@ struct GuildRosterSectionView: View {
     }
 
     private func memberAvatarView(_ member: ProfileCache) -> some View {
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? member.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         return ProfileAvatarView(profile: member.toProfile(zoneID: zoneID))
     }
 
@@ -282,7 +282,7 @@ struct GuildRosterSectionView: View {
 
     @MainActor
     private func kickMember(_ member: ProfileCache) async {
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? member.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         do {
             let result = try await familyService.kickMember(profile: member.toProfile(zoneID: zoneID))
             await viewModel.refresh()

@@ -6,6 +6,7 @@
 //
 
 import AppIntents
+import CloudKit
 import Foundation
 import os
 import SwiftData
@@ -42,7 +43,7 @@ struct CompleteQuestIntent: AppIntent, Sendable {
             }
         }
 
-        let zoneID = dep.questService.cloudKitReference.resolvedZoneID
+        let zoneID = dep.appState.familyZoneID ?? dep.appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
         let familyName = dep.appState.family?.id.recordName
         let questModel = dep.cacheService?.fetchQuests(family: familyName, weekInRange: nil)
             .first(where: { $0.recordName == targetQuestEntity.id && $0.isActive })?

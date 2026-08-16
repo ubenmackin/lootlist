@@ -79,12 +79,35 @@ extension CacheService {
         return fetch(QuestCache.self, predicate: predicate)
     }
 
+    func fetchQuest(recordName: String, family: String) -> QuestCache? {
+        fetch(QuestCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchQuest(identity: ScopedRecordIdentity) -> QuestCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchQuest(recordName: identity.recordID.recordName, family: family)
+    }
+
     func fetchQuestCompletions(family: String?) -> [QuestCompletionCache] {
         familyScopedFetch(QuestCompletionCache.self, family: family)
     }
 
-    func fetchProfile(recordName: String) -> ProfileCache? {
-        fetch(ProfileCache.self, predicate: #Predicate { $0.recordName == recordName }).first
+    func fetchQuestCompletion(recordName: String, family: String) -> QuestCompletionCache? {
+        fetch(QuestCompletionCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchQuestCompletion(identity: ScopedRecordIdentity) -> QuestCompletionCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchQuestCompletion(recordName: identity.recordID.recordName, family: family)
+    }
+
+    func fetchProfile(recordName: String, family: String) -> ProfileCache? {
+        fetch(ProfileCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchProfile(identity: ScopedRecordIdentity) -> ProfileCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchProfile(recordName: identity.recordID.recordName, family: family)
     }
 
     func fetchProfiles(family: String?) -> [ProfileCache] {
@@ -95,12 +118,66 @@ extension CacheService {
         familyScopedFetch(QuestTemplateCache.self, family: family)
     }
 
-    func fetchQuestTemplate(recordName: String) -> QuestTemplateCache? {
-        fetch(QuestTemplateCache.self, predicate: #Predicate { $0.recordName == recordName }).first
+    func fetchQuestTemplate(recordName: String, family: String) -> QuestTemplateCache? {
+        fetch(QuestTemplateCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchQuestTemplate(identity: ScopedRecordIdentity) -> QuestTemplateCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchQuestTemplate(recordName: identity.recordID.recordName, family: family)
     }
 
     func fetchFamily(recordName: String) -> FamilyCache? {
         fetch(FamilyCache.self, predicate: #Predicate { $0.recordName == recordName }).first
+    }
+
+    func fetchFamily(identity: ScopedRecordIdentity) -> FamilyCache? {
+        fetchFamily(recordName: identity.recordID.recordName)
+    }
+
+    func fetchLedgerEntry(recordName: String, family: String) -> LedgerEntryCache? {
+        fetch(LedgerEntryCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchLedgerEntry(identity: ScopedRecordIdentity) -> LedgerEntryCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchLedgerEntry(recordName: identity.recordID.recordName, family: family)
+    }
+
+    func fetchAllowancePeriod(recordName: String, family: String) -> AllowancePeriodCache? {
+        fetch(AllowancePeriodCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchAllowancePeriod(identity: ScopedRecordIdentity) -> AllowancePeriodCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchAllowancePeriod(recordName: identity.recordID.recordName, family: family)
+    }
+
+    func fetchAchievement(recordName: String, family: String) -> AchievementCache? {
+        fetch(AchievementCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchAchievement(identity: ScopedRecordIdentity) -> AchievementCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchAchievement(recordName: identity.recordID.recordName, family: family)
+    }
+
+    func fetchProfileAchievement(recordName: String, family: String) -> ProfileAchievementCache? {
+        fetch(ProfileAchievementCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchProfileAchievement(identity: ScopedRecordIdentity) -> ProfileAchievementCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchProfileAchievement(recordName: identity.recordID.recordName, family: family)
+    }
+
+    func fetchNotificationPreference(recordName: String, family: String) -> NotificationPreferenceCache? {
+        fetch(NotificationPreferenceCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchNotificationPreference(identity: ScopedRecordIdentity) -> NotificationPreferenceCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchNotificationPreference(recordName: identity.recordID.recordName, family: family)
     }
 
     func fetchLedgerEntries(profileRecordName: String, family: String? = nil) -> [LedgerEntryCache] {
@@ -156,12 +233,32 @@ extension CacheService {
         familyScopedFetch(AchievementCache.self, family: family)
     }
 
-    func fetchProfileAchievements(profileRecordName: String) -> [ProfileAchievementCache] {
-        fetch(ProfileAchievementCache.self, predicate: #Predicate { $0.profileRecordName == profileRecordName }, sortBy: [SortDescriptor(\.earnedDate, order: .reverse)])
+    func fetchProfileAchievements(profileRecordName: String, family: String? = nil) -> [ProfileAchievementCache] {
+        if let family {
+            return fetch(
+                ProfileAchievementCache.self,
+                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
+                sortBy: [SortDescriptor(\.earnedDate, order: .reverse)]
+            )
+        }
+        return fetch(
+            ProfileAchievementCache.self,
+            predicate: #Predicate { $0.profileRecordName == profileRecordName },
+            sortBy: [SortDescriptor(\.earnedDate, order: .reverse)]
+        )
     }
 
-    func fetchNotificationPreferences(profileRecordName: String) -> [NotificationPreferenceCache] {
-        fetch(NotificationPreferenceCache.self, predicate: #Predicate { $0.profileRecordName == profileRecordName })
+    func fetchNotificationPreferences(profileRecordName: String, family: String? = nil) -> [NotificationPreferenceCache] {
+        if let family {
+            return fetch(
+                NotificationPreferenceCache.self,
+                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family }
+            )
+        }
+        return fetch(
+            NotificationPreferenceCache.self,
+            predicate: #Predicate { $0.profileRecordName == profileRecordName }
+        )
     }
 
     func fetchNotificationPreference(profileRecordName: String, familyRecordName: String, eventType: String) -> NotificationPreferenceCache? {

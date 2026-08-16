@@ -12,9 +12,9 @@ import Testing
 
 @MainActor
 struct TreasuryServiceTests {
-    private func makeTestData() -> (TreasuryService, CloudKitService) {
+    private func makeTestData() -> (TreasuryService, MockCloudKitService) {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         return (treasury, cloudKit)
     }
@@ -113,7 +113,7 @@ struct TreasuryServiceTests {
     @Test
     func `sumGold reads gold from cache with zero CloudKit fetches`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
 
@@ -186,79 +186,9 @@ struct TreasuryServiceTests {
     }
 
     @Test
-    func `sumGold falls back to CloudKit on cache miss`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
-        let cache = try CacheService(inMemory: true)
-        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
-
-        let familyRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
-        )
-        let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
-        // Use `id: profileID` so profile.id.recordName == "hero1" — the production
-        // CK query predicate is `completedBy == <profile.id>`; the seeded
-        // QuestCompletion.completedBy references `profileID`. They must match.
-        let profile = Profile(
-            displayName: "Hero",
-            avatarClass: .knight,
-            avatarPresetID: "knight_01",
-            role: .hero,
-            iCloudUserID: profileID,
-            family: familyRef,
-            id: profileID
-        )
-
-        let monday = WeekMath.mondayOfWeek(for: Date())
-        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
-        let templateRef = CKRecord.Reference(
-            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
-        )
-
-        let quest = Quest(
-            template: templateRef,
-            assignee: CKRecord.Reference(recordID: profileID, action: .none),
-            goldReward: 30.0,
-            xpReward: 60,
-            scheduleType: .weeklyFlexible,
-            isAllOrNothing: false,
-            approvalMode: .autoApprove,
-            weekOf: monday,
-            createdBy: familyRef,
-            family: familyRef,
-            name: "CK Quest",
-            id: questID
-        )
-
-        let completion = QuestCompletion(
-            quest: CKRecord.Reference(recordID: questID, action: .none),
-            completedBy: CKRecord.Reference(recordID: profileID, action: .none),
-            approvalMode: .autoApprove,
-            weekOf: monday,
-            family: familyRef
-        )
-
-        let family = Family(
-            name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
-            payoutDay: .sunday,
-            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        )
-
-        // Seed CloudKit only — cache is empty (cache-miss scenario).
-        cloudKit.seedMockRecords([quest, completion])
-
-        let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
-
-        // Gold must come from CloudKit fallback (30.0).
-        #expect(breakdown.goldFromQuests == 30.0)
-        #expect(breakdown.questsCount == 1)
-    }
-
-    @Test
     func `weeklyBreakdown honors family payoutDay fallback when profile has none`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
 

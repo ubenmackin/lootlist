@@ -43,10 +43,10 @@ final class AppState {
     }
 
     func updateCurrentProfileFromCache() {
-        guard let currentID = currentProfile?.id,
+        guard let current = currentProfile,
               let zoneID = familyZoneID,
               let cache = cacheService,
-              let cached = cache.fetchProfile(recordName: currentID.recordName)
+              let cached = cache.fetchProfile(recordName: current.id.recordName, family: family?.id.recordName ?? current.family.recordID.recordName)
         else { return }
 
         let updated = cached.toProfile(zoneID: zoneID)
@@ -172,6 +172,20 @@ final class AppState {
         signOutInternal()
     }
 
+    /// Extended session clearing that also resets CloudKit scope and engine state.
+    /// Prefer this over bare `clearSession()` when a CloudKit service reference is available.
+    func clearSessionAndCloudKitScope(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) {
+        // Clear CloudKit active scope to prevent stale family targeting
+        cloudKit.activeFamilyZoneID = nil
+        cloudKit.activeIsOwner = false
+
+        // Clear any pending engine state so queued writes for the
+        // previous family are not sent after switching.
+        syncCoordinator?.resetState()
+
+        clearSession()
+    }
+
     func restoreSession(cloudKit: any CloudKitServiceProtocol) async {
         guard defaults.bool(forKey: Self.hasSessionKey),
               let profileRecordName = defaults.string(forKey: Self.profileIDKey),
@@ -221,13 +235,13 @@ final class AppState {
 
             if isUnrecoverableSession {
                 logger.info("Unrecoverable CloudKit session error — clearing session and running cloud discovery")
-                clearSession()
+                clearSessionAndCloudKitScope(cloudKit: cloudKit)
                 authStatus = .checkingCloudData
                 await discoverExistingCloudState(cloudKit: cloudKit)
             } else {
                 // Transient network error — try cache fallback for offline launch
                 if let cache = cacheService,
-                   let cachedProfile = cache.fetchProfile(recordName: profileRecordName),
+                   let cachedProfile = cache.fetchProfile(recordName: profileRecordName, family: familyRecordName),
                    let cachedFamily = cache.fetchFamily(recordName: familyRecordName)
                 {
                     familyZoneID = zoneID
@@ -448,12 +462,13 @@ final class AppState {
                 logger.error("Failed to save profile deactivation on rejection: \(error, privacy: .private)")
             }
         }
-        clearSession()
+        clearSessionAndCloudKitScope(cloudKit: cloudKit)
     }
 
     /// Sign-out is device-local only: it never authors a CloudKit flag and
     /// never touches the family data — it wipes the persisted session (and the
-    /// previous family's cache) and resets to `.onboarding`.
+    /// previous family's cache), resets CloudKit scope / CKSyncEngine state,
+    /// and resets to `.onboarding`.
     ///
     /// Recovery is discovery-driven, not sign-out-driven. On the next full app
     /// launch the session keys read false, so `AppState.init` starts in
@@ -464,22 +479,26 @@ final class AppState {
     /// (Welcome) when nothing recoverable remains. `signOutAndDiscover` runs
     /// that same recovery immediately for the in-session case instead of
     /// waiting for the next launch.
-    func signOut() {
-        clearSession()
+    func signOut(cloudKit: (any CloudKitServiceProtocol)? = nil, syncCoordinator: CKSyncEngineCoordinator? = nil) {
+        if let cloudKit {
+            clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
+        } else {
+            clearSession()
+        }
     }
 
-    /// In-session sign-out: wipes the local session (via `clearSession()`, which
-    /// also purges the previous family's cache), flips to `.checkingCloudData`
-    /// — the state `discoverExistingCloudState`'s opening guard requires — and
-    /// immediately re-runs cloud discovery. If a recoverable family/profile
+    /// In-session sign-out: wipes the local session and CloudKit scope (via
+    /// `clearSessionAndCloudKitScope()`, which also purges the previous family's cache),
+    /// flips to `.checkingCloudData` — the state `discoverExistingCloudState`'s opening
+    /// guard requires — and immediately re-runs cloud discovery. If a recoverable family/profile
     /// still exists in iCloud, discovery re-sets `authStatus` to
     /// `.detectedPreviousFamily(...)` (rendering `DetectedFamilyView`); if not,
     /// it falls through to `.onboarding` (`WelcomeView`). This covers the
     /// in-session case, complementing the cold-relaunch recovery that happens on
     /// the next launch. The brief `.checkingCloudData` window during discovery
     /// is hidden by the root view's existing `ProgressView` rendering.
-    func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol) async {
-        clearSession() // wipes UserDefaults, purges family cache
+    func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
+        clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
         authStatus = .checkingCloudData // flip to state discoverExistingCloudState requires
         await discoverExistingCloudState(cloudKit: cloudKit)
     }
