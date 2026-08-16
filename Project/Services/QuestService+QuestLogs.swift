@@ -55,15 +55,15 @@ extension QuestService {
         )
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestLogs(forQuest quest: Quest, useCache: Bool = true) async throws -> [QuestCompletion] {
         if useCache, let cache = cacheService {
             let questName = quest.id.recordName
             let familyName = quest.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.questRecordName == questName }
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
-                return cached.map { $0.toQuestCompletion(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+                return cached.map { $0.toQuestCompletion(zoneID: quest.id.zoneID) }
                     .sorted { $0.completedDate > $1.completedDate }
             }
         }
@@ -73,21 +73,22 @@ extension QuestService {
         let all = try await cloudKit.query(
             QuestCompletion.self,
             predicate: predicate,
+            in: quest.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
         cacheService?.upsertQuestCompletions(all, family: quest.family.recordID.recordName)
         return all
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName }
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
-                return cached.map { $0.toQuestCompletion(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+                return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
                     .sorted { $0.completedDate > $1.completedDate }
             }
         }
@@ -97,6 +98,7 @@ extension QuestService {
         let all = try await cloudKit.query(
             QuestCompletion.self,
             predicate: pred,
+            in: profile.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
         cacheService?.upsertQuestCompletions(all, family: profile.family.recordID.recordName)
@@ -105,14 +107,13 @@ extension QuestService {
 
     // MARK: - Batch Fetch
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestCompletionsForFamily(family: Family) async throws -> [QuestCompletion] {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
-                let zoneID = cloudKit.resolvedZoneID
-                return cached.map { $0.toQuestCompletion(zoneID: zoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+                return cached.map { $0.toQuestCompletion(zoneID: family.id.zoneID) }
             }
         }
 
@@ -121,6 +122,7 @@ extension QuestService {
         let completions = try await cloudKit.query(
             QuestCompletion.self,
             predicate: predicate,
+            in: family.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
         cacheService?.upsertQuestCompletions(completions, family: family.id.recordName)

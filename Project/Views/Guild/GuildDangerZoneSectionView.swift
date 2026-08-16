@@ -14,6 +14,7 @@ struct GuildDangerZoneSectionView: View {
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(CloudKitService.self) private var cloudKitService
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(ToastManager.self) private var toastManager
 
     @Binding var isSigningOut: Bool
@@ -65,7 +66,7 @@ struct GuildDangerZoneSectionView: View {
         do {
             try await familyService.leaveFamily(profile: current)
             isSigningOut = true
-            await appState.signOutAndDiscover(cloudKit: cloudKitService)
+            await appState.signOutAndDiscover(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
             isSigningOut = false
         } catch {
             logger.error("Failed to leave family: \(error, privacy: .private)")
@@ -128,7 +129,7 @@ struct GuildDangerZoneSectionView: View {
     @MainActor
     private func deleteFamilyAndReset() async {
         guard let family = appState.family else {
-            appState.clearSession()
+            appState.clearSessionAndCloudKitScope(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
             return
         }
 
@@ -136,7 +137,7 @@ struct GuildDangerZoneSectionView: View {
             try await familyService.deleteFamilyAndReset(family: family)
         } catch {
             logger.error("Failed to delete family zone: \(error, privacy: .private)")
-            appState.clearSession()
+            appState.clearSessionAndCloudKitScope(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
         }
     }
 

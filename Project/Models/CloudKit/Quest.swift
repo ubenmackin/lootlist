@@ -17,6 +17,10 @@ struct Quest: Identifiable, Equatable, Sendable {
     /// checks. Not authored locally — `toRecord()` does not stamp this field.
     var changeTag: String?
 
+    /// Serialized CloudKit system fields (metadata, change tag, dates) to avoid
+    /// conflict loops when sending updates via CKSyncEngine.
+    var encodedSystemFields: Data?
+
     var template: CKRecord.Reference
 
     var assignee: CKRecord.Reference
@@ -27,9 +31,8 @@ struct Quest: Identifiable, Equatable, Sendable {
     /// Monotonic per-quest total of XP already banked by the reward step.
     /// Server-authoritative and synced across family devices: the quest record
     /// is the shared XP-credit ledger, so two devices completing the same
-    /// quest concurrently are capped by the same banked total. Written ONLY via
-    /// the change-tag CAS path in
-    /// `QuestService` — nothing else mutates this field.
+    /// quest concurrently are capped by the same banked total. Mutated locally in
+    /// `QuestService` and enqueued for sync; conflict resolution applies monotonic max merge.
     var xpBanked: Int = 0
 
     var rarity: QuestRarity {
@@ -79,6 +82,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         }
         id = record.recordID
         changeTag = record.recordChangeTag
+        encodedSystemFields = record.encodedSystemFields
 
         guard let template = record["template"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("template")
@@ -130,7 +134,7 @@ struct Quest: Identifiable, Equatable, Sendable {
     }
 
     func toRecord() -> CKRecord {
-        let record = CKRecord(recordType: Self.recordType, recordID: id)
+        let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["template"] = template as CKRecordValue
         record["assignee"] = assignee as CKRecordValue
         record["goldReward"] = goldReward as CKRecordValue
@@ -144,12 +148,8 @@ struct Quest: Identifiable, Equatable, Sendable {
         record["weekOf"] = weekOf as CKRecordValue
         record["createdBy"] = createdBy as CKRecordValue
         record["family"] = family as CKRecordValue
-        if let name {
-            record["name"] = name as CKRecordValue
-        }
-        if let descriptionText {
-            record["descriptionText"] = descriptionText as CKRecordValue
-        }
+        record["name"] = name as CKRecordValue?
+        record["descriptionText"] = descriptionText as CKRecordValue?
         return record
     }
 

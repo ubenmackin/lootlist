@@ -103,8 +103,10 @@ class CloudKitService: CloudKitServiceProtocol {
     private var cachedPrivateDatabase: CKDatabase?
     private var cachedSharedDatabase: CKDatabase?
 
+    var mockStore = MockRecordStore()
+
     var isTestingOrMocking: Bool {
-        TestEnvironment.isRunningUnitOrUITests || !mockRecords.isEmpty
+        TestEnvironment.isRunningUnitOrUITests || !mockStore.isEmpty
     }
 
     var database: CKDatabase? {
@@ -162,65 +164,9 @@ class CloudKitService: CloudKitServiceProtocol {
 
     // MARK: - In-Memory Mock Record Storage for Testing & Screenshots
 
-    var mockRecords: [String: CKRecord] = [:]
-
     func seedMockRecords(_ models: [any CloudKitRecord]) {
-        for model in models {
-            let record = model.toRecord()
-            mockRecords[record.recordID.recordName] = record
-        }
-    }
-
-    func evaluateMockPredicate(_ predicate: NSPredicate, record: CKRecord) -> Bool {
-        let fmt = predicate.predicateFormat
-        if fmt == "TRUEPRED" || fmt == "1 == 1" {
-            return true
-        }
-
-        if predicate.evaluate(with: record) {
-            return true
-        }
-
-        let referenceKeys = ["family", "profile", "assignee", "completedBy", "template", "quest"]
-        for key in referenceKeys {
-            if fmt.contains("\(key) ==") || fmt.contains("\(key) =") {
-                if let ref = record[key] as? CKRecord.Reference {
-                    return fmt.contains(ref.recordID.recordName)
-                }
-            }
-        }
-
-        if fmt.contains("recordID IN") {
-            return fmt.contains(record.recordID.recordName)
-        }
-        return true
-    }
-
-    func sortMockRecords(_ records: [CKRecord], sortDescriptors: [NSSortDescriptor]?) -> [CKRecord] {
-        guard let sortDescriptors, !sortDescriptors.isEmpty else { return records }
-        var result = records
-        for descriptor in sortDescriptors.reversed() {
-            guard let key = descriptor.key else { continue }
-            let ascending = descriptor.ascending
-            result.sort { lhs, rhs -> Bool in
-                let valA = lhs[key]
-                let valB = rhs[key]
-                if let dA = valA as? Date, let dB = valB as? Date {
-                    return ascending ? dA < dB : dA > dB
-                }
-                if let sA = valA as? String, let sB = valB as? String {
-                    return ascending ? sA < sB : sA > sB
-                }
-                if let nA = valA as? Double, let nB = valB as? Double {
-                    return ascending ? nA < nB : nA > nB
-                }
-                if let iA = valA as? Int, let iB = valB as? Int {
-                    return ascending ? iA < iB : iA > iB
-                }
-                return false
-            }
-        }
-        return result
+        let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
+        mockStore.seed(models, databaseScope: scope)
     }
 
     private static let maxRetries = AppConstants.CloudKit.maxRetries

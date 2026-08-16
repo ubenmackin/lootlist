@@ -166,11 +166,12 @@ struct HeroLedgerViewModelTests {
 
     @Test
     func `rebuildLedger keeps friday-anchored early-cycle entries in thisWeek`() {
-        let day: TimeInterval = 24 * 3600
-        let sundayStart = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
-        let gapLedger = makeLedger("l_gap", date: sundayStart.addingTimeInterval(-day))
+        let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
+        let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
+        let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
+        let gapLedger = makeLedger("l_gap", date: gapDate)
 
-        // Per-profile payout day = friday keeps the early-cycle (Sunday) entry.
+        // Per-profile payout day = friday keeps the early-cycle entry.
         let setup = makeConfiguredHero(payoutDay: .friday, familyPayoutDay: .sunday)
         let viewModel = HeroLedgerViewModel(
             heroProfile: setup.hero, spending: MockSpendingService(), appState: setup.appState
@@ -181,9 +182,10 @@ struct HeroLedgerViewModelTests {
 
     @Test
     func `rebuildLedger drops friday-gap entries for sunday default`() {
-        let day: TimeInterval = 24 * 3600
-        let sundayStart = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
-        let gapLedger = makeLedger("l_gap", date: sundayStart.addingTimeInterval(-day))
+        let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
+        let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
+        let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
+        let gapLedger = makeLedger("l_gap", date: gapDate)
 
         let setup = makeConfiguredHero(payoutDay: nil, familyPayoutDay: .sunday)
         let viewModel = HeroLedgerViewModel(
@@ -195,9 +197,10 @@ struct HeroLedgerViewModelTests {
 
     @Test
     func `rebuildLedger per-profile payoutDay overrides family for thisWeek`() {
-        let day: TimeInterval = 24 * 3600
-        let sundayStart = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
-        let gapLedger = makeLedger("l_gap", date: sundayStart.addingTimeInterval(-day))
+        let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
+        let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
+        let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
+        let gapLedger = makeLedger("l_gap", date: gapDate)
 
         // Family sunday + hero override friday → override wins, entry kept.
         let overrideSetup = makeConfiguredHero(payoutDay: .friday, familyPayoutDay: .sunday)

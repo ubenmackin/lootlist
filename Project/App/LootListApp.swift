@@ -29,104 +29,86 @@ final class AppDependencies {
     let dataMigrationsCoordinator: DataMigrationsCoordinator
     let autoPayoutCoordinator: AutoPayoutCoordinator
     let cacheService: CacheService?
-    let syncEngine: SyncEngine?
+    let syncCoordinator: CKSyncEngineCoordinator
+    let networkMonitor: NetworkMonitor
+    let conflictResolver: CKSyncConflictResolver
+    let syncEngineDelegateHandler: CKSyncEngineDelegateHandler
     let toastManager: ToastManager
     let celebrationManager: CelebrationManager
     let familyShareReconciler: FamilyShareReconciler
+    let lifecycleCoordinator: AppLifecycleCoordinator
 
     init() {
         let app = AppState()
         let ck = CloudKitService()
-
         let isTest = TestEnvironment.isRunningUnitOrUITests
-        let cache: CacheService?
         let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "App")
-        do {
-            cache = try CacheService(inMemory: isTest)
-        } catch {
-            cache = nil
-            logger.error("Failed to initialize CacheService: \(error, privacy: .private)")
-            if !isTest {
-                app.cacheInitError = .cacheInitializationFailed(error.localizedDescription)
-            }
-        }
 
+        let cache = Self.makeCacheService(app: app, isTest: isTest, logger: logger)
         let toast = ToastManager()
         let celebration = CelebrationManager()
         celebration.toastManager = toast
-        let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache, toastManager: toast)
-        let xp = XPService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
-        let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app)
-        let quest = QuestService(cloudKit: ck, xpService: xp, notificationService: notification, cacheService: cache, treasuryService: treasury, toastManager: toast, appState: app)
-        let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast)
+
+        let network = NetworkMonitor.shared
+        network.start()
+        networkMonitor = network
+
+        let conflict = CKSyncConflictResolver(cacheService: cache, toastManager: toast, appState: app)
+        conflictResolver = conflict
+
+        let sharedBgActor = cache.flatMap { $0.container.map { BackgroundCacheActor(container: $0) } }
+
+        let delegate = CKSyncEngineDelegateHandler(
+            backgroundCache: sharedBgActor,
+            conflictResolver: conflict,
+            cacheService: cache,
+            appState: app
+        )
+        syncEngineDelegateHandler = delegate
+
+        let syncCoord = CKSyncEngineCoordinator(
+            cloudKitService: ck,
+            delegateHandler: delegate,
+            appState: app
+        )
+        syncCoordinator = syncCoord
+
+        let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache, toastManager: toast, syncCoordinator: syncCoord)
+        delegate.setNotificationService(notification)
+        let xp = XPService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
+        let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
+        let quest = QuestService(
+            cloudKit: ck,
+            xpService: xp,
+            notificationService: notification,
+            cacheService: cache,
+            treasuryService: treasury,
+            toastManager: toast,
+            appState: app,
+            syncCoordinator: syncCoord
+        )
+        let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast, syncCoordinator: syncCoord)
         let reconciler = FamilyShareReconciler(familyService: family)
-        // Reconciliation is owner-scoped; skip it in the test environment so
-        // seeded fixture profiles are never deactivated by an empty mock share.
-        if !TestEnvironment.isRunningUnitOrUITests {
+        if !isTest {
             reconciler.start()
         }
-        let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app, celebrationManager: celebration)
+
+        let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app, celebrationManager: celebration, syncCoordinator: syncCoord)
         achievement.notificationService = notification
         quest.achievementService = achievement
         let avatar = AvatarService(xp: xp)
-        let manualSpending = ManualSpendingService(cloudKit: ck, cacheService: cache, appState: app)
+        let manualSpending = ManualSpendingService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         manualSpending.toastManager = toast
         spendingService = manualSpending
 
         let appSync = AppSyncCoordinator()
-
-        // AppState keeps a late-bound cache reference: it is constructed before the
-        // cache exists and reads it only during session restoration at launch.
         app.cacheService = cache
         toastManager = toast
 
-        let sharedBgActor: BackgroundCacheActor?
-        if let cache, let container = cache.container {
-            let bgActor = BackgroundCacheActor(container: container, inFlightRegistry: cache.inFlightRegistry)
-            sharedBgActor = bgActor
-            syncEngine = SyncEngine(cloudKit: ck, cacheService: cache, backgroundCache: bgActor, syncCoordinator: appSync, appState: app)
-            syncEngine?.notificationService = notification
-        } else {
-            sharedBgActor = nil
-            syncEngine = nil
-        }
+        let migrations = Self.makeDataMigrations(cloudKit: ck, cache: cache, backgroundCache: sharedBgActor)
 
-        let migrations = DataMigrationsCoordinator()
-        migrations.register(
-            DataMigrationsCoordinator.questNameBackfillV1(cloudKit: ck)
-        )
-        migrations.register(
-            DataMigrationsCoordinator.questLedgerBackfillV1(cloudKit: ck, cacheService: cache)
-        )
-        if let sharedBgActor {
-            migrations.register(
-                DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: sharedBgActor)
-            )
-        }
-
-        if TestEnvironment.isRunningUnitOrUITests {
-            logger.info("Tests detected — seeding mock data and setting test auth state")
-            SampleData.populate(cloudKit: ck, cacheService: cache)
-
-            ck.activeFamilyZoneID = SampleData.zoneID
-
-            if CommandLine.arguments.contains("--onboarding") {
-                app.authStatus = .onboarding
-            } else if CommandLine.arguments.contains("--parent") {
-                ck.activeIsOwner = true
-                app.currentProfile = SampleData.parentProfile
-                app.family = SampleData.family
-                app.familyZoneID = SampleData.zoneID
-                app.isZoneOwner = true
-                app.authStatus = .authenticated
-            } else {
-                ck.activeIsOwner = false
-                app.currentProfile = SampleData.heroProfile
-                app.family = SampleData.family
-                app.familyZoneID = SampleData.zoneID
-                app.isZoneOwner = false
-                app.authStatus = .authenticated
-            }
+        if isTest {
+            Self.seedTestData(app: app, cloudKit: ck, cache: cache, logger: logger)
         }
 
         let autoPayout = AutoPayoutCoordinator(
@@ -134,6 +116,15 @@ final class AppDependencies {
             questService: quest,
             familyService: family,
             appState: app
+        )
+
+        let lifecycle = AppLifecycleCoordinator(
+            appState: app,
+            cloudKitService: ck,
+            syncCoordinator: syncCoord,
+            appSyncCoordinator: appSync,
+            dataMigrationsCoordinator: migrations,
+            autoPayoutCoordinator: autoPayout
         )
 
         appState = app
@@ -151,8 +142,65 @@ final class AppDependencies {
         cacheService = cache
         celebrationManager = celebration
         familyShareReconciler = reconciler
+        lifecycleCoordinator = lifecycle
 
         Self.shared = self
+    }
+
+    private static func makeCacheService(app: AppState, isTest: Bool, logger: Logger) -> CacheService? {
+        do {
+            return try CacheService(inMemory: isTest)
+        } catch {
+            logger.error("Failed to initialize CacheService: \(error, privacy: .private)")
+            if !isTest {
+                app.cacheInitError = .cacheInitializationFailed(error.localizedDescription)
+            }
+            return nil
+        }
+    }
+
+    private static func makeDataMigrations(
+        cloudKit: CloudKitService,
+        cache: CacheService?,
+        backgroundCache: BackgroundCacheActor?
+    ) -> DataMigrationsCoordinator {
+        let migrations = DataMigrationsCoordinator()
+        migrations.register(DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit))
+        migrations.register(DataMigrationsCoordinator.questLedgerBackfillV1(cloudKit: cloudKit, cacheService: cache))
+        migrations.register(DataMigrationsCoordinator.achievementMigrationV1(cloudKit: cloudKit, cacheService: cache))
+        if let backgroundCache {
+            migrations.register(DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: backgroundCache))
+        }
+        return migrations
+    }
+
+    private static func seedTestData(
+        app: AppState,
+        cloudKit: CloudKitService,
+        cache: CacheService?,
+        logger: Logger
+    ) {
+        logger.info("Tests detected — seeding mock data and setting test auth state")
+        SampleData.populate(cloudKit: cloudKit, cacheService: cache)
+        cloudKit.activeFamilyZoneID = SampleData.zoneID
+
+        if CommandLine.arguments.contains("--onboarding") {
+            app.authStatus = .onboarding
+        } else if CommandLine.arguments.contains("--parent") {
+            cloudKit.activeIsOwner = true
+            app.currentProfile = SampleData.parentProfile
+            app.family = SampleData.family
+            app.familyZoneID = SampleData.zoneID
+            app.isZoneOwner = true
+            app.authStatus = .authenticated
+        } else {
+            cloudKit.activeIsOwner = false
+            app.currentProfile = SampleData.heroProfile
+            app.family = SampleData.family
+            app.familyZoneID = SampleData.zoneID
+            app.isZoneOwner = false
+            app.authStatus = .authenticated
+        }
     }
 }
 
@@ -213,8 +261,12 @@ struct LootListApp: App {
         dependencies.cacheService
     }
 
-    private var syncEngine: SyncEngine? {
-        dependencies.syncEngine
+    private var syncCoordinator: CKSyncEngineCoordinator {
+        dependencies.syncCoordinator
+    }
+
+    private var networkMonitor: NetworkMonitor {
+        dependencies.networkMonitor
     }
 
     private var toastManager: ToastManager {
@@ -255,52 +307,26 @@ struct LootListApp: App {
                 .environment(notificationService)
                 .environment(appSyncCoordinator)
                 .environment(cacheService)
-                .environment(syncEngine)
+                .environment(syncCoordinator)
+                .environment(dependencies.lifecycleCoordinator)
+                .environment(networkMonitor)
                 .environment(toastManager)
                 .environment(celebrationManager)
                 .task {
                     if !TestEnvironment.isRunningUnitOrUITests {
-                        await checkCloudKitAvailability()
-                        await cloudKitService.processAbandonedZonesQueue(appState: appState)
-                        await appState.restoreSession(cloudKit: cloudKitService)
-
-                        // Bootstrap full sync: initial app launch after session
-                        // restoration. The CloudKit zone is named after the
-                        // Family record, so the resolved zone's name is the
-                        // concrete family scope. syncAllForActiveZone() hydrates
-                        // ONLY the currently resolved family zone — there is no
-                        // unscoped cross-family pull, and the purge paths are
-                        // scoped to that family so other families' cached rows are
-                        // never deleted.
-                        await syncEngine?.syncAllForActiveZone()
-
-                        if let zoneID = appState.familyZoneID {
-                            let db = cloudKitService.database(isOwner: appState.isZoneOwner)
-                            await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
-                        }
-
-                        // Run data migrations
-                        await dataMigrationsCoordinator.runPendingMigrations()
-
-                        // Process automated payouts & quest sweeps if due on launch
-                        await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
-                        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
+                        await dependencies.lifecycleCoordinator.performInitialBootstrap()
                     }
                 }
                 .onOpenURL { url in
                     handleIncomingShareURL(url)
                 }
                 .task(id: appState.familyZoneID) {
-                    guard let zoneID = appState.familyZoneID, !TestEnvironment.isRunningUnitOrUITests else { return }
-                    let db = cloudKitService.database(isOwner: appState.isZoneOwner)
-                    await appSyncCoordinator.registerSubscriptions(for: zoneID, in: db)
-                    await dataMigrationsCoordinator.runPendingMigrations()
-                    await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
-                    AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
+                    guard appState.familyZoneID != nil, !TestEnvironment.isRunningUnitOrUITests else { return }
+                    await dependencies.lifecycleCoordinator.performFamilyZoneChange()
                 }
                 .task(id: scenePhase) {
                     guard scenePhase == .active, !TestEnvironment.isRunningUnitOrUITests else { return }
-                    await dependencies.autoPayoutCoordinator.processPendingPayoutsIfDue()
+                    await dependencies.lifecycleCoordinator.performForegroundSync()
                 }
                 // Toast banner overlay sits above all RootView states (splash,
                 // onboarding, authenticated) so services can surface errors
@@ -369,6 +395,7 @@ private struct RootView: View {
     @Environment(CloudKitService.self) private var cloudKitService
     @Environment(FamilyService.self) private var familyService
     @Environment(CacheService.self) private var cacheService: CacheService?
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(ToastManager.self) private var toastManager
 
     @State private var onboardingVM: OnboardingViewModel?
@@ -442,7 +469,7 @@ private struct RootView: View {
                 spendingService = nil
             case .authenticated:
                 onboardingVM = nil
-                let spending = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService, appState: appState)
+                let spending = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService, appState: appState, syncCoordinator: syncCoordinator)
                 spending.toastManager = toastManager
                 spendingService = spending
             case .restoringSession, .checkingCloudData, .detectedPreviousFamily, .offlineEmptyCache:

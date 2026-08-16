@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -31,44 +32,106 @@ extension CacheService {
 
     // MARK: - Per-record invalidation
 
-    func invalidateQuest(recordName: String) {
-        invalidateByRecordName(QuestCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    private func deleteByNameAndFamily<T: CacheMergeable & FamilyScopedCache>(
+        _: T.Type,
+        recordName: String,
+        familyRecordName: String
+    ) {
+        guard let context else { return }
+        let descriptor = FetchDescriptor<T>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+        if let matches = try? context.fetch(descriptor) {
+            for match in matches {
+                context.delete(match)
+            }
+            saveContext()
+        }
     }
 
-    func invalidateQuestCompletion(recordName: String) {
-        invalidateByRecordName(QuestCompletionCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateQuest(recordName: String, family: String) {
+        deleteByNameAndFamily(QuestCache.self, recordName: recordName, familyRecordName: family)
     }
 
-    func invalidateProfile(recordName: String) {
-        invalidateByRecordName(ProfileCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateQuest(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .quest)
     }
 
-    func invalidateQuestTemplate(recordName: String) {
-        invalidateByRecordName(QuestTemplateCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateQuestCompletion(recordName: String, family: String) {
+        deleteByNameAndFamily(QuestCompletionCache.self, recordName: recordName, familyRecordName: family)
     }
 
-    func invalidateLedgerEntry(recordName: String) {
-        invalidateByRecordName(LedgerEntryCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateQuestCompletion(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .questCompletion)
     }
 
-    func invalidateAllowancePeriod(recordName: String) {
-        invalidateByRecordName(AllowancePeriodCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateProfile(recordName: String, family: String) {
+        deleteByNameAndFamily(ProfileCache.self, recordName: recordName, familyRecordName: family)
     }
 
-    func invalidateAchievement(recordName: String) {
-        invalidateByRecordName(AchievementCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateProfile(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .profile)
     }
 
-    func invalidateProfileAchievement(recordName: String) {
-        invalidateByRecordName(ProfileAchievementCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateQuestTemplate(recordName: String, family: String) {
+        deleteByNameAndFamily(QuestTemplateCache.self, recordName: recordName, familyRecordName: family)
+    }
+
+    func invalidateQuestTemplate(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .questTemplate)
+    }
+
+    func invalidateLedgerEntry(recordName: String, family: String) {
+        deleteByNameAndFamily(LedgerEntryCache.self, recordName: recordName, familyRecordName: family)
+    }
+
+    func invalidateLedgerEntry(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .ledgerEntry)
+    }
+
+    func invalidateAllowancePeriod(recordName: String, family: String) {
+        deleteByNameAndFamily(AllowancePeriodCache.self, recordName: recordName, familyRecordName: family)
+    }
+
+    func invalidateAllowancePeriod(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .allowancePeriod)
+    }
+
+    func invalidateAchievement(recordName: String, family: String) {
+        deleteByNameAndFamily(AchievementCache.self, recordName: recordName, familyRecordName: family)
+    }
+
+    func invalidateAchievement(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .achievement)
+    }
+
+    func invalidateProfileAchievement(recordName: String, family: String) {
+        deleteByNameAndFamily(ProfileAchievementCache.self, recordName: recordName, familyRecordName: family)
+    }
+
+    func invalidateProfileAchievement(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .profileAchievement)
     }
 
     func invalidateFamily(recordName: String) {
-        invalidateByRecordName(FamilyCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+        guard let context else { return }
+        let descriptor = FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })
+        if let matches = try? context.fetch(descriptor) {
+            for match in matches {
+                context.delete(match)
+            }
+            saveContext()
+        }
     }
 
-    func invalidateNotificationPreference(recordName: String) {
-        invalidateByRecordName(NotificationPreferenceCache.self, recordName: recordName, predicate: #Predicate { $0.recordName == recordName })
+    func invalidateFamily(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .family)
+    }
+
+    func invalidateNotificationPreference(recordName: String, family: String) {
+        deleteByNameAndFamily(NotificationPreferenceCache.self, recordName: recordName, familyRecordName: family)
+    }
+
+    func invalidateNotificationPreference(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .notificationPreference)
     }
 
     // MARK: - Per-Family Purge

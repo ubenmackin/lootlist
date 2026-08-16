@@ -13,8 +13,7 @@ struct HeroDashboardView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(ToastManager.self) private var toastManager
-    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
-    @Environment(\.scenePhase) private var scenePhase
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -105,7 +104,7 @@ struct HeroDashboardView: View {
                 }
             }
             .refreshable {
-                await syncEngine?.incrementalSync()
+                await lifecycleCoordinator?.performManualSync()
                 rebuildViewModel()
             }
             .task {
@@ -113,11 +112,6 @@ struct HeroDashboardView: View {
                     viewModel = HeroDashboardViewModel(appState: appState)
                 }
                 rebuildViewModel()
-            }
-            .task(id: scenePhase) {
-                if scenePhase == .active {
-                    await syncEngine?.incrementalSync()
-                }
             }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
@@ -263,7 +257,7 @@ struct HeroDashboardView: View {
     // MARK: - Quest Card Builder
 
     private func questCard(quest: QuestCache, vm: HeroDashboardViewModel, isOverdue: Bool = false) -> some View {
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? quest.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         let questLogs = vm.logs(for: quest)
         let logCache = vm.logsByQuestRecordName[quest.recordName]
 

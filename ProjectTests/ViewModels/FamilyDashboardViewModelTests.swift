@@ -71,7 +71,7 @@ struct FamilyDashboardViewModelTests {
         )
     ) -> SUT {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         let treasury = TreasuryService(cloudKit: cloudKit)

@@ -121,7 +121,7 @@ struct GuildSettingsView: View {
                 CloudSharingControllerWrapper(share: presentation.share, container: presentation.container)
             }
             .sheet(item: $heroToEdit) { hero in
-                let zoneID = questService.cloudKitReference.resolvedZoneID
+                let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? hero.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
                 HeroSettingsView(hero: hero.toProfile(zoneID: zoneID))
                     .onDisappear {
                         Task { await viewModel?.refresh() }
@@ -292,7 +292,7 @@ struct GuildSettingsView: View {
     @MainActor
     private func confirmTransferGuildMaster(to newOwner: ProfileCache) async {
         guard let current = appState.currentProfile else { return }
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? newOwner.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         do {
             try await familyService.updateMemberRole(profile: newOwner.toProfile(zoneID: zoneID), newRole: .guildMaster)
             try await familyService.updateMemberRole(profile: current, newRole: .ranger)

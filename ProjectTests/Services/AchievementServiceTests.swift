@@ -233,4 +233,238 @@ struct AchievementServiceTests {
         let cached = cache.fetchAchievements(family: family.id.recordName)
         #expect(cached.isEmpty, "seedDefaultAchievements must not write for a non-parent actor")
     }
+
+    @Test
+    func `evaluateAll awards weekly100 when all active assigned quests are completed`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = hero
+        appState.family = family
+
+        let weekOf = WeekMath.mondayOfWeek(for: Date())
+
+        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: zoneID), action: .none)
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 10,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: makeFamilyRef(zoneID),
+            name: "Test Quest",
+            id: questRef.recordID
+        )
+
+        let log = QuestCompletion(
+            quest: questRef,
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .autoApprove,
+            completedDate: weekOf,
+            weekOf: weekOf,
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+        )
+
+        let weeklyAchievement = Achievement(
+            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.weekly100.rawValue)", zoneID: zoneID),
+            name: "Week Warrior",
+            description: "Complete all quests in a week",
+            iconSystemName: "calendar.badge.checkmark",
+            category: .special,
+            requirementType: .weekly100,
+            requirementValue: 1,
+            family: makeFamilyRef(zoneID)
+        )
+
+        cache.upsertQuest(quest)
+        cache.upsertQuestCompletion(log)
+        cache.upsertAchievement(weeklyAchievement)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .profileAchievement)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .ledgerEntry)
+
+        let awarded = try await service.evaluateAll(for: hero, family: family)
+        #expect(awarded.contains { $0.requirementType == .weekly100 })
+    }
+
+    @Test
+    func `evaluateAll does not award weekly100 when active assigned quests are incomplete`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = hero
+        appState.family = family
+
+        let weekOf = WeekMath.mondayOfWeek(for: Date())
+
+        let quest1 = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 10,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: makeFamilyRef(zoneID),
+            name: "Test Quest 1",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        )
+
+        let quest2 = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl2", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 10,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: makeFamilyRef(zoneID),
+            name: "Test Quest 2",
+            id: CKRecord.ID(recordName: "quest2", zoneID: zoneID)
+        )
+
+        // Only quest1 has a completion log; quest2 is unfinished
+        let log = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest1.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .autoApprove,
+            completedDate: weekOf,
+            weekOf: weekOf,
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+        )
+
+        let weeklyAchievement = Achievement(
+            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.weekly100.rawValue)", zoneID: zoneID),
+            name: "Week Warrior",
+            description: "Complete all quests in a week",
+            iconSystemName: "calendar.badge.checkmark",
+            category: .special,
+            requirementType: .weekly100,
+            requirementValue: 1,
+            family: makeFamilyRef(zoneID)
+        )
+
+        cache.upsertQuest(quest1)
+        cache.upsertQuest(quest2)
+        cache.upsertQuestCompletion(log)
+        cache.upsertAchievement(weeklyAchievement)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .profileAchievement)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .ledgerEntry)
+
+        let awarded = try await service.evaluateAll(for: hero, family: family)
+        #expect(!awarded.contains { $0.requirementType == .weekly100 }, "1/2 completed should not qualify for weekly100")
+    }
+
+    @Test
+    func `evaluateAll weekly ratio with stale cache falls back to CloudKit query`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let family = makeFamily(zoneID)
+        let hero = makeHero(zoneID)
+        appState.family = family
+        appState.currentProfile = hero
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
+
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let templateRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none)
+        let quest1 = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: makeFamilyRef(zoneID),
+            name: "Cloud Quest 1",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        )
+        let quest2 = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: makeFamilyRef(zoneID),
+            name: "Cloud Quest 2",
+            id: CKRecord.ID(recordName: "quest2", zoneID: zoneID)
+        )
+
+        // Only quest1 is completed
+        let log = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest1.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .autoApprove,
+            completedDate: weekOf,
+            weekOf: weekOf,
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+        )
+
+        let weeklyAchievement = Achievement(
+            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.weekly100.rawValue)", zoneID: zoneID),
+            name: "Week Warrior",
+            description: "Complete all quests in a week",
+            iconSystemName: "calendar.badge.checkmark",
+            category: .special,
+            requirementType: .weekly100,
+            requirementValue: 1,
+            family: makeFamilyRef(zoneID)
+        )
+
+        // Seed CloudKit directly (NOT cache, simulating cache unfresh)
+        _ = try await cloudKit.save(quest1, in: zoneID, using: nil)
+        _ = try await cloudKit.save(quest2, in: zoneID, using: nil)
+        _ = try await cloudKit.save(log, in: zoneID, using: nil)
+        _ = try await cloudKit.save(weeklyAchievement, in: zoneID, using: nil)
+
+        // Cache is completely unfresh / empty
+        let awarded = try await service.evaluateAll(for: hero, family: family)
+        #expect(!awarded.contains { $0.requirementType == .weekly100 }, "Stale cache fallback should accurately read all 2 assigned quests and reject 1/2 completion")
+    }
 }

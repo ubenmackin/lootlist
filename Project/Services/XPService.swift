@@ -60,6 +60,7 @@ final class XPService {
     private let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
     var cacheService: CacheService?
+    var syncCoordinator: CKSyncEngineCoordinator?
 
     let toastManager: ToastManager?
 
@@ -70,13 +71,15 @@ final class XPService {
         notificationService: NotificationService? = nil,
         cacheService: CacheService? = nil,
         toastManager: ToastManager? = nil,
-        appState: AppState? = nil
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
     ) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
         self.cacheService = cacheService
         self.toastManager = toastManager
         self.appState = appState
+        self.syncCoordinator = syncCoordinator
     }
 
     static func cumulativeXPForLevel(_ targetLevel: Int) -> Int {
@@ -86,7 +89,7 @@ final class XPService {
         return tri * stepBase
     }
 
-    func level(forXP xp: Int) -> Int {
+    static func level(forXP xp: Int) -> Int {
         guard xp > 0 else { return 1 }
 
         let step = Self.stepBase
@@ -106,90 +109,54 @@ final class XPService {
 
     @discardableResult
     func addXP(_ amount: Int, to profile: Profile) async throws -> Profile {
-        guard let acting = appState?.currentProfile, acting.id == profile.id || acting.role.isParent else {
+        guard let appState, let acting = appState.currentProfile,
+              acting.id == profile.id || acting.role.isParent
+        else {
             throw FamilyServiceError.unauthorized
         }
+
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: profile.family,
+            zoneID: profile.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
 
         let gained = max(amount, 0)
         let oldLevel = profile.level
         var updated = profile
         updated.xp += gained
-        updated.level = level(forXP: updated.xp)
+        updated.level = Self.level(forXP: updated.xp)
 
-        // Snapshot the pre-mutation cached state so we can roll back on failure.
-        // Mirrors FamilyService.updateProfile*: snapshot is taken BEFORE the
-        // optimistic upsert so the cache can be restored to its prior value if
-        // CloudKit rejects the write.
-        let name = profile.id.recordName
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotProfile = cacheService?.fetchProfile(recordName: name)?.toProfile(zoneID: profile.id.zoneID)
-
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
-        // sync pulling a mutation into the cache mid-save).
-        let preMutationChangeTag = cacheService?.fetchProfile(recordName: name)?.changeTag
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
-        // Optimistic local write first
         cacheService?.upsertProfile(updated)
 
-        do {
-            let saved = try await cloudKit.save(updated)
-            cacheService?.upsertProfile(saved)
+        if let current = appState.currentProfile, current.id == updated.id {
+            var reconciled = current
+            reconciled.xp = updated.xp
+            reconciled.level = updated.level
+            appState.currentProfile = reconciled
+        }
 
-            // Merge only the XP/level deltas into the in-memory profile. `saved`
-            // is rehydrated from the cache-derived `profile` argument, which can
-            // lag behind fields (avatar, payout settings) already reconciled
-            // into currentProfile from another device; wholesale replacement
-            // would regress that fresher UI state.
-            if let current = appState?.currentProfile, current.id == saved.id {
-                var reconciled = current
-                reconciled.xp = saved.xp
-                reconciled.level = saved.level
-                appState?.currentProfile = reconciled
-            }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
-            if saved.level > oldLevel, let notificationService {
-                let newLevel = saved.level
-                Task { [logger] in
-                    do {
-                        try await notificationService.send(
-                            .levelUp,
-                            to: saved,
-                            title: "🎉 Level Up!",
-                            body: "\(saved.displayName) reached Level \(newLevel)!"
-                        )
-                    } catch {
-                        logger.error("Failed to send level-up notification: \(error, privacy: .public)")
-                    }
+        if updated.level > oldLevel, let notificationService {
+            let newLevel = updated.level
+            Task { [logger] in
+                do {
+                    try await notificationService.send(
+                        .levelUp,
+                        to: updated,
+                        title: "🎉 Level Up!",
+                        body: "\(updated.displayName) reached Level \(newLevel)!"
+                    )
+                } catch {
+                    logger.error("Failed to send level-up notification: \(error, privacy: .public)")
                 }
             }
-
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            let recovered = await OptimisticFailureHandler.handleSaveFailure(
-                recordID: profile.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotProfile,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { self.cacheService?.fetchProfile(recordName: name)?.changeTag },
-                upsert: { restored in
-                    self.cacheService?.upsertProfile(restored)
-                    if restored.id == self.appState?.currentProfile?.id {
-                        self.appState?.currentProfile = restored
-                    }
-                },
-                invalidate: { _ in self.cacheService?.invalidateProfile(recordName: name) },
-                error: error
-            )
-            await registry?.deregister(name)
-            return recovered ?? snapshotProfile ?? profile
         }
+
+        return updated
     }
 
     func levelProgress(profile: Profile) -> LevelProgress {

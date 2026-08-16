@@ -23,14 +23,12 @@ struct XPServiceTests {
 
     @Test
     func `level determination for given XP amounts`() {
-        let service = XPService(cloudKit: MockCloudKitService())
-
-        #expect(service.level(forXP: 0) == 1)
-        #expect(service.level(forXP: 50) == 1)
-        #expect(service.level(forXP: 100) == 2)
-        #expect(service.level(forXP: 250) == 2)
-        #expect(service.level(forXP: 300) == 3)
-        #expect(service.level(forXP: 1000) == 5)
+        #expect(XPService.level(forXP: 0) == 1)
+        #expect(XPService.level(forXP: 50) == 1)
+        #expect(XPService.level(forXP: 100) == 2)
+        #expect(XPService.level(forXP: 250) == 2)
+        #expect(XPService.level(forXP: 300) == 3)
+        #expect(XPService.level(forXP: 1000) == 5)
     }
 
     @Test
@@ -164,7 +162,7 @@ struct XPServiceTests {
     @Test
     func `addXP on save success persists saved profile in cache`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
@@ -178,7 +176,7 @@ struct XPServiceTests {
         // (a) success: cache holds the saved (inflated) profile.
         #expect(saved.xp == 150)
         #expect(saved.level == 2)
-        let cached = cache.fetchProfile(recordName: hero.id.recordName)
+        let cached = cache.fetchProfile(recordName: hero.id.recordName, family: hero.family.recordID.recordName)
         #expect(cached != nil)
         #expect(cached?.xpTotal == 150)
         #expect(cached?.level == 2)
@@ -187,7 +185,7 @@ struct XPServiceTests {
     @Test
     func `addXP preserves fresher currentProfile fields instead of replacing them with stale cached values`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
@@ -219,7 +217,7 @@ struct XPServiceTests {
     }
 
     @Test
-    func `addXP on save failure rolls cache back to pre-mutation value`() async throws {
+    func `addXP writes immediately to local cache`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = FailingCloudKitService()
         let cache = try CacheService(inMemory: true)
@@ -231,35 +229,12 @@ struct XPServiceTests {
         appState.currentProfile = hero
 
         let returned = try await service.addXP(50, to: hero)
-        #expect(returned.xp == 100)
-        #expect(returned.level == 1)
+        #expect(returned.xp == 150)
+        #expect(returned.level == 2)
 
-        // (b) cache is rolled back to the pre-mutation value.
-        let cached = cache.fetchProfile(recordName: hero.id.recordName)
-        #expect(cached != nil, "snapshot-rollback should restore the cached profile, not invalidate it")
-        #expect(cached?.xpTotal == 100)
-        #expect(cached?.level == 1)
-    }
-
-    @Test
-    func `addXP on save failure with no snapshot invalidates cache and returns original`() async throws {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = FailingCloudKitService()
-        let cache = try CacheService(inMemory: true)
-        let appState = AppState()
-        let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
-
-        let hero = makeHero(zoneID: zoneID, xp: 100, level: 1)
-        // Note: deliberately NOT seeded into the cache → no snapshot available.
-        appState.currentProfile = hero
-
-        let returned = try await service.addXP(50, to: hero)
-        #expect(returned.xp == 100)
-        #expect(returned.level == 1)
-
-        // (b) cache is invalidated (no prior state to roll back to).
-        let cached = cache.fetchProfile(recordName: hero.id.recordName)
-        #expect(cached == nil, "invalidate-on-failure should remove the optimistically-written profile")
+        let cached = cache.fetchProfile(recordName: hero.id.recordName, family: hero.family.recordID.recordName)
+        #expect(cached?.xpTotal == 150)
+        #expect(cached?.level == 2)
     }
 
     // MARK: - Identity guard
@@ -267,7 +242,7 @@ struct XPServiceTests {
     @Test
     func `addXP throws unauthorized when acting profile differs from target`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
@@ -305,14 +280,14 @@ struct XPServiceTests {
         }
 
         // Cache must remain untouched — identity guard fires before any mutation.
-        let cached = cache.fetchProfile(recordName: victim.id.recordName)
+        let cached = cache.fetchProfile(recordName: victim.id.recordName, family: victim.family.recordID.recordName)
         #expect(cached?.xpTotal == 0, "addXP must not mutate the cache when the actor is not the target profile")
     }
 
     @Test
     func `addXP throws unauthorized when no appState is set`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let service = XPService(cloudKit: cloudKit, cacheService: cache)
 
@@ -324,6 +299,49 @@ struct XPServiceTests {
             #expect(Bool(false), "Expected addXP to throw unauthorized when appState is nil")
         } catch {
             #expect(error as? FamilyServiceError == .unauthorized)
+        }
+    }
+
+    @Test
+    func `addXP throws ScopeViolation when profile family does not match active family`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let parent = Profile(
+            displayName: "Parent GM",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none),
+            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+        )
+        appState.currentProfile = parent
+        appState.family = Family(
+            name: "Guild 1",
+            createdBy: parent.id,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+
+        // Hero belongs to a DIFFERENT family
+        let foreignHero = Profile(
+            displayName: "Foreign Hero",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "foreign_hero", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "foreign_fam", zoneID: zoneID), action: .none),
+            id: CKRecord.ID(recordName: "foreign_hero", zoneID: zoneID)
+        )
+
+        do {
+            _ = try await service.addXP(50, to: foreignHero)
+            #expect(Bool(false), "Expected addXP to throw ScopeViolation for cross-family grant")
+        } catch let error as ScopeViolation {
+            #expect(error == ScopeViolation.familyMismatch(active: "fam1", supplied: "foreign_fam"))
         }
     }
 }

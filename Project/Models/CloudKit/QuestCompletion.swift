@@ -17,6 +17,10 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
     /// checks. Not authored locally — `toRecord()` does not stamp this field.
     var changeTag: String?
 
+    /// Serialized CloudKit system fields (metadata, change tag, dates) to avoid
+    /// conflict loops when sending updates via CKSyncEngine.
+    var encodedSystemFields: Data?
+
     var quest: CKRecord.Reference
 
     var completedBy: CKRecord.Reference
@@ -48,6 +52,7 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
         }
         id = record.recordID
         changeTag = record.recordChangeTag
+        encodedSystemFields = record.encodedSystemFields
 
         guard let quest = record["quest"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("quest")
@@ -85,20 +90,14 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
     }
 
     func toRecord() -> CKRecord {
-        let record = CKRecord(recordType: Self.recordType, recordID: id)
+        let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["quest"] = quest as CKRecordValue
         record["completedBy"] = completedBy as CKRecordValue
         record["completedDate"] = completedDate as CKRecordValue
         record["verificationStatus"] = verificationStatus.rawValue as CKRecordValue
-        if let verifiedBy {
-            record["verifiedBy"] = verifiedBy as CKRecordValue
-        }
-        if let verifiedDate {
-            record["verifiedDate"] = verifiedDate as CKRecordValue
-        }
-        if let xpCredited {
-            record["xpCredited"] = xpCredited as CKRecordValue
-        }
+        record["verifiedBy"] = verifiedBy as CKRecordValue?
+        record["verifiedDate"] = verifiedDate as CKRecordValue?
+        record["xpCredited"] = xpCredited as CKRecordValue?
         record["weekOf"] = weekOf as CKRecordValue
         record["family"] = family as CKRecordValue
         return record
@@ -111,9 +110,9 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
          weekOf: Date,
          family: CKRecord.Reference,
          xpCredited: Int? = nil,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+         id: CKRecord.ID? = nil)
     {
-        self.id = id
+        self.id = id ?? CKRecord.ID(recordName: UUID().uuidString, zoneID: family.recordID.zoneID)
         self.quest = quest
         self.completedBy = completedBy
         self.completedDate = completedDate

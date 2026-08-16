@@ -209,7 +209,7 @@ final class QuestManagerViewModel {
 
         _ = try await questService.updateQuest(updated)
 
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = quest.id.zoneID
         if propagateToTemplate, let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
             var template = templateCache.toQuestTemplate(zoneID: zoneID)
             template.scheduleType = scheduleType

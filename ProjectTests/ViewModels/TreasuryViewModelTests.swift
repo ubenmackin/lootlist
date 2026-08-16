@@ -52,7 +52,7 @@ struct TreasuryViewModelTests {
     @Test
     func `logging spending with empty description fails validation`() async {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let spendingMock = MockSpendingService()
         let appState = AppState()
@@ -67,7 +67,7 @@ struct TreasuryViewModelTests {
     @Test
     func `logging spending with negative or zero amount fails validation`() async {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let spendingMock = MockSpendingService()
         let appState = AppState()
@@ -128,7 +128,7 @@ struct TreasuryViewModelTests {
     @Test
     func `rebuildLists reflects allowance period status flip without cloudkit fetch`() {
         let state = makeAppState()
-        let cloudKit = CloudKitService(zoneID: state.zoneID)
+        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let spendingMock = MockSpendingService()
         let viewModel = TreasuryViewModel(
@@ -188,7 +188,7 @@ struct TreasuryViewModelTests {
     @Test
     func `rebuildLists scopes allowance period to current profile and week`() {
         let state = makeAppState()
-        let cloudKit = CloudKitService(zoneID: state.zoneID)
+        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let spendingMock = MockSpendingService()
         let viewModel = TreasuryViewModel(
@@ -313,14 +313,11 @@ struct TreasuryViewModelTests {
     @Test
     func `thisWeek contains friday-anchored cycle but sunday drops gap entries`() {
         let day: TimeInterval = 24 * 3600
-        let now = Date()
-        let sundayStart = WeekMath.startOfWeek(for: now, payoutDay: .sunday)
-        let fridayStart = WeekMath.startOfWeek(for: now, payoutDay: .friday)
+        let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
+        let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
+        let fridayStart = fridayRange.lowerBound
+        let gapDay = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
 
-        // A day in the gap between the sunday-anchored boundary and the
-        // friday-anchored boundary (the Sunday before the sunday week starts):
-        // it belongs to the friday cycle but not the sunday cycle.
-        let gapDay = sundayStart.addingTimeInterval(-day)
         #expect(gapDay >= fridayStart)
         #expect(CalendarScope.thisWeek.contains(gapDay, payoutDay: .friday))
         #expect(!CalendarScope.thisWeek.contains(gapDay, payoutDay: .sunday))
@@ -376,12 +373,14 @@ struct TreasuryViewModelTests {
 
     @Test
     func `rebuildLists keeps early-cycle ledger in thisWeek for friday payout but drops it for sunday default`() {
-        let day: TimeInterval = 24 * 3600
-        let sundayStart = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
+        let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
+        let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
+
         let gapLedger = LedgerEntryCache(
             recordName: "l_gap", profileRecordName: "hero1", familyRecordName: "fam1",
             amount: -7, entryDescription: "Early Cycle", location: nil,
-            date: sundayStart.addingTimeInterval(-day), source: "manual"
+            date: gapDate, source: "manual"
         )
         let todayLedger = LedgerEntryCache(
             recordName: "l_today", profileRecordName: "hero1", familyRecordName: "fam1",
@@ -389,7 +388,7 @@ struct TreasuryViewModelTests {
             date: Date(), source: "manual"
         )
 
-        // A friday-payout family keeps the early-cycle (Sunday) entry in `.thisWeek`.
+        // A friday-payout family keeps the early-cycle entry in `.thisWeek`.
         let fridayState = makeAppState(familyPayoutDay: .friday)
         let fridayVM = makeTreasuryViewModel(fridayState)
         fridayVM.rebuildLists(
@@ -410,12 +409,14 @@ struct TreasuryViewModelTests {
 
     @Test
     func `rebuildLists per-profile payoutDay overrides family for thisWeek`() {
-        let day: TimeInterval = 24 * 3600
-        let sundayStart = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
+        let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
+        let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
+
         let gapLedger = LedgerEntryCache(
             recordName: "l_gap", profileRecordName: "hero1", familyRecordName: "fam1",
             amount: -7, entryDescription: "Early Cycle", location: nil,
-            date: sundayStart.addingTimeInterval(-day), source: "manual"
+            date: gapDate, source: "manual"
         )
         let todayLedger = LedgerEntryCache(
             recordName: "l_today", profileRecordName: "hero1", familyRecordName: "fam1",
@@ -436,12 +437,14 @@ struct TreasuryViewModelTests {
 
     @Test
     func `rebuildSpendingLog keeps early-cycle ledger for friday payout but drops it for sunday default`() {
-        let day: TimeInterval = 24 * 3600
-        let sundayStart = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
+        let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
+        let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
+
         let gapLedger = LedgerEntryCache(
             recordName: "l_gap", profileRecordName: "hero1", familyRecordName: "fam1",
             amount: -7, entryDescription: "Early Cycle", location: nil,
-            date: sundayStart.addingTimeInterval(-day), source: "manual"
+            date: gapDate, source: "manual"
         )
         let todayLedger = LedgerEntryCache(
             recordName: "l_today", profileRecordName: "hero1", familyRecordName: "fam1",
@@ -463,7 +466,7 @@ struct TreasuryViewModelTests {
     // MARK: - CalendarScope fixtures
 
     private func makeTreasuryViewModel(_ state: TestAppState) -> TreasuryViewModel {
-        let cloudKit = CloudKitService(zoneID: state.zoneID)
+        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let spendingMock = MockSpendingService()
         return TreasuryViewModel(
@@ -530,7 +533,7 @@ struct TreasuryViewModelTests {
     @Test
     func `previousLocations extracts unique sorted locations from ledgers`() {
         let state = makeAppState()
-        let cloudKit = CloudKitService(zoneID: state.zoneID)
+        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let spendingMock = MockSpendingService()
         let viewModel = TreasuryViewModel(
@@ -585,7 +588,7 @@ struct TreasuryViewModelTests {
     @Test
     func `logging spending passes location to spending service`() async {
         let state = makeAppState()
-        let cloudKit = CloudKitService(zoneID: state.zoneID)
+        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
         let spendingMock = MockSpendingService()
         let viewModel = TreasuryViewModel(

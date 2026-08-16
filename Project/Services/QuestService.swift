@@ -20,6 +20,8 @@ enum QuestServiceError: Error, Equatable, Sendable {
     case alreadyResolved(String)
 
     case missingRecord(String)
+
+    case staleData(String)
 }
 
 @MainActor
@@ -34,6 +36,7 @@ final class QuestService {
     var cacheService: CacheService?
     var treasuryService: TreasuryService?
     var achievementService: AchievementService?
+    var syncCoordinator: CKSyncEngineCoordinator?
 
     /// The active session's app state, used to resolve the acting profile for
     /// privileged quest verification. Wired by `AppDependencies`; optional so
@@ -55,13 +58,20 @@ final class QuestService {
     /// before the optimistic write and released when the save settles.
     let inFlightCompletions = Mutex<Set<String>>([])
 
+    /// Record names of quest completions with a verify/reject action currently in flight.
+    let inFlightVerifications = Mutex<Set<String>>([])
+
+    /// Record names of quest completions with a withdrawal action currently in flight.
+    let inFlightWithdrawals = Mutex<Set<String>>([])
+
     init(cloudKit: any CloudKitServiceProtocol,
          xpService: XPService,
          notificationService: NotificationService? = nil,
          cacheService: CacheService? = nil,
          treasuryService: TreasuryService? = nil,
          toastManager: ToastManager? = nil,
-         appState: AppState? = nil)
+         appState: AppState? = nil,
+         syncCoordinator: CKSyncEngineCoordinator? = nil)
     {
         self.cloudKit = cloudKit
         self.xpService = xpService
@@ -70,6 +80,7 @@ final class QuestService {
         self.treasuryService = treasuryService
         self.appState = appState
         self.toastManager = toastManager
+        self.syncCoordinator = syncCoordinator
     }
 
     // MARK: - Quest Templates
@@ -87,16 +98,22 @@ final class QuestService {
                         createdBy: Profile,
                         family: Family) async throws -> QuestTemplate
     {
-        // Privileged mutation: a QuestTemplate is a parent-authored artifact.
-        // The acting profile resolved from the authenticated session must
-        // match the caller-supplied creator's identity AND hold a parent
-        // role (Guild Master / Ranger).
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.id == createdBy.id,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
+        guard createdBy.family.recordID == family.id,
+              createdBy.id.zoneID == family.id.zoneID
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
 
         let template = QuestTemplate(
             name: name,
@@ -109,146 +126,73 @@ final class QuestService {
             isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
-            family: CKRecord.Reference(recordID: family.id, action: .none)
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(template.id.recordName)
 
         cacheService?.upsertQuestTemplate(template)
-        do {
-            let saved = try await cloudKit.save(template)
-            cacheService?.upsertQuestTemplate(saved)
-            await registry?.deregister(template.id.recordName)
-            return saved
-        } catch {
-            // All-or-nothing is mirrored by the recovery wrapper: a brand-new
-            // template has no pre-mutation snapshot, so the concurrent-edit
-            // cascade (re-fetch / snapshot restore) falls back to invalidating
-            // the phantom row, and `.notFound` never resurrects a deleted
-            // record. The optimistic registration is released only here.
-            await handleSaveFailure(
-                recordID: template.id,
-                fetchCurrentTag: {
-                    self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
-                        .first(where: { $0.recordName == template.id.recordName })?.changeTag
-                },
-                upsert: { self.cacheService?.upsertQuestTemplate($0) },
-                invalidate: { self.cacheService?.invalidateQuestTemplate(recordName: $0) },
-                error: error
-            )
-            await registry?.deregister(template.id.recordName)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: template.id, isOwner: isOwner)
+        return template
     }
 
     @discardableResult
     func updateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
-        // Privileged mutation: editing a QuestTemplate is parent-only. The
-        // acting profile resolved from the authenticated session must hold a
-        // parent role (Guild Master / Ranger).
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
-
-        let name = template.id.recordName
-        let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
-
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: template.family,
+            zoneID: template.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
 
         cacheService?.upsertQuestTemplate(template)
-        do {
-            let saved = try await cloudKit.save(template)
-            cacheService?.upsertQuestTemplate(saved)
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            await handleSaveFailure(
-                recordID: template.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotTemplate,
-                fetchCurrentTag: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { self.cacheService?.upsertQuestTemplate($0) },
-                invalidate: { self.cacheService?.invalidateQuestTemplate(recordName: $0) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: template.id, isOwner: isOwner)
+        return template
     }
 
     @discardableResult
     func deactivateTemplate(_ template: QuestTemplate) async throws -> QuestTemplate {
-        // Privileged mutation: deactivating a QuestTemplate is parent-only.
-        // The acting profile resolved from the authenticated session must
-        // hold a parent role (Guild Master / Ranger).
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: template.family,
+            zoneID: template.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
 
         var deactivated = template
         deactivated.isActive = false
 
-        let name = template.id.recordName
-        let snapshot = cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName).first(where: { $0.recordName == name })
-
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotTemplate: QuestTemplate? = snapshot?.toQuestTemplate(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
         cacheService?.upsertQuestTemplate(deactivated)
-        do {
-            let saved = try await cloudKit.save(deactivated)
-            cacheService?.upsertQuestTemplate(saved)
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            await handleSaveFailure(
-                recordID: template.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotTemplate,
-                fetchCurrentTag: { self.cacheService?.fetchQuestTemplates(family: template.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { self.cacheService?.upsertQuestTemplate($0) },
-                invalidate: { self.cacheService?.invalidateQuestTemplate(recordName: $0) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: deactivated.id, isOwner: isOwner)
+        return deactivated
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine.
     func fetchTemplates(family: Family) async throws -> [QuestTemplate] {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuestTemplates(family: familyName)
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questTemplate) {
-                return cached.map { $0.toQuestTemplate(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .questTemplate) {
+                return cached.map { $0.toQuestTemplate(zoneID: family.id.zoneID) }
                     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             }
         }
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = try await cloudKit.query(QuestTemplate.self, predicate: predicate)
+        let all = try await cloudKit.query(QuestTemplate.self, predicate: predicate, in: family.id.zoneID)
         cacheService?.upsertQuestTemplates(all)
         return all
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -265,22 +209,32 @@ final class QuestService {
                      createdBy: Profile,
                      family: Family) async throws -> Quest
     {
-        // Privileged mutation: assigning a quest grants future gold/XP to
-        // another profile. The acting profile resolved from the authenticated
-        // session must match the caller-supplied creator's identity AND hold
-        // a parent role (Guild Master / Ranger).
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.id == createdBy.id,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
+        guard template.family.recordID == family.id,
+              template.id.zoneID == family.id.zoneID,
+              assignee.family.recordID == family.id,
+              assignee.id.zoneID == family.id.zoneID,
+              createdBy.family.recordID == family.id,
+              createdBy.id.zoneID == family.id.zoneID
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
 
         let payoutDay = assignee.payoutDay ?? family.payoutDay
         let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
-
         let questName = nameOverride.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
             ?? template.name
+
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: assignee.id, action: .none),
@@ -294,81 +248,35 @@ final class QuestService {
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none),
             name: questName,
-            descriptionText: template.description
+            descriptionText: template.description,
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
 
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(quest.id.recordName)
-
-        // Optimistic local write first
         cacheService?.upsertQuest(quest)
-
-        do {
-            let saved = try await cloudKit.save(quest)
-            cacheService?.upsertQuest(saved)
-            sendAssignmentNotification(to: assignee, questName: questName)
-            await registry?.deregister(quest.id.recordName)
-            return saved
-        } catch {
-            await handleSaveFailure(
-                recordID: quest.id,
-                fetchCurrentTag: { self.cacheService?.fetchQuests(family: family.id.recordName)
-                    .first(where: { $0.recordName == quest.id.recordName })?.changeTag
-                },
-                upsert: { self.cacheService?.upsertQuest($0) },
-                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
-                error: error
-            )
-            await registry?.deregister(quest.id.recordName)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
+        sendAssignmentNotification(to: assignee, questName: questName)
+        return quest
     }
 
     @discardableResult
     func updateQuest(_ quest: Quest) async throws -> Quest {
-        // Privileged mutation: editing a quest's assignments is parent-only.
-        // The acting profile resolved from the authenticated session must
-        // hold a parent role (Guild Master / Ranger).
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
-
-        let name = quest.id.recordName
-        let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
-            .first(where: { $0.recordName == name })
-
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: quest.family,
+            zoneID: quest.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
 
         cacheService?.upsertQuest(quest)
-        do {
-            let saved = try await cloudKit.save(quest)
-            cacheService?.upsertQuest(saved)
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            await handleSaveFailure(
-                recordID: quest.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotQuest,
-                fetchCurrentTag: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { self.cacheService?.upsertQuest($0) },
-                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
+        return quest
     }
 
     @discardableResult
@@ -385,16 +293,24 @@ final class QuestService {
                           createdBy: Profile,
                           family: Family) async throws -> Quest
     {
-        // Privileged mutation: assigning a quick quest grants future gold/XP
-        // to another profile. The acting profile resolved from the
-        // authenticated session must match the caller-supplied creator's
-        // identity AND hold a parent role (Guild Master / Ranger).
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.id == createdBy.id,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
+        guard assignee.family.recordID == family.id,
+              assignee.id.zoneID == family.id.zoneID,
+              createdBy.family.recordID == family.id,
+              createdBy.id.zoneID == family.id.zoneID
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
 
         // Generate ad-hoc inactive template so it doesn't clutter routine template list
         let adhocTemplate = try await createTemplate(
@@ -427,140 +343,52 @@ final class QuestService {
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none),
             name: name,
-            descriptionText: description
+            descriptionText: description,
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
 
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(quest.id.recordName)
-
-        // Optimistic local write first
         cacheService?.upsertQuest(quest)
-
-        do {
-            let saved = try await cloudKit.save(quest)
-            cacheService?.upsertQuest(saved)
-            sendAssignmentNotification(to: assignee, questName: name)
-            await registry?.deregister(quest.id.recordName)
-            return saved
-        } catch {
-            await handleSaveFailure(
-                recordID: quest.id,
-                fetchCurrentTag: { self.cacheService?.fetchQuests(family: family.id.recordName)
-                    .first(where: { $0.recordName == quest.id.recordName })?.changeTag
-                },
-                upsert: { self.cacheService?.upsertQuest($0) },
-                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
-                error: error
-            )
-            // The deactivated ad-hoc template was already persisted before
-            // the quest save; invalidate it too so it doesn't orphan.
-            cacheService?.invalidateQuestTemplate(recordName: adhocTemplate.id.recordName)
-            await registry?.deregister(quest.id.recordName)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
+        sendAssignmentNotification(to: assignee, questName: name)
+        return quest
     }
 
     func unassignQuest(_ quest: Quest) async throws {
-        // Privileged mutation: removing a quest is parent-only, except the
-        // quest's own assignee may unassign their assignment (self-service
-        // cleanup when a hero leaves the family). A non-parent stranger
-        // cannot unassign another hero's quest.
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.role.isParent || acting.id == quest.assignee.recordID
         else {
             throw FamilyServiceError.unauthorized
         }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: quest.family,
+            zoneID: quest.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
 
-        // Carry-forward suppression tombstone. The weekly carry-forward engine
-        // replants `(template, assignee)` pairs from previous-week rows, and
-        // its idempotency gate only sees current-week quests — so a hard
-        // delete of a carried-forward quest would let the next run silently
-        // resurrect the very quest the parent just removed. When a parent
-        // unassigns a quest the engine could re-create (current carry window +
-        // backing template still active), keep the row with `active == false`
-        // instead of deleting it: the retained row occupies the pair in the
-        // engine's idempotency gate for this week only, is invisible to every
-        // active-quest query, and becomes an ordinary carry-forward source on
-        // week rollover — the suppression never leaks past the current carry
-        // window. Hero self-service unassigns and removals the engine cannot
-        // re-create (off-window, inactive or gone template — Quick Create and
-        // roster cleanup) stay hard deletes.
+        let isOwner = appState.isZoneOwner
         if acting.role.isParent, isCarryForwardSuppressible(quest) {
             var tombstone = quest
             tombstone.active = false
-
-            let name = quest.id.recordName
-            let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
-                .first(where: { $0.recordName == name })
-
-            let preMutationChangeTag = snapshot?.changeTag
-            // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-            let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
-
-            // Register the optimistic window so a background sync skips this row.
-            let registry = cacheService?.inFlightRegistry
-            await registry?.register(name)
-
             cacheService?.upsertQuest(tombstone)
-            do {
-                let saved = try await cloudKit.save(tombstone)
-                cacheService?.upsertQuest(saved)
-                await registry?.deregister(name)
-                return
-            } catch {
-                await handleSaveFailure(
-                    recordID: quest.id,
-                    preMutationChangeTag: preMutationChangeTag,
-                    snapshot: snapshotQuest,
-                    fetchCurrentTag: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
-                        .first(where: { $0.recordName == name })?.changeTag
-                    },
-                    upsert: { self.cacheService?.upsertQuest($0) },
-                    invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
-                    error: error
-                )
-                await registry?.deregister(name)
-                throw error
-            }
+            syncCoordinator?.enqueueSave(recordID: tombstone.id, isOwner: isOwner)
+            return
         }
 
-        let name = quest.id.recordName
-        let snapshot = cacheService?.fetchQuests(family: quest.family.recordID.recordName)
-            .first(where: { $0.recordName == name })
-
-        let preMutationChangeTag = snapshot?.changeTag
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotQuest: Quest? = snapshot?.toQuest(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
-        cacheService?.invalidateQuest(recordName: name)
-        do {
-            try await cloudKit.delete(quest.id)
-            await registry?.deregister(name)
-        } catch {
-            await handleSaveFailure(
-                recordID: quest.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotQuest,
-                fetchCurrentTag: { self.cacheService?.fetchQuests(family: quest.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { self.cacheService?.upsertQuest($0) },
-                invalidate: { self.cacheService?.invalidateQuest(recordName: $0) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw error
-        }
+        let identity = ScopedRecordIdentity(
+            databaseScope: isOwner ? .private : .shared,
+            zoneID: quest.id.zoneID,
+            recordID: quest.id,
+            familyRecordName: quest.family.recordID.recordName
+        )
+        cacheService?.invalidateQuest(identity: identity)
+        syncCoordinator?.enqueueDelete(recordID: quest.id, isOwner: isOwner)
     }
 
     /// Cache-first read. On cold cache miss, falls back to a single synchronous
     /// CloudKit query to hydrate. Background ongoing refresh handled by
-    /// SyncEngine via push notifications.
+    /// CKSyncEngine via push notifications.
     func fetchActiveQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
         let range = QuestService.weekRange(for: weekOf, payoutDay: effectivePayoutDay(for: profile))
 
@@ -570,14 +398,14 @@ final class QuestService {
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuests(family: familyName, weekInRange: range)
                 .filter { $0.assigneeRecordName == profileName && $0.isActive && range.contains($0.weekOf) }
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
-                return cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+                return cached.map { $0.toQuest(zoneID: profile.id.zoneID) }
             }
         }
 
         let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
-        let all = try await cloudKit.query(Quest.self, predicate: predicate)
+        let all = try await cloudKit.query(Quest.self, predicate: predicate, in: profile.id.zoneID)
         let stampedAll = await stampAllQuests(all)
         cacheService?.upsertQuests(stampedAll)
         return stampedAll
@@ -587,7 +415,7 @@ final class QuestService {
 
     /// Cache-first read. On cold cache miss, falls back to a single synchronous
     /// CloudKit query to hydrate. Background ongoing refresh handled by
-    /// SyncEngine via push notifications.
+    /// CKSyncEngine via push notifications.
     func fetchQuestsForFamilyWeek(family: Family, weekOf: Date) async throws -> [Quest] {
         let range = QuestService.weekRange(for: weekOf, payoutDay: family.payoutDay)
 
@@ -595,14 +423,14 @@ final class QuestService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuests(family: familyName, weekInRange: range)
                 .filter { $0.isActive && range.contains($0.weekOf) }
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
-                return cached.map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+                return cached.map { $0.toQuest(zoneID: family.id.zoneID) }
             }
         }
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = try await cloudKit.query(Quest.self, predicate: predicate)
+        let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
         let stampedAll = await stampAllQuests(all)
         cacheService?.upsertQuests(stampedAll)
         return stampedAll
@@ -616,22 +444,27 @@ final class QuestService {
     /// earnings but must not retire quests the hero is still completing.
     @discardableResult
     func sweepExpiredQuests(family: Family, currentWeekOf: Date) async throws -> [Quest] {
-        guard let acting = appState?.currentProfile, acting.role.isParent else {
-            return []
+        guard let appState, let acting = appState.currentProfile, acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
         }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
 
         let familyName = family.id.recordName
         let normalizedCurrentWeek = WeekMath.startOfWeek(for: currentWeekOf, payoutDay: family.payoutDay)
 
         // Query allowance periods to identify weeks whose payouts have been completed (.paid)
         let allowancePeriods: [AllowancePeriod]
-        if let cache = cacheService {
+        if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
             allowancePeriods = cache.fetchAllowancePeriods(family: familyName)
-                .map { $0.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID) }
+                .map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
         } else {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
-            allowancePeriods = await (try? cloudKit.query(AllowancePeriod.self, predicate: predicate)) ?? []
+            allowancePeriods = await (try? cloudKit.query(AllowancePeriod.self, predicate: predicate, in: family.id.zoneID)) ?? []
         }
 
         let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map { Calendar.iso8601UTC.startOfDay(for: $0.weekOf) })
@@ -640,31 +473,23 @@ final class QuestService {
         if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
             allQuests = cache.fetchQuests(family: familyName)
                 .filter(\.isActive)
-                .map { $0.toQuest(zoneID: cloudKit.resolvedZoneID) }
+                .map { $0.toQuest(zoneID: family.id.zoneID) }
         } else {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
-            allQuests = try await cloudKit.query(Quest.self, predicate: predicate)
+            allQuests = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
                 .filter(\.active)
         }
 
         var deactivated: [Quest] = []
+        let isOwner = appState.isZoneOwner
         for var quest in allQuests {
             let questWeekStart = Calendar.iso8601UTC.startOfDay(for: quest.weekOf)
-            // A quest is retired only when its week has both ended (a past week)
-            // and been finalized by a payout. Requiring the week to be past is
-            // what keeps a mid-week early payout — which marks the current week's
-            // period .paid — from deactivating quests the hero is still on.
             if questWeekStart < normalizedCurrentWeek, paidWeeks.contains(questWeekStart) {
                 quest.active = false
                 cacheService?.upsertQuest(quest)
-                do {
-                    let saved = try await cloudKit.save(quest)
-                    cacheService?.upsertQuest(saved)
-                    deactivated.append(saved)
-                } catch {
-                    logger.error("Failed to deactivate expired quest \(quest.id.recordName, privacy: .public): \(error, privacy: .public)")
-                }
+                syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
+                deactivated.append(quest)
             }
         }
         return deactivated
@@ -706,28 +531,6 @@ final class QuestService {
         }
     }
 
-    func handleSaveFailure<T: CloudKitRecord>(
-        recordID: CKRecord.ID,
-        preMutationChangeTag: String? = nil,
-        snapshot: T? = nil,
-        fetchCurrentTag: @escaping () -> String?,
-        upsert: (T) -> Void,
-        invalidate: (String) -> Void,
-        error: Error
-    ) async {
-        await OptimisticFailureHandler.handleSaveFailure(
-            recordID: recordID,
-            preMutationChangeTag: preMutationChangeTag,
-            snapshot: snapshot,
-            cloudKit: cloudKit,
-            toastManager: toastManager,
-            fetchCurrentTag: fetchCurrentTag,
-            upsert: upsert,
-            invalidate: invalidate,
-            error: error
-        )
-    }
-
     static func startOfWeek(for date: Date, payoutDay: PayoutDay = .sunday) -> Date {
         WeekMath.startOfWeek(for: date, payoutDay: payoutDay)
     }
@@ -752,7 +555,9 @@ final class QuestService {
         }
         let familyRecordName = profile.family.recordID.recordName
         if !familyRecordName.isEmpty,
-           let familyCache = cacheService?.fetchFamily(recordName: familyRecordName),
+           let cache = cacheService,
+           cache.isCacheFresh(familyRecordName: familyRecordName, type: .family),
+           let familyCache = cache.fetchFamily(recordName: familyRecordName),
            let familyPayoutDay = familyCache.payoutDayEnum
         {
             return familyPayoutDay
@@ -782,7 +587,7 @@ final class QuestService {
     /// keep the plain hard-delete semantics, since the engine can never re-create
     /// them in the first place.
     private func isCarryForwardSuppressible(_ quest: Quest) -> Bool {
-        let assigneePayoutDay = cacheService?.fetchProfile(recordName: quest.assignee.recordID.recordName)?.payoutDayEnum
+        let assigneePayoutDay = cacheService?.fetchProfile(recordName: quest.assignee.recordID.recordName, family: quest.family.recordID.recordName)?.payoutDayEnum
             ?? cacheService?.fetchFamily(recordName: quest.family.recordID.recordName)?.payoutDayEnum
             ?? .sunday
         let currentWeekStart = WeekMath.startOfWeek(for: Date(), payoutDay: assigneePayoutDay)

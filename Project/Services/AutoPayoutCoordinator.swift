@@ -95,7 +95,7 @@ final class AutoPayoutCoordinator {
                             family: family
                         )
 
-                        // Atomic double-run prevention lock: skip if already paid
+                        // Local status pre-check backed by save-layer CAS on AllowancePeriod: skip if already paid
                         guard period.status != .paid else {
                             continue
                         }

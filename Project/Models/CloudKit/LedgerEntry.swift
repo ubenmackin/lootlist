@@ -17,6 +17,10 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     /// checks. Not authored locally — `toRecord()` does not stamp this field.
     var changeTag: String?
 
+    /// Serialized CloudKit system fields (metadata, change tag, dates) to avoid
+    /// conflict loops when sending updates via CKSyncEngine.
+    var encodedSystemFields: Data?
+
     var profile: CKRecord.Reference
 
     var amount: Double
@@ -36,6 +40,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         }
         id = record.recordID
         changeTag = record.recordChangeTag
+        encodedSystemFields = record.encodedSystemFields
 
         guard let profile = record["profile"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("profile")
@@ -60,7 +65,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     }
 
     func toRecord() -> CKRecord {
-        let record = CKRecord(recordType: Self.recordType, recordID: id)
+        let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["profile"] = profile as CKRecordValue
         record["amount"] = amount as CKRecordValue
         record["description"] = description as CKRecordValue

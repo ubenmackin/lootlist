@@ -80,8 +80,8 @@ extension FamilyServiceTests {
 
         try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
 
-        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.role == UserRole.ranger)
+        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.role == UserRole.ranger.rawValue)
     }
 
     @Test
@@ -257,11 +257,15 @@ extension FamilyServiceTests {
 
     @Test
     func `deleteFamilyAndReset throws unauthorized when not parent or not zone owner`() async {
-        let (familyService, _, appState, _) = makeDependencies()
+        let (familyService, cloudKit, appState, _) = makeDependencies()
         let (_, _, family, hero, parent) = makeStandardFixtures()
+        appState.family = family
+        appState.familyZoneID = family.id.zoneID
+        cloudKit.activeFamilyZoneID = family.id.zoneID
 
         // Case 1: Hero acting, zone owner true
         appState.isZoneOwner = true
+        cloudKit.activeIsOwner = true
         appState.currentProfile = hero
         await #expect(throws: FamilyServiceError.unauthorized) {
             try await familyService.deleteFamilyAndReset(family: family)
@@ -269,6 +273,7 @@ extension FamilyServiceTests {
 
         // Case 2: Parent acting, zone owner false
         appState.isZoneOwner = false
+        cloudKit.activeIsOwner = false
         appState.currentProfile = parent
         await #expect(throws: FamilyServiceError.unauthorized) {
             try await familyService.deleteFamilyAndReset(family: family)
@@ -406,7 +411,11 @@ extension FamilyServiceTests {
         // grant the irreversible delete.
         cloudKit.seedMockRecords([family], creatorUserRecordName: "someoneElse")
         let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
+        appState.family = anchoredFamily
+        appState.familyZoneID = anchoredFamily.id.zoneID
         appState.isZoneOwner = true
+        cloudKit.activeFamilyZoneID = anchoredFamily.id.zoneID
+        cloudKit.activeIsOwner = true
         appState.currentProfile = nil
 
         await #expect(throws: FamilyServiceError.unauthorized) {
@@ -478,8 +487,9 @@ extension FamilyServiceTests {
         appState.currentProfile = owner
 
         try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
-        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.role == UserRole.ranger)
+
+        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.role == UserRole.ranger.rawValue)
     }
 
     @Test
@@ -489,18 +499,17 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (zoneID, familyRef, family, hero, _) = makeStandardFixtures()
-        // Creator differs from the acting user's "mockUser" current identity —
-        // read from the mock (family is not cached) so the stamp round-trips.
+        // Anchor set to "someoneElse" — not the current acting user ("mockUser").
         cloudKit.seedMockRecords([family, hero], creatorUserRecordName: "someoneElse")
-        let forgedGM = Profile(
-            displayName: "Forged GM",
+        let attacker = Profile(
+            displayName: "Pretender GM",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "forged", zoneID: zoneID),
+            iCloudUserID: CKRecord.ID(recordName: "attacker", zoneID: zoneID),
             family: familyRef,
-            id: CKRecord.ID(recordName: "forged-gm", zoneID: zoneID)
+            id: CKRecord.ID(recordName: "attacker", zoneID: zoneID)
         )
         appState.family = family
-        appState.currentProfile = forgedGM
+        appState.currentProfile = attacker
 
         await #expect(throws: FamilyServiceError.unauthorized) {
             try await familyService.kickMember(profile: hero)
@@ -514,11 +523,9 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (zoneID, familyRef, family, hero, _) = makeStandardFixtures()
-        // Creator stamped by the mock as the mock's current user ("mockUser"),
-        // so the owner anchor authorizes member removal.
         cloudKit.seedMockRecords([family, hero], creatorUserRecordName: Self.mockOwner)
         let owner = Profile(
-            displayName: "Owner",
+            displayName: "True GM",
             role: .guildMaster,
             iCloudUserID: CKRecord.ID(recordName: "owner", zoneID: zoneID),
             family: familyRef,
@@ -528,8 +535,8 @@ extension FamilyServiceTests {
         appState.currentProfile = owner
 
         try await familyService.kickMember(profile: hero)
-        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.isActive == false)
+        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.isActive == false)
     }
 
     @Test
@@ -539,10 +546,8 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (zoneID, familyRef, family, hero, _) = makeStandardFixtures()
-        // Legacy family: nil leaves the mock's creator registry unset, so the
-        // fetched family decodes with nil `creatorUserRecordName` (predates the
-        // creator anchor) and the parent-role check still authorizes.
-        cloudKit.seedMockRecords([family], creatorUserRecordName: nil)
+        cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([family, hero], creatorUserRecordName: nil)
         let parent = Profile(
             displayName: "Guild Master",
             role: .guildMaster,
@@ -554,7 +559,7 @@ extension FamilyServiceTests {
         appState.currentProfile = parent
 
         try await familyService.updateMemberRole(profile: hero, newRole: .ranger)
-        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.role == UserRole.ranger)
+        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.role == UserRole.ranger.rawValue)
     }
 }

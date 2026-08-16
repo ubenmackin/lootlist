@@ -12,7 +12,7 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationService.self) private var notificationService
     @Environment(FamilyService.self) private var familyService
-    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
 
     @AppStorage("preferredAppearance") private var preferredAppearance: String = "system"
 
@@ -119,13 +119,15 @@ struct SettingsView: View {
     }
 
     private var syncStatusText: String {
-        if syncEngine?.syncError != nil {
+        if syncCoordinator?.syncError != nil {
             "Sync failed — tap to retry"
-        } else if syncEngine?.isSyncing == true {
+        } else if syncCoordinator?.isSyncing == true {
             "Syncing…"
-        } else if let last = syncEngine?.lastSyncedAt {
+        } else if (syncCoordinator?.pendingUploadCount ?? 0) > 0 {
+            "\(syncCoordinator?.pendingUploadCount ?? 0) pending upload\(syncCoordinator?.pendingUploadCount == 1 ? "" : "s")"
+        } else if let last = syncCoordinator?.lastSyncedAt {
             "Last synced \(last.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))"
-        } else if syncEngine == nil {
+        } else if syncCoordinator == nil {
             "Unavailable"
         } else {
             "Not yet synced"

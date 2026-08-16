@@ -95,6 +95,15 @@ struct BackgroundCacheActorTests {
         return try ctx.fetch(FetchDescriptor<T>()).count
     }
 
+    private func testIdentity(recordName: String, family: String? = "fam") -> ScopedRecordIdentity {
+        ScopedRecordIdentity(
+            databaseScope: .private,
+            zoneID: CKRecordZone.default().zoneID,
+            recordID: CKRecord.ID(recordName: recordName),
+            familyRecordName: family
+        )
+    }
+
     // MARK: - Tests
 
     @Test
@@ -133,7 +142,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 1)
 
         let actor = BackgroundCacheActor(container: container)
-        await actor.deleteRecord(recordName: recordName, type: .questCompletion)
+        await actor.deleteRecord(identity: testIdentity(recordName: recordName), type: .questCompletion)
 
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 0)
     }
@@ -157,16 +166,16 @@ struct BackgroundCacheActorTests {
 
         let actor = BackgroundCacheActor(container: container)
 
-        await actor.deleteRecord(recordName: "seed_profile", type: .profile)
-        await actor.deleteRecord(recordName: "seed_family", type: .family)
-        await actor.deleteRecord(recordName: "seed_quest", type: .quest)
-        await actor.deleteRecord(recordName: "seed_questTemplate", type: .questTemplate)
-        await actor.deleteRecord(recordName: "seed_questCompletion", type: .questCompletion)
-        await actor.deleteRecord(recordName: "seed_ledgerEntry", type: .ledgerEntry)
-        await actor.deleteRecord(recordName: "seed_allowancePeriod", type: .allowancePeriod)
-        await actor.deleteRecord(recordName: "seed_achievement", type: .achievement)
-        await actor.deleteRecord(recordName: "seed_profileAchievement", type: .profileAchievement)
-        await actor.deleteRecord(recordName: "seed_notificationPreference", type: .notificationPreference)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_profile"), type: .profile)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_family", family: nil), type: .family)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_quest"), type: .quest)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_questTemplate"), type: .questTemplate)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_questCompletion"), type: .questCompletion)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_ledgerEntry"), type: .ledgerEntry)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_allowancePeriod"), type: .allowancePeriod)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_achievement"), type: .achievement)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_profileAchievement"), type: .profileAchievement)
+        await actor.deleteRecord(identity: testIdentity(recordName: "seed_notificationPreference"), type: .notificationPreference)
 
         #expect(try remainingCount(ProfileCache.self, in: container) == 0)
         #expect(try remainingCount(FamilyCache.self, in: container) == 0)
@@ -192,7 +201,7 @@ struct BackgroundCacheActorTests {
         // and must leave the store untouched.
         let container = try makeContainer()
         let actor = BackgroundCacheActor(container: container)
-        await actor.deleteRecord(recordName: "does_not_exist", type: .quest)
+        await actor.deleteRecord(identity: testIdentity(recordName: "does_not_exist"), type: .quest)
 
         #expect(try remainingCount(QuestCache.self, in: container) == 0)
     }
@@ -727,5 +736,68 @@ struct BackgroundCacheActorTests {
         await actor.batchUpsertNotificationPreferences([pref1, pref2])
 
         #expect(try remainingCount(NotificationPreferenceCache.self, in: container) == 2)
+    }
+
+    // MARK: - Idempotent re-delivery
+
+    @Test
+    func `re delivered quest completion does not create duplicate rows`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+        let now = Date()
+
+        // The same QuestLog record (same recordName) delivered twice — a common
+        // re-delivery when a sync pass retries or a push duplicates a change.
+        let completion = QuestCompletion(
+            quest: ref("quest"),
+            completedBy: ref("hero"),
+            approvalMode: .autoApprove,
+            completedDate: now,
+            weekOf: now,
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "idem_comp")
+        )
+
+        await actor.batchUpsertQuestCompletions([completion])
+        await actor.batchUpsertQuestCompletions([completion])
+
+        #expect(try remainingCount(QuestCompletionCache.self, in: container) == 1)
+    }
+
+    @Test
+    func `re delivered ledger entry does not create duplicate rows`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let entry = LedgerEntry(
+            profile: ref("hero"),
+            amount: 5.0,
+            description: "Bonus",
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "idem_entry")
+        )
+
+        await actor.batchUpsertLedgerEntries([entry])
+        await actor.batchUpsertLedgerEntries([entry])
+
+        #expect(try remainingCount(LedgerEntryCache.self, in: container) == 1)
+    }
+
+    @Test
+    func `re delivered profile achievement does not create duplicate rows`() async throws {
+        let container = try makeContainer()
+        let actor = BackgroundCacheActor(container: container)
+
+        let profileAchievement = ProfileAchievement(
+            achievement: ref("ach"),
+            profile: ref("hero"),
+            family: ref("fam"),
+            id: CKRecord.ID(recordName: "idem_pa")
+        )
+
+        await actor.batchUpsertProfileAchievements([profileAchievement])
+        await actor.batchUpsertProfileAchievements([profileAchievement])
+
+        #expect(try remainingCount(ProfileAchievementCache.self, in: container) == 1)
     }
 }

@@ -14,7 +14,7 @@ import Testing
 struct QuestManagerViewModelTests {
     private func makeDependencies() -> (QuestService, FamilyService, AppState) { // swiftlint:disable:this large_tuple
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
