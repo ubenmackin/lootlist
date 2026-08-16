@@ -10,10 +10,17 @@ import Foundation
 
 protocol CloudKitRecord: Sendable {
     static var recordType: String { get }
+    static var managedFieldKeys: Set<String> { get }
 
     init(record: CKRecord) throws
 
     func toRecord() -> CKRecord
+}
+
+extension CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        []
+    }
 }
 
 extension CKRecord {
@@ -39,16 +46,166 @@ extension CKRecord {
     }
 }
 
-extension Family: CloudKitRecord {}
-extension Profile: CloudKitRecord {}
-extension QuestTemplate: CloudKitRecord {}
-extension Quest: CloudKitRecord {}
-extension QuestCompletion: CloudKitRecord {}
-extension AllowancePeriod: CloudKitRecord {}
-extension LedgerEntry: CloudKitRecord {}
-extension Achievement: CloudKitRecord {}
-extension ProfileAchievement: CloudKitRecord {}
-extension NotificationPreference: CloudKitRecord {}
+extension Family: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        ["name", "createdBy", "createdAt", "payoutPolicy", "payoutDay"]
+    }
+}
+
+extension Profile: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "displayName",
+            "avatarClass",
+            "avatarPresetID",
+            "customAvatarImageData",
+            "role",
+            "xp",
+            "level",
+            "iCloudUserID",
+            "family",
+            "isActive",
+            "payoutPolicy",
+            "payoutDay"
+        ]
+    }
+}
+
+extension QuestTemplate: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "name",
+            "description",
+            "defaultGold",
+            "xpReward",
+            "scheduleType",
+            "specificDays",
+            "targetCount",
+            "isAllOrNothing",
+            "approvalMode",
+            "createdBy",
+            "family",
+            "isActive"
+        ]
+    }
+}
+
+extension Quest: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "template",
+            "assignee",
+            "goldReward",
+            "xpReward",
+            "xpBanked",
+            "scheduleType",
+            "targetCount",
+            "isAllOrNothing",
+            "approvalMode",
+            "active",
+            "weekOf",
+            "createdBy",
+            "family",
+            "name",
+            "descriptionText"
+        ]
+    }
+}
+
+extension QuestCompletion: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "quest",
+            "completedBy",
+            "completedDate",
+            "verificationStatus",
+            "verifiedBy",
+            "verifiedDate",
+            "xpCredited",
+            "weekOf",
+            "family"
+        ]
+    }
+}
+
+extension AllowancePeriod: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "weekOf",
+            "profile",
+            "status",
+            "totalEarned",
+            "questsCompleted",
+            "questsTotal",
+            "paidDate",
+            "paidAmount",
+            "family"
+        ]
+    }
+}
+
+extension LedgerEntry: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "profile",
+            "amount",
+            "description",
+            "location",
+            "date",
+            "source",
+            "family"
+        ]
+    }
+}
+
+extension Achievement: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "name",
+            "description",
+            "iconSystemName",
+            "category",
+            "requirementType",
+            "requirementValue",
+            "family"
+        ]
+    }
+}
+
+extension ProfileAchievement: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "achievement",
+            "profile",
+            "earnedDate",
+            "family"
+        ]
+    }
+}
+
+extension NotificationPreference: CloudKitRecord {
+    static var managedFieldKeys: Set<String> {
+        [
+            "profile",
+            "eventType",
+            "enabled",
+            "family"
+        ]
+    }
+}
+
+extension RewardEvent {
+    static var managedFieldKeys: Set<String> {
+        [
+            "profile",
+            "questCompletion",
+            "xpAmount",
+            "goldAmount",
+            "timestamp",
+            "family"
+        ]
+    }
+}
 
 extension Family: CacheMergeableDomain {}
 extension Profile: CacheMergeableDomain {}
@@ -60,6 +217,7 @@ extension LedgerEntry: CacheMergeableDomain {}
 extension Achievement: CacheMergeableDomain {}
 extension ProfileAchievement: CacheMergeableDomain {}
 extension NotificationPreference: CacheMergeableDomain {}
+extension RewardEvent: CacheMergeableDomain {}
 
 enum CKDecodingError: Error, Equatable, Sendable {
     case unexpectedRecordType(expected: String, actual: String)

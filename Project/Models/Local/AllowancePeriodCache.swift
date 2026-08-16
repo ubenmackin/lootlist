@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,9 +13,9 @@ import SwiftData
 final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = AllowancePeriod
 
-    #Index<AllowancePeriodCache>([\.familyRecordName, \.profileRecordName, \.weekOf])
+    #Index<AllowancePeriodCache>([\.familyRecordName, \.recordName], [\.familyRecordName, \.profileRecordName, \.weekOf])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var profileRecordName: String
     var familyRecordName: String
     var weekOf: Date
@@ -25,6 +26,10 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
     var paidDate: Date?
     var paidAmount: Double?
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     var statusEnum: PayoutStatus? {
         PayoutStatus(rawValue: status)
@@ -40,7 +45,11 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
          questsTotal: Int,
          paidDate: Date? = nil,
          paidAmount: Double? = nil,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.profileRecordName = profileRecordName
@@ -53,6 +62,10 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
         self.paidDate = paidDate
         self.paidAmount = paidAmount
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from period: AllowancePeriod) {
@@ -67,13 +80,17 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
             questsTotal: period.questsTotal,
             paidDate: period.paidDate,
             paidAmount: period.paidAmount,
-            changeTag: period.changeTag
+            changeTag: period.changeTag,
+            encodedSystemFields: period.encodedSystemFields,
+            sourceZoneName: period.id.zoneID.zoneName,
+            sourceZoneOwnerName: period.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: period.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from period: AllowancePeriod) {
+    func update(from period: AllowancePeriod, isServerSync: Bool = false) {
         profileRecordName = period.profile.recordID.recordName
         familyRecordName = period.family.recordID.recordName
         weekOf = period.weekOf
@@ -84,6 +101,12 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
         paidDate = period.paidDate
         paidAmount = period.paidAmount
         changeTag = period.changeTag
+        sourceZoneName = period.id.zoneID.zoneName
+        sourceZoneOwnerName = period.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: period.id.zoneID)
+        if isServerSync, period.encodedSystemFields != nil {
+            encodedSystemFields = period.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<AllowancePeriodCache> {

@@ -18,8 +18,7 @@ struct FamilyDashboardView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(CloudKitService.self) private var cloudKitService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
-    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
-    @Environment(\.scenePhase) private var scenePhase
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showRolePicker: Bool = false
@@ -103,7 +102,10 @@ struct FamilyDashboardView: View {
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle(appState.family?.name ?? "Guild")
             .navigationBarTitleDisplayMode(.large)
-            .refreshable { await viewModel?.refresh(syncEngine: syncEngine) }
+            .refreshable {
+                await lifecycleCoordinator?.performManualSync()
+                await viewModel?.refresh()
+            }
             .task {
                 if viewModel == nil {
                     viewModel = FamilyDashboardViewModel(
@@ -116,11 +118,6 @@ struct FamilyDashboardView: View {
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 rebuild()
-            }
-            .task(id: scenePhase) {
-                if scenePhase == .active {
-                    await viewModel?.refresh(syncEngine: syncEngine)
-                }
             }
             .onChange(of: cachedProfiles) { _, _ in rebuild() }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
@@ -272,8 +269,8 @@ struct FamilyDashboardView: View {
                         Spacer()
 
                         Button {
-                            Task { @MainActor in
-                                let zoneID = questService.cloudKitReference.resolvedZoneID
+                            Task {
+                                let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
                                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
                                 if let parent = appState.currentProfile {
                                     do {
@@ -295,8 +292,8 @@ struct FamilyDashboardView: View {
                         .buttonStyle(.plain)
 
                         Button {
-                            Task { @MainActor in
-                                let zoneID = questService.cloudKitReference.resolvedZoneID
+                            Task {
+                                let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
                                 let domainLog = completion.toQuestCompletion(zoneID: zoneID)
                                 if let parent = appState.currentProfile {
                                     do {
@@ -458,7 +455,7 @@ struct FamilyDashboardView: View {
                 Text("Heroes")
                     .font(.headline)
                 Spacer()
-                // Invites are Guild-Master-only (AD-5): only the zone owner can
+                // Invites require the Guild Master role: only the zone owner can
                 // mint a share, so Rangers see no invite affordance.
                 if appState.currentProfile?.role == .guildMaster {
                     inviteButton
@@ -550,7 +547,7 @@ struct FamilyDashboardView: View {
         // but does not retire the week's quests. Quest retirement is the
         // expired-quest sweep's job, and it only touches past weeks — never the
         // current week — so heroes keep their remaining quests mid-week.
-        let zoneID = appState.family?.id.zoneID ?? familyService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
         let matchingPeriods = cachedAllowancePeriods.filter { period in
             let status = period.statusEnum
             return status == .active || status == .payoutPending

@@ -32,7 +32,7 @@ struct QuestDetailView: View {
     }
 
     private var allLogs: [QuestCompletion] {
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = quest.id.zoneID
         return cachedCompletions.map { $0.toQuestCompletion(zoneID: zoneID) }
     }
 
@@ -322,10 +322,12 @@ struct QuestDetailView: View {
         defer { isLoadingLog = false }
 
         let templateName = quest.template.recordID.recordName
+        let zoneID = quest.id.zoneID
+        let familyName = quest.family.recordID.recordName
         if let cached = cachedTemplates.first(where: { $0.recordName == templateName }) {
-            template = cached.toQuestTemplate(zoneID: questService.cloudKitReference.resolvedZoneID)
-        } else if let cachedDeactivated = questService.cacheService?.fetchQuestTemplate(recordName: templateName) {
-            template = cachedDeactivated.toQuestTemplate(zoneID: questService.cloudKitReference.resolvedZoneID)
+            template = cached.toQuestTemplate(zoneID: zoneID)
+        } else if let cachedDeactivated = questService.cacheService?.fetchQuestTemplate(recordName: templateName, family: familyName) {
+            template = cachedDeactivated.toQuestTemplate(zoneID: zoneID)
         } else {
             do {
                 template = try await questService.cloudKitReference.fetch(
@@ -376,6 +378,7 @@ extension QuestServiceError: LocalizedError {
         case .alreadyInFlight: "This quest is already being completed."
         case let .alreadyResolved(status): "This quest is already \(status)."
         case let .missingRecord(status): "A required record could not be loaded: \(status)"
+        case let .staleData(reason): "The quest data was updated elsewhere (\(reason)). Please try again."
         }
     }
 }

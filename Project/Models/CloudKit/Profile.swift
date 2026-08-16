@@ -17,6 +17,10 @@ struct Profile: Identifiable, Equatable, Sendable {
     /// checks. Not authored locally — `toRecord()` does not stamp this field.
     var changeTag: String?
 
+    /// Serialized CloudKit system fields (metadata, change tag, dates) to avoid
+    /// conflict loops when sending updates via CKSyncEngine.
+    var encodedSystemFields: Data?
+
     var displayName: String
     var avatarClass: AvatarClass?
     var avatarPresetID: String?
@@ -48,6 +52,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         }
         id = record.recordID
         changeTag = record.recordChangeTag
+        encodedSystemFields = record.encodedSystemFields
 
         displayName = try record.extract("displayName")
 
@@ -98,7 +103,7 @@ struct Profile: Identifiable, Equatable, Sendable {
     }
 
     func toRecord() -> CKRecord {
-        let record = CKRecord(recordType: Self.recordType, recordID: id)
+        let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["displayName"] = displayName as CKRecordValue
         if let avatarClass {
             record["avatarClass"] = avatarClass.rawValue as CKRecordValue

@@ -86,12 +86,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 return
             }
 
-            // Re-arm the next refresh on the family's configured payout day so
-            // non-Sunday families keep their cadence while the app stays closed,
-            // instead of drifting to the Sunday default.
-            scheduleWeeklyPayoutRefresh(payoutDay: shared.appState.family?.payoutDay ?? .sunday)
-            _ = await shared.autoPayoutCoordinator.processPendingPayoutsIfDue()
-            task.setTaskCompleted(success: true)
+            let success = await shared.lifecycleCoordinator.handleWeeklyPayoutBackgroundRefresh()
+            task.setTaskCompleted(success: success)
         }
     }
 
@@ -124,13 +120,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         Task { @MainActor in
             let syncNotifications = NotificationCenter.default.notifications(named: .syncDidComplete)
-            // Whichever path wins — terminal sync outcome or the 25s timeout —
-            // we resume exactly once. A timeout (no terminal outcome) maps to
-            // `.failed` so iOS retries the push rather than throttling it.
-            // We filter the async stream for notifications that carry the
-            // `SyncOutcome.userInfoKey` — a stray / keyless `.syncDidComplete`
-            // is not a terminal signal and must not preempt resolution before
-            // the 25 s timeout, otherwise iOS may throttle.
+
+            if let lifecycleCoordinator = AppDependencies.shared?.lifecycleCoordinator {
+                await lifecycleCoordinator.handleRemoteNotification()
+            }
+
             let outcome: SyncOutcome? = await withTaskGroup(of: SyncOutcome?.self) { group in
                 group.addTask {
                     for await notification in syncNotifications {

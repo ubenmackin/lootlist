@@ -159,12 +159,19 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
         }
 
         Task {
-            let zoneID = deps.questService.cloudKitReference.resolvedZoneID
+            let zoneID = deps.appState.familyZoneID ?? deps.appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
             let recordID = CKRecord.ID(recordName: questLogID, zoneID: zoneID)
 
-            guard let verificationAction = try? await deps.notificationService
-                .handleVerificationAction(action, questLogID: recordID)
-            else {
+            let verificationAction: VerificationAction
+            do {
+                guard let result = try await deps.notificationService
+                    .handleVerificationAction(action, questLogID: recordID)
+                else {
+                    return
+                }
+                verificationAction = result
+            } catch {
+                Self.logger.error("Verification action '\(action, privacy: .public)' failed for quest log \(questLogID, privacy: .private): \(error, privacy: .public)")
                 return
             }
 

@@ -24,6 +24,8 @@ struct ProfileView: View {
 
     @Environment(CloudKitService.self) private var cloudKitService
 
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
+
     @Environment(FamilyService.self) private var familyService
 
     @Environment(QuestService.self) private var questService
@@ -123,7 +125,7 @@ struct ProfileView: View {
                 Button("Sign Out", role: .destructive) {
                     isSigningOut = true
                     Task {
-                        await appState.signOutAndDiscover(cloudKit: cloudKitService)
+                        await appState.signOutAndDiscover(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
                         isSigningOut = false
                     }
                 }
@@ -177,7 +179,7 @@ struct ProfileView: View {
             quests: cachedQuests,
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements,
-            zoneID: questService.cloudKitReference.resolvedZoneID
+            zoneID: appState.currentProfile?.id.zoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
         )
     }
 

@@ -18,7 +18,7 @@ import os
 /// the shared zone.
 ///
 /// Trigger: the app's existing `.syncDidComplete` notification, which
-/// `SyncEngine` posts at the end of every sync pass. The system share sheet is
+/// `CKSyncEngineCoordinator` posts at the end of every sync pass. The system share sheet is
 /// integral to `UICloudSharingController` and exposes no retained callback to
 /// the presenting app here, so the sync-complete hook is the closest available
 /// signal that the server-side participant list may have changed; the
@@ -36,7 +36,7 @@ import os
 /// with an explicitly revoked (`.removed`) status, or (b) the identity has been
 /// observed absent for two consecutive passes. Absence marks persist in
 /// `UserDefaults` keyed per family + identity — the same persistence pattern as
-/// `SyncEngine`'s change tokens — so a relaunch cannot reset the count and a
+/// `CKSyncEngine`'s state serialization — so a relaunch cannot reset the count and a
 /// transient propagation window cannot deactivate a live member.
 ///
 /// The pass aborts entirely when the current user's CloudKit identity cannot be
@@ -151,8 +151,7 @@ final class FamilyShareReconciler {
 
     /// Increments and returns the consecutive-absence count for an identity,
     /// persisted in `UserDefaults` so the count survives relaunches and stays
-    /// scoped per family + identity (mirroring `SyncEngine`'s change-token
-    /// keys).
+    /// scoped per family + identity (mirroring `CKSyncEngine`'s state serialization).
     private func recordAbsence(family: Family, identityKey: String) -> Int {
         let key = absenceMarkerKey(familyRecordName: family.id.recordName, identityKey: identityKey)
         let count = defaults.integer(forKey: key) + 1

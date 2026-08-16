@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,9 +13,9 @@ import SwiftData
 final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = LedgerEntry
 
-    #Index<LedgerEntryCache>([\.familyRecordName, \.profileRecordName, \.date])
+    #Index<LedgerEntryCache>([\.familyRecordName, \.recordName], [\.familyRecordName, \.profileRecordName, \.date])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var profileRecordName: String
     var familyRecordName: String
     var amount: Double
@@ -23,6 +24,10 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     var date: Date
     var source: String
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     init(recordName: String,
          profileRecordName: String,
@@ -32,7 +37,11 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
          location: String? = nil,
          date: Date,
          source: String,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.profileRecordName = profileRecordName
@@ -43,6 +52,10 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         self.date = date
         self.source = source
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from entry: LedgerEntry) {
@@ -55,13 +68,17 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
             location: entry.location,
             date: entry.date,
             source: entry.source,
-            changeTag: entry.changeTag
+            changeTag: entry.changeTag,
+            encodedSystemFields: entry.encodedSystemFields,
+            sourceZoneName: entry.id.zoneID.zoneName,
+            sourceZoneOwnerName: entry.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: entry.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from entry: LedgerEntry) {
+    func update(from entry: LedgerEntry, isServerSync: Bool = false) {
         profileRecordName = entry.profile.recordID.recordName
         familyRecordName = entry.family.recordID.recordName
         amount = entry.amount
@@ -70,6 +87,12 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         date = entry.date
         source = entry.source
         changeTag = entry.changeTag
+        sourceZoneName = entry.id.zoneID.zoneName
+        sourceZoneOwnerName = entry.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: entry.id.zoneID)
+        if isServerSync, entry.encodedSystemFields != nil {
+            encodedSystemFields = entry.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<LedgerEntryCache> {

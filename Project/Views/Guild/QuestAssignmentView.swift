@@ -19,6 +19,7 @@ struct QuestAssignmentView: View {
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
     @Environment(QuestService.self) private var questService
+    @Environment(AppState.self) private var appState
 
     @Query private var cachedCompletions: [QuestCompletionCache]
 
@@ -422,7 +423,7 @@ struct QuestAssignmentView: View {
 
     private func loadQuestForEditing(questID: CKRecord.ID) {
         guard let quest = viewModel.activeAssignments.first(where: { $0.recordName == questID.recordName }) else { return }
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = questID.zoneID
         editQuest = quest.toQuest(zoneID: zoneID)
         // Edited quest name must not be clobbered by template selection
         userEditedQuestName = true
@@ -482,7 +483,7 @@ struct QuestAssignmentView: View {
         // Template name override: use editQuestName if non-empty, else nil (falls back to template.name)
         let nameOverride = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
 
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? template.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         isSubmitting = true
         Task {
             do {
@@ -527,7 +528,7 @@ struct QuestAssignmentView: View {
             return
         }
 
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? hero.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         isSubmitting = true
         Task {
             do {
@@ -580,7 +581,7 @@ struct QuestAssignmentView: View {
         let name = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
         let description = editQuestDescription.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestDescription
 
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = quest.id.zoneID
         isSubmitting = true
         Task {
             do {

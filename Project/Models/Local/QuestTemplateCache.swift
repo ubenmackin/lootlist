@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,9 +13,9 @@ import SwiftData
 final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = QuestTemplate
 
-    #Index<QuestTemplateCache>([\.familyRecordName])
+    #Index<QuestTemplateCache>([\.familyRecordName, \.recordName])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var familyRecordName: String
     var name: String
     var isActive: Bool
@@ -29,6 +30,10 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
     var approvalMode: String
     var createdByRecordName: String
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     var scheduleTypeEnum: QuestSchedule? {
         QuestSchedule(rawValue: scheduleType)
@@ -56,7 +61,11 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
          isAllOrNothing: Bool,
          approvalMode: String,
          createdByRecordName: String,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.familyRecordName = familyRecordName
@@ -73,6 +82,10 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
         self.approvalMode = approvalMode
         self.createdByRecordName = createdByRecordName
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from template: QuestTemplate) {
@@ -91,13 +104,17 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
             isAllOrNothing: template.isAllOrNothing,
             approvalMode: template.approvalMode.rawValue,
             createdByRecordName: template.createdBy.recordID.recordName,
-            changeTag: template.changeTag
+            changeTag: template.changeTag,
+            encodedSystemFields: template.encodedSystemFields,
+            sourceZoneName: template.id.zoneID.zoneName,
+            sourceZoneOwnerName: template.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: template.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from template: QuestTemplate) {
+    func update(from template: QuestTemplate, isServerSync: Bool = false) {
         familyRecordName = template.family.recordID.recordName
         name = template.name
         isActive = template.isActive
@@ -112,6 +129,12 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
         approvalMode = template.approvalMode.rawValue
         createdByRecordName = template.createdBy.recordID.recordName
         changeTag = template.changeTag
+        sourceZoneName = template.id.zoneID.zoneName
+        sourceZoneOwnerName = template.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: template.id.zoneID)
+        if isServerSync, template.encodedSystemFields != nil {
+            encodedSystemFields = template.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestTemplateCache> {

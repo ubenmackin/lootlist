@@ -227,7 +227,7 @@ struct QuestManagerView: View {
     }
 
     private func assignmentRow(quest: QuestCache, vm: QuestManagerViewModel) -> some View {
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? quest.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         let approvalMode = quest.approvalModeEnum ?? .autoApprove
         let rarity = quest.rarityEnum ?? .common
         return Button {
@@ -292,7 +292,7 @@ struct QuestManagerView: View {
     }
 
     private func templateRow(template: QuestTemplateCache, vm: QuestManagerViewModel) -> some View {
-        let zoneID = questService.cloudKitReference.resolvedZoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? template.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         let scheduleType = template.scheduleTypeEnum ?? .weeklyFlexible
         let rarity = template.rarityEnum ?? .common
         return HStack(spacing: 12) {

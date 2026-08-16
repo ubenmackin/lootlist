@@ -13,10 +13,15 @@ class MockCloudKitService: CloudKitServiceProtocol {
     /// The fixed current iCloud user the mock reports via `currentUserRecordID()`.
     static let mockUserRecordName = "mockUser"
 
-    private static let containerInstance: CKContainer = .init(identifier: "iCloud.com.volcrypt.lootlist")
+    private static var _containerInstance: CKContainer?
 
     static var defaultContainer: CKContainer {
-        containerInstance
+        if let instance = _containerInstance {
+            return instance
+        }
+        let instance = CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
+        _containerInstance = instance
+        return instance
     }
 
     var container: CKContainer {
@@ -25,7 +30,27 @@ class MockCloudKitService: CloudKitServiceProtocol {
 
     var activeFamilyZoneID: CKRecordZone.ID?
     var activeIsOwner: Bool = true
-    var mockRecords: [CKRecord.ID: CKRecord] = [:]
+    var mockStore = MockRecordStore()
+
+    var mockRecords: [CKRecord.ID: CKRecord] {
+        get {
+            var dict: [CKRecord.ID: CKRecord] = [:]
+            for record in mockStore.allRecords {
+                dict[record.recordID] = record
+            }
+            return dict
+        }
+        set {
+            mockStore.clear()
+            let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
+            for (_, record) in newValue {
+                mockStore.setRecord(record, databaseScope: scope)
+            }
+        }
+    }
+
+    var deletedRecordIDs: [CKRecord.ID] = []
+    var savedRecords: [CKRecord] = []
     /// Role-targeted `CKShare`s minted for the current test, mirroring a family
     /// root's multiple coexisting shares (Hero + Ranger). Powers the mock's
     /// share participant aggregation and revocation paths.
@@ -53,6 +78,12 @@ class MockCloudKitService: CloudKitServiceProtocol {
     /// subsequent authoritative `fetch` against the seeded `mockRecords`.
     var saveError: Error?
 
+    init() {}
+
+    init(zoneID: CKRecordZone.ID) {
+        self.activeFamilyZoneID = zoneID
+    }
+
     /// Emulates CloudKit's server-side creator stamp. The SDK allows only the
     /// server to write `CKRecord.creatorUserRecordID`, so the mock mirrors that
     /// read-only system field in a registry and applies it onto decoded models.
@@ -77,9 +108,10 @@ class MockCloudKitService: CloudKitServiceProtocol {
     /// user, "mockUser") should use the single-argument `seedMockRecords(_:)`.
     /// Records written via `save` are always stamped with the acting user.
     func seedMockRecords(_ models: [any CloudKitRecord], creatorUserRecordName: String?) {
+        let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
         for model in models {
             let record = model.toRecord()
-            mockRecords[record.recordID] = record
+            mockStore.setRecord(record, databaseScope: scope)
             // `nil` subscript removes the key, leaving a legacy record with no
             // server-stamped creator.
             recordCreators[record.recordID] = creatorUserRecordName
@@ -106,7 +138,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
         nil
     }
 
-    func save<T: CloudKitRecord>(_ entity: T, in _: CKRecordZone.ID?, using _: CKDatabase?) async throws -> T {
+    func save<T: CloudKitRecord>(_ entity: T, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws -> T {
         // Per-test save-time conflict injection (mirrors `fetchError` on the
         // fetch path). Throw BEFORE persisting so a previously-seeded
         // authoritative record in `mockRecords` survives — exactly the
@@ -117,90 +149,96 @@ class MockCloudKitService: CloudKitServiceProtocol {
         if let saveError {
             throw saveError
         }
-        let record = entity.toRecord()
+        let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+        let source = entity.toRecord()
+        let zone = zoneID ?? activeFamilyZoneID ?? CKRecordZone.default().zoneID
+        let targetID: CKRecord.ID = (source.recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName)
+            ? source.recordID
+            : CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
+
+        let existing = mockStore.getRecord(recordID: targetID, databaseScope: scope)
+        let record = existing ?? CKRecord(recordType: T.recordType, recordID: targetID)
+        for key in source.allKeys() {
+            record[key] = source[key]
+        }
+        let sourceKeys = Set(source.allKeys())
+        for key in T.managedFieldKeys where !sourceKeys.contains(key) {
+            record[key] = nil
+        }
         // Emulate the server: stamp the creator only on creation, before
         // persisting and re-decoding (mirrors the real `CloudKitService.save`'s
         // `return try T(record: saved)`). A later edit by a different user must
         // not overwrite or clear the original server-stamped creator, so the
         // existing stamp (if any) is left untouched.
-        if recordCreators[record.recordID] == nil {
-            recordCreators[record.recordID] = await (try? currentUserRecordID())?.recordName
+        if recordCreators[targetID] == nil {
+            recordCreators[targetID] = await (try? currentUserRecordID())?.recordName
         }
-        mockRecords[record.recordID] = record
+        mockStore.setRecord(record, databaseScope: scope)
+        savedRecords.append(record)
         let decoded = try T(record: record)
-        return applyingCreatorStamp(for: record.recordID, on: decoded)
+        return applyingCreatorStamp(for: targetID, on: decoded)
     }
 
-    func fetch<T: CloudKitRecord>(_ type: T.Type, id: CKRecord.ID, using _: CKDatabase?) async throws -> T {
+    func fetch<T: CloudKitRecord>(_ type: T.Type, id: CKRecord.ID, using db: CKDatabase? = nil) async throws -> T {
         if let fetchError {
             throw fetchError
         }
         _ = type
-        guard let record = mockRecords[id] else {
+        let scope: CKDatabase.Scope? = db?.databaseScope
+        let targetID: CKRecord.ID = {
+            if id.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
+                return id
+            }
+            if let activeZone = activeFamilyZoneID {
+                return CKRecord.ID(recordName: id.recordName, zoneID: activeZone)
+            }
+            return id
+        }()
+
+        guard let record = mockStore.getRecord(recordID: targetID, databaseScope: scope) else {
             throw CloudKitServiceError.notFound(id.recordName)
         }
         let decoded = try T(record: record)
-        return applyingCreatorStamp(for: id, on: decoded)
+        return applyingCreatorStamp(for: targetID, on: decoded)
     }
 
-    func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in _: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?, using _: CKDatabase?) async throws -> [T] {
-        var matching = Array(mockRecords.values.filter { $0.recordType == T.recordType })
-        if predicate != NSPredicate(value: true) {
-            matching = matching.filter { predicate.evaluate(with: $0) }
-        }
-        if let sortDescriptors, !sortDescriptors.isEmpty {
-            let nsArray = (matching as NSArray).sortedArray(using: sortDescriptors)
-            if let sortedMatching = nsArray as? [CKRecord] {
-                matching = sortedMatching
+    func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?,
+                                  using db: CKDatabase? = nil) async throws -> [T]
+    {
+        let scope: CKDatabase.Scope? = db?.databaseScope
+        let targetZone = zoneID ?? activeFamilyZoneID
+        let records = try mockStore.query(T.self, predicate: predicate, in: targetZone, sortDescriptors: sortDescriptors, databaseScope: scope)
+        return records.map { record in
+            if let family = record as? Family {
+                return applyingCreatorStamp(for: family.id, on: record)
             }
-        }
-        return try matching.map { record -> T in
-            let decoded = try T(record: record)
-            return applyingCreatorStamp(for: record.recordID, on: decoded)
+            return record
         }
     }
 
-    func delete(_ recordID: CKRecord.ID, in _: CKRecordZone.ID?, using _: CKDatabase?) async throws {
-        mockRecords.removeValue(forKey: recordID)
+    func delete(_ recordID: CKRecord.ID, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws {
+        let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+        let targetID: CKRecord.ID = {
+            if recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
+                return recordID
+            }
+            let zone = zoneID ?? activeFamilyZoneID ?? CKRecordZone.default().zoneID
+            return CKRecord.ID(recordName: recordID.recordName, zoneID: zone)
+        }()
+        mockStore.delete(targetID, in: zoneID, activeZoneID: activeFamilyZoneID, databaseScope: scope)
+        deletedRecordIDs.append(targetID)
     }
 
-    func delete(_ entity: some CloudKitRecord, using _: CKDatabase?) async throws {
+    func delete(_ entity: some CloudKitRecord, using db: CKDatabase? = nil) async throws {
         let record = entity.toRecord()
-        mockRecords.removeValue(forKey: record.recordID)
+        try await delete(record.recordID, in: record.recordID.zoneID, using: db)
     }
 
     func ensureZoneExists(_: CKRecordZone.ID) async throws {}
 
-    func fetchZoneChanges(in _: CKRecordZone.ID?, since _: CKServerChangeToken?, using _: CKDatabase?) async throws -> ZoneChangesResult {
-        let parsed: [ParsedRecord] = mockRecords.values.compactMap { record in
-            do {
-                switch record.recordType {
-                case Family.recordType: return try .family(Family(record: record))
-                case Profile.recordType: return try .profile(Profile(record: record))
-                case Quest.recordType: return try .quest(Quest(record: record))
-                case QuestTemplate.recordType: return try .questTemplate(QuestTemplate(record: record))
-                case QuestCompletion.recordType: return try .questCompletion(QuestCompletion(record: record))
-                case LedgerEntry.recordType: return try .ledgerEntry(LedgerEntry(record: record))
-                case AllowancePeriod.recordType: return try .allowancePeriod(AllowancePeriod(record: record))
-                case Achievement.recordType: return try .achievement(Achievement(record: record))
-                case ProfileAchievement.recordType: return try .profileAchievement(ProfileAchievement(record: record))
-                case NotificationPreference.recordType: return try .notificationPreference(NotificationPreference(record: record))
-                default: return .parseFailure(recordType: record.recordType, recordName: record.recordID.recordName)
-                }
-            } catch {
-                return .parseFailure(recordType: record.recordType, recordName: record.recordID.recordName)
-            }
-        }
-        return ZoneChangesResult(
-            changedRecords: parsed,
-            deletedRecordIDs: [],
-            newToken: nil,
-            moreComing: false
-        )
-    }
-
     func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
-        let root = mockRecords[rootRecordID] ?? CKRecord(recordType: Family.recordType, recordID: rootRecordID)
+        let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
+        let root = mockStore.getRecord(recordID: rootRecordID, databaseScope: scope) ?? CKRecord(recordType: Family.recordType, recordID: rootRecordID)
         let share = CKShare(rootRecord: root)
         share[CKShare.SystemFieldKey.title] = "\(root["name"] as? String ?? "Family Guild")\(role.shareTitleSuffix)"
         share.publicPermission = .none

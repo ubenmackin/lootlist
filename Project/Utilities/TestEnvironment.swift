@@ -27,4 +27,12 @@ enum TestEnvironment {
 
         return false
     }
+
+    /// When running in unprovisioned headless CI environments without signed iCloud
+    /// entitlements or when `--skip-cloudkit` is passed, tests that instantiate
+    /// `CKSyncEngine` can check this flag to safely bypass container entitlement validation.
+    static var shouldSkipLiveCloudKitEngineTests: Bool {
+        CommandLine.arguments.contains("--skip-cloudkit")
+            || ProcessInfo.processInfo.environment["SKIP_CLOUDKIT_TESTS"] != nil
+    }
 }

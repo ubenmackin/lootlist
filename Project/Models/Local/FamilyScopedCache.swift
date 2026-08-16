@@ -19,6 +19,9 @@ import SwiftData
 protocol FamilyScopedCache: PersistentModel {
     var recordName: String { get }
     var familyRecordName: String { get }
+    var sourceZoneName: String? { get }
+    var sourceZoneOwnerName: String? { get }
+    var sourceDatabaseScope: String? { get }
 }
 
 /// CloudKit domain models that can be merged into cache rows. Conforming types
@@ -46,13 +49,18 @@ protocol CacheMergeable: PersistentModel {
     /// returns an empty string — it is never family-scoped.
     var familyRecordName: String { get }
 
+    var sourceZoneName: String? { get }
+    var sourceZoneOwnerName: String? { get }
+    var sourceDatabaseScope: String? { get }
+
     /// Creates a new cache row from the domain model.
     init(from domain: DomainModel)
 
     /// Applies a field-for-field update from the domain model onto an existing
     /// row. `changeTag` is copied unconditionally — nil is a meaningful
-    /// "no further tag" value that must propagate.
-    func update(from domain: DomainModel)
+    /// "no further tag" value that must propagate. `isServerSync` distinguishes
+    /// background server hydration from local optimistic mutations.
+    func update(from domain: DomainModel, isServerSync: Bool)
 
     /// Returns the fetch descriptor used by the generic batch helpers.
     /// `FamilyCache` ignores `familyRecordName` (root record, never scoped).
@@ -66,8 +74,12 @@ protocol CacheMergeable: PersistentModel {
 }
 
 extension CacheMergeable {
+    func update(from domain: DomainModel) {
+        update(from: domain, isServerSync: false)
+    }
+
     /// Hoisted single & batch upsert field-application helper shared across CacheService upserts.
-    static func apply(_ cached: Self, from domain: DomainModel) {
-        cached.update(from: domain)
+    static func apply(_ cached: Self, from domain: DomainModel, isServerSync: Bool = false) {
+        cached.update(from: domain, isServerSync: isServerSync)
     }
 }

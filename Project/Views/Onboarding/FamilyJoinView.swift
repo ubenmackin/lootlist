@@ -54,7 +54,7 @@ struct FamilyJoinView: View {
         .onChange(of: viewModel.pendingShareMetadata) { _, metadata in
             logger.info("FamilyJoinView pendingShareMetadata changed: \(metadata != nil ? "has metadata" : "nil")")
             guard metadata != nil else { return }
-            Task { @MainActor in
+            Task {
                 await viewModel.joinFamilyViaAcceptedShare()
             }
         }
@@ -68,7 +68,7 @@ struct FamilyJoinView: View {
         .alert("Simulate Invite Link", isPresented: $showDebugSharePrompt) {
                 TextField("https://www.icloud.com/share/…", text: $debugShareURLText)
                 Button("Accept Link") {
-                    Task { @MainActor in
+                    Task {
                         await simulateShareLink()
                     }
                 }
@@ -311,7 +311,7 @@ struct FamilyJoinView: View {
         VStack(spacing: 12) {
             Button {
                 guard let hero = viewModel.detectedHero else { return }
-                Task { @MainActor in
+                Task {
                     await appState.acceptDetectedFamily(
                         family: hero.family,
                         profile: hero.profile,

@@ -14,23 +14,16 @@ import SwiftData
 actor BackgroundCacheActor {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
 
-    /// Registry of record names currently under an optimistic mutation.
-    /// The app wiring injects the single shared instance (owned by
-    /// `CacheService`); a nil registry disables the guard for callers that
-    /// construct the actor standalone (unit tests, legacy call sites).
-    private var inFlightRegistry: InFlightMutationRegistry?
-
     /// Custom initializer that disables SwiftData autosave on the backing
     /// `modelContext`. Uses a parameter label (`container:`) distinct from the
     /// `@ModelActor`-synthesized `init(modelContainer:)` to avoid an ambiguous
     /// overload diagnostic. This is the single source of truth for autosave
     /// disposition — method bodies no longer toggle `autosaveEnabled`.
-    init(container: ModelContainer, inFlightRegistry: InFlightMutationRegistry? = nil) {
+    init(container: ModelContainer) {
         modelContainer = container
         let modelContext = ModelContext(container)
         modelContext.autosaveEnabled = false
         modelExecutor = DefaultSerialModelExecutor(modelContext: modelContext)
-        self.inFlightRegistry = inFlightRegistry
     }
 
     // MARK: - Generic batch helpers
@@ -41,63 +34,61 @@ actor BackgroundCacheActor {
     /// rows via `T.fetchDescriptor`, keys them by `recordName`, then updates or
     /// inserts each item. The field-for-field merge lives in each type's
     /// `CacheMergeable.update(from:)` — explicit and type-safe, no reflection.
-    ///
-    /// In-flight guard: rows whose `recordName` is currently in the in-flight mutation
-    /// registry are skipped. They are the optimistic author's responsibility —
-    /// a background sync must not clobber an optimistically-written row with
-    /// server data that is stale relative to the in-flight write; the author's
-    /// post-save re-upsert reconciles the row once the save settles. The
-    /// registry is snapshotted once per batch (one actor hop), not per row.
+    @discardableResult
     private func batchUpsert<T: CacheMergeable>(
         _: T.Type,
         _ items: [T.DomainModel],
         familyRecordName: String?
-    ) async {
-        let inFlight = await inFlightRegistry?.activeRecordNames() ?? []
-        let pending = items.filter { !inFlight.contains($0.id.recordName) }
+    ) async -> Bool {
         let existing: [T]
         do {
             existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
         } catch {
             logger.error("Failed to fetch existing \(T.self, privacy: .public) for batchUpsert: \(error, privacy: .public)")
-            existing = []
+            return false
         }
-        let byName = Dictionary(uniqueKeysWithValues: existing.map { ($0.recordName, $0) })
-        for item in pending {
+        let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
+        for item in items {
             let name = item.id.recordName
             if let target = byName[name] {
-                target.update(from: item)
+                if let familyRecordName, target.familyRecordName != familyRecordName {
+                    logger.warning("BackgroundCacheActor batchUpsert target family mismatch for \(name): expected \(familyRecordName), found \(target.familyRecordName)")
+                    continue
+                }
+                target.update(from: item, isServerSync: true)
             } else {
-                modelContext.insert(T(from: item))
+                let newRow = T(from: item)
+                if let familyRecordName, newRow.familyRecordName != familyRecordName {
+                    logger.warning("BackgroundCacheActor batchUpsert new row family mismatch for \(name): expected \(familyRecordName), found \(newRow.familyRecordName)")
+                    continue
+                }
+                modelContext.insert(newRow)
             }
         }
-        saveContext()
+        return saveContext()
     }
 
     /// Generic purge shared by every `purgeMissing*` wrapper. Deletes any cached
     /// row whose `recordName` is absent from `validRecordNames`, scoped by
     /// `familyRecordName` via `T.fetchDescriptor`.
     ///
-    /// In-flight guard: rows whose `recordName` is currently in the in-flight mutation
-    /// registry are skipped, mirroring `batchUpsert`. `validRecordNames` is a
-    /// CloudKit query snapshot taken at the *start* of the sync pass — a
-    /// brand-new record optimistically upserted (and possibly already saved on
-    /// the server) while that query was in flight would otherwise be purged as
-    /// "missing" even though the server holds it; the optimistic author's
-    /// post-save re-upsert reconciles the row once the save settles. The
-    /// registry is snapshotted once per purge (one actor hop), not per row.
+    /// Purging is stateless and per-call: it deletes directly against the
+    /// `validRecordNames` snapshot supplied, with no cross-call in-flight
+    /// registry. That snapshot is a CloudKit query taken at the *start* of the
+    /// sync pass, so a brand-new record optimistically upserted while the query
+    /// was in flight can be reported "missing" here even though the server holds
+    /// it; the optimistic author's post-save re-upsert reconciles the row once
+    /// the save settles.
     private func purgeMissing<T: CacheMergeable>(
         _: T.Type,
         validRecordNames: Set<String>,
         familyRecordName: String?
     ) async {
-        // SAFETY GUARD: Never purge existing cached rows if validRecordNames is empty.
-        // An empty result set from CKQuery often occurs when record types lack QUERYABLE
-        // indexes in CloudKit Development schema or during network fallback. Purging on
+        // Guard against an empty validRecordNames set: if the upstream query
+        // threw or was cancelled, the caller passes an empty set. Purging on an
         // empty validRecordNames destroys valid local cached data.
         guard !validRecordNames.isEmpty else { return }
 
-        let inFlight = await inFlightRegistry?.activeRecordNames() ?? []
         let existing: [T]
         do {
             existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
@@ -105,7 +96,7 @@ actor BackgroundCacheActor {
             logger.error("Failed to fetch existing \(T.self, privacy: .public) for purgeMissing: \(error, privacy: .public)")
             existing = []
         }
-        for cached in existing where !validRecordNames.contains(cached.recordName) && !inFlight.contains(cached.recordName) {
+        for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
         saveContext()
@@ -113,8 +104,17 @@ actor BackgroundCacheActor {
 
     // MARK: - Batch upserts (public API preserved as thin wrappers)
 
-    func batchUpsertQuests(_ quests: [Quest], familyRecordName: String? = nil) async {
-        await batchUpsert(QuestCache.self, quests, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertQuests(_ quests: [Quest], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(QuestCache.self, quests, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: quests, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyQuests) in grouped {
+            success = await batchUpsert(QuestCache.self, familyQuests, familyRecordName: family) && success
+        }
+        return success
     }
 
     /// Backfills `name` on any Quest in `quests` whose `name` is nil by
@@ -140,40 +140,228 @@ actor BackgroundCacheActor {
         }
     }
 
-    func batchUpsertProfiles(_ profiles: [Profile], familyRecordName: String? = nil) async {
-        await batchUpsert(ProfileCache.self, profiles, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertProfiles(_ profiles: [Profile], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(ProfileCache.self, profiles, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: profiles, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyProfiles) in grouped {
+            success = await batchUpsert(ProfileCache.self, familyProfiles, familyRecordName: family) && success
+        }
+        return success
     }
 
-    func batchUpsertQuestCompletions(_ completions: [QuestCompletion], familyRecordName: String? = nil) async {
-        await batchUpsert(QuestCompletionCache.self, completions, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertQuestCompletions(_ completions: [QuestCompletion], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(QuestCompletionCache.self, completions, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: completions, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyCompletions) in grouped {
+            success = await batchUpsert(QuestCompletionCache.self, familyCompletions, familyRecordName: family) && success
+        }
+        return success
     }
 
-    func batchUpsertQuestTemplates(_ templates: [QuestTemplate], familyRecordName: String? = nil) async {
-        await batchUpsert(QuestTemplateCache.self, templates, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertQuestTemplates(_ templates: [QuestTemplate], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(QuestTemplateCache.self, templates, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: templates, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyTemplates) in grouped {
+            success = await batchUpsert(QuestTemplateCache.self, familyTemplates, familyRecordName: family) && success
+        }
+        return success
     }
 
-    func batchUpsertLedgerEntries(_ entries: [LedgerEntry], familyRecordName: String? = nil) async {
-        await batchUpsert(LedgerEntryCache.self, entries, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertLedgerEntries(_ entries: [LedgerEntry], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(LedgerEntryCache.self, entries, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: entries, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyEntries) in grouped {
+            success = await batchUpsert(LedgerEntryCache.self, familyEntries, familyRecordName: family) && success
+        }
+        return success
     }
 
-    func batchUpsertAllowancePeriods(_ periods: [AllowancePeriod], familyRecordName: String? = nil) async {
-        await batchUpsert(AllowancePeriodCache.self, periods, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertAllowancePeriods(_ periods: [AllowancePeriod], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(AllowancePeriodCache.self, periods, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: periods, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyPeriods) in grouped {
+            success = await batchUpsert(AllowancePeriodCache.self, familyPeriods, familyRecordName: family) && success
+        }
+        return success
     }
 
-    func batchUpsertAchievements(_ achievements: [Achievement], familyRecordName: String? = nil) async {
-        await batchUpsert(AchievementCache.self, achievements, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertAchievements(_ achievements: [Achievement], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(AchievementCache.self, achievements, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: achievements, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyAchievements) in grouped {
+            success = await batchUpsert(AchievementCache.self, familyAchievements, familyRecordName: family) && success
+        }
+        return success
     }
 
-    func batchUpsertProfileAchievements(_ pas: [ProfileAchievement], familyRecordName: String? = nil) async {
-        await batchUpsert(ProfileAchievementCache.self, pas, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertProfileAchievements(_ pas: [ProfileAchievement], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(ProfileAchievementCache.self, pas, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: pas, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyPAs) in grouped {
+            success = await batchUpsert(ProfileAchievementCache.self, familyPAs, familyRecordName: family) && success
+        }
+        return success
     }
 
-    func batchUpsertFamilies(_ families: [Family]) async {
+    @discardableResult
+    func batchUpsertFamilies(_ families: [Family]) async -> Bool {
         await batchUpsert(FamilyCache.self, families, familyRecordName: nil)
     }
 
-    func batchUpsertNotificationPreferences(_ prefs: [NotificationPreference], familyRecordName: String? = nil) async {
-        await batchUpsert(NotificationPreferenceCache.self, prefs, familyRecordName: familyRecordName)
+    @discardableResult
+    func batchUpsertNotificationPreferences(_ prefs: [NotificationPreference], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(NotificationPreferenceCache.self, prefs, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: prefs, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyPrefs) in grouped {
+            success = await batchUpsert(NotificationPreferenceCache.self, familyPrefs, familyRecordName: family) && success
+        }
+        return success
+    }
+
+    private struct ParsedBatch {
+        var families: [Family] = []
+        var profiles: [Profile] = []
+        var quests: [Quest] = []
+        var templates: [QuestTemplate] = []
+        var completions: [QuestCompletion] = []
+        var ledgerEntries: [LedgerEntry] = []
+        var periods: [AllowancePeriod] = []
+        var achievements: [Achievement] = []
+        var profileAchievements: [ProfileAchievement] = []
+        var notificationPrefs: [NotificationPreference] = []
+        var rewardEvents: [RewardEvent] = []
+
+        mutating func append(_ record: ParsedRecord) {
+            switch record {
+            case let .family(item): families.append(item)
+            case let .profile(item): profiles.append(item)
+            case let .quest(item): quests.append(item)
+            case let .questTemplate(item): templates.append(item)
+            case let .questCompletion(item): completions.append(item)
+            case let .ledgerEntry(item): ledgerEntries.append(item)
+            case let .allowancePeriod(item): periods.append(item)
+            case let .achievement(item): achievements.append(item)
+            case let .profileAchievement(item): profileAchievements.append(item)
+            case let .notificationPreference(item): notificationPrefs.append(item)
+            case let .rewardEvent(item): rewardEvents.append(item)
+            case .ignoredSystemRecord, .parseFailure: break
+            }
+        }
+    }
+
+    @discardableResult
+    func batchUpsertParsedRecords(_ records: [ParsedRecord]) async -> Bool {
+        var batch = ParsedBatch()
+        for record in records {
+            batch.append(record)
+        }
+        return await commitParsedBatch(batch)
+    }
+
+    private func commitParsedBatch(_ batch: ParsedBatch) async -> Bool {
+        let coreSuccess = await commitCoreEntities(batch)
+        let secondarySuccess = await commitSecondaryEntities(batch)
+        return coreSuccess && secondarySuccess
+    }
+
+    private func commitCoreEntities(_ batch: ParsedBatch) async -> Bool {
+        var success = true
+        if !batch.families.isEmpty {
+            success = await batchUpsertFamilies(batch.families) && success
+        }
+        if !batch.profiles.isEmpty {
+            success = await batchUpsertProfiles(batch.profiles) && success
+        }
+        if !batch.quests.isEmpty {
+            success = await batchUpsertQuests(batch.quests) && success
+        }
+        if !batch.templates.isEmpty {
+            success = await batchUpsertQuestTemplates(batch.templates) && success
+        }
+        if !batch.completions.isEmpty {
+            success = await batchUpsertQuestCompletions(batch.completions) && success
+        }
+        return success
+    }
+
+    private func commitSecondaryEntities(_ batch: ParsedBatch) async -> Bool {
+        var success = true
+        if !batch.ledgerEntries.isEmpty {
+            success = await batchUpsertLedgerEntries(batch.ledgerEntries) && success
+        }
+        if !batch.periods.isEmpty {
+            success = await batchUpsertAllowancePeriods(batch.periods) && success
+        }
+        if !batch.achievements.isEmpty {
+            success = await batchUpsertAchievements(batch.achievements) && success
+        }
+        if !batch.profileAchievements.isEmpty {
+            success = await batchUpsertProfileAchievements(batch.profileAchievements) && success
+        }
+        if !batch.notificationPrefs.isEmpty {
+            success = await batchUpsertNotificationPreferences(batch.notificationPrefs) && success
+        }
+        if !batch.rewardEvents.isEmpty {
+            success = await reconcileRewardEvents(batch.rewardEvents) && success
+        }
+        return success
+    }
+
+    private func reconcileRewardEvents(_ events: [RewardEvent]) async -> Bool {
+        for event in events {
+            let completionName = event.questCompletion.recordID.recordName
+            let familyName = event.family.recordID.recordName
+            do {
+                let descriptor = FetchDescriptor<QuestCompletionCache>(
+                    predicate: #Predicate { $0.recordName == completionName && $0.familyRecordName == familyName }
+                )
+                let matches = try modelContext.fetch(descriptor)
+                if let match = matches.first {
+                    if match.xpCredited == nil || (match.xpCredited ?? 0) < event.xpAmount {
+                        match.xpCredited = event.xpAmount
+                        logger
+                            .info(
+                                "Hydrated xpCredited (\(event.xpAmount)) on completion \(completionName, privacy: .private) from RewardEvent \(event.id.recordName, privacy: .private)"
+                            )
+                    }
+                }
+            } catch {
+                logger.error("Failed to query QuestCompletionCache for RewardEvent reconciliation: \(error, privacy: .public)")
+                return false
+            }
+        }
+        return saveContext()
     }
 
     // MARK: - Purges (public API preserved as thin wrappers)
@@ -240,13 +428,47 @@ actor BackgroundCacheActor {
         await purgeMissing(NotificationPreferenceCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
+    /// Deletes the `FamilyCache` matching `recordName` and all child caches
+    /// scoped to that family, mirroring `CacheService.purgeFamily` on the
+    /// background context. Used when `CKSyncEngine` reports a whole zone
+    /// (family) deleted server-side, so stale rows cannot survive the sync.
+    func purgeFamily(recordName: String) async {
+        if let match = try? modelContext.fetch(FamilyCache.fetchDescriptor(recordName: recordName)).first {
+            modelContext.delete(match)
+        }
+        await purgeFamilyRows(ProfileCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(QuestCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(QuestTemplateCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(QuestCompletionCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(LedgerEntryCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(AllowancePeriodCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(AchievementCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(ProfileAchievementCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(NotificationPreferenceCache.self, familyRecordName: recordName)
+        saveContext()
+    }
+
+    /// Deletes every cached row of `T` whose `familyRecordName` matches.
+    private func purgeFamilyRows<T: CacheMergeable>(_: T.Type, familyRecordName: String) async {
+        let existing: [T]
+        do {
+            existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
+        } catch {
+            logger.error("Failed to fetch \(T.self, privacy: .public) for family purge: \(error, privacy: .public)")
+            existing = []
+        }
+        for cached in existing {
+            modelContext.delete(cached)
+        }
+    }
+
     /// Backfills `targetCount` to `1` for any `QuestCache` or `QuestTemplateCache`
     /// rows where the value is nil/zero/unset. Runs globally across all families
-    /// by `@Attribute(.unique) recordName` — this is a one-time migration for
-    /// pre-`targetCount` installs whose cache was persisted before the field
-    /// existed. New rows always carry the `targetCount = 1` default from their
-    /// `init`, so they are left untouched. Idempotent: rows already carrying a
-    /// positive `targetCount` are never clobbered.
+    /// and cached rows — this is a one-time migration for pre-`targetCount`
+    /// installs whose cache was persisted before the field existed. New rows
+    /// always carry the `targetCount = 1` default from their `init`, so they
+    /// are left untouched. Idempotent: rows already carrying a positive
+    /// `targetCount` are never clobbered.
     func backfillTargetCountGlobally() {
         // QuestCache — iterate by recordName (global, not per-family).
         let quests: [QuestCache]
@@ -302,72 +524,27 @@ actor BackgroundCacheActor {
         assert(zeroTemplates.isEmpty, "QuestTemplateCache has zero targetCount post-backfill")
     }
 
-    /// Incremental-sync deletion path. The typed `CachedRecordType`
-    /// switch keeps the raw CKRecordType → cache-type divergence resolved in one
-    /// place (`CachedRecordType.recordType(for:)`), then delegates to the generic
-    /// recordName-scoped delete. Every route shares the same in-flight registry
-    /// guard, so no path deletes rows under an active optimistic mutation.
-    func deleteRecord(recordName: String, type: CachedRecordType?) async {
-        if let type {
-            switch type {
-            case .profile: await deleteRecordByRecordName(ProfileCache.self, recordName: recordName)
-            case .family: await deleteRecordByRecordName(FamilyCache.self, recordName: recordName)
-            case .quest: await deleteRecordByRecordName(QuestCache.self, recordName: recordName)
-            case .questTemplate: await deleteRecordByRecordName(QuestTemplateCache.self, recordName: recordName)
-            case .questCompletion: await deleteRecordByRecordName(QuestCompletionCache.self, recordName: recordName)
-            case .ledgerEntry: await deleteRecordByRecordName(LedgerEntryCache.self, recordName: recordName)
-            case .allowancePeriod: await deleteRecordByRecordName(AllowancePeriodCache.self, recordName: recordName)
-            case .achievement: await deleteRecordByRecordName(AchievementCache.self, recordName: recordName)
-            case .profileAchievement: await deleteRecordByRecordName(ProfileAchievementCache.self, recordName: recordName)
-            case .notificationPreference: await deleteRecordByRecordName(NotificationPreferenceCache.self, recordName: recordName)
-            }
-        } else {
-            // Unknown-record-type fallback (`type == nil`): the record resolver
-            // maps only CKRecordTypes it knows, so this branch runs for deletions
-            // the resolver could not map. Sweep every known cache table by
-            // recordName as a best-effort heuristic — the record may have been
-            // cached under a different type than the server reports, or its type
-            // string diverged before the resolver existed.
-            //
-            // FamilyCache is intentionally excluded from this sweep. It is the
-            // root record — never family-scoped, preserved globally, reachable by
-            // recordName only from the deliberate `.family` route above. A genuine
-            // Family deletion always arrives as `Family.recordType`, which the
-            // resolver maps to `.family`, so a record reaching this nil branch can
-            // never legitimately be the family row; sweeping it here could only
-            // take out the family anchor on a blind name match. The typed path is
-            // the single sanctioned route for family-row deletion.
-            await deleteRecordByRecordName(QuestCompletionCache.self, recordName: recordName)
-            await deleteRecordByRecordName(QuestCache.self, recordName: recordName)
-            await deleteRecordByRecordName(QuestTemplateCache.self, recordName: recordName)
-            await deleteRecordByRecordName(ProfileCache.self, recordName: recordName)
-            await deleteRecordByRecordName(LedgerEntryCache.self, recordName: recordName)
-            await deleteRecordByRecordName(AllowancePeriodCache.self, recordName: recordName)
-            await deleteRecordByRecordName(AchievementCache.self, recordName: recordName)
-            await deleteRecordByRecordName(ProfileAchievementCache.self, recordName: recordName)
-            await deleteRecordByRecordName(NotificationPreferenceCache.self, recordName: recordName)
+    func deleteRecord(identity: ScopedRecordIdentity, type: CachedRecordType) async {
+        switch type {
+        case .profile: await deleteRecordByIdentity(ProfileCache.self, identity: identity)
+        case .family: await deleteRecordByIdentity(FamilyCache.self, identity: identity)
+        case .quest: await deleteRecordByIdentity(QuestCache.self, identity: identity)
+        case .questTemplate: await deleteRecordByIdentity(QuestTemplateCache.self, identity: identity)
+        case .questCompletion: await deleteRecordByIdentity(QuestCompletionCache.self, identity: identity)
+        case .ledgerEntry: await deleteRecordByIdentity(LedgerEntryCache.self, identity: identity)
+        case .allowancePeriod: await deleteRecordByIdentity(AllowancePeriodCache.self, identity: identity)
+        case .achievement: await deleteRecordByIdentity(AchievementCache.self, identity: identity)
+        case .profileAchievement: await deleteRecordByIdentity(ProfileAchievementCache.self, identity: identity)
+        case .notificationPreference: await deleteRecordByIdentity(NotificationPreferenceCache.self, identity: identity)
         }
         saveContext()
     }
 
-    /// Generic single-record delete shared by every `deleteRecord` route. Rows
-    /// are fetched through the type's `recordName`-scoped `fetchDescriptor`,
-    /// which predicates on the unique `@Attribute(.unique) recordName` so the
-    /// lookup uses the unique attribute's implicit index instead of pulling the
-    /// full table and filtering in memory. `#Predicate` cannot be written
-    /// generically, so each conformance provides its own descriptor.
-    ///
-    /// In-flight guard: rows whose `recordName` is currently in the in-flight mutation
-    /// registry are skipped, mirroring `batchUpsert`/`purgeMissing`. A deletion
-    /// arriving from an incremental sync while the optimistic author's CloudKit
-    /// save is still settling must not delete the cached row mid-mutation — the
-    /// author's rollback (or post-save re-upsert) reconciles it once the save
-    /// settles, and deleting it first would let the rollback resurrect a record
-    /// that no longer exists server-side ("zombie quest"). The registry is
-    /// snapshotted once per call (one actor hop), not per row.
-    private func deleteRecordByRecordName<T: CacheMergeable>(_: T.Type, recordName: String) async {
-        let inFlight = await inFlightRegistry?.activeRecordNames() ?? []
-        guard !inFlight.contains(recordName) else { return }
+    private func deleteRecordByIdentity<T: CacheMergeable>(
+        _: T.Type,
+        identity: ScopedRecordIdentity
+    ) async {
+        let recordName = identity.recordID.recordName
         let match: T?
         do {
             match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first
@@ -376,15 +553,33 @@ actor BackgroundCacheActor {
             match = nil
         }
         if let match {
+            if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
+                guard scoped.familyRecordName == expectedFamily else {
+                    logger.warning("BackgroundCacheActor deletion aborted for \(recordName): expected family \(expectedFamily), found \(scoped.familyRecordName)")
+                    return
+                }
+            }
+            if let scoped = match as? any FamilyScopedCache {
+                if let sourceZone = scoped.sourceZoneName,
+                   identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
+                   sourceZone != identity.zoneID.zoneName
+                {
+                    logger.warning("BackgroundCacheActor deletion aborted for \(recordName): expected zone \(identity.zoneID.zoneName), found \(sourceZone)")
+                    return
+                }
+            }
             modelContext.delete(match)
         }
     }
 
-    private func saveContext() {
+    @discardableResult
+    private func saveContext() -> Bool {
         do {
             try modelContext.save()
+            return true
         } catch {
             logger.error("Failed to save background context: \(error, privacy: .private)")
+            return false
         }
     }
 }

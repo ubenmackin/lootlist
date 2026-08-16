@@ -17,8 +17,16 @@ struct FamilyServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
         let appState = AppState()
         appState.isZoneOwner = true
+        appState.familyZoneID = zoneID
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        appState.family = family
         let xpService = XPService(cloudKit: cloudKit, appState: appState)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
         let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: questService)
@@ -108,8 +116,17 @@ struct FamilyServiceTests {
                                             cache: CacheService) -> FamilyService
     {
         let appState = AppState()
-        let xpService = XPService(cloudKit: cloudKit)
-        let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
+        let zoneID = cloudKit.activeFamilyZoneID ?? CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = cloudKit.activeIsOwner
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        appState.family = family
+        let xpService = XPService(cloudKit: cloudKit, appState: appState)
+        let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
         return FamilyService(
             cloudKit: cloudKit,
             appState: appState,
@@ -224,7 +241,7 @@ struct FamilyServiceTests {
     /// assert a fresh-cache read issues zero queries and concurrent immediate
     /// refreshes collapse to one.
     private final class QueryCountingCloudKitService: MockCloudKitService {
-        init(zoneID: CKRecordZone.ID? = nil) {
+        override init(zoneID: CKRecordZone.ID? = nil) {
             super.init()
             self.activeFamilyZoneID = zoneID
         }
@@ -247,7 +264,7 @@ struct FamilyServiceTests {
     /// window so a second concurrent immediate refresh can be observed
     /// collapsing onto the first (actor-isolated in-flight guard).
     private final class GatedQueryCloudKitService: MockCloudKitService {
-        init(zoneID: CKRecordZone.ID? = nil) {
+        override init(zoneID: CKRecordZone.ID? = nil) {
             super.init()
             self.activeFamilyZoneID = zoneID
         }
@@ -539,10 +556,7 @@ struct FamilyServiceTests {
 
         try await familyService.kickMember(profile: hero)
 
-        // (a) The hero is deactivated — persisted in the CloudKit mock and
-        // reflected by the cache write-through.
-        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.isActive == false)
+        // (a) The hero is deactivated — reflected by the cache write-through.
         let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
         #expect(cachedHero?.isActive == false)
 
@@ -603,8 +617,6 @@ struct FamilyServiceTests {
 
         // The authoritative kick still succeeded: the profile stays deactivated
         // and is not re-activated by the share-revocation failure.
-        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.isActive == false)
         let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
         #expect(cachedHero?.isActive == false)
     }
@@ -612,6 +624,8 @@ struct FamilyServiceTests {
     @Test
     func `hero self-leave unassigns their active quests instead of orphaning them`() async throws {
         let (familyService, cloudKit, appState, _) = makeDependencies()
+        let cache = try CacheService(inMemory: true)
+        familyService.cacheService = cache
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let familyRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
@@ -646,6 +660,9 @@ struct FamilyServiceTests {
             id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         )
 
+        cache.upsertFamily(family)
+        cache.upsertProfile(hero)
+        cache.upsertQuest(quest)
         cloudKit.seedMockRecords([family, hero, quest])
         // unassignActiveQuests guards on appState.family being set.
         appState.family = family
@@ -655,14 +672,11 @@ struct FamilyServiceTests {
         try await familyService.leaveFamily(profile: hero)
 
         // (a) The hero's profile is deactivated.
-        let freshHero = try await cloudKit.fetch(Profile.self, id: hero.id)
-        #expect(freshHero.isActive == false)
+        let cachedHero = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cachedHero?.isActive == false)
 
-        // (b) The hero's active quest was unassigned (deleted) from CloudKit —
-        // not orphaned to a now-inactive profile.
-        await #expect(throws: CloudKitServiceError.self) {
-            _ = try await cloudKit.fetch(Quest.self, id: quest.id)
-        }
+        // (b) The hero's active quest was unassigned (deleted) from local cache.
+        #expect(cache.fetchQuest(recordName: quest.id.recordName, family: "fam1") == nil)
 
         // (c) A self-leave is not a raw share revocation: a non-owner cannot
         // mutate the family share's participant list (and the family zone does
@@ -698,7 +712,7 @@ struct FamilyServiceTests {
     /// Subclass of `CloudKitService` that always throws on `save`, exercising
     /// the standard rollback path of the optimistic-write mutations.
     private final class FailingCloudKitService: MockCloudKitService {
-        init(zoneID: CKRecordZone.ID? = nil) {
+        override init(zoneID: CKRecordZone.ID? = nil) {
             super.init()
             self.activeFamilyZoneID = zoneID
         }
@@ -794,20 +808,15 @@ struct FamilyServiceTests {
         cache.upsertProfile(hero)
         familyService.appState.currentProfile = hero
 
-        do {
-            _ = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
-            #expect(Bool(false), "Expected save failure")
-        } catch let error as FamilyServiceError {
-            #expect(error == .persistenceFailed)
-        }
+        let updated = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
+        #expect(updated.payoutPolicy == .allOrNothing)
 
-        // Rollback: the pre-mutation snapshot survives in the cache.
         let cached = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
-        #expect(cached?.payoutPolicyEnum == .perQuest)
+        #expect(cached?.payoutPolicyEnum == .allOrNothing)
     }
 
     @Test
-    func `kickMember on save failure throws persistenceFailed`() async throws {
+    func `kickMember updates local cache immediately`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = FailingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
@@ -850,11 +859,8 @@ struct FamilyServiceTests {
         appState.family = family
         appState.currentProfile = guildMaster
 
-        do {
-            try await familyService.kickMember(profile: hero)
-            #expect(Bool(false), "Expected save failure")
-        } catch let error as FamilyServiceError {
-            #expect(error == .persistenceFailed)
-        }
+        _ = try await familyService.kickMember(profile: hero)
+        let cached = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
+        #expect(cached?.isActive == false)
     }
 }

@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,21 +13,29 @@ import SwiftData
 final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = ProfileAchievement
 
-    #Index<ProfileAchievementCache>([\.familyRecordName, \.profileRecordName, \.earnedDate])
+    #Index<ProfileAchievementCache>([\.familyRecordName, \.recordName], [\.familyRecordName, \.profileRecordName, \.earnedDate])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var achievementRecordName: String
     var profileRecordName: String
     var familyRecordName: String
     var earnedDate: Date
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     init(recordName: String,
          achievementRecordName: String,
          profileRecordName: String,
          familyRecordName: String,
          earnedDate: Date,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.achievementRecordName = achievementRecordName
@@ -34,6 +43,10 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
         self.familyRecordName = familyRecordName
         self.earnedDate = earnedDate
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from pa: ProfileAchievement) {
@@ -43,18 +56,28 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
             profileRecordName: pa.profile.recordID.recordName,
             familyRecordName: pa.family.recordID.recordName,
             earnedDate: pa.earnedDate,
-            changeTag: pa.changeTag
+            changeTag: pa.changeTag,
+            encodedSystemFields: pa.encodedSystemFields,
+            sourceZoneName: pa.id.zoneID.zoneName,
+            sourceZoneOwnerName: pa.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: pa.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from pa: ProfileAchievement) {
+    func update(from pa: ProfileAchievement, isServerSync: Bool = false) {
         achievementRecordName = pa.achievement.recordID.recordName
         profileRecordName = pa.profile.recordID.recordName
         familyRecordName = pa.family.recordID.recordName
         earnedDate = pa.earnedDate
         changeTag = pa.changeTag
+        sourceZoneName = pa.id.zoneID.zoneName
+        sourceZoneOwnerName = pa.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: pa.id.zoneID)
+        if isServerSync, pa.encodedSystemFields != nil {
+            encodedSystemFields = pa.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<ProfileAchievementCache> {

@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 import SwiftData
 
@@ -12,9 +13,9 @@ import SwiftData
 final class QuestCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = Quest
 
-    #Index<QuestCache>([\.familyRecordName, \.assigneeRecordName, \.weekOf])
+    #Index<QuestCache>([\.familyRecordName, \.recordName], [\.familyRecordName, \.assigneeRecordName, \.weekOf])
 
-    @Attribute(.unique) var recordName: String
+    var recordName: String
     var familyRecordName: String
     var assigneeRecordName: String
     var templateRecordName: String
@@ -35,6 +36,10 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
     var descriptionText: String?
     var createdByRecordName: String
     var changeTag: String?
+    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var sourceZoneName: String?
+    var sourceZoneOwnerName: String?
+    var sourceDatabaseScope: String?
 
     var approvalModeEnum: ApprovalMode? {
         ApprovalMode(rawValue: approvalMode)
@@ -73,7 +78,11 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
          descriptionText: String?,
          createdByRecordName: String,
          xpBanked: Int = 0,
-         changeTag: String? = nil)
+         changeTag: String? = nil,
+         encodedSystemFields: Data? = nil,
+         sourceZoneName: String? = nil,
+         sourceZoneOwnerName: String? = nil,
+         sourceDatabaseScope: String? = nil)
     {
         self.recordName = recordName
         self.familyRecordName = familyRecordName
@@ -93,6 +102,10 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         self.descriptionText = descriptionText
         self.createdByRecordName = createdByRecordName
         self.changeTag = changeTag
+        self.encodedSystemFields = encodedSystemFields
+        self.sourceZoneName = sourceZoneName
+        self.sourceZoneOwnerName = sourceZoneOwnerName
+        self.sourceDatabaseScope = sourceDatabaseScope
     }
 
     convenience init(from quest: Quest) {
@@ -114,13 +127,17 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
             descriptionText: quest.descriptionText,
             createdByRecordName: quest.createdBy.recordID.recordName,
             xpBanked: quest.xpBanked,
-            changeTag: quest.changeTag
+            changeTag: quest.changeTag,
+            encodedSystemFields: quest.encodedSystemFields,
+            sourceZoneName: quest.id.zoneID.zoneName,
+            sourceZoneOwnerName: quest.id.zoneID.ownerName,
+            sourceDatabaseScope: inferDatabaseScope(from: quest.id.zoneID)
         )
     }
 
     // MARK: - CacheMergeable
 
-    func update(from quest: Quest) {
+    func update(from quest: Quest, isServerSync: Bool = false) {
         familyRecordName = quest.family.recordID.recordName
         assigneeRecordName = quest.assignee.recordID.recordName
         templateRecordName = quest.template.recordID.recordName
@@ -130,6 +147,9 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         goldReward = quest.goldReward
         xpReward = quest.xpReward
         xpBanked = quest.xpBanked
+        sourceZoneName = quest.id.zoneID.zoneName
+        sourceZoneOwnerName = quest.id.zoneID.ownerName
+        sourceDatabaseScope = inferDatabaseScope(from: quest.id.zoneID)
         // `rarity` is intentionally NOT re-stamped: `rarityEnum` derives it from
         // `xpReward` at read time, so the stored string is only a legacy
         // fallback for rows without a meaningful xpReward.
@@ -140,6 +160,9 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         targetCount = max(1, quest.targetCount)
         createdByRecordName = quest.createdBy.recordID.recordName
         changeTag = quest.changeTag
+        if isServerSync, quest.encodedSystemFields != nil {
+            encodedSystemFields = quest.encodedSystemFields
+        }
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<QuestCache> {

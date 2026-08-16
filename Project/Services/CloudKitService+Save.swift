@@ -14,16 +14,14 @@ extension CloudKitService {
                                  using db: CKDatabase? = nil) async throws -> T
     {
         if isTestingOrMocking {
-            let source = model.toRecord()
-            let recordToSave = CKRecord(recordType: T.recordType, recordID: source.recordID)
-            for key in source.allKeys() {
-                recordToSave[key] = source[key]
-            }
-            mockRecords[source.recordID.recordName] = recordToSave
-            return try T(record: recordToSave)
+            let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+            return try mockStore.save(model, in: zoneID, activeZoneID: activeFamilyZoneID, databaseScope: scope)
         }
 
-        let zone = zoneID ?? resolvedZoneID
+        guard let zone = zoneID ?? activeFamilyZoneID else {
+            logger.error("CloudKitService.save rejected: no zoneID provided and no activeFamilyZoneID available")
+            throw CloudKitServiceError.invalidArguments("No zoneID provided and no activeFamilyZoneID available")
+        }
         guard let targetDB = db ?? activeFamilyDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
@@ -55,17 +53,16 @@ extension CloudKitService {
             }
         }
 
-        // Preserve server-side fields the model does not carry. `toRecord()`
-        // writes a key only when the model manages it, and omits fields it does
-        // not express (e.g. `Quest.name`/`descriptionText` before the backfill,
-        // `LedgerEntry.location`, `QuestTemplate.specificDays` when empty), so
-        // stripping every key the fresh model leaves nil would silently delete
-        // concurrent server data written by another device. Clearing a field is
-        // expressed explicitly: `toRecord()` writes `nil` for a managed field
-        // (e.g. `Profile.avatarPresetID` when the avatar is removed), and that
-        // nil write is applied below — exactly the mock path's semantics.
+        // Overlay all non-nil fields from the source model onto the fetched record.
         for key in source.allKeys() {
             recordToSave[key] = source[key]
+        }
+
+        // Explicitly clear any managed optional fields omitted (nil) from the source model.
+        // Unmanaged / future schema fields on the server record remain untouched.
+        let sourceKeys = Set(source.allKeys())
+        for key in T.managedFieldKeys where !sourceKeys.contains(key) {
+            recordToSave[key] = nil
         }
 
         let dbLabel = targetDB == sharedDatabase ? "sharedDatabase" : "privateDatabase"
@@ -93,11 +90,15 @@ extension CloudKitService {
                 using db: CKDatabase? = nil) async throws
     {
         if isTestingOrMocking {
-            mockRecords.removeValue(forKey: recordID.recordName)
+            let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+            mockStore.delete(recordID, in: zoneID, activeZoneID: activeFamilyZoneID, databaseScope: scope)
             return
         }
 
-        let zone = zoneID ?? resolvedZoneID
+        guard let zone = zoneID ?? activeFamilyZoneID else {
+            logger.error("CloudKitService.delete rejected: no zoneID provided and no activeFamilyZoneID available")
+            throw CloudKitServiceError.invalidArguments("No zoneID provided and no activeFamilyZoneID available")
+        }
         guard let targetDB = db ?? activeFamilyDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }

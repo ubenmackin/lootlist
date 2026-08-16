@@ -295,4 +295,54 @@ struct AppStateTests {
         // The signed-in session was cleared by sign-out.
         #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession") == false)
     }
+
+    @Test
+    func `clearSessionAndCloudKitScope clears CloudKit active scope and resets sync coordinator`() throws {
+        let zoneID = CKRecordZone.ID(zoneName: "ScopeTestZone", ownerName: "Owner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
+
+        let suite = "AppStateTests_Scope_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let appState = AppState(defaults: defaults)
+
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+
+        let conflictResolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: conflictResolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+
+        appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: coordinator)
+
+        #expect(cloudKit.activeFamilyZoneID == nil)
+        #expect(cloudKit.activeIsOwner == false)
+        #expect(appState.authStatus == .onboarding)
+        #expect(appState.family == nil)
+        #expect(appState.currentProfile == nil)
+    }
+
+    @Test
+    func `rejectDetectedFamily clears CloudKit active scope and resets session`() async {
+        let zoneID = CKRecordZone.ID(zoneName: "RejectZone", ownerName: "Owner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
+
+        let appState = AppState()
+        let family = Family(name: "Reject Family", createdBy: CKRecord.ID(recordName: "owner"), id: CKRecord.ID(recordName: "RejectZone", zoneID: zoneID))
+        let profile = Profile(
+            displayName: "Reject Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "hero"),
+            family: CKRecord.Reference(recordID: family.id, action: .none)
+        )
+
+        await appState.rejectDetectedFamily(family: family, profile: profile, zoneID: zoneID, isOwner: false, cloudKit: cloudKit)
+
+        #expect(cloudKit.activeFamilyZoneID == nil)
+        #expect(cloudKit.activeIsOwner == false)
+        #expect(appState.authStatus == .onboarding)
+    }
 }

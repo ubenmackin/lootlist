@@ -101,15 +101,22 @@ extension SpendingService {
 final class ManualSpendingService: SpendingService {
     private let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService?
+    var syncCoordinator: CKSyncEngineCoordinator?
 
     var toastManager: ToastManager?
 
     var appState: AppState?
 
-    init(cloudKit: any CloudKitServiceProtocol, cacheService: CacheService? = nil, appState: AppState? = nil) {
+    init(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
         self.appState = appState
+        self.syncCoordinator = syncCoordinator
     }
 
     func isAvailable() -> Bool {
@@ -119,23 +126,23 @@ final class ManualSpendingService: SpendingService {
     func fetchTransactions(for profile: Profile,
                            in dateRange: DateInterval) async throws -> [LedgerEntry]
     {
+        let targetZoneID = profile.family.recordID.zoneID
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if !filtered.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
-                let zoneID = cloudKit.resolvedZoneID
+            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
                 return filtered.map { cacheRow in
                     LedgerEntry(
-                        profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: zoneID), action: .none),
+                        profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
                         amount: cacheRow.amount,
                         description: cacheRow.entryDescription,
                         location: cacheRow.location,
                         date: cacheRow.date,
                         source: cacheRow.source,
-                        family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: zoneID), action: .none),
-                        id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: zoneID)
+                        family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
+                        id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
                     )
                 }
             }
@@ -143,10 +150,14 @@ final class ManualSpendingService: SpendingService {
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
+        let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (appState?.isZoneOwner == true && appState?.familyZoneID == targetZoneID)
+        let db = cloudKit.database(isOwner: isOwner)
         let all = try await cloudKit.query(
             LedgerEntry.self,
             predicate: predicate,
-            sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)]
+            in: targetZoneID,
+            sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
+            using: db
         )
         cacheService?.upsertLedgerEntries(all)
         return all.filter { dateRange.contains($0.date) }
@@ -160,9 +171,16 @@ final class ManualSpendingService: SpendingService {
                    location: String? = nil,
                    date: Date = Date()) async throws -> LedgerEntry
     {
-        guard let acting = appState?.currentProfile, acting.id == profile.id || acting.role.isParent else {
+        guard let appState else {
+            throw ScopeViolation.noActiveFamily
+        }
+        guard familyRecordName == family.id.recordName else {
+            throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: familyRecordName)
+        }
+        guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
 
         guard amount.isFinite else {
             throw SpendingServiceError.invalidAmount
@@ -178,43 +196,14 @@ final class ManualSpendingService: SpendingService {
             location: location,
             date: date,
             source: "manual",
-            family: CKRecord.Reference(recordID: family.id, action: .none)
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
-        let name = entry.id.recordName
-        // Scope the snapshot fetch to the active family so a profile that
-        // briefly existed in two families does not match rows from the other.
-        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
-            .first(where: { $0.recordName == name })
-        let preMutationChangeTag = snapshot?.changeTag
-
-        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
 
         cacheService?.upsertLedgerEntry(entry)
-        do {
-            let zoneID = cloudKit.resolvedZoneID
-            let saved = try await cloudKit.save(entry, in: zoneID)
-            cacheService?.upsertLedgerEntry(saved)
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: entry.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotEntry,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: {
-                    self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName).first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
-                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw SpendingServiceError.persistenceFailed
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        return entry
     }
 
     func deposit(profile: Profile,
@@ -225,9 +214,17 @@ final class ManualSpendingService: SpendingService {
                  location: String? = nil,
                  date: Date = Date()) async throws -> LedgerEntry
     {
-        guard let acting = appState?.currentProfile, acting.role.isParent else {
+        guard let appState else {
+            throw ScopeViolation.noActiveFamily
+        }
+        guard familyRecordName == family.id.recordName else {
+            throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: familyRecordName)
+        }
+        guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
+
         guard amount.isFinite, amount > 0 else {
             throw SpendingServiceError.invalidAmount
         }
@@ -239,43 +236,14 @@ final class ManualSpendingService: SpendingService {
             location: location,
             date: date,
             source: "deposit",
-            family: CKRecord.Reference(recordID: family.id, action: .none)
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
-        let name = entry.id.recordName
-        // Scope the snapshot fetch to the active family so a profile that
-        // briefly existed in two families does not match rows from the other.
-        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
-            .first(where: { $0.recordName == name })
-        let preMutationChangeTag = snapshot?.changeTag
-
-        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
 
         cacheService?.upsertLedgerEntry(entry)
-        do {
-            let zoneID = cloudKit.resolvedZoneID
-            let saved = try await cloudKit.save(entry, in: zoneID)
-            cacheService?.upsertLedgerEntry(saved)
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: entry.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotEntry,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: {
-                    self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName).first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
-                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw SpendingServiceError.persistenceFailed
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        return entry
     }
 
     func withdraw(profile: Profile,
@@ -286,9 +254,17 @@ final class ManualSpendingService: SpendingService {
                   location: String? = nil,
                   date: Date = Date()) async throws -> LedgerEntry
     {
-        guard let acting = appState?.currentProfile, acting.role.isParent else {
+        guard let appState else {
+            throw ScopeViolation.noActiveFamily
+        }
+        guard familyRecordName == family.id.recordName else {
+            throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: familyRecordName)
+        }
+        guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
+
         guard amount.isFinite, amount > 0 else {
             throw SpendingServiceError.invalidAmount
         }
@@ -300,43 +276,14 @@ final class ManualSpendingService: SpendingService {
             location: location,
             date: date,
             source: "withdrawal",
-            family: CKRecord.Reference(recordID: family.id, action: .none)
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
-        let name = entry.id.recordName
-        // Scope the snapshot fetch to the active family so a profile that
-        // briefly existed in two families does not match rows from the other.
-        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName)
-            .first(where: { $0.recordName == name })
-        let preMutationChangeTag = snapshot?.changeTag
-
-        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
 
         cacheService?.upsertLedgerEntry(entry)
-        do {
-            let zoneID = cloudKit.resolvedZoneID
-            let saved = try await cloudKit.save(entry, in: zoneID)
-            cacheService?.upsertLedgerEntry(saved)
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: entry.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotEntry,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: {
-                    self.cacheService?.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyRecordName).first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
-                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw SpendingServiceError.persistenceFailed
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        return entry
     }
 
     func delete(_ entry: LedgerEntry) async throws {
@@ -344,39 +291,21 @@ final class ManualSpendingService: SpendingService {
             throw SpendingServiceError.unsupported
         }
 
-        guard let acting = appState?.currentProfile,
+        guard let appState else {
+            throw ScopeViolation.noActiveFamily
+        }
+
+        guard let acting = appState.currentProfile,
               entry.profile.recordID == acting.id || acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
 
+        try ActiveFamilyScopeGuard.requireActiveFamily(familyRef: entry.family, appState: appState)
+
         let name = entry.id.recordName
-        let snapshot = cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName)
-            .first(where: { $0.recordName == name })
-        let preMutationChangeTag = snapshot?.changeTag
-        let snapshotEntry: LedgerEntry? = snapshot?.toLedgerEntry(zoneID: cloudKit.resolvedZoneID)
-
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
-        cacheService?.invalidateLedgerEntry(recordName: name)
-        do {
-            try await cloudKit.delete(entry.id, in: nil, using: nil)
-            await registry?.deregister(name)
-        } catch {
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: entry.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotEntry,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { self.cacheService?.fetchLedgerEntries(profileRecordName: entry.profile.recordID.recordName).first(where: { $0.recordName == name })?.changeTag },
-                upsert: { restored in self.cacheService?.upsertLedgerEntry(restored) },
-                invalidate: { _ in self.cacheService?.invalidateLedgerEntry(recordName: name) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw SpendingServiceError.persistenceFailed
-        }
+        cacheService?.invalidateLedgerEntry(recordName: name, family: entry.family.recordID.recordName)
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueDelete(recordID: entry.id, isOwner: isOwner)
     }
 }

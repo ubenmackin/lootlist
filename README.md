@@ -42,13 +42,20 @@ Every quest has a real-money reward displayed in your local currency. Parents pr
 
 Twelve launch trophies track milestones across quest completions, streaks, earnings, and spending habits. Trophies include First Steps, Week Warrior, Iron Will (7-day streak), Fortune Hoarder (lifetime earnings milestones), and more. Earned trophies live in the Hall of Heroes.
 
+### ⚡ Local-First & Offline Capable
+
+Loot List is built with a local-first architecture using a SwiftData cache and Apple's native background `CKSyncEngine`.
+- **Instant Local Writes & Offline Queuing:** Primary actions — completing a quest, approving a chore, creating a template, logging spending — save immediately to your device's local SwiftData cache with zero UI lag. Pending updates are queued offline and synchronized via `CKSyncEngine` when connectivity resumes.
+- **Idempotent Rewards & Settlement:** Cross-device operations use deterministic record naming (`reward-<completionID>`, `payout-<periodID>`) and monotonic merges to guard against duplicate XP minting and concurrent payout races.
+- **Offline Usability:** Kids can mark quests complete on the go or without Wi-Fi; pending updates sync automatically once back online.
+
 ### 👨‍👩‍👧‍👦 Family Sync via iCloud
 
-All family data syncs in real time through iCloud. The Guild Master owns the family data and shares it with heroes through an invite link. Every device stays up to date — quest completions, earnings, spending logs, and settings flow to everyone instantly. The app works offline too; changes sync when you're back online.
+All family data syncs securely through your private Apple iCloud container. The Guild Master sets up the family guild and invites family members via Apple Messages or private iCloud sharing. Every device stays in sync — quest updates, allowances, spending logs, and trophies flow across all devices in real time.
 
-### 🔐 Privacy-First, No Accounts
+### 🔐 Privacy-First, No External Accounts
 
-Loot List does not collect personal information, does not track you, and does not host your data on external servers. Everything stays in your iCloud container. No email required, no account creation, no analytics.
+Loot List does not collect personal information, does not track you, and does not host your data on third-party servers. Everything stays securely inside your family's iCloud storage. No passwords to remember, no third-party account creation, and no ads.
 
 ---
 
@@ -74,18 +81,18 @@ The app wraps everyday family tasks in an RPG theme. Here's a quick reference:
 
 ## Getting Started
 
-1. Download **Loot List** from the App Store on an iOS device.
+1. Download **Loot List** from the App Store on your iOS device.
 2. Sign in with your Apple ID (iCloud is required for family sync).
 3. Choose your role — Parent or Hero — and follow the onboarding prompts.
 4. If you're a parent, create your family guild and assign your first quests.
-5. Share your guild invitation link with your kids so they can join.
+5. Share your guild invitation with your kids so they can join.
 
 ---
 
 ## Platform Requirements
 
-- **iOS 16.0 or later** (iPhone & iPad)
-- iCloud account required for family sync
+- **iOS 26.0 or later** (iPhone & iPad)
+- iCloud account enabled for family sync
 
 ---
 

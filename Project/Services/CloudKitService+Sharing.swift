@@ -142,7 +142,10 @@ extension CloudKitService {
         if rootRecordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
             return rootRecordID
         }
-        return CKRecord.ID(recordName: rootRecordID.recordName, zoneID: resolvedZoneID)
+        if let activeZone = activeFamilyZoneID {
+            return CKRecord.ID(recordName: rootRecordID.recordName, zoneID: activeZone)
+        }
+        return rootRecordID
     }
 
     private func serverRoot(for rootRecordID: CKRecord.ID, using pvtDB: CKDatabase) async throws -> CKRecord {

@@ -17,6 +17,10 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
     /// checks. Not authored locally — `toRecord()` does not stamp this field.
     var changeTag: String?
 
+    /// Serialized CloudKit system fields (metadata, change tag, dates) to avoid
+    /// conflict loops when sending updates via CKSyncEngine.
+    var encodedSystemFields: Data?
+
     var weekOf: Date
 
     var profile: CKRecord.Reference
@@ -38,6 +42,7 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
         }
         id = record.recordID
         changeTag = record.recordChangeTag
+        encodedSystemFields = record.encodedSystemFields
 
         guard let weekOf = record["weekOf"] as? Date else {
             throw CKDecodingError.missingField("weekOf")
@@ -70,19 +75,15 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
     }
 
     func toRecord() -> CKRecord {
-        let record = CKRecord(recordType: Self.recordType, recordID: id)
+        let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["weekOf"] = weekOf as CKRecordValue
         record["profile"] = profile as CKRecordValue
         record["status"] = status.rawValue as CKRecordValue
         record["totalEarned"] = totalEarned as CKRecordValue
         record["questsCompleted"] = questsCompleted as CKRecordValue
         record["questsTotal"] = questsTotal as CKRecordValue
-        if let paidDate {
-            record["paidDate"] = paidDate as CKRecordValue
-        }
-        if let paidAmount {
-            record["paidAmount"] = paidAmount as CKRecordValue
-        }
+        record["paidDate"] = paidDate as CKRecordValue?
+        record["paidAmount"] = paidAmount as CKRecordValue?
         record["family"] = family as CKRecordValue
         return record
     }

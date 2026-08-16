@@ -9,9 +9,9 @@ import CloudKit
 import Foundation
 
 /// Decoded domain model envelope used to cross the `@MainActor → BackgroundCacheActor`
-/// boundary without carrying non-Sendable `CKRecord`. Parsing happens on the
-/// `@MainActor` side (inside `CloudKitService+ZoneChanges`); only Sendable domain
-/// structs travel across.
+/// boundary without carrying non-Sendable `CKRecord`. Parsing happens canonically
+/// on the `@MainActor` side via `ParsedRecord.parse(record:)` (inside `CKSyncEngineDelegateHandler`);
+/// only Sendable domain structs travel across.
 enum ParsedRecord: Sendable {
     case family(Family)
     case profile(Profile)
@@ -23,6 +23,7 @@ enum ParsedRecord: Sendable {
     case achievement(Achievement)
     case profileAchievement(ProfileAchievement)
     case notificationPreference(NotificationPreference)
+    case rewardEvent(RewardEvent)
     /// System record types (e.g. cloudkit.share) that should be skipped without counting as parse failures.
     case ignoredSystemRecord(recordType: String, recordName: String)
     /// Fallback for unknown record types or records that failed to parse.
@@ -40,6 +41,7 @@ enum ParsedRecord: Sendable {
         case let .achievement(model): model.id.recordName
         case let .profileAchievement(model): model.id.recordName
         case let .notificationPreference(model): model.id.recordName
+        case let .rewardEvent(model): model.id.recordName
         case let .ignoredSystemRecord(_, name): name
         case let .parseFailure(_, name): name
         }
@@ -57,17 +59,49 @@ enum ParsedRecord: Sendable {
         case .achievement: .achievement
         case .profileAchievement: .profileAchievement
         case .notificationPreference: .notificationPreference
+        case .rewardEvent: nil
         case .ignoredSystemRecord: nil
         case .parseFailure: nil
         }
     }
-}
 
-struct ZoneChangesResult: Sendable {
-    let changedRecords: [ParsedRecord]
-    let deletedRecordIDs: [(recordID: CKRecord.ID, recordType: String)]
-    let newToken: CKServerChangeToken?
-    let moreComing: Bool
+    static func parse(record: CKRecord) -> ParsedRecord {
+        do {
+            switch record.recordType {
+            case Family.recordType:
+                return try .family(Family(record: record))
+            case Profile.recordType:
+                return try .profile(Profile(record: record))
+            case Quest.recordType:
+                return try .quest(Quest(record: record))
+            case QuestTemplate.recordType:
+                return try .questTemplate(QuestTemplate(record: record))
+            case QuestCompletion.recordType:
+                return try .questCompletion(QuestCompletion(record: record))
+            case LedgerEntry.recordType:
+                return try .ledgerEntry(LedgerEntry(record: record))
+            case AllowancePeriod.recordType:
+                return try .allowancePeriod(AllowancePeriod(record: record))
+            case Achievement.recordType:
+                return try .achievement(Achievement(record: record))
+            case ProfileAchievement.recordType:
+                return try .profileAchievement(ProfileAchievement(record: record))
+            case NotificationPreference.recordType:
+                return try .notificationPreference(NotificationPreference(record: record))
+            case RewardEvent.recordType:
+                return try .rewardEvent(RewardEvent(record: record))
+            case "cloudkit.share", CKRecord.SystemType.share:
+                return .ignoredSystemRecord(recordType: record.recordType, recordName: record.recordID.recordName)
+            default:
+                if record.recordType.hasPrefix("cloudkit.") {
+                    return .ignoredSystemRecord(recordType: record.recordType, recordName: record.recordID.recordName)
+                }
+                return .parseFailure(recordType: record.recordType, recordName: record.recordID.recordName)
+            }
+        } catch {
+            return .parseFailure(recordType: record.recordType, recordName: record.recordID.recordName)
+        }
+    }
 }
 
 /// Lightweight mirror of a `CKShare` participant's identity and acceptance
@@ -131,7 +165,6 @@ protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
     func delete(_ entity: some CloudKitRecord, using db: CKDatabase?) async throws
 
     func ensureZoneExists(_ zoneID: CKRecordZone.ID) async throws
-    func fetchZoneChanges(in zoneID: CKRecordZone.ID?, since token: CKServerChangeToken?, using db: CKDatabase?) async throws -> ZoneChangesResult
 
     func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare
     func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare
@@ -198,13 +231,5 @@ extension CloudKitServiceProtocol {
     func delete(_ entity: some CloudKitRecord, using db: CKDatabase? = nil) async throws {
         let record = entity.toRecord()
         try await delete(record.recordID, in: record.recordID.zoneID, using: db)
-    }
-
-    func fetchZoneChanges(
-        in zoneID: CKRecordZone.ID? = nil,
-        since token: CKServerChangeToken? = nil,
-        using db: CKDatabase? = nil
-    ) async throws -> ZoneChangesResult {
-        try await fetchZoneChanges(in: zoneID, since: token, using: db)
     }
 }

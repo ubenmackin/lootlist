@@ -16,7 +16,7 @@ extension TreasuryServiceTests {
     @Test
     func `runPayout throws unauthorized when acting profile is a hero`() async {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, appState: appState)
 
@@ -50,7 +50,7 @@ extension TreasuryServiceTests {
     @Test
     func `runPayout throws unauthorized when no acting profile exists`() async {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         // No appState wired: the acting profile is unknowable, so the payout
         // must not be finalizable.
         let treasury = TreasuryService(cloudKit: cloudKit)
@@ -74,9 +74,10 @@ extension TreasuryServiceTests {
     @Test
     func `runPayout succeeds when acting profile is a parent`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
-        let treasury = TreasuryService(cloudKit: cloudKit, appState: appState)
+        let cache = try CacheService(inMemory: true)
+        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let familyRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
@@ -93,22 +94,21 @@ extension TreasuryServiceTests {
         )
         appState.currentProfile = guildMaster
 
-        // A settled week with positive earnings: the payout finalizes.
         let period = AllowancePeriod(
             weekOf: WeekMath.mondayOfWeek(for: Date()),
             profile: CKRecord.Reference(recordID: heroID, action: .none),
             questsTotal: 1,
-            family: familyRef
+            family: familyRef,
+            id: CKRecord.ID(recordName: "period1", zoneID: zoneID)
         )
         var settled = period
         settled.totalEarned = 25.0
         settled.questsCompleted = 1
-
         try await treasury.runPayout(period: settled)
 
-        let saved = try await cloudKit.fetch(AllowancePeriod.self, id: settled.id)
-        #expect(saved.status == .paid)
-        #expect(saved.paidAmount == 25.0)
+        let cached = try #require(cache.fetchAllowancePeriods(profileRecordName: heroID.recordName, family: "fam1").first)
+        #expect(cached.status == PayoutStatus.paid.rawValue)
+        #expect(cached.paidAmount == 25.0)
     }
 
     // MARK: - Mixed identity/parent guards on internal settlement helpers
@@ -116,7 +116,7 @@ extension TreasuryServiceTests {
     @Test
     func `processRealTimeSettlement returns nil when acting profile does not match`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, appState: appState)
 
@@ -162,7 +162,7 @@ extension TreasuryServiceTests {
     @Test
     func `processRealTimeSettlement settles when a parent acts on a real time hero`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, appState: appState)
 
@@ -244,7 +244,7 @@ extension TreasuryServiceTests {
     @Test
     func `getOrCreateAllowancePeriod throws unauthorized for non-parent mismatched profile`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, appState: appState)
 
@@ -292,7 +292,7 @@ extension TreasuryServiceTests {
     @Test
     func `updateAllowance throws unauthorized for non-parent mismatched profile`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, appState: appState)
 
@@ -331,7 +331,7 @@ extension TreasuryServiceTests {
     @Test
     func `processRealTimeSettlement succeeds end-to-end for hero self-settlement (triple guard)`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
@@ -403,7 +403,7 @@ extension TreasuryServiceTests {
     @Test
     func `getOrCreateAllowancePeriod allows parent override`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
@@ -453,7 +453,7 @@ extension TreasuryServiceTests {
     @Test
     func `updateAllowance allows parent override`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = CloudKitService(zoneID: zoneID)
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
         let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
@@ -493,7 +493,8 @@ extension TreasuryServiceTests {
             weekOf: WeekMath.mondayOfWeek(for: Date()),
             profile: CKRecord.Reference(recordID: heroID, action: .none),
             questsTotal: 1,
-            family: familyRef
+            family: familyRef,
+            id: CKRecord.ID(recordName: "period1", zoneID: zoneID)
         )
 
         // Parent operating on the hero's allowance period.
@@ -604,7 +605,8 @@ extension TreasuryServiceTests {
             weekOf: monday,
             profile: CKRecord.Reference(recordID: heroID, action: .none),
             questsTotal: 1,
-            family: familyRef
+            family: familyRef,
+            id: CKRecord.ID(recordName: "period1", zoneID: zoneID)
         )
 
         // Parent operating on the hero's allowance period (mirrors the

@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 
 @MainActor
 @Observable
@@ -16,6 +17,10 @@ final class TreasuryService {
     private let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
     var cacheService: CacheService?
+    var syncCoordinator: CKSyncEngineCoordinator?
+
+    /// In-flight settlement lock per period to prevent concurrent real-time settlement races.
+    private let inFlightSettlements = Mutex<Set<String>>([])
 
     /// The active session's app state, used to resolve the acting profile for
     /// privileged payout finalization. Wired by `AppDependencies`; optional so
@@ -29,13 +34,15 @@ final class TreasuryService {
         notificationService: NotificationService? = nil,
         cacheService: CacheService? = nil,
         toastManager: ToastManager? = nil,
-        appState: AppState? = nil
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
     ) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
         self.cacheService = cacheService
         self.appState = appState
         self.toastManager = toastManager
+        self.syncCoordinator = syncCoordinator
     }
 
     func currentBalance(for profile: Profile) async throws -> Double {
@@ -102,7 +109,7 @@ final class TreasuryService {
             goldFromQuests: goldFromQuests,
             bonusGold: bonusGold,
             totalEarned: totalEarned,
-            spent: spent,
+            spent: abs(spent),
             net: totalEarned + spent
         )
     }
@@ -111,22 +118,51 @@ final class TreasuryService {
                                     weekOf: Date,
                                     family: Family) async throws -> AllowancePeriod
     {
-        // Internal settlement helper: actor must be the target hero (self-settlement)
-        // or a parent acting on the hero's behalf.
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
+        guard profile.family.recordID == family.id,
+              profile.id.zoneID == family.id.zoneID
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
 
-        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? family.payoutDay)
+        let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
+        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
 
-        let existing = try await fetchAllowancePeriod(profile: profile,
-                                                      weekOf: startOfWeek)
-        if let existing {
+        if let existing = try await fetchAllowancePeriod(profile: profile, weekOf: startOfWeek) {
             return existing
         }
 
+        return try await createPeriod(profile: profile, family: family, weekOf: startOfWeek)
+    }
+
+    private func createPeriod(profile: Profile, family: Family, weekOf: Date) async throws -> AllowancePeriod {
+        guard let appState, let acting = appState.currentProfile,
+              acting.id == profile.id || acting.role.isParent
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        guard profile.family.recordID == family.id,
+              profile.id.zoneID == family.id.zoneID
+        else {
+            throw FamilyServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
+
+        let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
+        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: startOfWeek,
                                             weekEnding: TreasuryService
@@ -135,46 +171,19 @@ final class TreasuryService {
 
         let period = AllowancePeriod(
             weekOf: startOfWeek,
-
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             questsTotal: completedCount,
-            family: CKRecord.Reference(recordID: family.id, action: .none)
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(
+                recordName: "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(startOfWeek.timeIntervalSince1970))",
+                zoneID: family.id.zoneID
+            )
         )
 
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(period.id.recordName)
-
         cacheService?.upsertAllowancePeriod(period)
-        // Brand-new record: there is no prior cache snapshot, so
-        // `preMutationChangeTag` is `nil` and the changeTag-divergence check
-        // below is effectively a no-op (returns `false`). The guard is
-        // applied for consistency with the other TreasuryService update paths.
-        let preMutationChangeTag: String? = nil
-        do {
-            let saved = try await cloudKit.save(period)
-            cacheService?.upsertAllowancePeriod(saved)
-            await registry?.deregister(period.id.recordName)
-            return saved
-        } catch {
-            // Sole recovery path: invalidates the phantom row (and handles the
-            // `.notFound` zombie case when the record was deleted server-side).
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: period.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: nil,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
-                    .first(where: { $0.recordName == period.id.recordName })?.changeTag
-                },
-                upsert: { cacheService?.upsertAllowancePeriod($0) },
-                invalidate: { _ in cacheService?.invalidateAllowancePeriod(recordName: period.id.recordName) },
-                error: error
-            )
-            await registry?.deregister(period.id.recordName)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
+        return period
     }
 
     func updateAllowance(period: AllowancePeriod,
@@ -184,11 +193,17 @@ final class TreasuryService {
     {
         // Internal settlement helper: actor must own the period (hero
         // self-settlement) or be a parent (parent override).
-        guard let acting = appState?.currentProfile,
+        guard let appState, let acting = appState.currentProfile,
               acting.id == period.profile.recordID || acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
         }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: period.family,
+            zoneID: period.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
 
         var updated = period
 
@@ -215,67 +230,34 @@ final class TreasuryService {
             updated.questsTotal = questsTotal
         }
 
-        let name = period.id.recordName
-        let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
-
-        // Capture the last-seen server changeTag BEFORE the optimistic write so
-        // we can detect a concurrent edit from another device (or background
-        let preMutationChangeTag = snapshot?.changeTag
-
-        // Capture an immutable value-type copy of the snapshot BEFORE the
-        // optimistic write. The cache-managed `snapshot` will be mutated in
-        // place by `upsertAllowancePeriod`, so reading
-        // `snapshot.toAllowancePeriod(...)` later would yield the
-        // *post*-mutation values. The value-type copy
-        // (`AllowancePeriod` struct) is unaffected by later mutations.
-        // changeTag rehydrated from cache row per toX(zoneID:), safe for use in ConcurrentEditDetector.
-        let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
-
-        // Register the optimistic window so a background sync skips this row.
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
         cacheService?.upsertAllowancePeriod(updated)
-        do {
-            let saved = try await cloudKit.save(updated)
-            cacheService?.upsertAllowancePeriod(saved)
-            await registry?.deregister(name)
-            return saved
-        } catch {
-            // Sole recovery path: re-fetches the authoritative server record on
-            // a concurrent edit, else restores the pre-mutation snapshot, and
-            // invalidates instead of restoring when the record was deleted
-            // server-side (`.notFound` zombie prevention).
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: period.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotPeriod,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { cacheService?.upsertAllowancePeriod($0) },
-                invalidate: { _ in cacheService?.invalidateAllowancePeriod(recordName: name) },
-                error: error
-            )
-            await registry?.deregister(name)
-            throw error
-        }
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        return updated
     }
 
     func runPayout(period: AllowancePeriod) async throws {
         // Privileged mutation: finalizing a hero's payout is parent-only.
-        guard appState?.currentProfile?.role.isParent == true else {
+        guard let appState, let acting = appState.currentProfile,
+              acting.role.isParent
+        else {
             throw FamilyServiceError.unauthorized
+        }
+
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRef: period.family,
+            zoneID: period.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
+
+        guard period.status != .paid else {
+            logger.debug("Period already paid, skipping payout.")
+            return
         }
 
         var updated = period
 
-        // Cache-first profile/family resolution so the payout finalization
-        // read path skips CloudKit when the family's cache is fresh.
-        // The resolved hero is kept so the ledger mint below can consult the
-        // payout policy before writing a second entry for the week.
         var resolvedProfile: Profile?
         var questGoldToPayout = 0.0
         if let profile = try? await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName),
@@ -284,7 +266,6 @@ final class TreasuryService {
             resolvedProfile = profile
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
-                // Do not prematurely close allowance periods for heroes with $0 earnings.
                 return
             }
             updated.totalEarned = breakdown.totalEarned
@@ -301,105 +282,71 @@ final class TreasuryService {
         updated.paidDate = Date()
         updated.paidAmount = questGoldToPayout
 
-        let name = period.id.recordName
-        let snapshot = cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName).first(where: { $0.recordName == name })
-
-        let preMutationChangeTag = snapshot?.changeTag
-        let snapshotPeriod: AllowancePeriod? = snapshot?.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
-
-        let registry = cacheService?.inFlightRegistry
-        await registry?.register(name)
-
         cacheService?.upsertAllowancePeriod(updated)
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
-        do {
-            let saved = try await cloudKit.save(updated)
-            cacheService?.upsertAllowancePeriod(saved)
-
-            // Mint a quest-earnings LedgerEntry so the ledger is the single
-            // source of truth for all money movement. Idempotent: the record
-            // name is derived from the AllowancePeriod so re-runs are no-ops.
-            //
-            // Real-time heroes settle onto the ledger as each quest completes:
-            // processRealTimeSettlement already wrote the week's "rt-" entry,
-            // so this weekly payout is only closing the period. Minting a
-            // second payout entry here would make currentBalance sum the same
-            // week's quest earnings twice.
-            if resolvedProfile?.payoutPolicy != .realTime {
-                do {
-                    try await mintPayoutLedgerEntry(
-                        periodRecordName: period.id.recordName,
-                        amount: updated.paidAmount ?? questGoldToPayout,
-                        weekOf: period.weekOf,
-                        profile: period.profile,
-                        family: period.family,
-                        date: updated.paidDate ?? Date()
-                    )
-                } catch {
-                    var rollback = updated
-                    rollback.status = .payoutPending
-                    rollback.paidAmount = nil
-                    rollback.paidDate = nil
-                    if let reverted = try? await cloudKit.save(rollback) {
-                        cacheService?.upsertAllowancePeriod(reverted)
-                    } else {
-                        cacheService?.upsertAllowancePeriod(rollback)
-                    }
-                    throw error
-                }
-            }
-
-            if let notificationService {
-                Task { [logger] in
-                    do {
-                        let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
-                        let family = try await resolveFamily(recordID: period.family.recordID)
-                        try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
-                    } catch {
-                        logger.error("Failed to send weekly summary notification: \(error, privacy: .public)")
-                    }
-                }
-            }
-            await registry?.deregister(name)
-        } catch {
-            // Sole recovery path: re-fetches the authoritative server record on
-            // a concurrent edit, else restores the pre-mutation snapshot, and
-            // invalidates instead of restoring when the record was deleted
-            // server-side (`.notFound` zombie prevention).
-            await OptimisticFailureHandler.handleSaveFailure(
-                recordID: period.id,
-                preMutationChangeTag: preMutationChangeTag,
-                snapshot: snapshotPeriod,
-                cloudKit: cloudKit,
-                toastManager: toastManager,
-                fetchCurrentTag: { cacheService?.fetchAllowancePeriods(family: period.family.recordID.recordName)
-                    .first(where: { $0.recordName == name })?.changeTag
-                },
-                upsert: { cacheService?.upsertAllowancePeriod($0) },
-                invalidate: { _ in cacheService?.invalidateAllowancePeriod(recordName: name) },
-                error: error
+        if resolvedProfile?.payoutPolicy != .realTime {
+            await mintPayoutLedgerEntry(
+                periodRecordName: period.id.recordName,
+                amount: updated.paidAmount ?? questGoldToPayout,
+                weekOf: period.weekOf,
+                profile: period.profile,
+                family: period.family,
+                date: updated.paidDate ?? Date()
             )
-            await registry?.deregister(name)
-            throw error
+        }
+
+        if let notificationService {
+            Task { [logger] in
+                do {
+                    let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
+                    let family = try await resolveFamily(recordID: period.family.recordID)
+                    try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
+                } catch {
+                    logger.error("Failed to send weekly summary notification: \(error, privacy: .public)")
+                }
+            }
         }
     }
 
     /// Process real-time settlement for heroes with `.realTime` payout policy.
     @discardableResult
     func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
-        // Real-time settlement is triggered either by the hero themself (an
-        // auto-approved completion) or by a parent verifying the hero's
-        // completion — QuestService.applyReward launches the settlement for
-        // any real-time hero with credited gold, and on a parent-verified
-        // quest the acting profile is the parent, not the hero. Self-or-parent
-        // guard; we return nil so the real-time Task in QuestService.applyReward
-        // gracefully no-ops for an unrelated, non-parent actor (defense-in-depth
-        // alongside the markComplete and verify parent-role guards).
-        guard let acting = appState?.currentProfile,
-              acting.id == profile.id || acting.role.isParent else { return nil }
+        guard let appState, let acting = appState.currentProfile,
+              acting.id == profile.id || acting.role.isParent
+        else {
+            logger.warning("processRealTimeSettlement aborted: acting profile unauthorized for \(profile.id.recordName, privacy: .private)")
+            return nil
+        }
+        guard profile.family.recordID == family.id,
+              profile.id.zoneID == family.id.zoneID
+        else {
+            logger.warning("processRealTimeSettlement aborted: profile family or zone mismatch for \(profile.id.recordName, privacy: .private)")
+            return nil
+        }
+
+        do {
+            try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+                family: family,
+                cloudKit: cloudKit,
+                appState: appState
+            )
+        } catch {
+            logger.warning("processRealTimeSettlement aborted due to scope violation: \(error, privacy: .public)")
+            return nil
+        }
 
         guard profile.payoutPolicy == .realTime else { return nil }
         let weekOf = WeekMath.startOfWeek(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
+        let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(weekOf.timeIntervalSince1970))"
+        let alreadyInFlight = inFlightSettlements.withLock { $0.contains(periodRecordName) }
+        if alreadyInFlight {
+            return nil
+        }
+        inFlightSettlements.withLock { _ = $0.insert(periodRecordName) }
+        defer { inFlightSettlements.withLock { _ = $0.remove(periodRecordName) } }
+
         let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
 
         let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: weekOf)
@@ -445,7 +392,7 @@ final class TreasuryService {
         profile: CKRecord.Reference,
         family: CKRecord.Reference,
         date: Date
-    ) async throws {
+    ) async {
         guard amount > 0 else { return }
         let entryRecordName = "payout-\(periodRecordName)"
         if let cache = cacheService {
@@ -460,18 +407,14 @@ final class TreasuryService {
             if cachedEntries.first(where: { $0.recordName == "rt-\(periodRecordName)" }) != nil {
                 return
             }
-        }
 
-        // Fallback check against CloudKit when local cache is missing the entries
-        let rtID = CKRecord.ID(recordName: "rt-\(periodRecordName)", zoneID: cloudKit.resolvedZoneID)
-        if let rtEntry = try? await cloudKit.fetch(LedgerEntry.self, id: rtID) {
-            cacheService?.upsertLedgerEntry(rtEntry)
-            return
-        }
-        let payoutID = CKRecord.ID(recordName: entryRecordName, zoneID: cloudKit.resolvedZoneID)
-        if let payoutEntry = try? await cloudKit.fetch(LedgerEntry.self, id: payoutID) {
-            cacheService?.upsertLedgerEntry(payoutEntry)
-            return
+            // Verify period state before minting ledger entry
+            if let cachedPeriod = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName) {
+                guard cachedPeriod.statusEnum == .paid, abs((cachedPeriod.paidAmount ?? 0.0) - amount) < 0.001 else {
+                    logger.warning("Skipping payout ledger minting: period \(periodRecordName) status is not paid or amount mismatch")
+                    return
+                }
+            }
         }
 
         let formatter = DateFormatter()
@@ -484,17 +427,11 @@ final class TreasuryService {
             date: date,
             source: "quest",
             family: family,
-            id: CKRecord.ID(recordName: entryRecordName, zoneID: cloudKit.resolvedZoneID)
+            id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
         )
         cacheService?.upsertLedgerEntry(entry)
-        do {
-            let saved = try await cloudKit.save(entry, in: cloudKit.resolvedZoneID, using: nil)
-            cacheService?.upsertLedgerEntry(saved)
-        } catch {
-            logger.error("Failed to mint payout ledger entry: \(error, privacy: .public)")
-            cacheService?.invalidateLedgerEntry(recordName: entryRecordName)
-            throw error
-        }
+        let isOwner = appState?.isZoneOwner ?? false
+        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
     }
 
     /// Upserts a real-time quest-earnings LedgerEntry. The record name is derived
@@ -519,73 +456,66 @@ final class TreasuryService {
             date: date,
             source: "quest",
             family: family,
-            id: CKRecord.ID(recordName: entryRecordName, zoneID: cloudKit.resolvedZoneID)
+            id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
         )
         cacheService?.upsertLedgerEntry(entry)
-        do {
-            let saved = try await cloudKit.save(entry, in: cloudKit.resolvedZoneID, using: nil)
-            cacheService?.upsertLedgerEntry(saved)
-        } catch {
-            logger.error("Failed to mint real-time ledger entry: \(error, privacy: .public)")
-            cacheService?.invalidateLedgerEntry(recordName: entryRecordName)
-        }
+        let isOwner = appState?.isZoneOwner ?? false
+        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     private func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
-        // Cache-first
+        let familyName = profile.family.recordID.recordName
         if let cache = cacheService {
-            let familyName = profile.family.recordID.recordName
             let cached = cache.fetchLedgerEntries(
                 profileRecordName: profile.id.recordName,
                 family: familyName
             )
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
-                return cached.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
+                return cached.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
             }
         }
         // Fallback to CloudKit
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@",
                                     profileRef as CVarArg)
-        let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate)
+        let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
         cacheService?.upsertLedgerEntries(entries)
         return entries
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-
+        let familyName = family.id.recordName
         if let cache = cacheService {
-            let familyName = family.id.recordName
             let cached = cache.fetchAllowancePeriods(family: familyName)
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
-                let zoneID = cloudKit.resolvedZoneID
-                return cached.map { $0.toAllowancePeriod(zoneID: zoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
+                return cached.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
             }
         }
 
         // Fallback to CloudKit — preserve the original sort: newest week first.
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = await (try? cloudKit.query(
             AllowancePeriod.self,
             predicate: predicate,
+            in: family.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
         )) ?? []
         cacheService?.upsertAllowancePeriods(all)
         return all
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     private func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
+        let profileName = profile.id.recordName
+        let familyName = profile.family.recordID.recordName
         if let cache = cacheService {
-            let profileName = profile.id.recordName
-            let familyName = profile.family.recordID.recordName
             let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if !filtered.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
-                return filtered.map { $0.toLedgerEntry(zoneID: cloudKit.resolvedZoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
+                return filtered.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
             }
         }
 
@@ -596,12 +526,12 @@ final class TreasuryService {
             dateRange.lowerBound as CVarArg,
             dateRange.upperBound as CVarArg
         )
-        let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate)
+        let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
         cacheService?.upsertLedgerEntries(entries)
         return entries
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     private func fetchQuestLogs(profile: Profile,
                                 weekStarting: Date,
                                 weekEnding: Date) async throws -> [QuestCompletion]
@@ -611,55 +541,59 @@ final class TreasuryService {
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName && $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
-                let zoneID = cloudKit.resolvedZoneID
-                return cached.map { $0.toQuestCompletion(zoneID: zoneID) }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+                return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
             }
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
-        let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate)
+        let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
         cacheService?.upsertQuestCompletions(all)
         return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
-    private func fetchAssignedQuests(profile: Profile, family: Family, weekOf: Date) async throws -> [Quest] {
-        let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
-        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
-
-        let range = TreasuryService.weekRange(starting: startOfWeek)
-
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
+    private func fetchAssignedQuests(profile: Profile,
+                                     family: Family,
+                                     weekOf: Date) async throws -> [Quest]
+    {
+        let payoutDay = profile.payoutDay ?? family.payoutDay
+        let range = TreasuryService.weekRange(starting: WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay))
         if let cache = cacheService {
-            let profileName = profile.id.recordName
-            let familyName = profile.family.recordID.recordName
+            let familyName = family.id.recordName
             let cached = cache.fetchQuests(family: familyName)
-                .filter { $0.assigneeRecordName == profileName && range.contains($0.weekOf) }
-            if !cached.isEmpty, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
-                let zoneID = cloudKit.resolvedZoneID
-                return cached.map { $0.toQuest(zoneID: zoneID) }
+            let filtered = cached.filter {
+                $0.assigneeRecordName == profile.id.recordName &&
+                    $0.isActive &&
+                    range.contains($0.weekOf)
+            }
+            if cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+                return filtered.map { $0.toQuest(zoneID: family.id.zoneID) }
             }
         }
 
-        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(format: "assignee == %@", profileRef as CVarArg)
-        let all = try await cloudKit.query(Quest.self, predicate: predicate)
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let predicate = NSPredicate(
+            format: "family == %@ AND isActive == 1",
+            familyRef as CVarArg
+        )
+        let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
         cacheService?.upsertQuests(all)
         return all.filter { range.contains($0.weekOf) }
     }
 
-    /// Cache-first read. Background refresh handled by SyncEngine via push notifications.
+    /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     private func fetchAllowancePeriod(profile: Profile,
                                       weekOf: Date) async throws -> AllowancePeriod?
     {
+        let familyName = profile.family.recordID.recordName
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            let familyName = profile.family.recordID.recordName
             let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
                 .first { Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf) }
-            if let cached, cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
-                return cached.toAllowancePeriod(zoneID: cloudKit.resolvedZoneID)
+            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
+                return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
             }
         }
 
@@ -670,35 +604,36 @@ final class TreasuryService {
             weekOf as CVarArg
         )
         let periods = try await cloudKit.query(AllowancePeriod.self,
-                                               predicate: predicate)
+                                               predicate: predicate,
+                                               in: profile.id.zoneID)
         cacheService?.upsertAllowancePeriods(periods)
         return periods.first
     }
 
     /// Cache-first profile read for the settlement/payout paths. Serves the
-    /// profile from the family's cached rows when that family's profile
-    /// freshness stamp is set, else falls through to a single CloudKit fetch.
-    /// The freshness gate is keyed by the family (profiles are family-scoped
-    /// cache rows), while the lookup uses the profile's own record name.
+    /// profile from the family's cached rows when available, else falls through
+    /// to CloudKit.
     private func resolveProfile(recordID: CKRecord.ID, familyRecordName: String) async throws -> Profile {
         if let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: familyRecordName, type: .profile),
-           let cached = cache.fetchProfile(recordName: recordID.recordName)
+           let cached = cache.fetchProfile(recordName: recordID.recordName, family: familyRecordName)
         {
-            return cached.toProfile(zoneID: cloudKit.resolvedZoneID)
+            return cached.toProfile(zoneID: recordID.zoneID)
         }
-        return try await cloudKit.fetch(Profile.self, id: recordID)
+        let fetched = try await cloudKit.fetch(Profile.self, id: recordID)
+        guard fetched.family.recordID.recordName == familyRecordName else {
+            throw FamilyServiceError.unauthorized
+        }
+        cacheService?.upsertProfile(fetched)
+        return fetched
     }
 
     /// Cache-first family read for the settlement/payout paths. Serves the
-    /// family's cached record when its freshness stamp is set, else falls
-    /// through to a single CloudKit fetch.
+    /// family's cached record when available, else falls through to CloudKit.
     private func resolveFamily(recordID: CKRecord.ID) async throws -> Family {
         if let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: recordID.recordName, type: .family),
            let cached = cache.fetchFamily(recordName: recordID.recordName)
         {
-            return cached.toFamily(zoneID: cloudKit.resolvedZoneID)
+            return cached.toFamily(zoneID: recordID.zoneID)
         }
         return try await cloudKit.fetch(Family.self, id: recordID)
     }

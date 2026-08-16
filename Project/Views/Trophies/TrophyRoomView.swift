@@ -14,7 +14,7 @@ struct TrophyRoomView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(XPService.self) private var xpService
     @Environment(AppState.self) private var appState
-    @Environment(SyncEngine.self) private var syncEngine: SyncEngine?
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
@@ -57,7 +57,7 @@ struct TrophyRoomView: View {
             .navigationTitle("Hall of Heroes")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
-                await syncEngine?.incrementalSync()
+                await lifecycleCoordinator?.performManualSync()
                 if let profile = appState.currentProfile, let family = appState.family {
                     _ = try? await achievementService.evaluateAll(for: profile, family: family)
                 }

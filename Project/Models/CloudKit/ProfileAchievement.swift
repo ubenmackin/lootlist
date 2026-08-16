@@ -17,6 +17,10 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
     /// checks. Not authored locally — `toRecord()` does not stamp this field.
     var changeTag: String?
 
+    /// Serialized CloudKit system fields (metadata, change tag, dates) to avoid
+    /// conflict loops when sending updates via CKSyncEngine.
+    var encodedSystemFields: Data?
+
     var achievement: CKRecord.Reference
 
     var profile: CKRecord.Reference
@@ -24,6 +28,12 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
     var earnedDate: Date
 
     var family: CKRecord.Reference
+
+    /// Generates a deterministic record ID for a profile's achievement trophy,
+    /// ensuring concurrent awards on different devices merge into the exact same record.
+    static func recordID(profileID: CKRecord.ID, achievementID: CKRecord.ID, zoneID: CKRecordZone.ID) -> CKRecord.ID {
+        CKRecord.ID(recordName: "\(profileID.recordName)_\(achievementID.recordName)", zoneID: zoneID)
+    }
 
     init(id: CKRecord.ID, achievement: CKRecord.Reference, profile: CKRecord.Reference, earnedDate: Date, family: CKRecord.Reference) {
         self.id = id
@@ -40,6 +50,7 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
         }
         id = record.recordID
         changeTag = record.recordChangeTag
+        encodedSystemFields = record.encodedSystemFields
 
         guard let achievement = record["achievement"] as? CKRecord.Reference else {
             throw CKDecodingError.missingField("achievement")
@@ -63,7 +74,7 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
     }
 
     func toRecord() -> CKRecord {
-        let record = CKRecord(recordType: Self.recordType, recordID: id)
+        let record = CKRecord.from(systemFields: encodedSystemFields, fallbackType: Self.recordType, fallbackID: id)
         record["achievement"] = achievement as CKRecordValue
         record["profile"] = profile as CKRecordValue
         record["earnedDate"] = earnedDate as CKRecordValue
@@ -75,9 +86,14 @@ struct ProfileAchievement: Identifiable, Equatable, Sendable {
          profile: CKRecord.Reference,
          earnedDate: Date = Date(),
          family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+         id: CKRecord.ID? = nil)
     {
-        self.id = id
+        let resolvedID = id ?? Self.recordID(
+            profileID: profile.recordID,
+            achievementID: achievement.recordID,
+            zoneID: profile.recordID.zoneID
+        )
+        self.id = resolvedID
         self.achievement = achievement
         self.profile = profile
         self.earnedDate = earnedDate
