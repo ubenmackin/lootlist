@@ -87,12 +87,25 @@ final class ToastManager {
 
     init() {}
 
-    /// Presents a new toast of the given type and schedules auto-dismissal after
+    /// Presents a new toast of the given type and schedules auto-dismissal.
+    /// Deduplicates identical toasts (same message and type) by refreshing the existing
+    /// toast's auto-dismiss timer instead of inserting duplicate banners.
     @discardableResult
     func show(message: String,
               type: ToastType = .info,
               dismissAction: (@Sendable () -> Void)? = nil) -> UUID
     {
+        // Deduplication: if an identical toast is already active, refresh its timer and avoid stacking duplicates.
+        if let existing = toasts.first(where: { $0.message == message && $0.type == type }) {
+            scheduleAutoDismiss(for: existing.id)
+            return existing.id
+        }
+
+        // Cap the maximum simultaneous toasts to 3 to prevent screen flooding.
+        if toasts.count >= 3, let oldest = toasts.last {
+            dismiss(id: oldest.id)
+        }
+
         let toast = Toast(message: message, type: type, dismissAction: dismissAction)
         // New toasts go to the top of the stack (newest first).
         toasts.insert(toast, at: 0)
@@ -125,6 +138,7 @@ final class ToastManager {
     /// Schedules a non-blocking auto-dismiss. The sleep runs off the main thread
     /// and hops back to MainActor only to remove the toast by id.
     private func scheduleAutoDismiss(for id: UUID) {
+        autoDismissTasks[id]?.cancel()
         let task = Task { [weak self] in
             try? await Task.sleep(for: .seconds(AppConstants.UserInterface.toastAutoDismissSeconds))
             if !Task.isCancelled {

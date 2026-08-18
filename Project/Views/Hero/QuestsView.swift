@@ -1,19 +1,21 @@
 //
-//  HeroDashboardView.swift
+//  QuestsView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/17/26.
 //
 
 import CloudKit
 import SwiftData
 import SwiftUI
 
-struct HeroDashboardView: View {
+struct QuestsView: View {
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+    @Environment(XPService.self) private var xpService
+    @Environment(LootDropService.self) private var lootDropService
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -23,6 +25,8 @@ struct HeroDashboardView: View {
 
     @State private var viewModel: HeroDashboardViewModel?
     @State private var submittingQuestIDs: Set<String> = []
+    @State private var activeLootDrop: LootDrop?
+    @State private var showLootDrop: Bool = false
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -68,28 +72,22 @@ struct HeroDashboardView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                HeroHeaderCardView(
-                    profile: appState.currentProfile,
-                    familyName: appState.family?.name,
-                    streak: viewModel?.streak ?? 0,
-                    earnedThisWeek: viewModel?.earnedThisWeek ?? 0.0,
-                    completedQuestCount: viewModel?.completedQuestCount ?? 0,
-                    totalQuestCount: viewModel?.weekQuests.count ?? 0,
-                    isPendingPayout: appState.currentProfile?.payoutPolicy != .realTime
-                )
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-
-                ScrollView {
-                    VStack(spacing: 16) {
-                        questBoard
+            ScrollView {
+                VStack(spacing: 16) {
+                    if let profile = appState.currentProfile {
+                        let profileQuests = cachedQuests.filter { $0.assigneeRecordName == profile.id.recordName && $0.isActive }
+                        let profileLogs = cachedCompletions.filter { $0.completerRecordName == profile.id.recordName }
+                        MascotBannerView(profile: profile, quests: profileQuests, completions: profileLogs, showBonusCard: true)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+
+                    questBoard
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
             }
+            .overlay(
+                LootDropOverlayView(isPresented: $showLootDrop, loot: activeLootDrop)
+            )
             .background(Color(.systemGroupedBackground))
             .scrollContentBackground(.hidden)
             .navigationTitle("")
@@ -127,6 +125,20 @@ struct HeroDashboardView: View {
             }
             .onChange(of: cachedAllowancePeriods) { _, _ in
                 rebuildViewModel()
+            }
+            .onChange(of: lootDropService.pendingPresentation) { _, loot in
+                guard let loot else { return }
+                activeLootDrop = loot
+                withAnimation {
+                    showLootDrop = true
+                }
+            }
+            .onChange(of: showLootDrop) { _, isShown in
+                // Clear the published drop once the overlay dismisses so a
+                // subsequent drop re-triggers `.onChange` (nil → non-nil).
+                if !isShown {
+                    lootDropService.clearPendingPresentation()
+                }
             }
         }
     }
@@ -276,6 +288,11 @@ struct HeroDashboardView: View {
                         defer { submittingQuestIDs.remove(qID) }
                         guard let profile = appState.currentProfile else { return }
                         do {
+                            // Loot-drop roll + gem credit happen inside
+                            // QuestService.applyReward (fires only on
+                            // .autoApproved/.verified, never on a .pending
+                            // submission); the overlay is surfaced via
+                            // lootDropService.pendingPresentation.
                             _ = try await questService.markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile)
                         } catch {
                             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)

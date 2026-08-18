@@ -24,7 +24,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     var date: Date
     var source: String
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?

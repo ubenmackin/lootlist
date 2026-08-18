@@ -179,6 +179,29 @@ class MockCloudKitService: CloudKitServiceProtocol {
         return applyingCreatorStamp(for: targetID, on: decoded)
     }
 
+    func claimRewardEvent(_ event: RewardEvent, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws -> Bool {
+        if let saveError {
+            throw saveError
+        }
+        let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+        let source = event.toRecord()
+        let zone = zoneID ?? activeFamilyZoneID ?? CKRecordZone.default().zoneID
+        let targetID = source.recordID.zoneID.zoneName == CKRecordZone.default().zoneID.zoneName
+            ? CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
+            : source.recordID
+        guard mockStore.getRecord(recordID: targetID, databaseScope: scope) == nil else { return false }
+
+        let record = CKRecord(recordType: RewardEvent.recordType, recordID: targetID)
+        for key in source.allKeys() {
+            record[key] = source[key]
+        }
+        record.setParent(CKRecord.ID(recordName: event.family.recordID.recordName, zoneID: zone))
+        recordCreators[targetID] = await (try? currentUserRecordID())?.recordName
+        mockStore.setRecord(record, databaseScope: scope)
+        savedRecords.append(record)
+        return true
+    }
+
     func fetch<T: CloudKitRecord>(_ type: T.Type, id: CKRecord.ID, using db: CKDatabase? = nil) async throws -> T {
         if let fetchError {
             throw fetchError
@@ -392,18 +415,20 @@ class MockCloudKitService: CloudKitServiceProtocol {
         _ = zoneID
     }
 
-    /// Applies the emulated server creator stamp onto a decoded model. Only the
-    /// `Family` model carries the creator anchor; all other record types are
-    /// returned untouched. The registry is authoritative because CloudKit owns
-    /// the creator field — a locally-authored value cannot override the stamp.
+    /// Applies the emulated server creator stamp onto a decoded model. The
+    /// registry is authoritative because CloudKit owns the creator field — a
+    /// locally-authored value cannot override the stamp.
     private func applyingCreatorStamp<T: CloudKitRecord>(for recordID: CKRecord.ID, on result: T) -> T {
-        guard var family = result as? Family, let creator = recordCreators[recordID] else {
+        guard let creator = recordCreators[recordID] else {
             return result
         }
-        family.creatorUserRecordName = creator
-        // `result` is already a Family (proven by the guard above), so the
-        // optional cast back up to `T` never fails; the fallback exists only
-        // to keep the code free of forced casts.
-        return family as? T ?? result
+        if var family = result as? Family {
+            family.creatorUserRecordName = creator
+            return family as? T ?? result
+        }
+        if let profile = result as? Profile {
+            return profile.applyingServerCreator(creator) as? T ?? result
+        }
+        return result
     }
 }

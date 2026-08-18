@@ -23,7 +23,10 @@ struct Family: Identifiable, Equatable, Sendable {
 
     var name: String
 
-    var createdBy: CKRecord.ID
+    /// Legacy profile reference retained for schema compatibility. Security
+    /// decisions must use `creatorUserRecordName`, not this mutable record
+    /// field.
+    let createdBy: CKRecord.ID
 
     /// The iCloud user record name of the family's founding user, read from the
     /// server-owned `CKRecord.creatorUserRecordID` on the read path. Anchors

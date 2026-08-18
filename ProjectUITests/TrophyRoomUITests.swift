@@ -2,7 +2,7 @@
 //  TrophyRoomUITests.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import XCTest
@@ -23,7 +23,11 @@ final class TrophyRoomUITests: XCTestCase {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0))
 
-        tabBar.buttons.element(boundBy: 2).tap()
+        // Navigate to Trophies via Profile tab → Trophies link
+        tabBar.buttons["Profile"].tap()
+        let trophiesLink = app.buttons["profile.trophies"]
+        XCTAssertTrue(trophiesLink.waitForExistence(timeout: 3.0), "Trophies row should appear on Profile")
+        trophiesLink.tap()
 
         let characterName = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Sir Testalot' OR label CONTAINS[c] 'Hero'")).firstMatch
         XCTAssertTrue(characterName.waitForExistence(timeout: 4.0), "Character name should be visible in Trophy Room")

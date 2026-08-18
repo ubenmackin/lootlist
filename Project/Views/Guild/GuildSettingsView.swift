@@ -2,7 +2,7 @@
 //  GuildSettingsView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit

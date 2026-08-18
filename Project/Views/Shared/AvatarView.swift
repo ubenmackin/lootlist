@@ -92,22 +92,11 @@ struct AvatarView: View {
                     .frame(width: size.diameter, height: size.diameter)
                     .clipShape(Circle())
             } else if let preset = spec.preset {
-                if UIImage(named: preset.assetName) != nil {
-                    Image(preset.assetName)
-                        .resizable()
-                        .interpolation(.none)
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: size.diameter, height: size.diameter)
-                        .offset(y: size.diameter * 0.04)
-                        .clipShape(RoundedRectangle(cornerRadius: squircleRadius, style: .continuous))
-                } else {
-                    Image(systemName: preset.iconSystemName)
-                        .font(.system(size: size.glyphSize, weight: .regular))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(Color.gold)
-                        .symbolEffect(.pulse, options: .repeating)
-                        .accessibilityHidden(true)
-                }
+                let gear = spec.equippedAccessory.map { [$0] } ?? []
+                let sprite = HeroAvatarSprites.sprite(for: preset, equippedGear: gear)
+                PixelCanvasView(sprite: sprite, animated: true)
+                    .frame(width: size.diameter * 0.88, height: size.diameter * 0.88)
+                    .clipShape(RoundedRectangle(cornerRadius: squircleRadius * 0.88, style: .continuous))
             } else {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.system(size: size.glyphSize * 1.2, weight: .regular))

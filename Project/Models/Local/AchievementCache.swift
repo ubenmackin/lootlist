@@ -24,7 +24,7 @@ final class AchievementCache: FamilyScopedCache, CacheMergeable {
     var requirementType: String
     var requirementValue: Int
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?

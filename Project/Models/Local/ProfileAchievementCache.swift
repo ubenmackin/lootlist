@@ -21,7 +21,7 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
     var familyRecordName: String
     var earnedDate: Date
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?

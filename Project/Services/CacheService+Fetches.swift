@@ -271,4 +271,25 @@ extension CacheService {
             }
         ).first
     }
+
+    func fetchGemLedgers(family: String?) -> [GemLedgerCache] {
+        familyScopedFetch(GemLedgerCache.self, family: family)
+    }
+
+    func fetchGemLedger(recordName: String, family: String) -> GemLedgerCache? {
+        fetch(GemLedgerCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchRewardEvents(family: String?) -> [RewardEventCache] {
+        familyScopedFetch(RewardEventCache.self, family: family)
+    }
+
+    func fetchRewardEvent(recordName: String, family: String) -> RewardEventCache? {
+        fetch(RewardEventCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchRewardEvent(identity: ScopedRecordIdentity) -> RewardEventCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchRewardEvent(recordName: identity.recordID.recordName, family: family)
+    }
 }

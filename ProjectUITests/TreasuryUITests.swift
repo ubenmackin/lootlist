@@ -2,7 +2,7 @@
 //  TreasuryUITests.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import XCTest
@@ -23,7 +23,7 @@ final class TreasuryUITests: XCTestCase {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0))
 
-        tabBar.buttons.element(boundBy: 1).tap()
+        tabBar.buttons["Money"].tap()
 
         let logButton = app.buttons["Log Spending"]
         if logButton.waitForExistence(timeout: 5.0) {

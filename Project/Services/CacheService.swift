@@ -20,17 +20,8 @@ final class CacheService {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var isBatching = false
 
-    // Test-only observation hook: records the `family` scope of every
-    // `fetchLedgerEntries(profileRecordName:family:)` call so tests can assert
-    // a mutation's optimistic snapshot and rollback re-fetch stay scoped to
-    // the active family. Production code never reads this; it exists so the
-    // family-scoping of the ledger snapshot can be verified rather than
-    // inferred from cache contents (the snapshot is keyed by a freshly
-    // generated record name, which no pre-existing row can match).
-    // `@ObservationIgnored` because it is test infrastructure, not
-    // observable UI state. Compiled out of release builds so a shipped app
-    // never allocates it; it is only ever appended to and reset by
-    // debug-build tests.
+    // Test-only hook for asserting ledger fetch family-scoping.
+    // Compiled out of release builds.
     #if DEBUG
         @ObservationIgnored
         var ledgerEntryFetchScopes: [String?] = []
@@ -49,12 +40,12 @@ final class CacheService {
     }
 
     init(inMemory: Bool = false) throws {
-        let schema = Schema(LootListSchemaV6.models)
+        let schema = Schema(LootListSchemaV7.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
-            container = try ModelContainer(for: schema, migrationPlan: LootListMigrationPlan.self, configurations: config)
+            container = try ModelContainer(for: schema, configurations: config)
         } catch {
-            logger.error("Failed to create ModelContainer with migration plan: \(error). Recreating store...")
+            logger.error("Failed to create ModelContainer: \(error). Recreating store...")
             if !inMemory {
                 let url = config.url
                 do {
@@ -246,6 +237,10 @@ final class CacheService {
             deleteByIdentity(ProfileAchievementCache.self, identity: identity, in: context)
         case .notificationPreference:
             deleteByIdentity(NotificationPreferenceCache.self, identity: identity, in: context)
+        case .gemLedger:
+            deleteByIdentity(GemLedgerCache.self, identity: identity, in: context)
+        case .rewardEvent:
+            deleteByIdentity(RewardEventCache.self, identity: identity, in: context)
         }
         _ = saveContext()
     }
@@ -447,6 +442,54 @@ final class CacheService {
             context.insert(NotificationPreferenceCache(from: pref))
         }
         saveContext()
+    }
+
+    func upsertGemLedger(_ entry: GemLedger, family familyRecordName: String? = nil, isServerSync: Bool = false) {
+        guard let context else { return }
+        let name = entry.id.recordName
+        let expectedFamily = familyRecordName ?? entry.family.recordID.recordName
+        let descriptor = FetchDescriptor<GemLedgerCache>(
+            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
+        )
+        if let existing = try? context.fetch(descriptor).first {
+            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
+                logger.warning("Scope mismatch ignoring upsert for GemLedger \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
+                return
+            }
+            GemLedgerCache.apply(existing, from: entry, isServerSync: isServerSync)
+        } else {
+            context.insert(GemLedgerCache(from: entry))
+        }
+        saveContext()
+    }
+
+    func upsertRewardEvent(_ event: RewardEvent, family familyRecordName: String? = nil, isServerSync: Bool = false) {
+        guard let context else { return }
+        let name = event.id.recordName
+        let expectedFamily = familyRecordName ?? event.family.recordID.recordName
+        let descriptor = FetchDescriptor<RewardEventCache>(
+            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
+        )
+        if let existing = try? context.fetch(descriptor).first {
+            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
+                logger.warning("Scope mismatch ignoring upsert for RewardEvent \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
+                return
+            }
+            RewardEventCache.apply(existing, from: event, isServerSync: isServerSync)
+        } else {
+            context.insert(RewardEventCache(from: event))
+        }
+        saveContext()
+    }
+
+    /// Applies the server-accepted balance and its immutable debit in one
+    /// cache save. The server operation is authoritative; this method only
+    /// reconciles the local read store after that operation succeeds.
+    func applyGemDebit(profile: Profile, ledger: GemLedger) {
+        withBatch {
+            upsertProfile(profile, isServerSync: true)
+            upsertGemLedger(ledger, isServerSync: true)
+        }
     }
 
     func upsertProfileAchievement(_ pa: ProfileAchievement, family familyRecordName: String? = nil, isServerSync: Bool = false) {
@@ -655,6 +698,34 @@ final class CacheService {
                 NotificationPreferenceCache.apply(cached, from: pref)
             } else {
                 context.insert(NotificationPreferenceCache(from: pref))
+            }
+        }
+        saveContext()
+    }
+
+    func upsertGemLedgers(_ entries: [GemLedger], family: String? = nil) {
+        if family == nil {
+            let grouped = Dictionary(grouping: entries) { $0.family.recordID.recordName }
+            for (familyRecordName, familyEntries) in grouped {
+                upsertGemLedgers(familyEntries, family: familyRecordName)
+            }
+            return
+        }
+
+        guard let family, let context else { return }
+        var existingMap = existingByRecordName(GemLedgerCache.self, family: family)
+        for entry in entries {
+            let expectedFamily = family
+            if let cached = existingMap[entry.id.recordName] {
+                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
+                    logger.warning("Scope mismatch ignoring batch upsert for GemLedger \(entry.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
+                    continue
+                }
+                GemLedgerCache.apply(cached, from: entry)
+            } else {
+                let cached = GemLedgerCache(from: entry)
+                context.insert(cached)
+                existingMap[entry.id.recordName] = cached
             }
         }
         saveContext()

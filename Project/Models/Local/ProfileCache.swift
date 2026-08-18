@@ -24,14 +24,26 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
     @Attribute(.externalStorage) var customAvatarImageData: Data?
     var isActive: Bool
     var level: Int
+    var gemsTotal: Int = 0
+    var streakShields: Int = 0
+    var mascotCompanion: String?
     var iCloudUserRecordName: String
     var avatarClass: String?
     var payoutPolicy: String
     var payoutDay: String?
+    // Gamification claim state — CloudKit-backed mirrors of Profile fields.
+    // Optional arrays mirror the `specificDays` pattern so legacy rows
+    // (pre-dating these fields) decode as nil rather than failing migration.
+    var ownedEquipment: [String]?
+    var equippedItems: [String]?
+    var dailyLoginLastClaimDay: String?
+    var dailyLoginCycleDay: Int = 1
+    var dailyLoginStreakDays: Int = 0
+    var claimedBonusObjectives: [String]?
     var changeTag: String?
     /// Baseline server XP tracked to merge concurrent offline additions additively.
     var lastSyncedXP: Int = 0
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?
@@ -61,10 +73,19 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
          customAvatarImageData: Data? = nil,
          isActive: Bool,
          level: Int,
+         gemsTotal: Int = 0,
+         streakShields: Int = 0,
+         mascotCompanion: String? = nil,
          iCloudUserRecordName: String,
          avatarClass: String?,
          payoutPolicy: String,
          payoutDay: String? = nil,
+         ownedEquipment: [String]? = nil,
+         equippedItems: [String]? = nil,
+         dailyLoginLastClaimDay: String? = nil,
+         dailyLoginCycleDay: Int = 1,
+         dailyLoginStreakDays: Int = 0,
+         claimedBonusObjectives: [String]? = nil,
          changeTag: String? = nil,
          lastSyncedXP: Int = 0,
          encodedSystemFields: Data? = nil,
@@ -81,10 +102,19 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         self.customAvatarImageData = customAvatarImageData
         self.isActive = isActive
         self.level = level
+        self.gemsTotal = gemsTotal
+        self.streakShields = streakShields
+        self.mascotCompanion = mascotCompanion
         self.iCloudUserRecordName = iCloudUserRecordName
         self.avatarClass = avatarClass
         self.payoutPolicy = payoutPolicy
         self.payoutDay = payoutDay
+        self.ownedEquipment = ownedEquipment
+        self.equippedItems = equippedItems
+        self.dailyLoginLastClaimDay = dailyLoginLastClaimDay
+        self.dailyLoginCycleDay = dailyLoginCycleDay
+        self.dailyLoginStreakDays = dailyLoginStreakDays
+        self.claimedBonusObjectives = claimedBonusObjectives
         self.changeTag = changeTag
         self.lastSyncedXP = lastSyncedXP
         self.encodedSystemFields = encodedSystemFields
@@ -104,10 +134,19 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
             customAvatarImageData: profile.customAvatarImageData,
             isActive: profile.isActive,
             level: profile.level,
+            gemsTotal: profile.gems,
+            streakShields: profile.streakShields,
+            mascotCompanion: profile.mascotCompanion,
             iCloudUserRecordName: profile.iCloudUserID.recordName,
             avatarClass: profile.avatarClass?.rawValue,
             payoutPolicy: profile.payoutPolicy.rawValue,
             payoutDay: profile.payoutDay?.rawValue,
+            ownedEquipment: profile.ownedEquipment.isEmpty ? nil : profile.ownedEquipment,
+            equippedItems: profile.equippedItems.isEmpty ? nil : profile.equippedItems,
+            dailyLoginLastClaimDay: profile.dailyLoginLastClaimDay,
+            dailyLoginCycleDay: profile.dailyLoginCycleDay,
+            dailyLoginStreakDays: profile.dailyLoginStreakDays,
+            claimedBonusObjectives: profile.claimedBonusObjectives.isEmpty ? nil : profile.claimedBonusObjectives,
             changeTag: profile.changeTag,
             lastSyncedXP: profile.xp,
             encodedSystemFields: profile.encodedSystemFields,
@@ -128,10 +167,19 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         customAvatarImageData = profile.customAvatarImageData
         isActive = profile.isActive
         level = profile.level
+        gemsTotal = profile.gems
+        streakShields = profile.streakShields
+        mascotCompanion = profile.mascotCompanion
         iCloudUserRecordName = profile.iCloudUserID.recordName
         avatarClass = profile.avatarClass?.rawValue
         payoutPolicy = profile.payoutPolicy.rawValue
         payoutDay = profile.payoutDay?.rawValue
+        ownedEquipment = profile.ownedEquipment.isEmpty ? nil : profile.ownedEquipment
+        equippedItems = profile.equippedItems.isEmpty ? nil : profile.equippedItems
+        dailyLoginLastClaimDay = profile.dailyLoginLastClaimDay
+        dailyLoginCycleDay = profile.dailyLoginCycleDay
+        dailyLoginStreakDays = profile.dailyLoginStreakDays
+        claimedBonusObjectives = profile.claimedBonusObjectives.isEmpty ? nil : profile.claimedBonusObjectives
         changeTag = profile.changeTag
         sourceZoneName = profile.id.zoneID.zoneName
         sourceZoneOwnerName = profile.id.zoneID.ownerName

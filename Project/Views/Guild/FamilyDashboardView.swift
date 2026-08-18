@@ -2,7 +2,7 @@
 //  FamilyDashboardView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit
@@ -118,8 +118,19 @@ struct FamilyDashboardView: View {
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 rebuild()
+                // Re-fetch the share participant list once the view model is
+                // wired so the Invitations panel is populated on first paint
+                // (the CKShare participant list is the source for that panel,
+                // not the SwiftData cache, so the initial `rebuild` cannot
+                // populate it on its own).
+                await viewModel?.refreshInvitations()
             }
-            .onChange(of: cachedProfiles) { _, _ in rebuild() }
+            .onChange(of: cachedProfiles) { _, _ in
+                Task {
+                    rebuild()
+                    await viewModel?.refreshInvitations()
+                }
+            }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedLedgers) { _, _ in rebuild() }

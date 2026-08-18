@@ -14,6 +14,8 @@ struct QuestCardView: View {
     var isOverdue: Bool = false
     var onComplete: (() -> Void)?
 
+    @State private var showCompletionEffect: Bool = false
+
     private var approvedCount: Int {
         logs.filter {
             $0.verificationStatus == VerificationStatus.verified.rawValue
@@ -47,6 +49,7 @@ struct QuestCardView: View {
 
     var body: some View {
         let approvalMode = quest.approvalModeEnum ?? .autoApprove
+        let rarity = QuestRarity.from(xp: quest.xpReward)
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
@@ -65,6 +68,12 @@ struct QuestCardView: View {
                         Text(quest.questName)
                             .font(.headline)
                             .foregroundStyle(isFullyCompleted ? .secondary : .primary)
+
+                        if rarity != .common {
+                            Image(systemName: rarity.iconSystemName)
+                                .font(.caption2)
+                                .foregroundStyle(rarity.color)
+                        }
 
                         if isOverdue, !isFullyCompleted {
                             Text("⚠️ Overdue")
@@ -105,6 +114,7 @@ struct QuestCardView: View {
                 if targetCount <= 1 {
                     Button {
                         if !isFullyCompleted, !isPendingReview {
+                            showCompletionEffect = true
                             onComplete?()
                         }
                     } label: {
@@ -135,6 +145,7 @@ struct QuestCardView: View {
 
                                 Button {
                                     if isNextToLog {
+                                        showCompletionEffect = true
                                         onComplete?()
                                     }
                                 } label: {
@@ -167,6 +178,15 @@ struct QuestCardView: View {
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(cardBackgroundColor)
+        )
+        .rarityBorder(rarity)
+        .overlay(
+            QuestCompletionEffectView(
+                xpEarned: quest.xpReward,
+                goldEarned: quest.goldReward > 0 ? quest.goldReward : nil,
+                rarity: rarity,
+                isShowing: $showCompletionEffect
+            )
         )
         .contentShape(Rectangle())
     }

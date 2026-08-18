@@ -30,7 +30,7 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
     var approvalMode: String
     var createdByRecordName: String
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?

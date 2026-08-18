@@ -2,7 +2,7 @@
 //  CharacterSheetView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit
@@ -49,7 +49,6 @@ struct CharacterSheetView: View {
             VStack(spacing: 24) {
                 header()
                 statsGrid()
-                accessorySection()
                 achievementSection
                 if profile.role == .hero, onSaveDisplayName != nil {
                     renameSection
@@ -167,46 +166,6 @@ struct CharacterSheetView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title) \(value)")
-    }
-
-    private func accessorySection() -> some View {
-        let unlocked = xpService.unlockedAccessories(profile: profile)
-        return sectionContainer(title: "Equipped Accessories",
-                                systemImage: "wand.and.stars.fill")
-        {
-            if unlocked.isEmpty {
-                Text("No accessories unlocked yet — reach level 5 to earn your first.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(unlocked, id: \.self) { id in
-                        HStack(spacing: 10) {
-                            if let glyph = AvatarService.accessoryGlyph(for: id) {
-                                Image(systemName: glyph)
-                                    .font(.body)
-                                    .foregroundStyle(Color.gold)
-                                    .symbolRenderingMode(.hierarchical)
-                                    .frame(width: 24)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(Self.accessoryTitle(for: id))
-                                    .font(.subheadline.weight(.semibold))
-                                Text(id)
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-        }
     }
 
     private var achievementSection: some View {
@@ -372,15 +331,5 @@ struct CharacterSheetView: View {
 
     private static func formatGold(_ amount: Double) -> String {
         CurrencyFormatter.magnitude(amount)
-    }
-
-    private static func accessoryTitle(for id: String) -> String {
-        switch id {
-        case "accessory.level.5": "Sparkle Aura"
-        case "accessory.level.10": "Bolt Aura"
-        case "accessory.level.15": "Stellar Aura"
-        case "accessory.level.20": "Phoenix Aura"
-        default: "Accessory \(id)"
-        }
     }
 }
