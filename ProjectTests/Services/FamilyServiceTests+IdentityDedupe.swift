@@ -455,7 +455,7 @@ struct FamilyServiceIdentityDedupeTests {
         var seededRecords: [any CloudKitRecord] = [family]
         switch gmSeed {
         case .active:
-            ownerProfile = Profile(
+            let profile = Profile(
                 displayName: "Existing GM",
                 avatarClass: .knight,
                 role: .guildMaster,
@@ -463,7 +463,8 @@ struct FamilyServiceIdentityDedupeTests {
                 family: CKRecord.Reference(recordID: familyID, action: .none),
                 id: ownerID
             )
-            seededRecords.append(ownerProfile!)
+            ownerProfile = profile
+            seededRecords.append(profile)
         case .inactive:
             // `Profile.init(displayName:...:)` defaults `isActive = true`, so
             // flip it off before seeding to drive the reactivation branch.

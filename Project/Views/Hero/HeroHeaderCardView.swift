@@ -16,12 +16,17 @@ struct HeroHeaderCardView: View {
     let completedQuestCount: Int
     let totalQuestCount: Int
     var isPendingPayout: Bool = false
+    var levelProgress: LevelProgress?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             headerRow
             Divider()
             statsRow
+            if levelProgress != nil {
+                Divider()
+                xpProgressBarSection
+            }
         }
         .padding(16)
         .background(
@@ -113,6 +118,22 @@ struct HeroHeaderCardView: View {
 
             Spacer()
 
+            HStack(spacing: 6) {
+                Text("💎")
+                    .font(.headline)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Gems")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("\(profile?.gems ?? 0)")
+                        .font(.title3.bold())
+                        .monospacedDigit()
+                        .foregroundStyle(Color.gold)
+                }
+            }
+
+            Spacer()
+
             VStack(alignment: .trailing, spacing: 2) {
                 Text("Quests")
                     .font(.caption)
@@ -121,6 +142,46 @@ struct HeroHeaderCardView: View {
                     .font(.title3.bold())
                     .monospacedDigit()
             }
+        }
+    }
+
+    private var xpProgressBarSection: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Text("Lv. \(levelProgress?.currentLevel ?? profile?.level ?? 1)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule().fill(Color.accentColor)
+                    )
+
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color(.tertiarySystemFill))
+
+                        Capsule()
+                            .fill(LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ))
+                            .frame(width: max(0, geo.size.width * CGFloat(levelProgress?.progress ?? 0)))
+                            .animation(.spring(response: 0.6, dampingFraction: 0.8), value: levelProgress?.progress)
+                    }
+                }
+                .frame(height: 8)
+
+                Text("\(levelProgress?.xpIntoCurrentLevel ?? 0) / \(levelProgress?.xpForNextLevel ?? 1) XP")
+                    .font(.caption.bold())
+                    .monospacedDigit()
+            }
+
+            Text(XPService.title(forLevel: levelProgress?.currentLevel ?? profile?.level ?? 1))
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
         }
     }
 }

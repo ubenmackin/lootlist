@@ -266,24 +266,13 @@ struct AvatarSelectionView: View {
             viewModel.avatarPresetID = isSelected ? nil : preset.id
         } label: {
             ZStack {
-                if UIImage(named: preset.assetName) != nil {
-                    Image(preset.assetName)
-                        .resizable()
-                        .interpolation(.none)
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 50, height: 50)
-                        .offset(y: 4)
-                        .clipShape(RoundedRectangle(cornerRadius: 50 * 0.22, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 50 * 0.22, style: .continuous)
-                                .stroke(Color.gold.opacity(0.6), lineWidth: 1.5)
-                        )
-                } else {
-                    Image(systemName: preset.iconSystemName)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Color.gold)
-                        .frame(height: 50)
-                }
+                PixelCanvasView(sprite: HeroAvatarSprites.sprite(for: preset), animated: false)
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 50 * 0.22, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 50 * 0.22, style: .continuous)
+                            .stroke(Color.gold.opacity(0.6), lineWidth: 1.5)
+                    )
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)

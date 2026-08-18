@@ -2,7 +2,7 @@
 //  LootListScreenshotTests.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import XCTest
@@ -33,18 +33,20 @@ final class LootListScreenshotTests: XCTestCase {
                 snapshot("02TreasuryView")
             }
 
-            let trophiesTab = tabBar.buttons["Trophies"]
-            if trophiesTab.exists {
-                trophiesTab.tap()
-                sleep(2)
-                snapshot("03TrophyRoomView")
-            }
-
             let profileTab = tabBar.buttons["Profile"]
             if profileTab.exists {
                 profileTab.tap()
                 sleep(2)
                 snapshot("04ProfileView")
+
+                // Trophies now lives under Profile — drill in for the
+                // Hall of Heroes screenshot, then return to Profile.
+                let trophiesLink = app.buttons["profile.trophies"]
+                if trophiesLink.waitForExistence(timeout: 3) {
+                    trophiesLink.tap()
+                    sleep(2)
+                    snapshot("03TrophyRoomView")
+                }
             }
         }
     }

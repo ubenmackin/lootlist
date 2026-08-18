@@ -62,6 +62,7 @@ struct FamilyJoinView: View {
             if let error = newError {
                 logger.error("FamilyJoinView surfaced error: \(error, privacy: .private)")
                 toastManager.show(message: error, type: .error)
+                viewModel.error = nil
             }
         }
         #if DEBUG
@@ -203,7 +204,6 @@ struct FamilyJoinView: View {
                 let friendlyMessage = friendlyInviteAcceptError(error)
                     ?? "Could not read that share link. Please try again."
                 viewModel.error = friendlyMessage
-                toastManager.show(message: friendlyMessage, type: .error)
             }
         }
     #endif

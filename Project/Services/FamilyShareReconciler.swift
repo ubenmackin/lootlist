@@ -2,12 +2,24 @@
 //  FamilyShareReconciler.swift
 //  LootList
 //
-//  Created by Ben Mackin on 2026-08-12.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit
 import Foundation
 import os
+
+private extension Notification.Name {
+    /// Posted by `FamilyShareReconciler` at the end of a successful reconcile
+    /// pass when the share-side roster changed (a freshly-accepted identity
+    /// appears, a revoked one is observed, or a member has been recorded as
+    /// absent for the configured threshold). `FamilyDashboardViewModel`
+    /// subscribes to this to re-run `refreshInvitations()` so the parent's
+    /// Members and Invitations panels pick up the new state without waiting
+    /// for the next `.syncDidComplete` cycle or a manual refresh. File-private
+    /// — no public API surface.
+    static let familyRosterChanged = Notification.Name("familyRosterChanged")
+}
 
 /// Keeps the app-domain membership layer (active `Profile` records) reconciled
 /// with the CloudKit access layer (the family `CKShare` participant list).
@@ -86,12 +98,23 @@ final class FamilyShareReconciler {
     /// Owner-only reconciliation of active non-owner profiles against the
     /// family's current `CKShare` participant list. Internal so tests can drive
     /// the pass directly; production invokes it from the `.syncDidComplete`
-    /// observer in `start()`.
+    /// observer in `start()`. Posts `.familyRosterChanged` at the end of any
+    /// pass that mutated the membership layer (deactivated a profile, cleared
+    /// a previously-accumulated absence mark for a freshly-observed
+    /// identity, or revoked a still-accepted one) so subscribed view models
+    /// re-run their invitation classification against the updated roster.
     func reconcileIfOwner() async {
         let appState = familyService.appState
         guard appState.isZoneOwner,
               let family = appState.family
         else { return }
+
+        // Track whether the pass produced any membership-layer mutation so
+        // the trailing `.familyRosterChanged` post only fires when the roster
+        // actually shifted — a no-op pass (CloudKit hasn't changed since the
+        // last sweep) should not cause subscribers to re-run their share
+        // participant fetch.
+        var rosterMutated = false
 
         do {
             let statuses = try await familyService.cloudKit.fetchShareParticipantStatuses(for: family.id)
@@ -125,12 +148,16 @@ final class FamilyShareReconciler {
                     // deactivated immediately regardless of convergence marks.
                     clearAbsenceMark(family: family, identityKey: identityKey)
                     await deactivate(profile)
+                    rosterMutated = true
                     continue
                 }
                 if presentIdentities.contains(identityKey) {
                     // Live access is confirmed; clear any accumulated absence
                     // marks (a fresh join may have propagated late).
-                    clearAbsenceMark(family: family, identityKey: identityKey)
+                    if defaults.integer(forKey: absenceMarkerKey(familyRecordName: family.id.recordName, identityKey: identityKey)) > 0 {
+                        clearAbsenceMark(family: family, identityKey: identityKey)
+                        rosterMutated = true
+                    }
                     continue
                 }
                 // Absent from the participant list. Absence alone is not
@@ -142,10 +169,15 @@ final class FamilyShareReconciler {
                 if observedAbsences >= absenceThreshold {
                     clearAbsenceMark(family: family, identityKey: identityKey)
                     await deactivate(profile)
+                    rosterMutated = true
                 }
             }
         } catch {
             logger.error("Family share reconciliation failed: \(error, privacy: .private)")
+        }
+
+        if rosterMutated {
+            NotificationCenter.default.post(name: .familyRosterChanged, object: family.id.recordName)
         }
     }
 

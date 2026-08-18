@@ -37,7 +37,9 @@ enum RecordBridge {
             { bridgeAllowance(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
             { bridgeAchievement(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
             { bridgeProfileAchievement(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeNotificationPref(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) }
+            { bridgeNotificationPref(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
+            { bridgeGemLedger(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
+            { bridgeRewardEvent(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) }
         ]
 
         for bridge in bridges {
@@ -103,7 +105,7 @@ enum RecordBridge {
         guard let cache = cacheService.fetchFamily(recordName: name) else { return nil }
         if cache.recordName != expectedFamily {
             logger.warning("RecordBridge family mismatch for family \(name): expected \(expectedFamily), got \(cache.recordName)")
-            return false ? nil : nil
+            return nil
         }
         if cache.validatedDatabaseScope(expectedScope: expectedDatabase) == nil {
             logger.warning("RecordBridge database scope mismatch for family \(name): expected \(String(describing: expectedDatabase)), got \(cache.sourceDatabaseScope ?? "nil")")
@@ -150,6 +152,22 @@ enum RecordBridge {
         return cache.toNotificationPreference(zoneID: zoneID).toRecord()
     }
 
+    private static func bridgeGemLedger(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
+                                        expectedDatabase: CKDatabase.Scope) -> CKRecord?
+    {
+        guard let cache = cacheService.fetchGemLedger(recordName: name, family: expectedFamily) else { return nil }
+        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "gem ledger", name: name) else { return nil }
+        return cache.toGemLedger(zoneID: zoneID).toRecord()
+    }
+
+    private static func bridgeRewardEvent(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
+                                          expectedDatabase: CKDatabase.Scope) -> CKRecord?
+    {
+        guard let cache = cacheService.fetchRewardEvent(recordName: name, family: expectedFamily) else { return nil }
+        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "reward event", name: name) else { return nil }
+        return cache.toRewardEvent(zoneID: zoneID).toRecord()
+    }
+
     private static let managedFieldKeysByType: [String: Set<String>] = [
         Family.recordType: Family.managedFieldKeys,
         Profile.recordType: Profile.managedFieldKeys,
@@ -161,7 +179,8 @@ enum RecordBridge {
         Achievement.recordType: Achievement.managedFieldKeys,
         ProfileAchievement.recordType: ProfileAchievement.managedFieldKeys,
         NotificationPreference.recordType: NotificationPreference.managedFieldKeys,
-        RewardEvent.recordType: RewardEvent.managedFieldKeys
+        RewardEvent.recordType: RewardEvent.managedFieldKeys,
+        GemLedger.recordType: GemLedger.managedFieldKeys
     ]
 
     private static func prepareRecord(_ record: CKRecord, in zoneID: CKRecordZone.ID) -> CKRecord {

@@ -68,17 +68,10 @@ actor BackgroundCacheActor {
         return saveContext()
     }
 
-    /// Generic purge shared by every `purgeMissing*` wrapper. Deletes any cached
-    /// row whose `recordName` is absent from `validRecordNames`, scoped by
-    /// `familyRecordName` via `T.fetchDescriptor`.
-    ///
-    /// Purging is stateless and per-call: it deletes directly against the
-    /// `validRecordNames` snapshot supplied, with no cross-call in-flight
-    /// registry. That snapshot is a CloudKit query taken at the *start* of the
-    /// sync pass, so a brand-new record optimistically upserted while the query
-    /// was in flight can be reported "missing" here even though the server holds
-    /// it; the optimistic author's post-save re-upsert reconciles the row once
-    /// the save settles.
+    /// Generic purge shared by every `purgeMissing*` wrapper. Deletes cached rows
+    /// whose `recordName` is absent from `validRecordNames`. Snapshot-based: an
+    /// optimistically upserted row may be reported missing; the author's
+    /// post-save re-upsert reconciles it.
     private func purgeMissing<T: CacheMergeable>(
         _: T.Type,
         validRecordNames: Set<String>,
@@ -128,8 +121,11 @@ actor BackgroundCacheActor {
         let recordNames = Set(nameless.map(\.template.recordID))
         var templatesByID: [CKRecord.ID: QuestTemplate] = [:]
         for recordID in recordNames {
-            if let template = try? await cloudKit.fetch(QuestTemplate.self, id: recordID) {
+            do {
+                let template = try await cloudKit.fetch(QuestTemplate.self, id: recordID)
                 templatesByID[recordID] = template
+            } catch {
+                logger.debug("Failed to fetch template for backfill \(recordID.recordName, privacy: .private): \(error, privacy: .private)")
             }
         }
         return quests.map { quest in
@@ -249,6 +245,29 @@ actor BackgroundCacheActor {
         return success
     }
 
+    @discardableResult
+    func batchUpsertGemLedgers(_ entries: [GemLedger], familyRecordName _: String? = nil) async -> Bool {
+        let grouped = Dictionary(grouping: entries) { $0.family.recordID.recordName }
+        var success = true
+        for (family, familyEntries) in grouped {
+            success = await batchUpsert(GemLedgerCache.self, familyEntries, familyRecordName: family) && success
+        }
+        return success
+    }
+
+    @discardableResult
+    func batchUpsertRewardEvents(_ events: [RewardEvent], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(RewardEventCache.self, events, familyRecordName: familyRecordName)
+        }
+        let grouped = Dictionary(grouping: events, by: { $0.family.recordID.recordName })
+        var success = true
+        for (family, familyEvents) in grouped {
+            success = await batchUpsert(RewardEventCache.self, familyEvents, familyRecordName: family) && success
+        }
+        return success
+    }
+
     private struct ParsedBatch {
         var families: [Family] = []
         var profiles: [Profile] = []
@@ -261,6 +280,7 @@ actor BackgroundCacheActor {
         var profileAchievements: [ProfileAchievement] = []
         var notificationPrefs: [NotificationPreference] = []
         var rewardEvents: [RewardEvent] = []
+        var gemLedgers: [GemLedger] = []
 
         mutating func append(_ record: ParsedRecord) {
             switch record {
@@ -275,6 +295,7 @@ actor BackgroundCacheActor {
             case let .profileAchievement(item): profileAchievements.append(item)
             case let .notificationPreference(item): notificationPrefs.append(item)
             case let .rewardEvent(item): rewardEvents.append(item)
+            case let .gemLedger(item): gemLedgers.append(item)
             case .ignoredSystemRecord, .parseFailure: break
             }
         }
@@ -311,6 +332,7 @@ actor BackgroundCacheActor {
         }
         if !batch.completions.isEmpty {
             success = await batchUpsertQuestCompletions(batch.completions) && success
+            success = await reconcileStoredRewardEvents(for: batch.completions) && success
         }
         return success
     }
@@ -332,7 +354,11 @@ actor BackgroundCacheActor {
         if !batch.notificationPrefs.isEmpty {
             success = await batchUpsertNotificationPreferences(batch.notificationPrefs) && success
         }
+        if !batch.gemLedgers.isEmpty {
+            success = await batchUpsertGemLedgers(batch.gemLedgers) && success
+        }
         if !batch.rewardEvents.isEmpty {
+            success = await batchUpsertRewardEvents(batch.rewardEvents) && success
             success = await reconcileRewardEvents(batch.rewardEvents) && success
         }
         return success
@@ -346,15 +372,8 @@ actor BackgroundCacheActor {
                 let descriptor = FetchDescriptor<QuestCompletionCache>(
                     predicate: #Predicate { $0.recordName == completionName && $0.familyRecordName == familyName }
                 )
-                let matches = try modelContext.fetch(descriptor)
-                if let match = matches.first {
-                    if match.xpCredited == nil || (match.xpCredited ?? 0) < event.xpAmount {
-                        match.xpCredited = event.xpAmount
-                        logger
-                            .info(
-                                "Hydrated xpCredited (\(event.xpAmount)) on completion \(completionName, privacy: .private) from RewardEvent \(event.id.recordName, privacy: .private)"
-                            )
-                    }
+                if let match = try modelContext.fetch(descriptor).first {
+                    applyRewardEvent(event, to: match)
                 }
             } catch {
                 logger.error("Failed to query QuestCompletionCache for RewardEvent reconciliation: \(error, privacy: .public)")
@@ -362,6 +381,41 @@ actor BackgroundCacheActor {
             }
         }
         return saveContext()
+    }
+
+    private func reconcileStoredRewardEvents(for completions: [QuestCompletion]) async -> Bool {
+        for completion in completions {
+            let familyName = completion.family.recordID.recordName
+            let completionRecordName = completion.id.recordName
+            let eventDescriptor = FetchDescriptor<RewardEventCache>(
+                predicate: #Predicate {
+                    $0.familyRecordName == familyName && $0.questCompletionRecordName == completionRecordName
+                }
+            )
+            do {
+                let events = try modelContext.fetch(eventDescriptor)
+                let completionDescriptor = FetchDescriptor<QuestCompletionCache>(
+                    predicate: #Predicate {
+                        $0.recordName == completionRecordName && $0.familyRecordName == familyName
+                    }
+                )
+                if let cachedCompletion = try modelContext.fetch(completionDescriptor).first {
+                    for event in events {
+                        applyRewardEvent(event.toRewardEvent(zoneID: completion.id.zoneID), to: cachedCompletion)
+                    }
+                }
+            } catch {
+                logger.error("Failed to reconcile stored RewardEvent for completion \(completion.id.recordName, privacy: .private): \(error, privacy: .public)")
+                return false
+            }
+        }
+        return saveContext()
+    }
+
+    private func applyRewardEvent(_ event: RewardEvent, to completion: QuestCompletionCache) {
+        guard completion.xpCredited == nil || (completion.xpCredited ?? 0) < event.xpAmount else { return }
+        completion.xpCredited = event.xpAmount
+        logger.info("Hydrated xpCredited (\(event.xpAmount)) on completion \(completion.recordName, privacy: .private) from RewardEvent \(event.id.recordName, privacy: .private)")
     }
 
     // MARK: - Purges (public API preserved as thin wrappers)
@@ -428,6 +482,16 @@ actor BackgroundCacheActor {
         await purgeMissing(NotificationPreferenceCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
+    func purgeMissingGemLedgers(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
+        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
+        await purgeMissing(GemLedgerCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+    }
+
+    func purgeMissingRewardEvents(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
+        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
+        await purgeMissing(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+    }
+
     /// Deletes the `FamilyCache` matching `recordName` and all child caches
     /// scoped to that family, mirroring `CacheService.purgeFamily` on the
     /// background context. Used when `CKSyncEngine` reports a whole zone
@@ -445,6 +509,8 @@ actor BackgroundCacheActor {
         await purgeFamilyRows(AchievementCache.self, familyRecordName: recordName)
         await purgeFamilyRows(ProfileAchievementCache.self, familyRecordName: recordName)
         await purgeFamilyRows(NotificationPreferenceCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(GemLedgerCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(RewardEventCache.self, familyRecordName: recordName)
         saveContext()
     }
 
@@ -462,13 +528,8 @@ actor BackgroundCacheActor {
         }
     }
 
-    /// Backfills `targetCount` to `1` for any `QuestCache` or `QuestTemplateCache`
-    /// rows where the value is nil/zero/unset. Runs globally across all families
-    /// and cached rows — this is a one-time migration for pre-`targetCount`
-    /// installs whose cache was persisted before the field existed. New rows
-    /// always carry the `targetCount = 1` default from their `init`, so they
-    /// are left untouched. Idempotent: rows already carrying a positive
-    /// `targetCount` are never clobbered.
+    /// One-time migration: backfills `targetCount = 1` for legacy rows where
+    /// the value is nil/zero/unset. Idempotent — positive values are untouched.
     func backfillTargetCountGlobally() {
         // QuestCache — iterate by recordName (global, not per-family).
         let quests: [QuestCache]
@@ -536,6 +597,8 @@ actor BackgroundCacheActor {
         case .achievement: await deleteRecordByIdentity(AchievementCache.self, identity: identity)
         case .profileAchievement: await deleteRecordByIdentity(ProfileAchievementCache.self, identity: identity)
         case .notificationPreference: await deleteRecordByIdentity(NotificationPreferenceCache.self, identity: identity)
+        case .gemLedger: await deleteRecordByIdentity(GemLedgerCache.self, identity: identity)
+        case .rewardEvent: await deleteRecordByIdentity(RewardEventCache.self, identity: identity)
         }
         saveContext()
     }

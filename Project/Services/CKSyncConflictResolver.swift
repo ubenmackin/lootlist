@@ -156,9 +156,17 @@ final class CKSyncConflictResolver {
         let clientXP = originalRecord["xp"] as? Int ?? 0
 
         let profileName = originalRecord.recordID.recordName
-        let descriptor = FetchDescriptor<ProfileCache>(
-            predicate: #Predicate { $0.recordName == profileName }
-        )
+        let familyName = (serverRecord["family"] as? CKRecord.Reference)?.recordID.recordName
+            ?? (originalRecord["family"] as? CKRecord.Reference)?.recordID.recordName
+        let descriptor = if let familyName {
+            FetchDescriptor<ProfileCache>(
+                predicate: #Predicate { $0.recordName == profileName && $0.familyRecordName == familyName }
+            )
+        } else {
+            FetchDescriptor<ProfileCache>(
+                predicate: #Predicate { $0.recordName == profileName }
+            )
+        }
         let cachedProfile = try? cacheService?.context?.fetch(descriptor).first
 
         let mergedXP: Int
@@ -173,6 +181,46 @@ final class CKSyncConflictResolver {
         guard var mergedProfile = try? Profile(record: serverRecord) else { return nil }
         mergedProfile.xp = mergedXP
         mergedProfile.level = XPService.level(forXP: mergedXP)
+        // Union-merge ownership/claim ledgers so a concurrent purchase or
+        // bonus-objective claim on another device is never dropped (gems are
+        // debited via the append-only GemLedger; losing the ownership/claim
+        // marker here would make the paid item vanish). Equipped selection is
+        // cosmetic (one item per category) and stays server-wins.
+        let serverOwned = serverRecord["ownedEquipment"] as? [String] ?? []
+        let clientOwned = originalRecord["ownedEquipment"] as? [String] ?? []
+        let serverClaimed = serverRecord["claimedBonusObjectives"] as? [String] ?? []
+        let clientClaimed = originalRecord["claimedBonusObjectives"] as? [String] ?? []
+        mergedProfile.ownedEquipment = Self.orderedUnion(serverOwned, clientOwned)
+        mergedProfile.claimedBonusObjectives = Self.orderedUnion(serverClaimed, clientClaimed)
+
+        // Preserve newly introduced fields when resolving a conflict against a
+        // legacy server record that has not stored them yet.
+        if serverRecord["gems"] == nil {
+            mergedProfile.gems = originalRecord["gems"] as? Int ?? mergedProfile.gems
+        }
+        if serverRecord["streakShields"] == nil {
+            mergedProfile.streakShields = originalRecord["streakShields"] as? Int ?? mergedProfile.streakShields
+        }
+        if serverRecord["equippedItems"] == nil {
+            mergedProfile.equippedItems = originalRecord["equippedItems"] as? [String] ?? mergedProfile.equippedItems
+        }
+
+        let serverClaimDay = serverRecord["dailyLoginLastClaimDay"] as? String
+        let clientClaimDay = originalRecord["dailyLoginLastClaimDay"] as? String
+        let serverStreak = serverRecord["dailyLoginStreakDays"] as? Int ?? 0
+        let clientStreak = originalRecord["dailyLoginStreakDays"] as? Int ?? 0
+        let clientDailyStateIsNewer: Bool = {
+            guard let clientClaimDay else { return false }
+            guard let serverClaimDay else { return true }
+            return clientClaimDay > serverClaimDay
+                || (clientClaimDay == serverClaimDay && clientStreak > serverStreak)
+        }()
+        if clientDailyStateIsNewer {
+            mergedProfile.dailyLoginLastClaimDay = clientClaimDay
+            mergedProfile.dailyLoginCycleDay = originalRecord["dailyLoginCycleDay"] as? Int ?? 1
+            mergedProfile.dailyLoginStreakDays = clientStreak
+            mergedProfile.streakShields = originalRecord["streakShields"] as? Int ?? mergedProfile.streakShields
+        }
         mergedProfile.changeTag = serverRecord.recordChangeTag
         mergedProfile.encodedSystemFields = serverRecord.encodedSystemFields
         cacheService?.upsertProfile(mergedProfile, isServerSync: true)
@@ -180,6 +228,14 @@ final class CKSyncConflictResolver {
         let mergedRecord = mergedProfile.toRecord()
         mergedRecord.parent = serverRecord.parent
         return mergedRecord
+    }
+
+    private static func orderedUnion(_ first: [String], _ second: [String]) -> [String] {
+        var result = first
+        for value in second where !result.contains(value) {
+            result.append(value)
+        }
+        return result
     }
 
     /// Idempotency-marker merge for `QuestCompletion.xpCredited`. Once either
@@ -202,22 +258,9 @@ final class CKSyncConflictResolver {
         return mergedRecord
     }
 
-    /// Field-level merge rules per record type. Server wins for state/status
-    /// fields (which are authoritative); client wins for user-facing display
-    /// fields where concurrent edits are cosmetic. Monotonic numeric fields merge via max.
-    ///
-    /// **Merge semantics:**
-    /// - Quest: `xpBanked` = `max(server, client)` capped by resolved `xpReward`. Server wins for
-    ///   `active`, `targetCount`, `isAllOrNothing`, `approvalMode`, `weekOf`, `goldReward`, `xpReward`.
-    ///   Client wins for `name`, `descriptionText` (user-authored display).
-    /// - Profile: `xp` = additive delta merge (`serverXP + clientDelta`), `level` re-derived.
-    ///   Server wins for `role`, `payoutPolicy`, `payoutDay`, `isActive`. Client wins for
-    ///   `displayName`, `avatarClass`, `avatarPresetID`, `customAvatarImageData`.
-    /// - QuestCompletion: Server record adopted for status transitions, timestamps, and
-    ///   verification fields. Client `xpCredited` preserved when server is nil.
-    /// - AllowancePeriod: Server always wins — payout state is authoritative.
-    /// - LedgerEntry: Server always wins — financial records are immutable.
-    /// - All others: Server wins (default).
+    /// Client-wins display fields per record type. Server wins for state/status
+    /// fields; client wins for user-authored display fields. See
+    /// ARCHITECTURE.md §Conflict Resolution for full merge semantics.
     private static let clientWinsFields: [String: Set<String>] = [
         Quest.recordType: ["name", "descriptionText"],
         Profile.recordType: ["displayName", "avatarClass", "avatarPresetID", "customAvatarImageData"]

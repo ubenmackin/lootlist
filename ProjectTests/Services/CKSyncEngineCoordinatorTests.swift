@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 @testable import LootList
+import os
 import XCTest
 
 @MainActor
@@ -22,7 +23,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         let suite = "test-suite-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite)!
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
 
         appState = AppState(defaults: defaults)
@@ -43,7 +44,8 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
             appState: appState
         )
 
-        let bgActor = BackgroundCacheActor(container: cacheService.container!)
+        let container = try XCTUnwrap(cacheService.container)
+        let bgActor = BackgroundCacheActor(container: container)
 
         delegateHandler = CKSyncEngineDelegateHandler(
             backgroundCache: bgActor,
@@ -282,12 +284,8 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: sharedKeyB), Data([0xBB, 0x02]))
     }
 
-    private final class NotificationBox: @unchecked Sendable {
-        var outcome: SyncOutcome?
-    }
-
     func testSyncDidCompleteNotificationOutcome() async {
-        let box = NotificationBox()
+        let outcomeLock = OSAllocatedUnfairLock<SyncOutcome?>(initialState: nil)
         let expectation = expectation(description: "syncDidComplete notification received")
 
         let observer = NotificationCenter.default.addObserver(
@@ -295,7 +293,8 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
             object: coordinator,
             queue: .main
         ) { notification in
-            box.outcome = notification.userInfo?[SyncOutcome.userInfoKey] as? SyncOutcome
+            let outcome = notification.userInfo?[SyncOutcome.userInfoKey] as? SyncOutcome
+            outcomeLock.withLock { $0 = outcome }
             expectation.fulfill()
         }
 
@@ -305,6 +304,6 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         await fulfillment(of: [expectation], timeout: 2.0)
         NotificationCenter.default.removeObserver(observer)
 
-        XCTAssertEqual(box.outcome, .changed)
+        XCTAssertEqual(outcomeLock.withLock { $0 }, .changed)
     }
 }

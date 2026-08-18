@@ -36,6 +36,10 @@ final class QuestService {
     var cacheService: CacheService?
     var treasuryService: TreasuryService?
     var achievementService: AchievementService?
+    /// Loot-drop reward surface for quest completions. Set by `AppDependencies`
+    /// after `LootDropService` is constructed (it owns `GemService`). Optional
+    /// so read-only callers (tests) need not set it.
+    var lootDropService: LootDropService?
     var syncCoordinator: CKSyncEngineCoordinator?
 
     /// The active session's app state, used to resolve the acting profile for

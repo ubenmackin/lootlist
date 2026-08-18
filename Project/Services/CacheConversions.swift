@@ -139,6 +139,14 @@ extension ProfileCache {
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: effectiveZoneID), action: .none),
             payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
             payoutDay: payoutDay.flatMap { PayoutDay(rawValue: $0) },
+            gems: gemsTotal,
+            streakShields: streakShields,
+            ownedEquipment: ownedEquipment ?? [],
+            equippedItems: equippedItems ?? [],
+            dailyLoginLastClaimDay: dailyLoginLastClaimDay,
+            dailyLoginCycleDay: dailyLoginCycleDay,
+            dailyLoginStreakDays: dailyLoginStreakDays,
+            claimedBonusObjectives: claimedBonusObjectives ?? [],
             id: CKRecord.ID(recordName: recordName, zoneID: effectiveZoneID)
         )
         profile.xp = xpTotal
@@ -288,5 +296,41 @@ extension NotificationPreferenceCache {
         preference.changeTag = changeTag
         preference.encodedSystemFields = encodedSystemFields
         return preference
+    }
+}
+
+extension GemLedgerCache {
+    func toGemLedger(zoneID: CKRecordZone.ID) -> GemLedger {
+        let effectiveZoneID = validatedZoneID(requestedZoneID: zoneID)
+        var ledger = GemLedger(
+            profileRecordName: profileRecordName,
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: effectiveZoneID), action: .none),
+            amount: amount,
+            source: source,
+            sourceDetail: sourceDetail,
+            createdAt: createdAt,
+            id: CKRecord.ID(recordName: recordName, zoneID: effectiveZoneID)
+        )
+        ledger.changeTag = changeTag
+        ledger.encodedSystemFields = encodedSystemFields
+        return ledger
+    }
+}
+
+extension RewardEventCache {
+    func toRewardEvent(zoneID: CKRecordZone.ID) -> RewardEvent {
+        let effectiveZoneID = validatedZoneID(requestedZoneID: zoneID)
+        var event = RewardEvent(
+            profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: profileRecordName, zoneID: effectiveZoneID), action: .none),
+            questCompletion: CKRecord.Reference(recordID: CKRecord.ID(recordName: questCompletionRecordName, zoneID: effectiveZoneID), action: .none),
+            xpAmount: xpAmount,
+            goldAmount: goldAmount,
+            timestamp: timestamp,
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: effectiveZoneID), action: .none),
+            id: CKRecord.ID(recordName: recordName, zoneID: effectiveZoneID)
+        )
+        event.changeTag = changeTag
+        event.encodedSystemFields = encodedSystemFields
+        return event
     }
 }

@@ -26,7 +26,7 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
     var paidDate: Date?
     var paidAmount: Double?
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?

@@ -9,10 +9,6 @@ import CloudKit
 import Foundation
 import os
 
-/// Handles `CKSyncEngine` events on the `@MainActor`, coordinating sync state
-/// with `CKSyncEngineCoordinator` and offloading heavy database batch tasks to
-/// `BackgroundCacheActor`. Conforms to `CKSyncEngineDelegate` with static compile-time
-/// thread safety (eliminating `@unchecked Sendable`).
 @MainActor
 final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     private let logger = Logger(

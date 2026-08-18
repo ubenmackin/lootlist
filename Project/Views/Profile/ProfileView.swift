@@ -2,7 +2,7 @@
 //  ProfileView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit
@@ -351,6 +351,38 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("profile.openCharacterSheet")
+
+            if profile.role == .hero {
+                Divider().padding(.leading, 56)
+
+                NavigationLink {
+                    GemShopView()
+                } label: {
+                    actionRow(
+                        icon: "sparkles",
+                        title: "Gem Shop",
+                        subtitle: "Cosmetics, gear, and companion pets",
+                        tint: Color.gold
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("profile.gemShop")
+
+                Divider().padding(.leading, 56)
+
+                NavigationLink {
+                    TrophyRoomView(familyRecordName: familyRecordName)
+                } label: {
+                    actionRow(
+                        icon: "trophy.fill",
+                        title: "Trophies",
+                        subtitle: "Hall of Heroes — view unlocked achievements",
+                        tint: Color.gold
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("profile.trophies")
+            }
 
             Divider().padding(.leading, 56)
 

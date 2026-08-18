@@ -2,7 +2,7 @@
 //  GuildRosterSectionView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 8/13/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit

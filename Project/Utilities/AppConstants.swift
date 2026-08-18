@@ -25,6 +25,14 @@ enum AppConstants {
         static let pulseDelayNanoseconds: UInt64 = 1_000_000_000
     }
 
+    enum Session {
+        /// Wall-clock budget for the `restoreSession` zone-reachability probe.
+        static let zoneCheckTimeoutSeconds: Double = 5.0
+        /// Retry attempts for the zone-reachability probe before escalating to
+        /// the unrecoverable-session branch.
+        static let restoreRetryBudget: Int = 2
+    }
+
     static let weekdayCodes = ["sunday", "monday", "tuesday", "wednesday",
                                "thursday", "friday", "saturday"]
     static let weekdayDisplay = ["Sunday", "Monday", "Tuesday", "Wednesday",
@@ -74,5 +82,15 @@ enum AppConstants {
         static let toastAutoDismissNanos: UInt64 = 7_000_000_000
         static let celebrationAutoDismissSeconds: UInt64 = 6
         static let avatarJpegCompression: Double = 0.8
+    }
+
+    enum DailyLogin {
+        /// Pairs with `lastLoginDayKey` so a shared device treats each hero
+        /// as an independent reward cycle rather than pre-claiming a child's
+        /// reward when a parent claimed earlier in the day.
+        static let lastHeroProfileRecordNameKey: String = "dailyLoginLastHeroProfileRecordName"
+        /// Hours since the previous hero's claim after which a new active
+        /// hero begins a fresh day 1 cycle rather than resuming the run.
+        static let resetWindowHours: Int = 24
     }
 }

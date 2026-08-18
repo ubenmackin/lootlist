@@ -35,6 +35,12 @@ final class AppDependencies {
     let syncEngineDelegateHandler: CKSyncEngineDelegateHandler
     let toastManager: ToastManager
     let celebrationManager: CelebrationManager
+    let soundManager: SoundManager
+    let gemService: GemService
+    let lootDropService: LootDropService
+    let dailyLoginService: DailyLoginService
+    let bonusObjectiveService: BonusObjectiveService
+    let equipmentService: EquipmentService
     let familyShareReconciler: FamilyShareReconciler
     let lifecycleCoordinator: AppLifecycleCoordinator
 
@@ -48,6 +54,7 @@ final class AppDependencies {
         let toast = ToastManager()
         let celebration = CelebrationManager()
         celebration.toastManager = toast
+        let sound = SoundManager()
 
         let network = NetworkMonitor.shared
         network.start()
@@ -76,6 +83,7 @@ final class AppDependencies {
         let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache, toastManager: toast, syncCoordinator: syncCoord)
         delegate.setNotificationService(notification)
         let xp = XPService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
+        xp.celebrationManager = celebration
         let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
         let quest = QuestService(
             cloudKit: ck,
@@ -104,6 +112,13 @@ final class AppDependencies {
         let appSync = AppSyncCoordinator()
         app.cacheService = cache
         toastManager = toast
+
+        let gem = GemService(cloudKitService: ck, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord, soundManager: sound)
+        let lootDrop = LootDropService(gemService: gem, toastManager: toast, soundManager: sound)
+        quest.lootDropService = lootDrop
+        let dailyLogin = DailyLoginService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let bonusObjective = BonusObjectiveService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let equipment = EquipmentService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
 
         let migrations = Self.makeDataMigrations(cloudKit: ck, cache: cache, backgroundCache: sharedBgActor)
 
@@ -141,6 +156,12 @@ final class AppDependencies {
         autoPayoutCoordinator = autoPayout
         cacheService = cache
         celebrationManager = celebration
+        soundManager = sound
+        gemService = gem
+        lootDropService = lootDrop
+        dailyLoginService = dailyLogin
+        bonusObjectiveService = bonusObjective
+        equipmentService = equipment
         familyShareReconciler = reconciler
         lifecycleCoordinator = lifecycle
 
@@ -277,6 +298,30 @@ struct LootListApp: App {
         dependencies.celebrationManager
     }
 
+    private var soundManager: SoundManager {
+        dependencies.soundManager
+    }
+
+    private var gemService: GemService {
+        dependencies.gemService
+    }
+
+    private var lootDropService: LootDropService {
+        dependencies.lootDropService
+    }
+
+    private var dailyLoginService: DailyLoginService {
+        dependencies.dailyLoginService
+    }
+
+    private var bonusObjectiveService: BonusObjectiveService {
+        dependencies.bonusObjectiveService
+    }
+
+    private var equipmentService: EquipmentService {
+        dependencies.equipmentService
+    }
+
     var body: some Scene {
         WindowGroup {
             rootViewContent
@@ -296,22 +341,6 @@ struct LootListApp: App {
             #endif
         } else {
             let baseRoot = RootView(pendingShareMetadata: pendingShareMetadata)
-                .environment(appState)
-                .environment(cloudKitService)
-                .environment(familyService)
-                .environment(xpService)
-                .environment(questService)
-                .environment(treasuryService)
-                .environment(achievementService)
-                .environment(avatarService)
-                .environment(notificationService)
-                .environment(appSyncCoordinator)
-                .environment(cacheService)
-                .environment(syncCoordinator)
-                .environment(dependencies.lifecycleCoordinator)
-                .environment(networkMonitor)
-                .environment(toastManager)
-                .environment(celebrationManager)
                 .task {
                     if !TestEnvironment.isRunningUnitOrUITests {
                         await dependencies.lifecycleCoordinator.performInitialBootstrap()
@@ -330,11 +359,33 @@ struct LootListApp: App {
                 }
                 // Toast banner overlay sits above all RootView states (splash,
                 // onboarding, authenticated) so services can surface errors
-                // universally. Hung on `baseRoot` so both branch consumers inherit it.
+                // universally.
                 .toastOverlay()
                 // Celebration fullscreen overlay sits above the toast layer so
                 // trophy unlocks and streak milestones take visual priority.
                 .celebrationOverlay()
+                .environment(appState)
+                .environment(cloudKitService)
+                .environment(familyService)
+                .environment(xpService)
+                .environment(questService)
+                .environment(treasuryService)
+                .environment(achievementService)
+                .environment(avatarService)
+                .environment(notificationService)
+                .environment(appSyncCoordinator)
+                .environment(cacheService)
+                .environment(syncCoordinator)
+                .environment(dependencies.lifecycleCoordinator)
+                .environment(networkMonitor)
+                .environment(toastManager)
+                .environment(celebrationManager)
+                .environment(soundManager)
+                .environment(gemService)
+                .environment(lootDropService)
+                .environment(dailyLoginService)
+                .environment(bonusObjectiveService)
+                .environment(equipmentService)
 
             if let container = cacheService?.container {
                 baseRoot.modelContainer(container)

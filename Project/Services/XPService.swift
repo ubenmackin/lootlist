@@ -61,6 +61,7 @@ final class XPService {
     let notificationService: NotificationService?
     var cacheService: CacheService?
     var syncCoordinator: CKSyncEngineCoordinator?
+    var celebrationManager: CelebrationManager?
 
     let toastManager: ToastManager?
 
@@ -140,18 +141,26 @@ final class XPService {
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
-        if updated.level > oldLevel, let notificationService {
-            let newLevel = updated.level
-            Task { [logger] in
-                do {
-                    try await notificationService.send(
-                        .levelUp,
-                        to: updated,
-                        title: "🎉 Level Up!",
-                        body: "\(updated.displayName) reached Level \(newLevel)!"
-                    )
-                } catch {
-                    logger.error("Failed to send level-up notification: \(error, privacy: .public)")
+        if updated.level > oldLevel {
+            celebrationManager?.enqueueLevelUp(
+                oldLevel: oldLevel,
+                newLevel: updated.level,
+                heroName: updated.displayName
+            )
+
+            if let notificationService {
+                let newLevel = updated.level
+                Task { [logger] in
+                    do {
+                        try await notificationService.send(
+                            .levelUp,
+                            to: updated,
+                            title: "🎉 Level Up!",
+                            body: "\(updated.displayName) reached Level \(newLevel)!"
+                        )
+                    } catch {
+                        logger.error("Failed to send level-up notification: \(error, privacy: .public)")
+                    }
                 }
             }
         }
@@ -180,7 +189,7 @@ final class XPService {
         )
     }
 
-    static func title(forLevel level: Int) -> String {
+    nonisolated static func title(forLevel level: Int) -> String {
         let titles: [String] = [
             "Novice",
             "Apprentice",
@@ -207,7 +216,7 @@ final class XPService {
         }
     }
 
-    private static func romanNumeral(_ valueNumber: Int) -> String {
+    private nonisolated static func romanNumeral(_ valueNumber: Int) -> String {
         let table: [(Int, String)] = [
             (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
             (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
@@ -230,5 +239,32 @@ final class XPService {
         guard maxUnlocked >= 1 else { return [] }
 
         return (1 ... maxUnlocked).map { "accessory.level.\($0 * Self.accessoryCadence)" }
+    }
+
+    func streakMultiplier(forStreak days: Int) -> Double {
+        switch days {
+        case 0 ... 2: 1.0
+        case 3 ... 6: 1.1
+        case 7 ... 13: 1.25
+        case 14 ... 29: 1.5
+        default: 2.0
+        }
+    }
+
+    func calculatedXP(baseXP: Int, streakDays: Int) -> (totalXP: Int, bonusXP: Int) {
+        let multiplier = streakMultiplier(forStreak: streakDays)
+        let total = Int(Double(baseXP) * multiplier)
+        let bonus = total - baseXP
+        return (totalXP: total, bonusXP: bonus)
+    }
+
+    /// Derives the streak multiplier from the CloudKit-backed
+    /// `Profile.dailyLoginStreakDays` field rather than a device-local
+    /// UserDefaults counter. UserDefaults is never used for authoritative
+    /// cross-device domain data such as reward caps (ARCHITECTURE.md §2) — a
+    /// user-editable `dailyLoginStreakDays` UserDefaults value could
+    /// permanently inflate every quest's XP.
+    func calculatedXP(baseXP: Int, profile: Profile) -> (totalXP: Int, bonusXP: Int) {
+        calculatedXP(baseXP: baseXP, streakDays: profile.dailyLoginStreakDays)
     }
 }

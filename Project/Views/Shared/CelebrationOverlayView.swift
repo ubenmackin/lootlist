@@ -51,21 +51,25 @@ struct CelebrationOverlayView: View {
             VStack(spacing: 20) {
                 badge
 
-                VStack(spacing: 8) {
-                    Text(item.isStreakMilestone ? "🔥 Streak Milestone!" : "🏆 Trophy Unlocked!")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.gold)
-                        .textCase(.uppercase)
-                        .accessibilityHidden(true)
+                if item.isLevelUp {
+                    LevelUpDetailsView(item: item)
+                } else {
+                    VStack(spacing: 8) {
+                        Text(item.isStreakMilestone ? "🔥 Streak Milestone!" : "🏆 Trophy Unlocked!")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.gold)
+                            .textCase(.uppercase)
+                            .accessibilityHidden(true)
 
-                    Text(item.name)
-                        .font(.title.bold())
-                        .multilineTextAlignment(.center)
+                        Text(item.name)
+                            .font(.title.bold())
+                            .multilineTextAlignment(.center)
 
-                    Text(item.description)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                        Text(item.description)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
 
                 Button {
@@ -102,25 +106,47 @@ struct CelebrationOverlayView: View {
         }
     }
 
+    @ViewBuilder
     private var badge: some View {
-        ZStack {
-            Circle()
-                .fill(LinearGradient(
-                    colors: [Color.gold.opacity(0.4), Color.orange.opacity(0.2)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
-                .frame(width: 110, height: 110)
+        if item.isLevelUp {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(
+                        colors: [.blue.opacity(0.4), .purple.opacity(0.2)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+                    .frame(width: 110, height: 110)
 
-            Circle()
-                .strokeBorder(Color.gold.opacity(0.5), lineWidth: 2)
-                .frame(width: 110, height: 110)
+                Circle()
+                    .strokeBorder(Color.blue.opacity(0.5), lineWidth: 2)
+                    .frame(width: 110, height: 110)
 
-            Image(systemName: item.iconSystemName)
-                .font(.system(size: 48))
-                .foregroundStyle(Color.gold)
+                Text("\(item.newLevel ?? 2)")
+                    .font(.system(size: 48, weight: .bold))
+                    .foregroundStyle(Color.blue)
+            }
+            .accessibilityHidden(true)
+        } else {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(
+                        colors: [Color.gold.opacity(0.4), Color.orange.opacity(0.2)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+                    .frame(width: 110, height: 110)
+
+                Circle()
+                    .strokeBorder(Color.gold.opacity(0.5), lineWidth: 2)
+                    .frame(width: 110, height: 110)
+
+                Image(systemName: item.iconSystemName)
+                    .font(.system(size: 48))
+                    .foregroundStyle(Color.gold)
+            }
+            .accessibilityHidden(true)
         }
-        .accessibilityHidden(true)
     }
 
     private func playChime() {
@@ -132,6 +158,51 @@ struct CelebrationOverlayView: View {
         guard soundEnabled else { return }
         hapticGenerator.prepare()
         hapticGenerator.notificationOccurred(.success)
+    }
+}
+
+private struct LevelUpDetailsView: View {
+    let item: CelebrationItem
+    @State private var displayLevel: Int
+
+    init(item: CelebrationItem) {
+        self.item = item
+        self._displayLevel = State(initialValue: item.oldLevel ?? 1)
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("⬆️ Level Up!")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.blue)
+                .textCase(.uppercase)
+                .accessibilityHidden(true)
+
+            HStack(spacing: 8) {
+                Text("Level \(item.oldLevel ?? 1)")
+                    .font(.title.bold())
+                    .foregroundStyle(.secondary)
+
+                Image(systemName: "arrow.right")
+                    .font(.title2.bold())
+
+                Text("Level \(displayLevel)")
+                    .font(.title.bold())
+                    .contentTransition(.numericText())
+            }
+
+            if let newTitle = item.newTitle {
+                Text("You are now a \(newTitle)!")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.6).delay(0.5)) {
+                displayLevel = item.newLevel ?? 2
+            }
+        }
     }
 }
 

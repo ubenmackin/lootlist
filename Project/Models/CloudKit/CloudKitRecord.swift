@@ -62,11 +62,19 @@ extension Profile: CloudKitRecord {
             "role",
             "xp",
             "level",
+            "gems",
+            "streakShields",
             "iCloudUserID",
             "family",
             "isActive",
             "payoutPolicy",
-            "payoutDay"
+            "payoutDay",
+            "ownedEquipment",
+            "equippedItems",
+            "dailyLoginLastClaimDay",
+            "dailyLoginCycleDay",
+            "dailyLoginStreakDays",
+            "claimedBonusObjectives"
         ]
     }
 }

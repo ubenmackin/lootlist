@@ -134,11 +134,20 @@ extension CacheService {
         invalidateRecord(identity: identity, type: .notificationPreference)
     }
 
+    func invalidateRewardEvent(recordName: String, family: String) {
+        deleteByNameAndFamily(RewardEventCache.self, recordName: recordName, familyRecordName: family)
+    }
+
+    func invalidateRewardEvent(identity: ScopedRecordIdentity) {
+        invalidateRecord(identity: identity, type: .rewardEvent)
+    }
+
     // MARK: - Per-Family Purge
 
     /// Deletes the `FamilyCache` matching `recordName` and all child caches
     /// (Quest, QuestTemplate, QuestCompletion, LedgerEntry, AllowancePeriod,
-    /// Achievement, ProfileAchievement, Profile, NotificationPreference) whose
+    /// Achievement, ProfileAchievement, Profile, NotificationPreference,
+    /// GemLedger, RewardEvent) whose
     /// `familyRecordName` matches.  Safer than `clearAll()` when removing a
     /// single family from a multi-family cache.
     func purgeFamily(recordName: String) {
@@ -160,6 +169,8 @@ extension CacheService {
         deleteAll(from: context, where: #Predicate<ProfileAchievementCache> { $0.familyRecordName == recordName })
         deleteAll(from: context, where: #Predicate<ProfileCache> { $0.familyRecordName == recordName })
         deleteAll(from: context, where: #Predicate<NotificationPreferenceCache> { $0.familyRecordName == recordName })
+        deleteAll(from: context, where: #Predicate<GemLedgerCache> { $0.familyRecordName == recordName })
+        deleteAll(from: context, where: #Predicate<RewardEventCache> { $0.familyRecordName == recordName })
 
         // The family's rows are gone, so its freshness stamps must go too —
         // otherwise a later partial re-population could look freshly synced.
@@ -182,6 +193,8 @@ extension CacheService {
         try? context.delete(model: AchievementCache.self)
         try? context.delete(model: ProfileAchievementCache.self)
         try? context.delete(model: NotificationPreferenceCache.self)
+        try? context.delete(model: GemLedgerCache.self)
+        try? context.delete(model: RewardEventCache.self)
 
         // A swallowed save failure would leave phantom rows persisting past the
         // invalidate-everything wipe — so the save is explicit and rethrown.

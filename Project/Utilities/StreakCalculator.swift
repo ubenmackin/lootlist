@@ -2,7 +2,7 @@
 //  StreakCalculator.swift
 //  LootList
 //
-//  Created by Ben Mackin on 2026-08-04
+//  Created by Ben Mackin on 8/4/26.
 //
 
 import Foundation
