@@ -2,7 +2,7 @@
 //  TabBarView.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit
@@ -140,7 +140,7 @@ struct TabBarView: View {
             }
         case .hero:
             if !RootTab.heroTabs.contains(selectedTab) {
-                selectedTab = .quests
+                selectedTab = .home
             }
         case .unknown:
             if selectedTab != .placeholder {
@@ -183,7 +183,13 @@ struct TabBarView: View {
     private var heroTabs: some View {
         let familyName = appState.family?.id.recordName
 
-        HeroDashboardView(familyRecordName: familyName)
+        HeroHomeView(familyRecordName: familyName)
+            .tabItem {
+                Label("Home", systemImage: "house.fill")
+            }
+            .tag(RootTab.home)
+
+        QuestsView(familyRecordName: familyName)
             .tabItem {
                 Label("Quests", systemImage: "list.bullet.clipboard")
             }
@@ -194,12 +200,6 @@ struct TabBarView: View {
                 Label("Money", systemImage: "banknote")
             }
             .tag(RootTab.gold)
-
-        TrophyRoomView(familyRecordName: familyName)
-            .tabItem {
-                Label("Trophies", systemImage: "trophy.fill")
-            }
-            .tag(RootTab.trophies)
 
         ProfileView(avatarService: avatarService,
                     xpService: xpService,
@@ -236,12 +236,13 @@ private enum RootTab: Hashable {
 
     case quests
     case gold
-    case trophies
     case profile
+
+    case home
 
     case placeholder
 
     static let parentTabs: Set<RootTab> = [.family, .manage, .payouts, .settings]
 
-    static let heroTabs: Set<RootTab> = [.quests, .gold, .trophies, .profile]
+    static let heroTabs: Set<RootTab> = [.home, .quests, .gold, .profile]
 }

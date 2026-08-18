@@ -9,6 +9,67 @@ import CloudKit
 import Foundation
 
 extension CloudKitService {
+    func claimRewardEvent(_ event: RewardEvent,
+                          in zoneID: CKRecordZone.ID? = nil,
+                          using db: CKDatabase? = nil) async throws -> Bool
+    {
+        if isTestingOrMocking {
+            let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+            let source = event.toRecord()
+            let zone = zoneID ?? activeFamilyZoneID ?? CKRecordZone.default().zoneID
+            let targetID = source.recordID.zoneID.zoneName == CKRecordZone.default().zoneID.zoneName
+                ? CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
+                : source.recordID
+            guard mockStore.getRecord(recordID: targetID, databaseScope: scope) == nil else { return false }
+            let record = CKRecord(recordType: RewardEvent.recordType, recordID: targetID)
+            for key in source.allKeys() {
+                record[key] = source[key]
+            }
+            record.setParent(CKRecord.ID(recordName: event.family.recordID.recordName, zoneID: zone))
+            mockStore.setRecord(record, databaseScope: scope)
+            return true
+        }
+
+        guard let zone = zoneID ?? activeFamilyZoneID else {
+            throw CloudKitServiceError.invalidArguments("No zoneID provided and no activeFamilyZoneID available")
+        }
+        guard let targetDB = db ?? activeFamilyDatabase else {
+            throw CloudKitServiceError.accountUnavailable
+        }
+
+        let source = event.toRecord()
+        let targetID = source.recordID.zoneID.zoneName == CKRecordZone.default().zoneID.zoneName
+            ? CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
+            : source.recordID
+        let record = CKRecord(recordType: RewardEvent.recordType, recordID: targetID)
+        for key in source.allKeys() {
+            record[key] = source[key]
+        }
+        record.setParent(CKRecord.ID(recordName: event.family.recordID.recordName, zoneID: zone))
+
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+        operation.savePolicy = .ifServerRecordUnchanged
+        operation.isAtomic = true
+
+        return try await withCheckedThrowingContinuation { continuation in
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    continuation.resume(returning: true)
+                case let .failure(error):
+                    if let ckError = error as? CKError,
+                       ckError.code == .serverRecordChanged || ckError.code == .constraintViolation
+                    {
+                        continuation.resume(returning: false)
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+            targetDB.add(operation)
+        }
+    }
+
     func save<T: CloudKitRecord>(_ model: T,
                                  in zoneID: CKRecordZone.ID? = nil,
                                  using db: CKDatabase? = nil) async throws -> T

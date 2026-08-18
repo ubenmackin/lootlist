@@ -28,7 +28,7 @@ struct AppLifecycleCoordinatorTests {
         let profile = Profile(
             displayName: "GM",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: "prof1", zoneID: zoneID)
         )
@@ -171,7 +171,7 @@ struct AppLifecycleCoordinatorTests {
         let profile = Profile(
             displayName: "GM",
             role: .guildMaster,
-            iCloudUserID: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: "prof123", zoneID: zoneID)
         )

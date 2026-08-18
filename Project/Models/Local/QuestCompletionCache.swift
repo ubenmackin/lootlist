@@ -30,7 +30,7 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
     /// so a reward-step re-run can detect an already-settled completion.
     var xpCredited: Int?
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?
@@ -41,6 +41,14 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
 
     var approvalModeEnum: ApprovalMode? {
         ApprovalMode(rawValue: approvalMode)
+    }
+
+    var isApproved: Bool {
+        verificationStatusEnum == .verified || verificationStatusEnum == .autoApproved
+    }
+
+    func wasCompleted(on date: Date) -> Bool {
+        Calendar.iso8601UTC.isDate(completedDate, inSameDayAs: date)
     }
 
     init(recordName: String,

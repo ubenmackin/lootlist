@@ -2,13 +2,19 @@
 //  FamilyDashboardViewModel.swift
 //  LootList
 //
-//  Created by Ben Mackin on 7/21/26.
+//  Created by Ben Mackin on 8/16/26.
 //
 
 import CloudKit
 import Foundation
 import Observation
 import os
+
+/// Duplicated from `FamilyShareReconciler` (file-private) — the view model
+/// is the canonical subscriber for roster-change notifications.
+private extension Notification.Name {
+    static let familyRosterChanged = Notification.Name("familyRosterChanged")
+}
 
 @MainActor
 @Observable
@@ -44,6 +50,17 @@ final class FamilyDashboardViewModel {
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
 
+    /// Long-lived observer for `FamilyShareReconciler`'s roster-changed
+    /// notification. The reconciler posts it after a successful reconcile pass
+    /// that mutated the membership layer; the view model responds by re-running
+    /// `refreshInvitations()` so the parent's Invitations panel drops the
+    /// matching row the moment the local cache and the share-side participant
+    /// list converge. The task is held for the lifetime of the view model;
+    /// it terminates naturally via the `[weak self]` guard when the view
+    /// model is deallocated (the next notification after deallocation
+    /// unwinds the `for await` loop).
+    private var rosterObserverTask: Task<Void, Never>?
+
     init(questService: QuestService,
          treasury: TreasuryService,
          achievementService: AchievementService,
@@ -55,6 +72,21 @@ final class FamilyDashboardViewModel {
         achievements = achievementService
         self.familyService = familyService
         self.appState = appState
+
+        // Re-trigger invitation classification on roster mutations: SwiftData
+        // writes the new `ProfileCache` to the cache (which fires the view's
+        // `.onChange(of: cachedProfiles)` → `rebuildLists`), but the Invitations
+        // panel is sourced from the CKShare participant list, not the cache.
+        // Without this hook the panel would only refresh on a manual pull or
+        // the next `.syncDidComplete` cycle. The reconciler's post is the
+        // canonical signal that the share-side participant list has converged
+        // with the local cache.
+        rosterObserverTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
+                guard let self else { return }
+                await self.refreshInvitations()
+            }
+        }
     }
 
     func refresh() async {

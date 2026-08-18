@@ -36,7 +36,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
     var descriptionText: String?
     var createdByRecordName: String
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?
@@ -59,6 +59,24 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
 
     var scheduleTypeEnum: QuestSchedule? {
         QuestSchedule(rawValue: scheduleType)
+    }
+
+    func isScheduled(on date: Date, template: QuestTemplateCache?, payoutDay: PayoutDay) -> Bool {
+        guard isActive,
+              WeekMath.weekRange(starting: WeekMath.startOfWeek(for: date, payoutDay: payoutDay)).contains(weekOf)
+        else {
+            return false
+        }
+
+        guard scheduleTypeEnum == .specificDays else {
+            return scheduleTypeEnum == .weeklyFlexible
+        }
+
+        let calendar = Calendar.iso8601UTC
+        let weekday = calendar.component(.weekday, from: date)
+        let codes = AppConstants.weekdayCodes
+        let index = max(0, min(codes.count - 1, weekday - 1))
+        return template?.specificDays?.contains(codes[index]) == true
     }
 
     init(recordName: String,

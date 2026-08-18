@@ -85,6 +85,16 @@ struct SettingsView: View {
                     }
                 }
 
+                // Section: Developer Tools
+                Section("Developer") {
+                    NavigationLink {
+                        SpriteGalleryView()
+                    } label: {
+                        Label("Sprite Gallery", systemImage: "square.grid.2x2.fill")
+                            .foregroundStyle(.indigo)
+                    }
+                }
+
                 // Section 4: App Information
                 Section("About") {
                     HStack {

@@ -142,6 +142,18 @@ final class CKSyncEngineCoordinator {
             )
     }
 
+    func enqueueRewardEvent(_ event: RewardEvent, isOwner: Bool) {
+        enqueueSave(recordID: event.id, isOwner: isOwner)
+    }
+
+    /// Re-enqueues both records written by the conditional gem-debit
+    /// operation so CKSyncEngine remains the reconciliation path for the
+    /// local cache and future server changes.
+    func enqueueGemDebit(profileID: CKRecord.ID, ledgerID: CKRecord.ID, isOwner: Bool) {
+        enqueueSave(recordID: profileID, isOwner: isOwner)
+        enqueueSave(recordID: ledgerID, isOwner: isOwner)
+    }
+
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool) {
         guard let engine = activeEngine(isOwner: isOwner) else {
             logger.warning("No active sync engine available to enqueue delete for \(recordID.recordName, privacy: .private)")

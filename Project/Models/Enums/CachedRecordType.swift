@@ -19,6 +19,8 @@ enum CachedRecordType: String, CaseIterable, Sendable {
     case achievement
     case profileAchievement
     case notificationPreference
+    case gemLedger
+    case rewardEvent
 
     var ckRecordType: CKRecord.RecordType {
         switch self {
@@ -32,6 +34,8 @@ enum CachedRecordType: String, CaseIterable, Sendable {
         case .achievement: Achievement.recordType
         case .profileAchievement: ProfileAchievement.recordType
         case .notificationPreference: NotificationPreference.recordType
+        case .gemLedger: GemLedger.recordType
+        case .rewardEvent: RewardEvent.recordType
         }
     }
 

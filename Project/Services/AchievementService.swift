@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 enum AchievementRequirement: String, CaseIterable, Codable, Sendable {
     case firstQuest
@@ -57,6 +58,8 @@ struct ProfileStats: Sendable {
 @MainActor
 @Observable
 final class AchievementService {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AchievementService")
+
     let cacheService: CacheService?
     var syncCoordinator: CKSyncEngineCoordinator?
 
@@ -469,23 +472,29 @@ final class AchievementService {
         } else {
             let profileRef = CKRecord.Reference(recordID: profileID, action: .none)
             let predicate = NSPredicate(format: "assignee == %@", profileRef)
-            let assignedQuests = await (try? cloudKit.query(
-                Quest.self,
-                predicate: predicate,
-                in: zoneID,
-                sortDescriptors: nil
-            )) ?? []
-
-            for quest in assignedQuests {
-                questCache[quest.id] = quest
-                cacheService?.upsertQuest(quest)
+            do {
+                let assignedQuests = try await cloudKit.query(
+                    Quest.self,
+                    predicate: predicate,
+                    in: zoneID,
+                    sortDescriptors: nil
+                )
+                for quest in assignedQuests {
+                    questCache[quest.id] = quest
+                    cacheService?.upsertQuest(quest)
+                }
+            } catch {
+                logger.error("Failed to query assigned quests for profile \(profileID.recordName, privacy: .private): \(error, privacy: .private)")
             }
 
             let missingQuestIDs = Set(completedLogs.map(\.quest.recordID)).subtracting(questCache.keys)
             for questID in missingQuestIDs {
-                if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                do {
+                    let fetched = try await cloudKit.fetch(Quest.self, id: questID)
                     questCache[questID] = fetched
                     cacheService?.upsertQuest(fetched)
+                } catch {
+                    logger.debug("Failed to fetch quest \(questID.recordName, privacy: .private): \(error, privacy: .private)")
                 }
             }
         }

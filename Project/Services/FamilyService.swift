@@ -497,19 +497,18 @@ final class FamilyService: FamilyProfileFetching {
         try await deactivateProfile(profile)
 
         // Best-effort removal of the leaver's own share participant entry. Only
-        // the zone owner can mutate a `CKShare` participant list, and the family
-        // zone lives in the owner's private database — so for a non-owner leave
-        // this resolves against the leaver's own databases and either silently
-        // no-ops (no shares found there) or fails server-side. The profile
-        // deactivation above is the authoritative leave; the owner-side share
-        // reconciler and Invitations panel observe the departed identity still
-        // on the share and surface it for owner-side revocation.
-        let family = await family(for: profile)
-        let rootRecordID = family?.id ?? profile.family.recordID
-        do {
-            try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
-        } catch {
-            logger.error("Failed to remove leaving member's share participant: \(error, privacy: .private)")
+        // the zone owner can mutate a `CKShare` participant list. For non-owner
+        // members (Rangers/Heroes), the profile deactivation above is the authoritative
+        // leave; the owner-side share reconciler and Invitations panel observe the
+        // departed identity and surface it for owner-side revocation.
+        if appState.isZoneOwner {
+            let family = await family(for: profile)
+            let rootRecordID = family?.id ?? profile.family.recordID
+            do {
+                try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
+            } catch {
+                logger.error("Failed to remove leaving member's share participant: \(error, privacy: .private)")
+            }
         }
 
         appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)

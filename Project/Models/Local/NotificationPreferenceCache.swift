@@ -21,7 +21,7 @@ final class NotificationPreferenceCache: FamilyScopedCache, CacheMergeable {
     var eventType: String
     var enabled: Bool
     var changeTag: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?

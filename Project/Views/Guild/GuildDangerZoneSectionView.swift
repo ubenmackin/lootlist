@@ -26,7 +26,7 @@ struct GuildDangerZoneSectionView: View {
     var body: some View {
         VStack(spacing: 16) {
             if let currentRole = appState.currentProfile?.role, currentRole != .guildMaster {
-                leaveFamilySection
+                signOutSection
             }
 
             if let currentRole = appState.currentProfile?.role, currentRole == .guildMaster {
@@ -35,43 +35,36 @@ struct GuildDangerZoneSectionView: View {
         }
     }
 
-    private var leaveFamilySection: some View {
+    private var signOutSection: some View {
         VStack(spacing: 0) {
             Button(role: .destructive) {
                 showLeaveConfirm = true
             } label: {
-                Label("Leave Family", systemImage: "rectangle.portrait.and.arrow.right")
+                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("settings.leaveFamily")
+            .accessibilityIdentifier("settings.signOut")
         }
         .background(cardBackground)
         .padding(.horizontal)
-        .alert("Leave Family?", isPresented: $showLeaveConfirm) {
-            Button("Leave", role: .destructive) {
-                Task { await leaveFamily() }
+        .alert("Sign Out?", isPresented: $showLeaveConfirm) {
+            Button("Sign Out", role: .destructive) {
+                Task { await signOut() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your profile will be marked inactive. Your Guild's history stays synced in iCloud.")
+            Text("Sign out of this device. Your Guild progress and profile stay safely synced in iCloud.")
         }
     }
 
     @MainActor
-    private func leaveFamily() async {
-        guard let current = appState.currentProfile else { return }
-        do {
-            try await familyService.leaveFamily(profile: current)
-            isSigningOut = true
-            await appState.signOutAndDiscover(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
-            isSigningOut = false
-        } catch {
-            logger.error("Failed to leave family: \(error, privacy: .private)")
-            toastManager.show(message: "Could not leave the family. Please try again.", type: .error)
-        }
+    private func signOut() async {
+        isSigningOut = true
+        defer { isSigningOut = false }
+        await appState.signOutAndDiscover(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
     }
 
     private var deleteFamilySection: some View {

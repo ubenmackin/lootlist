@@ -28,7 +28,7 @@ final class FamilyCache: CacheMergeable {
     /// `Family.creatorUserRecordName` (server-stamped `creatorUserRecordID`).
     /// Optional so legacy rows predating the anchor migrate in cleanly with nil.
     var creatorUserRecordName: String?
-    @Attribute(.externalStorage) var encodedSystemFields: Data?
+    var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?

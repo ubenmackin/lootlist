@@ -19,6 +19,10 @@ struct CelebrationItem: Identifiable, Sendable, Equatable {
     let category: AchievementCategory
     let requirementType: AchievementRequirement
     let requirementValue: Int
+    let isLevelUp: Bool
+    let oldLevel: Int?
+    let newLevel: Int?
+    let newTitle: String?
 
     init(id: UUID = UUID(),
          name: String,
@@ -26,7 +30,11 @@ struct CelebrationItem: Identifiable, Sendable, Equatable {
          iconSystemName: String,
          category: AchievementCategory,
          requirementType: AchievementRequirement,
-         requirementValue: Int)
+         requirementValue: Int,
+         isLevelUp: Bool = false,
+         oldLevel: Int? = nil,
+         newLevel: Int? = nil,
+         newTitle: String? = nil)
     {
         self.id = id
         self.name = name
@@ -35,6 +43,10 @@ struct CelebrationItem: Identifiable, Sendable, Equatable {
         self.category = category
         self.requirementType = requirementType
         self.requirementValue = requirementValue
+        self.isLevelUp = isLevelUp
+        self.oldLevel = oldLevel
+        self.newLevel = newLevel
+        self.newTitle = newTitle
     }
 }
 
@@ -49,6 +61,21 @@ extension CelebrationItem {
             category: achievement.category,
             requirementType: achievement.requirementType,
             requirementValue: achievement.requirementValue
+        )
+    }
+
+    init(oldLevel: Int, newLevel: Int, heroName: String) {
+        self.init(
+            name: "Level Up!",
+            description: "\(heroName) reached Level \(newLevel)!",
+            iconSystemName: "arrow.up.circle.fill",
+            category: .special,
+            requirementType: .firstQuest,
+            requirementValue: 1,
+            isLevelUp: true,
+            oldLevel: oldLevel,
+            newLevel: newLevel,
+            newTitle: XPService.title(forLevel: newLevel)
         )
     }
 
@@ -110,6 +137,25 @@ final class CelebrationManager {
         presentNextIfIdle()
     }
 
+    func enqueueLevelUp(oldLevel: Int, newLevel: Int, heroName: String) {
+        let item = CelebrationItem(oldLevel: oldLevel, newLevel: newLevel, heroName: heroName)
+        queue.append(item)
+        presentNextIfIdle()
+    }
+
+    func enqueueDailyLogin(heroName _: String, gems: Int, streakDays: Int) {
+        let item = CelebrationItem(
+            name: "Daily Reward",
+            description: "You earned \(gems) Gems! Streak: \(streakDays) days",
+            iconSystemName: "gift.fill",
+            category: .special,
+            requirementType: .firstQuest,
+            requirementValue: 1
+        )
+        queue.append(item)
+        presentNextIfIdle()
+    }
+
     /// Dismisses the current fullscreen celebration and drains any remaining
     /// queued items as enhanced toasts. Safe to call multiple times — the
     /// fullscreen state and queue are guarded so a manual tap-to-skip racing
@@ -155,7 +201,11 @@ final class CelebrationManager {
     /// Surfaces a queued item as an enhanced success toast once the fullscreen
     /// overlay has dismissed.
     private func showEnhancedToast(for item: CelebrationItem) {
-        let prefix = item.isStreakMilestone ? "🔥 Streak Milestone!" : "🏆 Trophy Unlocked!"
+        let prefix: String = if item.isLevelUp {
+            "⬆️ Level Up!"
+        } else {
+            item.isStreakMilestone ? "🔥 Streak Milestone!" : "🏆 Trophy Unlocked!"
+        }
         toastManager?.show(message: "\(prefix) \(item.name)", type: .success)
     }
 }

@@ -10,7 +10,7 @@ import Foundation
 
 /// Immutable record of an XP / gold reward granted for completing a quest.
 /// Provides server-authoritative idempotency: deterministic ID `reward-{completionID}`
-/// ensures duplicate reward evaluations never credit multiple times.
+/// is claimed with an atomic create-if-absent operation before XP is credited.
 struct RewardEvent: Identifiable, Equatable, Sendable, CloudKitRecord {
     static let recordType: String = "RewardEvent"
 

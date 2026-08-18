@@ -67,14 +67,14 @@ struct HeroDashboardViewModelTests {
         // `appState.family != nil` guard (lines 51-53) doesn't early-return.
         // Route the family's `CKRecord.ID` through the same `zoneID`/`"fam1"`
         // recordName the harness already uses for the profile's `family`
-        // reference, so the two refs are provably the same Family record.
-        appState.family = Family(
+        let family = Family(
             name: "Test Family",
             createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
+        appState.family = family
         let familyRef = CKRecord.Reference(
-            recordID: appState.family!.id,
+            recordID: family.id,
             action: .none
         )
         let profile = Profile(

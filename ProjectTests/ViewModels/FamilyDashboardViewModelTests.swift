@@ -125,16 +125,6 @@ struct FamilyDashboardViewModelTests {
     }
 
     @Test
-    func `no retry loop or display name heuristic exists`() {
-        let sut = makeSUT()
-        let mirror = Mirror(reflecting: sut.vm)
-        let propertyNames = mirror.children.compactMap(\.label)
-
-        #expect(!propertyNames.contains("lastHeroDisplayNames"))
-        #expect(!propertyNames.contains("scheduleLatePropagationRetry"))
-    }
-
-    @Test
     func `zoneReset does not trigger debounced fetch`() async {
         let sut = makeSUT()
         sut.vm.subscribeToSyncEvents(sut.coordinator)

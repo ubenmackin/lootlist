@@ -1,9 +1,7 @@
 //
 //  AppLifecycleCoordinator.swift
 //  LootList
-//
-//  Centralizes all startup lifecycle orchestration to prevent duplicate
-//  concurrent execution from multiple task/view sites.
+//  Created by Ben Mackin on 8/17/26.
 //
 
 import CloudKit

@@ -12,6 +12,28 @@ import Foundation
 /// belongs to the currently active family/zone/database scope. Call at the
 /// top of every service mutation method.
 enum ActiveFamilyScopeGuard {
+    /// Validates that a mutation targets the profile bound to the authenticated
+    /// session. Profile IDs supplied by callers are not an authorization
+    /// boundary; the active session must identify the target explicitly.
+    @MainActor
+    static func requireAuthenticatedActiveProfile(
+        _ profile: Profile,
+        appState: AppState
+    ) throws {
+        guard appState.authStatus == .authenticated,
+              let activeProfile = appState.currentProfile
+        else {
+            throw ScopeViolation.noActiveProfile
+        }
+
+        guard appState.isAuthenticatedActiveProfile(profile) else {
+            throw ScopeViolation.profileMismatch(
+                active: activeProfile.id.recordName,
+                supplied: profile.id.recordName
+            )
+        }
+    }
+
     /// Validates that the supplied `familyRecordName` matches the active
     /// family on `AppState`. Throws `ScopeViolation.familyMismatch` if the
     /// check fails.
@@ -113,27 +135,79 @@ enum ActiveFamilyScopeGuard {
             cloudKit: cloudKit
         )
     }
+
+    /// Validates a recovered profile against CloudKit's server-authenticated
+    /// identity and the exact family/zone it claims to belong to. The profile's
+    /// stored `iCloudUserID` is checked as a consistency value only; the
+    /// server-stamped creator is the binding that authorizes recovery.
+    @MainActor
+    static func requireServerAuthenticatedIdentity(
+        profile: Profile,
+        family: Family,
+        zoneID: CKRecordZone.ID,
+        isOwner: Bool,
+        cloudKit: any CloudKitServiceProtocol
+    ) async throws {
+        guard profile.id.zoneID == zoneID,
+              family.id.zoneID == zoneID,
+              profile.family.recordID.recordName == family.id.recordName,
+              profile.family.recordID.zoneID == family.id.zoneID
+        else {
+            throw ScopeViolation.identityMismatch
+        }
+
+        let currentUserRecordName: String
+        do {
+            currentUserRecordName = try await cloudKit.currentUserRecordID().recordName
+        } catch {
+            throw ScopeViolation.identityUnavailable
+        }
+
+        guard profile.creatorUserRecordName == currentUserRecordName,
+              profile.iCloudUserID.recordName == currentUserRecordName
+        else {
+            throw ScopeViolation.identityMismatch
+        }
+
+        if isOwner {
+            guard family.creatorUserRecordName == currentUserRecordName else {
+                throw ScopeViolation.identityMismatch
+            }
+        }
+    }
 }
 
 enum ScopeViolation: Error, LocalizedError, Equatable {
+    case noActiveProfile
     case noActiveFamily
     case noActiveZone
+    case profileMismatch(active: String, supplied: String)
     case familyMismatch(active: String, supplied: String)
     case zoneMismatch(active: CKRecordZone.ID, supplied: CKRecordZone.ID)
     case databaseMismatch(activeIsOwner: Bool, cloudKitIsOwner: Bool)
+    case identityUnavailable
+    case identityMismatch
 
     var errorDescription: String? {
         switch self {
+        case .noActiveProfile:
+            "No authenticated active profile. Please sign in first."
         case .noActiveFamily:
             "No active family. Please join or create a Guild first."
         case .noActiveZone:
             "No active zone. Please sign in first."
+        case let .profileMismatch(active, supplied):
+            "Profile scope mismatch: active=\(active), supplied=\(supplied)"
         case let .familyMismatch(active, supplied):
             "Family scope mismatch: active=\(active), supplied=\(supplied)"
         case let .zoneMismatch(active, supplied):
             "Zone scope mismatch: active=\(active), supplied=\(supplied)"
         case let .databaseMismatch(activeIsOwner, cloudKitIsOwner):
             "Database scope mismatch: activeIsOwner=\(activeIsOwner), cloudKitIsOwner=\(cloudKitIsOwner)"
+        case .identityUnavailable:
+            "The iCloud account identity could not be verified."
+        case .identityMismatch:
+            "The profile and family identity could not be verified for this iCloud account."
         }
     }
 }
