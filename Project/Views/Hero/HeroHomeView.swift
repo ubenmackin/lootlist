@@ -61,6 +61,18 @@ struct HeroHomeView: View {
         )
     }
 
+    /// Quests assigned to the active hero profile.
+    private var profileQuests: [QuestCache] {
+        guard let name = appState.currentProfile?.id.recordName else { return [] }
+        return cachedQuests.filter { $0.assigneeRecordName == name && $0.isActive }
+    }
+
+    /// Completions logged by the active hero profile.
+    private var profileLogs: [QuestCompletionCache] {
+        guard let name = appState.currentProfile?.id.recordName else { return [] }
+        return cachedCompletions.filter { $0.completerRecordName == name }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -70,8 +82,6 @@ struct HeroHomeView: View {
                     compactPlayerCard
 
                     if let profile = appState.currentProfile {
-                        let profileQuests = cachedQuests.filter { $0.assigneeRecordName == profile.id.recordName && $0.isActive }
-                        let profileLogs = cachedCompletions.filter { $0.completerRecordName == profile.id.recordName }
                         MascotBannerView(profile: profile, quests: profileQuests, completions: profileLogs, showBonusCard: false)
                     }
                 }
