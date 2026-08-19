@@ -182,8 +182,8 @@ final class AutoPayoutCoordinator {
         // templates and must not recur; templates deleted between weeks are
         // absent from this set and therefore skipped.
         let activeTemplates = cache.fetchQuestTemplates(family: familyName).filter(\.isActive)
-        let heroByRecordName = Dictionary(uniqueKeysWithValues: heroes.map { ($0.id.recordName, $0) })
-        let activeTemplateByRecordName = Dictionary(uniqueKeysWithValues: activeTemplates.map { ($0.recordName, $0) })
+        let heroByRecordName = Dictionary(heroes.map { ($0.id.recordName, $0) }, uniquingKeysWith: { first, _ in first })
+        let activeTemplateByRecordName = Dictionary(activeTemplates.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
         let activeTemplateNames = Set(activeTemplates.map(\.recordName))
 
         // Group heroes by their effective per-assignee current-week start so

@@ -127,69 +127,71 @@ final class QuestManagerViewModel {
         )
     }
 
-    // Quest assignment form collects many fields; consolidating into a struct would be an API change outside lint scope.
-    // swiftlint:disable:next function_parameter_count
-    func assignQuickQuest(name: String,
-                          description: String,
-                          assignee: Profile,
-                          goldReward: Double,
-                          xpReward: Int,
-                          scheduleType: QuestSchedule,
-                          specificDays: [String],
-                          targetCount: Int = 1,
-                          approvalMode: ApprovalMode,
-                          weekOf: Date) async throws
-    {
+    struct QuickQuestInput {
+        var name: String
+        var description: String
+        var assignee: Profile
+        var goldReward: Double
+        var xpReward: Int
+        var scheduleType: QuestSchedule
+        var specificDays: [String] = []
+        var targetCount: Int = 1
+        var approvalMode: ApprovalMode
+        var weekOf: Date
+    }
+
+    struct UpdateQuestInput {
+        var name: String?
+        var descriptionText: String?
+        var goldReward: Double
+        var xpReward: Int
+        var scheduleType: QuestSchedule
+        var specificDays: [String] = []
+        var targetCount: Int = 1
+        var isAllOrNothing: Bool
+        var approvalMode: ApprovalMode
+        var assignee: Profile
+        var allowLockedFieldsOverride: Bool = false
+        var propagateToTemplate: Bool = false
+    }
+
+    func assignQuickQuest(_ input: QuickQuestInput) async throws {
         guard let parent = appState.currentProfile,
               let family = appState.family
         else {
             throw QuestServiceError.missingSession
         }
         _ = try await questService.assignQuickQuest(
-            name: name,
-            description: description,
-            assignee: assignee,
-            goldReward: goldReward,
-            xpReward: xpReward,
-            scheduleType: scheduleType,
-            specificDays: specificDays,
-            targetCount: targetCount,
-            approvalMode: approvalMode,
-            weekOf: weekOf,
+            name: input.name,
+            description: input.description,
+            assignee: input.assignee,
+            goldReward: input.goldReward,
+            xpReward: input.xpReward,
+            scheduleType: input.scheduleType,
+            specificDays: input.specificDays,
+            targetCount: input.targetCount,
+            approvalMode: input.approvalMode,
+            weekOf: input.weekOf,
             createdBy: parent,
             family: family
         )
     }
 
-    // swiftlint:disable:next function_parameter_count
-    func updateQuest(_ quest: Quest,
-                     name: String?,
-                     descriptionText: String?,
-                     goldReward: Double,
-                     xpReward: Int,
-                     scheduleType: QuestSchedule,
-                     specificDays: [String] = [],
-                     targetCount: Int = 1,
-                     isAllOrNothing: Bool,
-                     approvalMode: ApprovalMode,
-                     assignee: Profile,
-                     allowLockedFieldsOverride: Bool,
-                     propagateToTemplate: Bool = false) async throws
-    {
+    func updateQuest(_ quest: Quest, input: UpdateQuestInput) async throws {
         guard appState.family != nil else {
             throw QuestServiceError.missingSession
         }
 
         // If quest has logs, only name and descriptionText may change
-        if !allowLockedFieldsOverride {
+        if !input.allowLockedFieldsOverride {
             let logs = try await questService.fetchQuestLogs(forQuest: quest)
             if !logs.isEmpty {
-                let fieldsChanged = quest.goldReward != goldReward
-                    || quest.xpReward != xpReward
-                    || quest.scheduleType != scheduleType
-                    || quest.targetCount != targetCount
-                    || quest.assignee.recordID != assignee.id
-                    || quest.isAllOrNothing != isAllOrNothing
+                let fieldsChanged = quest.goldReward != input.goldReward
+                    || quest.xpReward != input.xpReward
+                    || quest.scheduleType != input.scheduleType
+                    || quest.targetCount != input.targetCount
+                    || quest.assignee.recordID != input.assignee.id
+                    || quest.isAllOrNothing != input.isAllOrNothing
                 if fieldsChanged {
                     throw QuestEditLockedError.lockedFields
                 }
@@ -197,23 +199,23 @@ final class QuestManagerViewModel {
         }
 
         var updated = quest
-        updated.name = name
-        updated.descriptionText = descriptionText
-        updated.goldReward = goldReward
-        updated.xpReward = xpReward
-        updated.scheduleType = scheduleType
-        updated.targetCount = targetCount
-        updated.isAllOrNothing = isAllOrNothing
-        updated.approvalMode = approvalMode
-        updated.assignee = CKRecord.Reference(recordID: assignee.id, action: .none)
+        updated.name = input.name
+        updated.descriptionText = input.descriptionText
+        updated.goldReward = input.goldReward
+        updated.xpReward = input.xpReward
+        updated.scheduleType = input.scheduleType
+        updated.targetCount = input.targetCount
+        updated.isAllOrNothing = input.isAllOrNothing
+        updated.approvalMode = input.approvalMode
+        updated.assignee = CKRecord.Reference(recordID: input.assignee.id, action: .none)
 
         _ = try await questService.updateQuest(updated)
 
         let zoneID = quest.id.zoneID
-        if propagateToTemplate, let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
+        if input.propagateToTemplate, let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
             var template = templateCache.toQuestTemplate(zoneID: zoneID)
-            template.scheduleType = scheduleType
-            template.specificDays = scheduleType.requiresSpecificDays ? specificDays : []
+            template.scheduleType = input.scheduleType
+            template.specificDays = input.scheduleType.requiresSpecificDays ? input.specificDays : []
             do {
                 _ = try await questService.updateTemplate(template)
             } catch {

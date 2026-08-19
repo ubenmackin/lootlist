@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import os
 import SwiftData
 import SwiftUI
 
@@ -24,14 +25,21 @@ struct GemShopView: View {
     @State private var celebratedItem: ShopItem?
     @State private var showCelebration: Bool = false
 
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GemShopView")
+
     private var currentProfile: Profile? {
         appState.currentProfile
     }
 
-    private var gemBalance: Int {
-        guard let profile = currentProfile else { return 0 }
+    private var gemBalance: Int? {
+        guard let profile = currentProfile else { return nil }
         let familyRecordName = appState.family?.id.recordName ?? profile.family.recordID.recordName
-        return (try? gemService.balance(for: profile.id.recordName, familyRecordName: familyRecordName)) ?? 0
+        do {
+            return try gemService.balance(for: profile.id.recordName, familyRecordName: familyRecordName)
+        } catch {
+            logger.warning("GemShopView.gemBalance: failed to fetch gem balance: \(error, privacy: .private)")
+            return nil
+        }
     }
 
     var body: some View {
@@ -73,7 +81,11 @@ struct GemShopView: View {
                 pendingPurchaseItem = nil
             }
         } message: { item in
-            Text("Are you sure you want to purchase \(item.name) for \(item.gemPrice) Gems?\nYour remaining balance will be \(max(0, gemBalance - item.gemPrice)) 💎.")
+            if let gemBalance {
+                Text("Are you sure you want to purchase \(item.name) for \(item.gemPrice) Gems?\nYour remaining balance will be \(max(0, gemBalance - item.gemPrice)) 💎.")
+            } else {
+                Text("Are you sure you want to purchase \(item.name) for \(item.gemPrice) Gems?")
+            }
         }
     }
 
@@ -104,7 +116,7 @@ struct GemShopView: View {
                     .textCase(.uppercase)
 
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text("\(gemBalance)")
+                    Text(gemBalance.map(String.init) ?? "–")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
                         .foregroundStyle(Color.gold)
                         .contentTransition(.numericText())
@@ -127,7 +139,7 @@ struct GemShopView: View {
                 .strokeBorder(Color.gold.opacity(0.35), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Current Gem Balance: \(gemBalance) Gems")
+        .accessibilityLabel(gemBalance.map { "Current Gem Balance: \($0) Gems" } ?? "Current Gem Balance unavailable")
     }
 
     // MARK: - Live Avatar Preview
@@ -380,7 +392,7 @@ struct GemShopView: View {
             let isOwned = equipmentService.isOwned(item: item, profile: profile)
             let isEquipped = equipmentService.isEquipped(item: item, profile: profile)
             let isLocked = profile.level < item.requiredLevel
-            let canAfford = gemBalance >= item.gemPrice
+            let canAfford = gemBalance.map { $0 >= item.gemPrice } ?? false
 
             VStack(alignment: .leading, spacing: 10) {
                 // Icon Header Box

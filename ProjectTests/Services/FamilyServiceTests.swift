@@ -237,81 +237,6 @@ struct FamilyServiceTests {
 
     // MARK: - Cache Reads & Immediate Refresh Deduplication
 
-    /// Counts CloudKit `query` calls (mock-backed, no network) so tests can
-    /// assert a fresh-cache read issues zero queries and concurrent immediate
-    /// refreshes collapse to one.
-    private final class QueryCountingCloudKitService: MockCloudKitService {
-        override init(zoneID: CKRecordZone.ID? = nil) {
-            super.init()
-            self.activeFamilyZoneID = zoneID
-        }
-
-        private(set) var queryCallCount = 0
-
-        override func query<T: CloudKitRecord>(
-            _: T.Type,
-            predicate: NSPredicate,
-            in zoneID: CKRecordZone.ID? = nil,
-            sortDescriptors: [NSSortDescriptor]? = nil,
-            using db: CKDatabase? = nil
-        ) async throws -> [T] {
-            queryCallCount += 1
-            return try await super.query(T.self, predicate: predicate, in: zoneID, sortDescriptors: sortDescriptors, using: db)
-        }
-    }
-
-    /// Parks `query` calls until released, opening a deterministic in-flight
-    /// window so a second concurrent immediate refresh can be observed
-    /// collapsing onto the first (actor-isolated in-flight guard).
-    private final class GatedQueryCloudKitService: MockCloudKitService {
-        override init(zoneID: CKRecordZone.ID? = nil) {
-            super.init()
-            self.activeFamilyZoneID = zoneID
-        }
-
-        private let gate = QueryGate()
-        private(set) var queryCallCount = 0
-
-        override func query<T: CloudKitRecord>(
-            _: T.Type,
-            predicate: NSPredicate,
-            in zoneID: CKRecordZone.ID? = nil,
-            sortDescriptors: [NSSortDescriptor]? = nil,
-            using db: CKDatabase? = nil
-        ) async throws -> [T] {
-            queryCallCount += 1
-            await gate.park()
-            return try await super.query(T.self, predicate: predicate, in: zoneID, sortDescriptors: sortDescriptors, using: db)
-        }
-
-        func releaseQueries() {
-            gate.releaseAll()
-        }
-    }
-
-    /// Holds parked `query` continuations behind a `Mutex` so a `@Sendable`
-    /// closure can park without touching main-actor state (Swift 6 safe).
-    private final class QueryGate: Sendable {
-        private let lock = Mutex<[CheckedContinuation<Void, Never>]>([])
-
-        func park() async {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                lock.withLock { $0.append(continuation) }
-            }
-        }
-
-        func releaseAll() {
-            let parked = lock.withLock { continuations -> [CheckedContinuation<Void, Never>] in
-                let all = continuations
-                continuations.removeAll()
-                return all
-            }
-            for continuation in parked {
-                continuation.resume()
-            }
-        }
-    }
-
     @Test
     func `fetchHeroes on a fresh cache performs no CloudKit query`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -709,27 +634,6 @@ struct FamilyServiceTests {
 
     // MARK: - Error-Path Coverage
 
-    /// Subclass of `CloudKitService` that always throws on `save`, exercising
-    /// the standard rollback path of the optimistic-write mutations.
-    private final class FailingCloudKitService: MockCloudKitService {
-        override init(zoneID: CKRecordZone.ID? = nil) {
-            super.init()
-            self.activeFamilyZoneID = zoneID
-        }
-
-        override func save<T: CloudKitRecord>(
-            _: T,
-            in _: CKRecordZone.ID? = nil,
-            using _: CKDatabase? = nil
-        ) async throws -> T {
-            throw TestSaveError.saveFailed
-        }
-    }
-
-    private enum TestSaveError: Error, Equatable {
-        case saveFailed
-    }
-
     @Test
     func `updateFamilyName with empty name throws persistenceFailed`() async {
         let (familyService, _, appState, _) = makeDependencies()
@@ -863,4 +767,190 @@ struct FamilyServiceTests {
         let cached = cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }
         #expect(cached?.isActive == false)
     }
+
+    @Test
+    func `updatePayoutPolicy pre-canceled leaves AppState and cache unchanged`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
+        let cache = try CacheService(inMemory: true)
+        let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            payoutPolicy: .perQuest,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let parent = Profile(
+            displayName: "Guild Master",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+        )
+        cache.upsertFamily(family)
+        cloudKit.seedMockRecords([family])
+        familyService.appState.currentProfile = parent
+        familyService.appState.family = family
+        familyService.appState.familyZoneID = zoneID
+        familyService.appState.isZoneOwner = true
+
+        let task = Task {
+            try await familyService.updatePayoutPolicy(family: family, policy: .allOrNothing)
+        }
+        task.cancel()
+        var didThrowCancellation = false
+        do {
+            _ = try await task.value
+            #expect(Bool(false), "Pre-canceled family payout update should throw")
+        } catch is CancellationError {
+            didThrowCancellation = true
+        } catch {
+            #expect(Bool(false), "Expected CancellationError, got \(error)")
+        }
+        #expect(didThrowCancellation)
+        #expect(familyService.appState.family?.payoutPolicy == .perQuest)
+        #expect(cache.fetchFamily(recordName: "fam1")?.payoutPolicyEnum == .perQuest)
+    }
+
+    @Test
+    func `updateProfilePayoutPolicy pre-canceled leaves cache and AppState unchanged`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
+        let cache = try CacheService(inMemory: true)
+        let familyService = makeFamilyServiceWithCache(cloudKit: cloudKit, cache: cache)
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+        )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            payoutPolicy: .perQuest,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let hero = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            payoutPolicy: .perQuest,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        cache.upsertFamily(family)
+        cache.upsertProfile(hero)
+        cloudKit.seedMockRecords([family, hero])
+        familyService.appState.currentProfile = hero
+        familyService.appState.family = family
+        familyService.appState.familyZoneID = zoneID
+        familyService.appState.isZoneOwner = true
+
+        let task = Task {
+            try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .realTime)
+        }
+        task.cancel()
+        var didThrowCancellation = false
+        do {
+            _ = try await task.value
+            #expect(Bool(false), "Pre-canceled profile payout update should throw")
+        } catch is CancellationError {
+            didThrowCancellation = true
+        } catch {
+            #expect(Bool(false), "Expected CancellationError, got \(error)")
+        }
+        #expect(didThrowCancellation)
+        #expect(cache.fetchProfiles(family: "fam1").first { $0.recordName == hero.id.recordName }?.payoutPolicyEnum == .perQuest)
+        #expect(familyService.appState.currentProfile?.payoutPolicy == .perQuest)
+    }
+}
+
+private final class QueryCountingCloudKitService: MockCloudKitService {
+    override init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
+    private(set) var queryCallCount = 0
+
+    override func query<T: CloudKitRecord>(
+        _: T.Type,
+        predicate: NSPredicate,
+        in zoneID: CKRecordZone.ID? = nil,
+        sortDescriptors: [NSSortDescriptor]? = nil,
+        using db: CKDatabase? = nil
+    ) async throws -> [T] {
+        queryCallCount += 1
+        return try await super.query(T.self, predicate: predicate, in: zoneID, sortDescriptors: sortDescriptors, using: db)
+    }
+}
+
+private final class GatedQueryCloudKitService: MockCloudKitService {
+    override init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
+    private let gate = QueryGate()
+    private(set) var queryCallCount = 0
+
+    override func query<T: CloudKitRecord>(
+        _: T.Type,
+        predicate: NSPredicate,
+        in zoneID: CKRecordZone.ID? = nil,
+        sortDescriptors: [NSSortDescriptor]? = nil,
+        using db: CKDatabase? = nil
+    ) async throws -> [T] {
+        queryCallCount += 1
+        await gate.park()
+        return try await super.query(T.self, predicate: predicate, in: zoneID, sortDescriptors: sortDescriptors, using: db)
+    }
+
+    func releaseQueries() {
+        gate.releaseAll()
+    }
+}
+
+private final class QueryGate: Sendable {
+    private let lock = Mutex<[CheckedContinuation<Void, Never>]>([])
+
+    func park() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.withLock { $0.append(continuation) }
+        }
+    }
+
+    func releaseAll() {
+        let parked = lock.withLock { continuations -> [CheckedContinuation<Void, Never>] in
+            let all = continuations
+            continuations.removeAll()
+            return all
+        }
+        for continuation in parked {
+            continuation.resume()
+        }
+    }
+}
+
+private final class FailingCloudKitService: MockCloudKitService {
+    override init(zoneID: CKRecordZone.ID? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+    }
+
+    override func save<T: CloudKitRecord>(
+        _: T,
+        in _: CKRecordZone.ID? = nil,
+        using _: CKDatabase? = nil
+    ) async throws -> T {
+        throw TestSaveError.saveFailed
+    }
+}
+
+private enum TestSaveError: Error, Equatable {
+    case saveFailed
 }

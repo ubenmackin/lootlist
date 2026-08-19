@@ -18,6 +18,7 @@ struct HeroSettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     @State private var selectedPolicy: PayoutPolicy
     @State private var selectedDayOverride: PayoutDay?
@@ -124,13 +125,18 @@ struct HeroSettingsView: View {
                     set: { newDay in
                         saveDayTask?.cancel()
                         let previous = selectedDayOverride
-                        selectedDayOverride = newDay
+                        withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
+                            selectedDayOverride = newDay
+                        }
                         actionError = nil
-                        saveDayTask = Task {
+                        saveDayTask = Task { @MainActor in
                             do {
+                                try await Task.sleep(nanoseconds: 350_000_000)
+                                try Task.checkCancellation()
                                 _ = try await familyService.updateProfilePayoutDay(profile: hero, day: newDay)
                             } catch {
-                                if !Task.isCancelled {
+                                guard !Task.isCancelled else { return }
+                                withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
                                     selectedDayOverride = previous
                                 }
                                 logger.error("Failed to update payout day: \(error, privacy: .private)")
@@ -185,14 +191,19 @@ struct HeroSettingsView: View {
             if !isSelected {
                 saveTask?.cancel()
                 let previousPolicy = selectedPolicy
-                selectedPolicy = policy
+                withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
+                    selectedPolicy = policy
+                }
                 actionError = nil
 
-                saveTask = Task {
+                saveTask = Task { @MainActor in
                     do {
+                        try await Task.sleep(nanoseconds: 350_000_000)
+                        try Task.checkCancellation()
                         _ = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: policy)
                     } catch {
-                        if !Task.isCancelled {
+                        guard !Task.isCancelled else { return }
+                        withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
                             selectedPolicy = previousPolicy
                         }
                         logger.error("Failed to update payout policy: \(error, privacy: .private)")

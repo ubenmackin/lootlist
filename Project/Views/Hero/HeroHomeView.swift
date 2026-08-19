@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import os
 import SwiftData
 import SwiftUI
 
@@ -21,6 +22,8 @@ struct HeroHomeView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     @State private var viewModel: HeroDashboardViewModel?
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroHomeView")
 
     private let familyRecordName: String?
 
@@ -100,12 +103,12 @@ struct HeroHomeView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "diamond.fill")
                                 .foregroundStyle(Color.gold)
-                            Text("\(gemsBalance)")
+                            Text(gemsBalance.map(String.init) ?? "–")
                                 .font(.subheadline.bold())
                                 .foregroundStyle(Color.gold)
                         }
                     }
-                    .accessibilityLabel("Gem Shop, \(gemsBalance) gems available")
+                    .accessibilityLabel(gemsBalance.map { "Gem Shop, \($0) gems available" } ?? "Gem Shop, gem balance unavailable")
                 }
             }
             .task {
@@ -219,10 +222,15 @@ struct HeroHomeView: View {
 
     // MARK: - Helpers
 
-    private var gemsBalance: Int {
-        guard let profile = appState.currentProfile else { return 0 }
+    private var gemsBalance: Int? {
+        guard let profile = appState.currentProfile else { return nil }
         let family = appState.family?.id.recordName ?? profile.family.recordID.recordName
-        return (try? gemService.balance(for: profile.id.recordName, familyRecordName: family)) ?? 0
+        do {
+            return try gemService.balance(for: profile.id.recordName, familyRecordName: family)
+        } catch {
+            logger.warning("HeroHomeView.gemsBalance: failed to fetch gem balance: \(error, privacy: .private)")
+            return nil
+        }
     }
 
     private func rebuildViewModel() {

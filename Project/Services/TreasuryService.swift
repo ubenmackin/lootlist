@@ -364,7 +364,13 @@ final class TreasuryService {
         var updated = period
         updated.paidAmount = questGold
         updated.paidDate = Date()
-        if period.paidAmount != updated.paidAmount {
+        let amountChanged: Bool = {
+            if let previous = period.paidAmount, let current = updated.paidAmount {
+                return abs(previous - current) > 0.001
+            }
+            return period.paidAmount != updated.paidAmount
+        }()
+        if amountChanged {
             let saved = try await updateAllowance(period: updated,
                                                   totalEarned: questGold,
                                                   questsCompleted: breakdown.questsCount)
