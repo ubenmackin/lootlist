@@ -12,6 +12,22 @@ import SwiftData
 import Testing
 
 @MainActor
+private final class AccountCallbackCloudKitService: MockCloudKitService {
+    private(set) var privateZoneFetchCount = 0
+    private(set) var sharedZoneFetchCount = 0
+
+    override func fetchPrivateZones() async throws -> [CKRecordZone] {
+        privateZoneFetchCount += 1
+        return []
+    }
+
+    override func fetchSharedZones() async throws -> [CKRecordZone] {
+        sharedZoneFetchCount += 1
+        return []
+    }
+}
+
+@MainActor
 @Suite(.serialized)
 struct CKSyncEngineTests {
     let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -91,6 +107,27 @@ struct CKSyncEngineTests {
         )
         let record = RecordBridge.record(for: missingIdentity, cacheService: cache)
         #expect(record == nil)
+    }
+
+    @Test
+    func `sync coordinator defers engine construction until an authenticated scope exists`() {
+        let cloudKit = MockCloudKitService()
+        let appState = AppState()
+        let resolver = CKSyncConflictResolver(appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: delegate,
+            appState: appState
+        )
+
+        #expect(coordinator.privateSyncEngine == nil)
+        #expect(coordinator.sharedSyncEngine == nil)
+
+        coordinator.initializeEngines()
+
+        #expect(coordinator.privateSyncEngine == nil)
+        #expect(coordinator.sharedSyncEngine == nil)
     }
 
     // MARK: - Conflict Resolver Tests
@@ -460,6 +497,60 @@ struct CKSyncEngineTests {
         #expect(coordinator.privateSyncEngine == nil)
         #expect(coordinator.sharedSyncEngine == nil)
 
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `duplicate account callbacks do not restart completed discovery`() async throws {
+        let suite = "CKSyncEngineTests_DuplicateAccountCallback_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let appState = AppState(defaults: defaults)
+        let cloudKit = AccountCallbackCloudKitService()
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+
+        let family = Family(
+            name: "Callback Guild",
+            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "callback-family", zoneID: zoneID)
+        )
+        let profile = Profile(
+            displayName: "Callback Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "callback-user", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "callback-profile", zoneID: zoneID)
+        )
+        appState.family = family
+        appState.currentProfile = profile
+        appState.familyZoneID = zoneID
+        appState.authStatus = .authenticated
+        appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: false)
+
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(
+            conflictResolver: resolver,
+            cacheService: cache,
+            appState: appState
+        )
+        let coordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: delegate,
+            appState: appState,
+            defaults: defaults
+        )
+        let accountChange = CKSyncEngine.Event.AccountChange.ChangeType.signOut(previousUser: profile.id)
+
+        await delegate.handleAccountChange(changeType: accountChange)
+        let privateFetches = cloudKit.privateZoneFetchCount
+        let sharedFetches = cloudKit.sharedZoneFetchCount
+
+        await delegate.handleAccountChange(changeType: accountChange)
+
+        #expect(appState.authStatus == .onboarding)
+        #expect(cloudKit.privateZoneFetchCount == privateFetches)
+        #expect(cloudKit.sharedZoneFetchCount == sharedFetches)
+        _ = coordinator
         defaults.removePersistentDomain(forName: suite)
     }
 

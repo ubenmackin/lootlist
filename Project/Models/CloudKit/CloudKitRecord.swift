@@ -8,7 +8,7 @@
 import CloudKit
 import Foundation
 
-protocol CloudKitRecord: Sendable {
+protocol CloudKitRecord: Sendable, Identifiable {
     static var recordType: String { get }
     static var managedFieldKeys: Set<String> { get }
 

@@ -59,6 +59,13 @@ extension QuestService {
             try await applyReward(for: quest, to: profile, completion: log)
             if let cached = cacheService?.fetchQuestCompletion(recordName: log.id.recordName, family: quest.family.recordID.recordName) {
                 log = cached.toQuestCompletion(zoneID: quest.id.zoneID)
+            } else {
+                // Persist the completion even when the reward claim was lost
+                // (applyReward returned early), so the @Query-driven UI reflects
+                // it and validateCanCompleteQuest prevents duplicates.
+                cacheService?.upsertQuestCompletion(log)
+                let isOwner = appState.isZoneOwner
+                syncCoordinator?.enqueueSave(recordID: log.id, isOwner: isOwner)
             }
         } else {
             cacheService?.upsertQuestCompletion(log)
@@ -249,7 +256,7 @@ extension QuestService {
                     guard let self else { return }
                     do {
                         let parent = try await self.cloudKit.fetch(Profile.self, id: parentID)
-                        self.cacheService?.upsertProfile(parent)
+                        await MainActor.run { self.cacheService?.upsertProfile(parent) }
                         try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
                     } catch {
                         logger.error("Failed to send async quest review notification: \(error, privacy: .public)")
@@ -278,7 +285,7 @@ extension QuestService {
                     guard let self else { return }
                     do {
                         let hero = try await self.cloudKit.fetch(Profile.self, id: heroID)
-                        self.cacheService?.upsertProfile(hero)
+                        await MainActor.run { self.cacheService?.upsertProfile(hero) }
                         try await notificationService.sendQuestRejected(questLog: updated, to: hero)
                     } catch {
                         logger.error("Failed to send async quest rejection notification: \(error, privacy: .public)")

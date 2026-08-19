@@ -253,6 +253,10 @@ struct FamilyDashboardView: View {
             toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
             return
         }
+        guard share.url != nil else {
+            toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
+            return
+        }
         sharePresentation = CloudSharePresentation(share: share, container: cloudKitService.container)
     }
 

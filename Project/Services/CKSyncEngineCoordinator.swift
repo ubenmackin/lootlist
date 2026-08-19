@@ -77,16 +77,29 @@ final class CKSyncEngineCoordinator {
         self.appState = appState
         self.defaults = defaults
 
+        // Engine construction is deferred until AppLifecycleCoordinator has
+        // restored and validated the active family scope.
         delegateHandler.setCoordinator(self)
-
-        if !TestEnvironment.isRunningUnitOrUITests {
-            setupEngines()
-        }
     }
 
     // MARK: - Engine Setup
 
     func initializeEngines() {
+        guard let appState,
+              appState.authStatus == .authenticated,
+              let family = appState.family,
+              let profile = appState.currentProfile,
+              let zoneID = appState.familyZoneID,
+              family.id.zoneID == zoneID,
+              profile.id.zoneID == zoneID,
+              profile.family.recordID == family.id
+        else {
+            logger.info("CKSyncEngine initialization skipped: no authenticated family scope")
+            return
+        }
+
+        cloudKitService.activeFamilyZoneID = zoneID
+        cloudKitService.activeIsOwner = appState.isZoneOwner
         setupEngines()
     }
 
@@ -96,27 +109,30 @@ final class CKSyncEngineCoordinator {
     }
 
     private func setupEngines() {
-        guard privateSyncEngine == nil, sharedSyncEngine == nil else { return }
         guard let ckConcrete = cloudKitService as? CloudKitService else { return }
         let container = ckConcrete.container
 
         // Setup private database engine (for Guild Master family zones)
-        let privateSavedState = loadState(for: .private)
-        let privateConfig = CKSyncEngine.Configuration(
-            database: container.privateCloudDatabase,
-            stateSerialization: privateSavedState,
-            delegate: delegateHandler
-        )
-        privateSyncEngine = CKSyncEngine(privateConfig)
+        if privateSyncEngine == nil {
+            let privateSavedState = loadState(for: .private)
+            let privateConfig = CKSyncEngine.Configuration(
+                database: container.privateCloudDatabase,
+                stateSerialization: privateSavedState,
+                delegate: delegateHandler
+            )
+            privateSyncEngine = CKSyncEngine(privateConfig)
+        }
 
         // Setup shared database engine (for Hero / Participant accepted shares)
-        let sharedSavedState = loadState(for: .shared)
-        let sharedConfig = CKSyncEngine.Configuration(
-            database: container.sharedCloudDatabase,
-            stateSerialization: sharedSavedState,
-            delegate: delegateHandler
-        )
-        sharedSyncEngine = CKSyncEngine(sharedConfig)
+        if sharedSyncEngine == nil {
+            let sharedSavedState = loadState(for: .shared)
+            let sharedConfig = CKSyncEngine.Configuration(
+                database: container.sharedCloudDatabase,
+                stateSerialization: sharedSavedState,
+                delegate: delegateHandler
+            )
+            sharedSyncEngine = CKSyncEngine(sharedConfig)
+        }
 
         logger.info("CKSyncEngine instances initialized successfully for private and shared databases")
     }
@@ -363,7 +379,8 @@ final class CKSyncEngineCoordinator {
         defaults.removeObject(forKey: "ck_sync_engine_state_shared")
         privateSyncEngine = nil
         sharedSyncEngine = nil
-        setupEngines()
+        lastSyncedAt = nil
+        syncError = nil
         logger.info("CKSyncEngine state reset for both private and shared databases (account: \(accountID ?? "none", privacy: .private))")
     }
 }

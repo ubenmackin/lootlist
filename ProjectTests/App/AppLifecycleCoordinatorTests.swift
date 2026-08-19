@@ -43,6 +43,8 @@ struct AppLifecycleCoordinatorTests {
         let conflictResolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
         let delegate = CKSyncEngineDelegateHandler(conflictResolver: conflictResolver, cacheService: cache, appState: appState)
         let syncCoordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+        #expect(syncCoordinator.privateSyncEngine == nil)
+        #expect(syncCoordinator.sharedSyncEngine == nil)
         let appSync = AppSyncCoordinator()
         let migrations = DataMigrationsCoordinator(defaults: defaults)
 

@@ -21,8 +21,9 @@ struct HeroSettingsView: View {
 
     @State private var selectedPolicy: PayoutPolicy
     @State private var selectedDayOverride: PayoutDay?
-    @State private var isSaving: Bool = false
     @State private var actionError: String?
+    @State private var saveTask: Task<Void, Never>?
+    @State private var saveDayTask: Task<Void, Never>?
 
     init(hero: Profile) {
         self.hero = hero
@@ -54,6 +55,12 @@ struct HeroSettingsView: View {
                         dismiss()
                     }
                 }
+            }
+            .onChange(of: hero.payoutPolicy) { _, newPolicy in
+                selectedPolicy = newPolicy
+            }
+            .onChange(of: hero.payoutDay) { _, newDay in
+                selectedDayOverride = newDay
             }
             .onChange(of: actionError) { _, newError in
                 if let error = newError {
@@ -115,14 +122,17 @@ struct HeroSettingsView: View {
                 Picker("Payout Day", selection: Binding(
                     get: { selectedDayOverride },
                     set: { newDay in
+                        saveDayTask?.cancel()
                         let previous = selectedDayOverride
                         selectedDayOverride = newDay
                         actionError = nil
-                        Task {
+                        saveDayTask = Task {
                             do {
                                 _ = try await familyService.updateProfilePayoutDay(profile: hero, day: newDay)
                             } catch {
-                                selectedDayOverride = previous
+                                if !Task.isCancelled {
+                                    selectedDayOverride = previous
+                                }
                                 logger.error("Failed to update payout day: \(error, privacy: .private)")
                                 actionError = "Could not update payout day. Please try again."
                             }
@@ -173,15 +183,18 @@ struct HeroSettingsView: View {
         let isSelected = selectedPolicy == policy
         return Button {
             if !isSelected {
+                saveTask?.cancel()
                 let previousPolicy = selectedPolicy
                 selectedPolicy = policy
                 actionError = nil
 
-                Task {
+                saveTask = Task {
                     do {
                         _ = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: policy)
                     } catch {
-                        selectedPolicy = previousPolicy
+                        if !Task.isCancelled {
+                            selectedPolicy = previousPolicy
+                        }
                         logger.error("Failed to update payout policy: \(error, privacy: .private)")
                         actionError = "Could not update payout policy. Please try again."
                     }

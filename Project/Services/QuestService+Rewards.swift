@@ -88,7 +88,7 @@ extension QuestService {
         if hero.payoutPolicy == .realTime, creditedGold > 0, let treasuryService {
             let questFamilyID = quest.family.recordID
             let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
-            Task { [logger] in
+            Task { @MainActor [logger] in
                 do {
                     let family: Family
                     if let cached = cacheService?.fetchFamily(recordName: questFamilyID.recordName),
