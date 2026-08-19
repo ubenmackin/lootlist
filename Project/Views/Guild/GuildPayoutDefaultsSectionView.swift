@@ -5,12 +5,16 @@
 //  Created by Ben Mackin on 8/13/26.
 //
 
+import os
 import SwiftUI
 
 struct GuildPayoutDefaultsSectionView: View {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GuildPayoutDefaults")
+
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(ToastManager.self) private var toastManager
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     @Binding var isPayoutPolicyExpanded: Bool
 
@@ -84,6 +88,7 @@ struct GuildPayoutDefaultsSectionView: View {
         .onChange(of: actionError) { _, error in
             if let error {
                 toastManager.show(message: error, type: .error)
+                actionError = nil
             }
         }
     }
@@ -94,15 +99,21 @@ struct GuildPayoutDefaultsSectionView: View {
             if !isSelected, let family = appState.family {
                 saveTask?.cancel()
                 let previousPolicy = selectedPolicy
-                selectedPolicy = policy
-                saveTask = Task {
+                withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
+                    selectedPolicy = policy
+                }
+                saveTask = Task { @MainActor in
                     do {
+                        try await Task.sleep(nanoseconds: 350_000_000)
+                        try Task.checkCancellation()
                         _ = try await familyService.updatePayoutPolicy(family: family, policy: policy)
                     } catch {
-                        if !Task.isCancelled {
+                        guard !Task.isCancelled else { return }
+                        withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
                             selectedPolicy = previousPolicy
-                            actionError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                         }
+                        logger.error("Failed to update payout policy: \(error, privacy: .private)")
+                        actionError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                     }
                 }
             }
@@ -150,13 +161,15 @@ struct GuildPayoutDefaultsSectionView: View {
             set: { newDay in
                 if let family = appState.family {
                     saveTaskDay?.cancel()
-                    saveTaskDay = Task {
+                    saveTaskDay = Task { @MainActor in
                         do {
+                            try await Task.sleep(nanoseconds: 350_000_000)
+                            try Task.checkCancellation()
                             try await familyService.updatePayoutDay(family: family, day: newDay)
                         } catch {
-                            if !Task.isCancelled {
-                                actionError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                            }
+                            guard !Task.isCancelled else { return }
+                            logger.error("Failed to update payout day: \(error, privacy: .private)")
+                            actionError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                         }
                     }
                 }

@@ -530,20 +530,21 @@ struct QuestAssignmentView: View {
 
         let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? hero.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         isSubmitting = true
+        let input = QuestManagerViewModel.QuickQuestInput(
+            name: trimmedName,
+            description: quickDescription,
+            assignee: hero.toProfile(zoneID: zoneID),
+            goldReward: gold,
+            xpReward: xp,
+            scheduleType: quickSchedule,
+            specificDays: Array(quickSpecificDays),
+            targetCount: quickSchedule == .weeklyFlexible ? max(1, quickTargetCount) : 1,
+            approvalMode: quickApproval,
+            weekOf: weekOf
+        )
         Task {
             do {
-                try await viewModel.assignQuickQuest(
-                    name: trimmedName,
-                    description: quickDescription,
-                    assignee: hero.toProfile(zoneID: zoneID),
-                    goldReward: gold,
-                    xpReward: xp,
-                    scheduleType: quickSchedule,
-                    specificDays: Array(quickSpecificDays),
-                    targetCount: quickSchedule == .weeklyFlexible ? max(1, quickTargetCount) : 1,
-                    approvalMode: quickApproval,
-                    weekOf: weekOf
-                )
+                try await viewModel.assignQuickQuest(input)
                 isSubmitting = false
                 dismiss()
             } catch {
@@ -583,23 +584,23 @@ struct QuestAssignmentView: View {
 
         let zoneID = quest.id.zoneID
         isSubmitting = true
+        let input = QuestManagerViewModel.UpdateQuestInput(
+            name: name,
+            descriptionText: description,
+            goldReward: gold,
+            xpReward: xp,
+            scheduleType: editSchedule,
+            specificDays: Array(editSpecificDays),
+            targetCount: editSchedule == .weeklyFlexible ? max(1, editTargetCount) : 1,
+            isAllOrNothing: editIsAllOrNothing,
+            approvalMode: editApproval,
+            assignee: hero.toProfile(zoneID: zoneID),
+            allowLockedFieldsOverride: allowLockedFieldsOverride,
+            propagateToTemplate: propagateToTemplate
+        )
         Task {
             do {
-                try await viewModel.updateQuest(
-                    quest,
-                    name: name,
-                    descriptionText: description,
-                    goldReward: gold,
-                    xpReward: xp,
-                    scheduleType: editSchedule,
-                    specificDays: Array(editSpecificDays),
-                    targetCount: editSchedule == .weeklyFlexible ? max(1, editTargetCount) : 1,
-                    isAllOrNothing: editIsAllOrNothing,
-                    approvalMode: editApproval,
-                    assignee: hero.toProfile(zoneID: zoneID),
-                    allowLockedFieldsOverride: allowLockedFieldsOverride,
-                    propagateToTemplate: propagateToTemplate
-                )
+                try await viewModel.updateQuest(quest, input: input)
                 isSubmitting = false
                 dismiss()
             } catch {

@@ -81,7 +81,11 @@ struct GuildSettingsView: View {
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Guild Settings")
             .navigationBarTitleDisplayMode(.large)
-            .refreshable { await viewModel?.refresh() }
+            .refreshable {
+                await viewModel?.refresh()
+                rebuildViewModel()
+                await viewModel?.refreshInvitations()
+            }
             .task {
                 if viewModel == nil {
                     viewModel = FamilyDashboardViewModel(
@@ -96,6 +100,12 @@ struct GuildSettingsView: View {
                 await viewModel?.refresh()
                 rebuildViewModel()
                 await viewModel?.refreshInvitations()
+            }
+            .onAppear {
+                rebuildViewModel()
+                Task {
+                    await viewModel?.refreshInvitations()
+                }
             }
             .onChange(of: sharePresentation?.id) { _, newID in
                 if newID == nil, sharePresentation == nil {

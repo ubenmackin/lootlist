@@ -43,6 +43,7 @@ extension FamilyService {
 
     @discardableResult
     func updatePayoutPolicy(family: Family, policy: PayoutPolicy) async throws -> Family {
+        try Task.checkCancellation()
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             family: family,
             cloudKit: cloudKit,
@@ -57,6 +58,8 @@ extension FamilyService {
         guard actingIsParent || ownerAnchorGrant else {
             throw FamilyServiceError.unauthorized
         }
+
+        try Task.checkCancellation()
 
         var updated = family
         updated.payoutPolicy = policy
@@ -71,6 +74,7 @@ extension FamilyService {
 
     @discardableResult
     func updatePayoutDay(family: Family, day: PayoutDay) async throws -> Family {
+        try Task.checkCancellation()
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             family: family,
             cloudKit: cloudKit,
@@ -86,6 +90,8 @@ extension FamilyService {
             throw FamilyServiceError.unauthorized
         }
 
+        try Task.checkCancellation()
+
         var updated = family
         updated.payoutDay = day
 
@@ -99,6 +105,7 @@ extension FamilyService {
 
     @discardableResult
     func updateProfilePayoutPolicy(profile: Profile, policy: PayoutPolicy) async throws -> Profile {
+        try Task.checkCancellation()
         guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
@@ -108,6 +115,8 @@ extension FamilyService {
             appState: appState,
             cloudKit: cloudKit
         )
+
+        try Task.checkCancellation()
 
         var updated = profile
         updated.payoutPolicy = policy
@@ -124,6 +133,7 @@ extension FamilyService {
 
     @discardableResult
     func updateProfilePayoutDay(profile: Profile, day: PayoutDay?) async throws -> Profile {
+        try Task.checkCancellation()
         guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
@@ -133,6 +143,8 @@ extension FamilyService {
             appState: appState,
             cloudKit: cloudKit
         )
+
+        try Task.checkCancellation()
 
         var updated = profile
         updated.payoutDay = day

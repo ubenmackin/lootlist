@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 // Single source of truth for quest-gold proration.
 
@@ -26,6 +27,8 @@ import Foundation
 /// `Sendable` and stateless: safe to call from `@MainActor` view models and
 /// service code alike with no cross-isolation concerns.
 enum GoldCalculation: Sendable {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GoldCalculation")
+
     /// The canonical proration formula.
     ///
     /// - **All-or-nothing** (`isAllOrNothing == true`): the full `goldReward`
@@ -335,9 +338,15 @@ enum GoldCalculation: Sendable {
 
             if !missingIDs.isEmpty {
                 for questID in missingIDs {
-                    if let fetched = try? await cloudKit.fetch(Quest.self, id: questID) {
+                    do {
+                        let fetched = try await cloudKit.fetch(Quest.self, id: questID)
                         questMap[questID] = fetched
                         questMap[fetched.id] = fetched
+                    } catch {
+                        // A transient fetch failure must not silently under-credit
+                        // this quest's gold; surface it and leave the quest out of
+                        // questMap so the aggregation below excludes it.
+                        logger.warning("Failed to fetch quest \(questID.recordName, privacy: .private) for gold credit: \(error, privacy: .private)")
                     }
                 }
             }

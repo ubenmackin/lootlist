@@ -49,7 +49,7 @@ final class FamilyDashboardViewModel {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboard")
 
     /// Stable, non-PII row token cache. Each unique identity key is mapped to
-    /// a deterministic HMAC-SHA256 token on first encounter and reused on
+    /// a deterministic SHA256 token on first encounter and reused on
     /// subsequent calls so SwiftUI row identity stays stable across refreshes.
     private static var identityTokenCache: [String: String] = [:]
 
@@ -455,21 +455,15 @@ final class FamilyDashboardViewModel {
     /// identity (iCloud record name, email, or phone number) must never appear
     /// in a `FamilyInvitation` identifier — those identifiers back SwiftUI row
     /// identity and surface in accessibility identifiers / UI-test queries.
-    /// HMAC-SHA256 with a static secret key produces a deterministic,
-    /// collision-resistant token that cannot be reverse-engineered to the
-    /// underlying identity.
+    /// SHA256 produces a deterministic, collision-resistant token without an
+    /// embedded secret, preserving stable row identity across refreshes while
+    /// preventing raw identity leakage.
     private static func opaqueIdentityToken(_ value: String) -> String {
         if let cached = identityTokenCache[value] {
             return cached
         }
-        let key = SymmetricKey(data: Data([
-            0x4C, 0x6F, 0x6F, 0x74, 0x4C, 0x69, 0x73, 0x74,
-            0x49, 0x6E, 0x76, 0x69, 0x74, 0x61, 0x74, 0x69,
-            0x6F, 0x6E, 0x54, 0x6F, 0x6B, 0x65, 0x6E, 0x53,
-            0x61, 0x6C, 0x74, 0x31, 0x32, 0x33, 0x34, 0x35
-        ]))
-        let token = HMAC<SHA256>.authenticationCode(for: Data(value.utf8), using: key)
-        let result = String(describing: token)
+        let digest = SHA256.hash(data: Data(value.utf8))
+        let result = digest.map { String(format: "%02x", $0) }.joined()
         identityTokenCache[value] = result
         return result
     }

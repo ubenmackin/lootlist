@@ -89,24 +89,44 @@ enum SampleData {
 
     // MARK: - Templates & Quests
 
-    // swiftlint:disable:next large_tuple
-    static func createTemplatesAndQuests() -> ([QuestTemplate], [Quest], [QuestCompletion]) {
+    struct SampleQuestData {
+        let templates: [QuestTemplate]
+        let quests: [Quest]
+        let completions: [QuestCompletion]
+    }
+
+    private struct TemplateSeed {
+        let name: String
+        let desc: String
+        let gold: Double
+        let xp: Int
+        let sched: QuestSchedule
+        let approval: ApprovalMode
+    }
+
+    static func createTemplatesAndQuests() -> SampleQuestData {
         let currentWeek = startOfWeek(for: Date())
 
-        // swiftlint:disable:next large_tuple
-        let templatesData: [(name: String, desc: String, gold: Double, xp: Int, sched: QuestSchedule, approval: ApprovalMode)] = [
-            ("Complete the Homework Beast", "30 minutes of math and spellcraft reading", 7.50, 75, .weeklyFlexible, .autoApprove),
-            ("Clean the Dragon's Lair", "Tidy bedroom floor and organize chest", 5.00, 50, .weeklyFlexible, .autoApprove),
-            ("Empty the Treasure Chest", "Take out recycling and trash", 3.50, 35, .weeklyFlexible, .autoApprove),
-            ("Polishing the Armor", "Fold and put away clean laundry", 6.00, 60, .weeklyFlexible, .parentVerify),
-            ("Feed the Royal Hound", "Feed and give fresh water to pet", 3.00, 30, .weeklyFlexible, .autoApprove),
-            ("Clear the Feast Table", "Load and unload the dishwasher", 4.50, 45, .weeklyFlexible, .autoApprove),
-            ("Water the Elven Gardens", "Water household and patio plants", 4.00, 40, .specificDays, .autoApprove),
-            ("Organize the Armory", "Tidy entryway shoes, coats, and backpacks", 5.00, 50, .weeklyFlexible, .autoApprove),
-            ("Wash the Guild Carriage", "Help wash and vacuum family vehicle", 12.50, 125, .weeklyFlexible, .parentVerify),
-            ("Make the Royal Bed", "Make bed neatly before morning questing", 2.50, 25, .weeklyFlexible, .autoApprove),
-            ("Sort the Supply Crate", "Unpack and organize weekly groceries", 5.00, 50, .weeklyFlexible, .parentVerify),
-            ("Read the Ancient Grimoire", "Read 1 chapter of an adventure book", 8.00, 80, .weeklyFlexible, .autoApprove)
+        let templatesData: [TemplateSeed] = [
+            TemplateSeed(
+                name: "Complete the Homework Beast",
+                desc: "30 minutes of math and spellcraft reading",
+                gold: 7.50,
+                xp: 75,
+                sched: .weeklyFlexible,
+                approval: .autoApprove
+            ),
+            TemplateSeed(name: "Clean the Dragon's Lair", desc: "Tidy bedroom floor and organize chest", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Empty the Treasure Chest", desc: "Take out recycling and trash", gold: 3.50, xp: 35, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Polishing the Armor", desc: "Fold and put away clean laundry", gold: 6.00, xp: 60, sched: .weeklyFlexible, approval: .parentVerify),
+            TemplateSeed(name: "Feed the Royal Hound", desc: "Feed and give fresh water to pet", gold: 3.00, xp: 30, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Clear the Feast Table", desc: "Load and unload the dishwasher", gold: 4.50, xp: 45, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Water the Elven Gardens", desc: "Water household and patio plants", gold: 4.00, xp: 40, sched: .specificDays, approval: .autoApprove),
+            TemplateSeed(name: "Organize the Armory", desc: "Tidy entryway shoes, coats, and backpacks", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Wash the Guild Carriage", desc: "Help wash and vacuum family vehicle", gold: 12.50, xp: 125, sched: .weeklyFlexible, approval: .parentVerify),
+            TemplateSeed(name: "Make the Royal Bed", desc: "Make bed neatly before morning questing", gold: 2.50, xp: 25, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Sort the Supply Crate", desc: "Unpack and organize weekly groceries", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .parentVerify),
+            TemplateSeed(name: "Read the Ancient Grimoire", desc: "Read 1 chapter of an adventure book", gold: 8.00, xp: 80, sched: .weeklyFlexible, approval: .autoApprove)
         ]
 
         var templates: [QuestTemplate] = []
@@ -177,7 +197,11 @@ enum SampleData {
             }
         }
 
-        return (templates, quests, completions)
+        return SampleQuestData(
+            templates: templates,
+            quests: quests,
+            completions: completions
+        )
     }
 
     // MARK: - Ledger Entries
@@ -379,7 +403,7 @@ enum SampleData {
     }
 
     static func populate(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
-        let (templates, quests, completions) = createTemplatesAndQuests()
+        let questData = createTemplatesAndQuests()
         let ledger = createLedgerEntries()
         let periods = createAllowancePeriods()
         let (achs, profileAchs) = createAchievements()
@@ -389,9 +413,9 @@ enum SampleData {
         allRecords.append(heroProfile)
         allRecords.append(secondHeroProfile)
         allRecords.append(parentProfile)
-        allRecords.append(contentsOf: templates)
-        allRecords.append(contentsOf: quests)
-        allRecords.append(contentsOf: completions)
+        allRecords.append(contentsOf: questData.templates)
+        allRecords.append(contentsOf: questData.quests)
+        allRecords.append(contentsOf: questData.completions)
         allRecords.append(contentsOf: ledger)
         allRecords.append(contentsOf: periods)
         allRecords.append(contentsOf: achs)
@@ -402,9 +426,9 @@ enum SampleData {
         if let cache = cacheService {
             cache.upsertFamily(family)
             cache.upsertProfiles([heroProfile, secondHeroProfile, parentProfile])
-            cache.upsertQuestTemplates(templates)
-            cache.upsertQuests(quests)
-            cache.upsertQuestCompletions(completions)
+            cache.upsertQuestTemplates(questData.templates)
+            cache.upsertQuests(questData.quests)
+            cache.upsertQuestCompletions(questData.completions)
             cache.upsertLedgerEntries(ledger)
             cache.upsertAllowancePeriods(periods)
             cache.upsertAchievements(achs)

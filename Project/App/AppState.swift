@@ -149,25 +149,14 @@ final class AppState {
             && defaults.string(forKey: Self.zoneOwnerKey) != nil
     }
 
-    private func hasOnboarded() -> Bool {
-        defaults.bool(forKey: Self.hasOnboardedKey)
-    }
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let hasSession = defaults.bool(forKey: Self.hasSessionKey)
-        let onboarded = defaults.bool(forKey: Self.hasOnboardedKey)
         // A completed onboarding that lacks a session means we should probe
         // for a recoverable family (restore / reconnect); a brand-new install
         // goes straight to the discovery state so RootView renders the
         // scanning placeholder rather than bouncing through restoringSession.
-        if hasSession {
-            authStatus = .restoringSession
-        } else if onboarded {
-            authStatus = .checkingCloudData
-        } else {
-            authStatus = .checkingCloudData
-        }
+        authStatus = hasSession ? .restoringSession : .checkingCloudData
 
         quickActionTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
