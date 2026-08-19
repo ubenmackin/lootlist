@@ -201,13 +201,19 @@ struct AppStateTests {
     private final class DiscoveryCloudKitService: MockCloudKitService {
         var privateZones: [CKRecordZone] = []
         var sharedZones: [CKRecordZone] = []
+        var sharedZoneResponses: [[CKRecordZone]] = []
+        private(set) var sharedZoneFetchCount = 0
 
         override func fetchPrivateZones() async throws -> [CKRecordZone] {
             privateZones
         }
 
         override func fetchSharedZones() async throws -> [CKRecordZone] {
-            sharedZones
+            sharedZoneFetchCount += 1
+            if !sharedZoneResponses.isEmpty {
+                return sharedZoneResponses.removeFirst()
+            }
+            return sharedZones
         }
     }
 
@@ -223,6 +229,7 @@ struct AppStateTests {
             "session_familyZoneName",
             "session_familyZoneOwnerName",
             "session_isZoneOwner",
+            "session_hasOnboarded",
             "session_abandonedFamilyZoneNames"
         ]
         for key in keys {
@@ -278,6 +285,136 @@ struct AppStateTests {
         #expect(isOwner == false)
         // The pre-existing signed-in session was cleared by sign-out.
         #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession") == false)
+    }
+
+    @Test
+    func `shared discovery retries once within a bounded pass and ignores a later duplicate`() async {
+        resetSessionDefaults()
+
+        let zoneID = CKRecordZone.ID(zoneName: "BoundedSharedZone", ownerName: "SharedOwner")
+        let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
+        let family = Family(
+            name: "Bounded Guild",
+            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            id: familyID
+        )
+        let hero = Profile(
+            displayName: "Bounded Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "bounded-hero", zoneID: zoneID)
+        )
+
+        let cloudKit = DiscoveryCloudKitService()
+        cloudKit.seedMockRecords([family, hero])
+        cloudKit.sharedZoneResponses = [[], [], [CKRecordZone(zoneID: zoneID)]]
+
+        let appState = AppState()
+        await appState.discoverExistingCloudState(cloudKit: cloudKit)
+
+        guard case .detectedPreviousFamily = appState.authStatus else {
+            #expect(Bool(false), "Expected a family after the bounded shared-zone retry")
+            return
+        }
+        #expect(cloudKit.sharedZoneFetchCount == 3)
+
+        await appState.discoverExistingCloudState(cloudKit: cloudKit)
+        #expect(cloudKit.sharedZoneFetchCount == 3)
+    }
+
+    @Test
+    func `accepting a detected family activates the persisted session`() async {
+        resetSessionDefaults()
+
+        let zoneID = CKRecordZone.ID(zoneName: "AcceptZone", ownerName: "AcceptOwner")
+        let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
+        let family = Family(
+            name: "Accepted Guild",
+            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            id: familyID
+        )
+        let hero = Profile(
+            displayName: "Accepted Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "accepted-hero", zoneID: zoneID)
+        )
+
+        let cloudKit = DiscoveryCloudKitService()
+        cloudKit.seedMockRecords([family, hero])
+        cloudKit.sharedZones = [CKRecordZone(zoneID: zoneID)]
+
+        let appState = AppState()
+        await appState.discoverExistingCloudState(cloudKit: cloudKit)
+        guard case let .detectedPreviousFamily(
+            family: detectedFamily,
+            profile: detectedProfile,
+            zoneID: detectedZoneID,
+            isOwner: detectedIsOwner
+        ) = appState.authStatus else {
+            #expect(Bool(false), "Expected a detected family before acceptance")
+            return
+        }
+        await appState.acceptDetectedFamily(
+            family: detectedFamily,
+            profile: detectedProfile,
+            zoneID: detectedZoneID,
+            isOwner: detectedIsOwner,
+            cloudKit: cloudKit
+        )
+
+        #expect(appState.authStatus == .authenticated)
+        #expect(appState.family?.id == family.id)
+        #expect(appState.currentProfile?.id == hero.id)
+        #expect(appState.familyZoneID == zoneID)
+        #expect(cloudKit.activeFamilyZoneID == zoneID)
+        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession"))
+    }
+
+    @Test
+    func `identity mismatch falls back to cache before discovery`() async throws {
+        resetSessionDefaults()
+
+        let zoneID = CKRecordZone.ID(zoneName: "CacheFallbackZone", ownerName: "Owner")
+        let familyID = CKRecord.ID(recordName: "cache-fallback-fam", zoneID: zoneID)
+        let family = Family(
+            name: "Cache Fallback Guild",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: familyID
+        )
+        let profile = Profile(
+            displayName: "Cache Fallback Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "cache-hero", zoneID: zoneID)
+        )
+
+        // Seed CloudKit with a profile whose server-stamped creator does NOT
+        // match the current mock user so `requireServerAuthenticatedIdentity`
+        // throws `identityMismatch` on the CloudKit fetch path.
+        let cloudKit = MockCloudKitService()
+        cloudKit.seedMockRecords([family, profile], creatorUserRecordName: "stale-creator")
+
+        let cache = try CacheService(inMemory: true)
+        cache.upsertFamily(family)
+        cache.upsertProfile(profile)
+
+        let appState = AppState()
+        appState.cacheService = cache
+        appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: false)
+
+        await appState.restoreSession(cloudKit: cloudKit)
+
+        // With the cache-fallback fix, the app should restore from the local
+        // cache rather than clearing state and falling through to discovery.
+        #expect(appState.authStatus == .authenticated)
+        #expect(appState.family?.id == family.id)
+        #expect(appState.currentProfile?.id == profile.id)
+        #expect(appState.familyZoneID == zoneID)
+        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession"))
     }
 
     @Test
@@ -344,5 +481,52 @@ struct AppStateTests {
         #expect(cloudKit.activeFamilyZoneID == nil)
         #expect(cloudKit.activeIsOwner == false)
         #expect(appState.authStatus == .onboarding)
+    }
+
+    @Test
+    func `GM legacy family creator fallback recovers family via createdBy record`() async {
+        resetSessionDefaults()
+        UserDefaults.standard.set(true, forKey: "session_hasOnboarded")
+
+        let zoneID = CKRecordZone.ID(zoneName: "LegacyGMZone", ownerName: "LegacyOwner")
+        let familyID = CKRecord.ID(recordName: "legacy-gm-fam", zoneID: zoneID)
+        let family = Family(
+            name: "Mackin",
+            createdBy: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            id: familyID
+        )
+        let gMProfile = Profile(
+            displayName: "Legacy GM",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            creatorUserRecordName: MockCloudKitService.mockUserRecordName,
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "gm-prof", zoneID: zoneID)
+        )
+
+        // Seed family with a stale server creator stamp but valid createdBy.
+        // Profile is stamped correctly by the mock save.
+        let cloudKit = DiscoveryCloudKitService()
+        cloudKit.activeIsOwner = true
+        cloudKit.seedMockRecords([family], creatorUserRecordName: "old-creator-id")
+        cloudKit.seedMockRecords([gMProfile], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
+        cloudKit.privateZones = [CKRecordZone(zoneID: zoneID)]
+
+        let appState = AppState()
+        await appState.discoverExistingCloudState(cloudKit: cloudKit)
+
+        guard case let .detectedPreviousFamily(family: detectedFamily,
+                                               profile: detectedProfile,
+                                               zoneID: detectedZoneID,
+                                               isOwner: isOwner) = appState.authStatus
+        else {
+            #expect(Bool(false), "Expected .detectedPreviousFamily via createdBy fallback, got \(appState.authStatus)")
+            return
+        }
+        #expect(detectedFamily.id.recordName == "legacy-gm-fam")
+        #expect(detectedProfile.id.recordName == "gm-prof")
+        #expect(detectedProfile.role == .guildMaster)
+        #expect(detectedZoneID == zoneID)
+        #expect(isOwner == true)
     }
 }

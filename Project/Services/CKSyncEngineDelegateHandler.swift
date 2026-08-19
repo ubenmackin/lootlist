@@ -90,6 +90,22 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         logger.info("iCloud account change received: \(String(describing: changeType))")
         switch changeType {
         case .signOut, .switchAccounts:
+            let hasActiveSession: Bool = if let appState {
+                switch appState.authStatus {
+                case .authenticated, .detectedPreviousFamily:
+                    true
+                default:
+                    appState.currentProfile != nil
+                        && appState.family != nil
+                        && appState.familyZoneID != nil
+                }
+            } else {
+                false
+            }
+            guard hasActiveSession else {
+                logger.info("Ignoring duplicate account transition without an active session")
+                return
+            }
             let oldAccountID = appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName
             coordinator?.resetState(forAccountID: oldAccountID)
             if let cloudKit = coordinator?.cloudKitService {
@@ -98,10 +114,13 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 appState?.clearSession()
             }
         case .signIn:
-            if let cloudKit = coordinator?.cloudKitService {
-                appState?.authStatus = .checkingCloudData
-                await appState?.discoverExistingCloudState(cloudKit: cloudKit)
+            guard appState?.authStatus == .checkingCloudData,
+                  let cloudKit = coordinator?.cloudKitService
+            else {
+                logger.info("Ignoring sign-in callback outside the discovery state")
+                return
             }
+            await appState?.discoverExistingCloudState(cloudKit: cloudKit)
         @unknown default:
             break
         }

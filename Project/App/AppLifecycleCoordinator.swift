@@ -20,6 +20,7 @@ final class AppLifecycleCoordinator {
     private var isForegroundSyncInFlight = false
     private var isZoneChangeInFlight = false
     private var hasCompletedInitialBootstrap = false
+    private var lastSynchronizedScopeKey: String?
 
     private weak var appState: AppState?
     private weak var syncCoordinator: CKSyncEngineCoordinator?
@@ -70,10 +71,13 @@ final class AppLifecycleCoordinator {
         // 3. Session restoration
         await appState?.restoreSession(cloudKit: cloudKitService)
 
-        // 4. CKSyncEngine sync pass
-        syncCoordinator?.initializeEngines()
-        await syncCoordinator?.fetchChanges()
-        await syncCoordinator?.sendPendingChanges()
+        // Discovery deliberately ends before engine construction. A detected
+        // family remains on the reconnect screen until the user accepts it.
+        guard await initializeAndSyncActiveScope() else {
+            hasCompletedInitialBootstrap = true
+            logger.info("Initial bootstrap paused without an authenticated family scope")
+            return
+        }
 
         // 5. Subscription registration
         if let zoneID = appState?.familyZoneID {
@@ -97,6 +101,37 @@ final class AppLifecycleCoordinator {
 
         hasCompletedInitialBootstrap = true
         logger.info("Initial bootstrap sequence completed successfully")
+    }
+
+    private func initializeAndSyncActiveScope() async -> Bool {
+        guard let appState,
+              appState.authStatus == .authenticated,
+              let family = appState.family,
+              let profile = appState.currentProfile,
+              let zoneID = appState.familyZoneID,
+              family.id.zoneID == zoneID,
+              profile.id.zoneID == zoneID,
+              profile.family.recordID == family.id,
+              let syncCoordinator
+        else {
+            return false
+        }
+
+        let scopeKey = "\(profile.id.recordName)|\(family.id.recordName)|\(zoneID.zoneName)|\(zoneID.ownerName)|\(appState.isZoneOwner)"
+        let enginesNeedInitialization = syncCoordinator.privateSyncEngine == nil
+            || syncCoordinator.sharedSyncEngine == nil
+        guard lastSynchronizedScopeKey != scopeKey || enginesNeedInitialization else {
+            return true
+        }
+
+        syncCoordinator.initializeEngines()
+        await syncCoordinator.fetchChanges()
+        await syncCoordinator.sendPendingChanges()
+
+        if syncCoordinator.syncError == nil {
+            lastSynchronizedScopeKey = scopeKey
+        }
+        return true
     }
 
     private func checkCloudKitAccountStatus() async {
@@ -158,12 +193,21 @@ final class AppLifecycleCoordinator {
         isZoneChangeInFlight = true
         defer { isZoneChangeInFlight = false }
 
-        guard let zoneID = appState?.familyZoneID else { return }
-        let db = cloudKitService.database(isOwner: appState?.isZoneOwner ?? false)
+        guard let appState,
+              appState.authStatus == .authenticated,
+              let zoneID = appState.familyZoneID,
+              appState.family != nil,
+              appState.currentProfile != nil,
+              await initializeAndSyncActiveScope()
+        else {
+            return
+        }
+
+        let db = cloudKitService.database(isOwner: appState.isZoneOwner)
         await appSyncCoordinator?.registerSubscriptions(for: zoneID, in: db)
 
-        if let accountID = appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName,
-           let familyRecordName = appState?.family?.id.recordName
+        if let accountID = appState.currentProfile?.id.recordName ?? appState.family?.id.recordName,
+           let familyRecordName = appState.family?.id.recordName
         {
             await dataMigrationsCoordinator?.runPendingMigrations(
                 accountID: accountID,
@@ -172,7 +216,7 @@ final class AppLifecycleCoordinator {
         }
 
         await autoPayoutCoordinator?.processPendingPayoutsIfDue()
-        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState?.family?.payoutDay ?? .sunday)
+        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
     }
 
     /// Handles incoming remote push notification sync triggers.

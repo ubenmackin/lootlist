@@ -377,7 +377,22 @@ final class OnboardingViewModel {
                 avatarPresetID: avatarPresetID,
                 customAvatarImageData: customAvatarImageData
             )
-            builtProfile = saved
+
+            // Directly persist the completed profile to CloudKit so the server
+            // has the correct displayName *before* the sync engine can pull a
+            // stale version. `updateProfileDisplayName` / `updateProfileAvatar`
+            // only enqueue an async push; this synchronous save closes the race
+            // window where `refreshProfilesFromCloudKit` or the sync engine's
+            // pull overwrites the cache with the initial empty-name record.
+            let zoneID = saved.id.zoneID
+            let sharedDB = familyService.cloudKit.sharedDatabase
+            if let serverSaved = try? await familyService.cloudKit.save(saved, in: zoneID, using: sharedDB) {
+                builtProfile = serverSaved
+            } else {
+                // Fallback: the enqueueSave from the update calls will eventually
+                // push the correct data. Log and proceed with the local version.
+                builtProfile = saved
+            }
             push(.done)
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to finalize joined profile: \(familyError.localizedDescription, privacy: .private)")
