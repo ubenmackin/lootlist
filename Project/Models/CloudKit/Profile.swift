@@ -137,7 +137,10 @@ struct Profile: Identifiable, Equatable, Sendable {
 
         let iCloudUserIDStr: String = try record.extract("iCloudUserID")
         creatorUserRecordName = record.creatorUserRecordID?.recordName
-        if let creatorUserRecordName {
+        if let creatorUserRecordName,
+           creatorUserRecordName != CKCurrentUserDefaultName,
+           creatorUserRecordName != "_defaultOwner_"
+        {
             // `iCloudUserID` is a legacy mutable field on the wire. Once
             // CloudKit has stamped the record, its creator is the only
             // authoritative profile-to-user binding.
@@ -211,7 +214,14 @@ struct Profile: Identifiable, Equatable, Sendable {
         // New profiles need the field to establish the initial binding. For an
         // existing profile, always serialize the server-stamped creator value
         // rather than a caller-provided mutable copy.
-        let boundUserRecordName = creatorUserRecordName ?? iCloudUserID.recordName
+        let boundUserRecordName: String = if let creatorUserRecordName,
+                                             creatorUserRecordName != CKCurrentUserDefaultName,
+                                             creatorUserRecordName != "_defaultOwner_"
+        {
+            creatorUserRecordName
+        } else {
+            iCloudUserID.recordName
+        }
         record["iCloudUserID"] = boundUserRecordName as CKRecordValue
         record["family"] = family as CKRecordValue
         record["isActive"] = isActive as CKRecordValue
@@ -294,6 +304,12 @@ struct Profile: Identifiable, Equatable, Sendable {
     /// serialized by `toRecord()` and therefore cannot author or rewrite the
     /// CloudKit creator stamp.
     func applyingServerCreator(_ creatorUserRecordName: String) -> Profile {
+        guard creatorUserRecordName != CKCurrentUserDefaultName,
+              creatorUserRecordName != "_defaultOwner_"
+        else {
+            return self
+        }
+
         var stamped = Profile(
             displayName: displayName,
             avatarClass: avatarClass,

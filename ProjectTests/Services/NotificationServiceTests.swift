@@ -21,8 +21,13 @@ struct NotificationServiceTests {
         "questAssignedNotificationsEnabled",
         "questNeedsReviewNotificationsEnabled",
         "questVerifiedNotificationsEnabled",
+        "questRejectedNotificationsEnabled",
+        "questMissedNotificationsEnabled",
         "levelUpNotificationsEnabled",
-        "weeklySummaryNotificationsEnabled"
+        "weeklySummaryNotificationsEnabled",
+        "spendingLoggedNotificationsEnabled",
+        "trophyEarnedNotificationsEnabled",
+        "streakMilestoneNotificationsEnabled"
     ]
 
     private func resetUserDefaults() {
@@ -351,6 +356,9 @@ struct NotificationServiceTests {
         let family = makeFamily(zoneID: zoneID)
         app.currentProfile = hero
         app.family = family
+
+        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
+        UserDefaults.standard.set(true, forKey: "questRejectedNotificationsEnabled")
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
 

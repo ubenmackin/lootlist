@@ -468,7 +468,12 @@ final class QuestService {
         } else {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
-            allowancePeriods = await (try? cloudKit.query(AllowancePeriod.self, predicate: predicate, in: family.id.zoneID)) ?? []
+            do {
+                allowancePeriods = try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: family.id.zoneID)
+            } catch {
+                logger.warning("Failed to fetch allowance periods from CloudKit: \(error, privacy: .private)")
+                allowancePeriods = []
+            }
         }
 
         let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map { Calendar.iso8601UTC.startOfDay(for: $0.weekOf) })
@@ -501,7 +506,11 @@ final class QuestService {
 
     private func stampNameIfNeeded(_ quest: Quest) async -> Quest {
         guard quest.name == nil else { return quest }
-        guard let template = try? await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID) else {
+        let template: QuestTemplate
+        do {
+            template = try await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID)
+        } catch {
+            logger.debug("Template fetch failed for \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
             return quest
         }
         var updated = quest
@@ -530,7 +539,7 @@ final class QuestService {
                     body: "You have been assigned '\(questName)'."
                 )
             } catch {
-                logger.error("Failed to send assignment notification: \(error, privacy: .public)")
+                logger.error("Failed to send assignment notification: \(error, privacy: .private)")
             }
         }
     }

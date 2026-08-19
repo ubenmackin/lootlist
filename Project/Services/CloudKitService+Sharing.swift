@@ -55,7 +55,7 @@ extension CloudKitService {
                     }
                 } catch {
                     throw CloudKitServiceError.zoneSetupFailed(
-                        "Failed to create zone \(zoneID.zoneName): \(error)"
+                        "Could not set up the family CloudKit zone. Please try again."
                     )
                 }
             default:
@@ -122,11 +122,25 @@ extension CloudKitService {
         }
         let targetID = resolveShareTargetID(for: rootRecordID)
         _ = try await serverRoot(for: rootRecordID, using: pvtDB)
-        if let existing = try? await roleMatchingShare(in: targetID.zoneID, role: role, using: pvtDB) {
+        let existing: CKShare?
+        do {
+            existing = try await roleMatchingShare(in: targetID.zoneID, role: role, using: pvtDB)
+        } catch {
+            logger.error("Failed to inspect existing \(role.displayName) share: \(error, privacy: .private)")
+            throw error
+        }
+        if let existing {
             let nonOwnerParticipants = existing.participants.filter { $0.role != .owner }
             if nonOwnerParticipants.isEmpty {
                 logger.info("Existing \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)' has no remaining participants. Deleting stale share...")
-                _ = try? await pvtDB.deleteRecord(withID: existing.recordID)
+                do {
+                    _ = try await pvtDB.deleteRecord(withID: existing.recordID)
+                } catch {
+                    logger.error("Failed to delete stale share: \(error, privacy: .private)")
+                    throw CloudKitServiceError.shareFailed(
+                        "Failed to manage the share. Please try again."
+                    )
+                }
             } else {
                 logger.info("Found active \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'")
                 return existing
@@ -166,9 +180,9 @@ extension CloudKitService {
                 switch result {
                 case .success:
                     continuation.resume(returning: share)
-                case let .failure(error):
+                case .failure:
                     continuation.resume(throwing: CloudKitServiceError.shareFailed(
-                        "Failed to create share: \(error)"
+                        "Could not create the iCloud share. Please try again."
                     ))
                 }
             }
@@ -324,7 +338,14 @@ extension CloudKitService {
             let nonOwnerParticipants = share.participants.filter { $0.role != .owner }
             if nonOwnerParticipants.isEmpty {
                 logger.info("All non-owner participants removed from CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'. Deleting empty share...")
-                _ = try? await pvtDB.deleteRecord(withID: share.recordID)
+                do {
+                    _ = try await pvtDB.deleteRecord(withID: share.recordID)
+                } catch {
+                    logger.error("Failed to delete empty role share: \(error, privacy: .private)")
+                    throw CloudKitServiceError.shareFailed(
+                        "Failed to manage the share. Please try again."
+                    )
+                }
             } else {
                 _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
             }
@@ -386,7 +407,13 @@ extension CloudKitService {
     func fetchShareParticipantRoles(for rootRecordID: CKRecord.ID) async throws -> [String: UserRole] {
         guard let pvtDB = privateDatabase else { return [:] }
         let targetID = resolveShareTargetID(for: rootRecordID)
-        let shares = await (try? allShares(in: targetID.zoneID, using: pvtDB)) ?? []
+        let shares: [CKShare]
+        do {
+            shares = try await allShares(in: targetID.zoneID, using: pvtDB)
+        } catch {
+            logger.error("Failed to fetch shares for participant roles: \(error, privacy: .private)")
+            throw error
+        }
 
         var rolesByIdentity: [String: UserRole] = [:]
         for share in shares {
@@ -446,7 +473,14 @@ extension CloudKitService {
             let nonOwnerParticipants = share.participants.filter { $0.role != .owner }
             if nonOwnerParticipants.isEmpty {
                 logger.info("All non-owner participants removed from CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'. Deleting empty share...")
-                _ = try? await pvtDB.deleteRecord(withID: share.recordID)
+                do {
+                    _ = try await pvtDB.deleteRecord(withID: share.recordID)
+                } catch {
+                    logger.error("Failed to delete empty role share: \(error, privacy: .private)")
+                    throw CloudKitServiceError.shareFailed(
+                        "Failed to manage the share. Please try again."
+                    )
+                }
             } else {
                 _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
             }

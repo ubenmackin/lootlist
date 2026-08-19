@@ -159,7 +159,7 @@ final class XPService {
                             body: "\(updated.displayName) reached Level \(newLevel)!"
                         )
                     } catch {
-                        logger.error("Failed to send level-up notification: \(error, privacy: .public)")
+                        logger.error("Failed to send level-up notification: \(error, privacy: .private)")
                     }
                 }
             }

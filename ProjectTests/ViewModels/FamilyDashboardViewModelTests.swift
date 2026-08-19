@@ -220,7 +220,10 @@ struct FamilyDashboardViewModelTests {
         #expect(departed?.identity == "Departed Hero")
         #expect(departed?.statusText.contains("revoke share access") == true)
         let removed = vm.invitations.first { $0.kind == .removedIdentity }
-        #expect(removed?.identity == "u2")
+        // Display labels are redacted: the raw iCloud record name must never
+        // surface in the panel — only the stable opaque token remains.
+        #expect(removed?.identity.hasPrefix("Guild Member") == true)
+        #expect(removed?.identity.contains("u2") == false)
         #expect(removed?.statusText == "Removed")
     }
 
@@ -235,14 +238,19 @@ struct FamilyDashboardViewModelTests {
         let fetcher = StubFamilyProfileFetcher()
         let (vm, cloudKit) = makeInvitationSUT(fetcher: fetcher, family: family)
 
-        // Email-only invite marked as removed
+        // Email-only invite marked as removed. The panel classifies the row
+        // from the status list; its display label is redacted, so the lookup
+        // keys off the classification rather than the raw email address.
         try await cloudKit.simulateParticipation(key: "email:hero@test.com", rootRecordID: family.id, role: .hero)
         cloudKit.mockRemovedMemberships.insert("email:hero@test.com")
 
         await vm.refreshInvitations()
 
-        let removed = try #require(vm.invitations.first { $0.identity == "hero@test.com" })
+        let removed = try #require(vm.invitations.first { $0.kind == .removedIdentity })
         #expect(removed.kind == .removedIdentity)
+        // The email address must never surface in the display label.
+        #expect(removed.identity.hasPrefix("Guild Member") == true)
+        #expect(removed.identity.contains("hero@test.com") == false)
         #expect(removed.statusText == "Removed")
     }
 

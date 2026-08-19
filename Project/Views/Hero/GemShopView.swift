@@ -31,7 +31,7 @@ struct GemShopView: View {
     private var gemBalance: Int {
         guard let profile = currentProfile else { return 0 }
         let familyRecordName = appState.family?.id.recordName ?? profile.family.recordID.recordName
-        return gemService.balance(for: profile.id.recordName, familyRecordName: familyRecordName)
+        return (try? gemService.balance(for: profile.id.recordName, familyRecordName: familyRecordName)) ?? 0
     }
 
     var body: some View {

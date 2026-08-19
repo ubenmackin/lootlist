@@ -83,6 +83,15 @@ extension TreasuryServiceTests {
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
         )
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let hero = Profile(
+            displayName: "Hero",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .hero,
+            iCloudUserID: heroID,
+            family: familyRef,
+            id: heroID
+        )
         let guildMaster = Profile(
             displayName: "Guild Master",
             avatarClass: .knight,
@@ -92,19 +101,61 @@ extension TreasuryServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
+        let family = Family(
+            name: "Test Guild",
+            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            payoutDay: .sunday,
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
         appState.currentProfile = guildMaster
 
+        // Seed cache so resolveProfile / resolveFamily / weeklyBreakdown
+        // succeed without a CloudKit round-trip.
+        cache.upsertProfile(hero)
+        cache.upsertProfile(guildMaster)
+        cache.upsertFamily(family)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .family)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .ledgerEntry)
+
+        let monday = WeekMath.mondayOfWeek(for: Date())
+        let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        let templateRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
+        )
+        let quest = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: heroID, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Verified Quest",
+            id: questID
+        )
+        let completion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: questID, action: .none),
+            completedBy: CKRecord.Reference(recordID: heroID, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            family: familyRef
+        )
+        cache.upsertQuest(quest)
+        cache.upsertQuestCompletions([completion])
+
         let period = AllowancePeriod(
-            weekOf: WeekMath.mondayOfWeek(for: Date()),
+            weekOf: monday,
             profile: CKRecord.Reference(recordID: heroID, action: .none),
             questsTotal: 1,
             family: familyRef,
             id: CKRecord.ID(recordName: "period1", zoneID: zoneID)
         )
-        var settled = period
-        settled.totalEarned = 25.0
-        settled.questsCompleted = 1
-        try await treasury.runPayout(period: settled)
+        try await treasury.runPayout(period: period)
 
         let cached = try #require(cache.fetchAllowancePeriods(profileRecordName: heroID.recordName, family: "fam1").first)
         #expect(cached.status == PayoutStatus.paid.rawValue)

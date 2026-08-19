@@ -18,6 +18,7 @@ struct LootDrop: Sendable, Equatable {
 @MainActor
 @Observable
 final class LootDropService {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LootDrop")
     let gemService: GemService
     let toastManager: ToastManager?
     let soundManager: SoundManager?
@@ -83,7 +84,12 @@ final class LootDropService {
         guard let loot = rollForLoot(questRarity: questRarity, streakDays: streakDays) else {
             return nil
         }
-        try? await gemService.creditGems(amount: loot.gemAmount, to: profile, source: "lootDrop", eventKey: eventKey, detail: loot.description)
+        do {
+            try await gemService.creditGems(amount: loot.gemAmount, to: profile, source: "lootDrop", eventKey: eventKey, detail: loot.description)
+        } catch {
+            logger.error("Failed to credit loot drop for profile \(profile.id.recordName, privacy: .private): \(error, privacy: .private)")
+            return nil
+        }
         pendingPresentation = loot
         return loot
     }

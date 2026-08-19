@@ -71,10 +71,7 @@ final class CKSyncConflictResolver {
             return nil
 
         case .quotaExceeded:
-            toastManager?.show(
-                message: "iCloud storage is full. Please free up space in iCloud.",
-                type: .error
-            )
+            logger.error("iCloud storage quota exceeded while saving \(record.recordID.recordName, privacy: .private)")
             return nil
 
         default:
@@ -119,10 +116,6 @@ final class CKSyncConflictResolver {
             await backgroundCache?.batchUpsertParsedRecords([parsedRecord])
         }
 
-        toastManager?.show(
-            message: "Updated with the latest changes from your Guild.",
-            type: .info
-        )
         return nil
     }
 
@@ -135,7 +128,14 @@ final class CKSyncConflictResolver {
         let clientBanked = originalRecord["xpBanked"] as? Int ?? 0
         let rawMergedBanked = max(serverBanked, clientBanked)
 
-        guard var mergedQuest = try? Quest(record: serverRecord) else { return nil }
+        var mergedQuest: Quest
+        do {
+            mergedQuest = try Quest(record: serverRecord)
+        } catch {
+            logger.warning("Failed to decode Quest from server record: \(error, privacy: .private)")
+            toastManager?.show(message: "A quest couldn't be synced. Pull down to refresh.", type: .warning)
+            return nil
+        }
         let mergedBanked = min(rawMergedBanked, mergedQuest.xpReward)
         mergedQuest.xpBanked = mergedBanked
         mergedQuest.changeTag = serverRecord.recordChangeTag
@@ -167,7 +167,13 @@ final class CKSyncConflictResolver {
                 predicate: #Predicate { $0.recordName == profileName }
             )
         }
-        let cachedProfile = try? cacheService?.context?.fetch(descriptor).first
+        let cachedProfile: ProfileCache?
+        do {
+            cachedProfile = try cacheService?.context?.fetch(descriptor).first
+        } catch {
+            logger.warning("Failed to fetch cached Profile for conflict delta: \(error, privacy: .private)")
+            cachedProfile = nil
+        }
 
         let mergedXP: Int
         if let cachedProfile {
@@ -178,7 +184,14 @@ final class CKSyncConflictResolver {
             mergedXP = max(serverXP, clientXP)
         }
 
-        guard var mergedProfile = try? Profile(record: serverRecord) else { return nil }
+        var mergedProfile: Profile
+        do {
+            mergedProfile = try Profile(record: serverRecord)
+        } catch {
+            logger.warning("Failed to decode Profile from server record: \(error, privacy: .private)")
+            toastManager?.show(message: "A profile update couldn't be synced. Pull down to refresh.", type: .warning)
+            return nil
+        }
         mergedProfile.xp = mergedXP
         mergedProfile.level = XPService.level(forXP: mergedXP)
         // Union-merge ownership/claim ledgers so a concurrent purchase or
@@ -245,7 +258,14 @@ final class CKSyncConflictResolver {
     private func resolveQuestCompletionConflict(serverRecord: CKRecord, originalRecord: CKRecord) -> CKRecord? {
         let clientCredited = originalRecord["xpCredited"] as? Int
 
-        guard var merged = try? QuestCompletion(record: serverRecord) else { return nil }
+        var merged: QuestCompletion
+        do {
+            merged = try QuestCompletion(record: serverRecord)
+        } catch {
+            logger.warning("Failed to decode QuestCompletion from server record: \(error, privacy: .private)")
+            toastManager?.show(message: "A completed quest couldn't be synced. Pull down to refresh.", type: .warning)
+            return nil
+        }
         if merged.xpCredited == nil, let clientCredited {
             merged.xpCredited = clientCredited
         }

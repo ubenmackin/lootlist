@@ -16,6 +16,7 @@ import Synchronization
 final class CacheService {
     let container: ModelContainer?
     var initializationError: Error?
+    var toastManager: ToastManager?
 
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var isBatching = false
@@ -45,36 +46,40 @@ final class CacheService {
         do {
             container = try ModelContainer(for: schema, configurations: config)
         } catch {
-            logger.error("Failed to create ModelContainer: \(error). Recreating store...")
+            logger.error("Failed to create ModelContainer; error category=\(Self.errorCategory(error), privacy: .public). Recreating store...")
             if !inMemory {
                 let url = config.url
                 do {
                     try FileManager.default.removeItem(at: url)
                 } catch {
-                    logger.warning("Failed to remove store file at \(url.path): \(error)")
+                    logger.warning("Failed to remove store file; error category=\(Self.errorCategory(error), privacy: .public)")
                 }
                 let shmUrl = url.deletingPathExtension().appendingPathExtension("store-shm")
                 let walUrl = url.deletingPathExtension().appendingPathExtension("store-wal")
                 do {
                     try FileManager.default.removeItem(at: shmUrl)
                 } catch {
-                    logger.debug("Failed to remove shm file: \(error)")
+                    logger.debug("Failed to remove shm file; error category=\(Self.errorCategory(error), privacy: .public)")
                 }
                 do {
                     try FileManager.default.removeItem(at: walUrl)
                 } catch {
-                    logger.debug("Failed to remove wal file: \(error)")
+                    logger.debug("Failed to remove wal file; error category=\(Self.errorCategory(error), privacy: .public)")
                 }
             }
             do {
                 container = try ModelContainer(for: schema, configurations: config)
             } catch {
-                logger.error("Failed to recreate ModelContainer: \(error)")
+                logger.error("Failed to recreate ModelContainer; error category=\(Self.errorCategory(error), privacy: .public)")
                 container = nil
                 initializationError = error
             }
         }
         installDidSaveObserver()
+    }
+
+    private static func errorCategory(_ error: Error) -> String {
+        String(describing: type(of: error))
     }
 
     nonisolated deinit {
@@ -140,6 +145,7 @@ final class CacheService {
             return true
         } catch {
             logger.error("Failed to save context: \(error, privacy: .private)")
+            toastManager?.show(message: "We couldn't save your changes. Please try again.", type: .error)
             return false
         }
     }
@@ -207,10 +213,13 @@ final class CacheService {
         where predicate: Predicate<T>
     ) {
         guard let context else { return }
-        if let items = try? context.fetch(FetchDescriptor<T>(predicate: predicate)) {
+        do {
+            let items = try context.fetch(FetchDescriptor<T>(predicate: predicate))
             for item in items {
                 context.delete(item)
             }
+        } catch {
+            logger.error("Failed to fetch \(T.self, privacy: .public) for deleteAll: \(error, privacy: .private)")
         }
     }
 
@@ -251,10 +260,16 @@ final class CacheService {
         in context: ModelContext
     ) {
         let recordName = identity.recordID.recordName
-        if let match = try? context.fetch(type.fetchDescriptor(recordName: recordName)).first {
+        do {
+            guard let match = try context.fetch(type.fetchDescriptor(recordName: recordName)).first else {
+                return
+            }
             if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
                 guard scoped.familyRecordName == expectedFamily else {
-                    logger.warning("Cache deletion aborted for \(recordName): expected family \(expectedFamily), found \(scoped.familyRecordName)")
+                    logger
+                        .warning(
+                            "Cache deletion aborted for \(recordName, privacy: .private): expected family \(expectedFamily, privacy: .private), found \(scoped.familyRecordName, privacy: .private)"
+                        )
                     return
                 }
             }
@@ -263,12 +278,34 @@ final class CacheService {
                    identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
                    sourceZone != identity.zoneID.zoneName
                 {
-                    logger.warning("Cache deletion aborted for \(recordName): expected zone \(identity.zoneID.zoneName), found \(sourceZone)")
+                    logger
+                        .warning(
+                            "Cache deletion aborted for \(recordName, privacy: .private): expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)"
+                        )
                     return
                 }
             }
             context.delete(match)
+        } catch {
+            logger.warning("Failed to fetch \(recordName, privacy: .private) for identity deletion: \(error, privacy: .private)")
         }
+    }
+
+    private func logFamilyMismatch(
+        action: String,
+        entityName: String,
+        recordName: String,
+        requestedFamily: String,
+        actualFamily: String
+    ) {
+        logger.warning(
+            """
+            \(action, privacy: .public) \(entityName, privacy: .public) \
+            \(recordName, privacy: .private): \
+            requested=\(requestedFamily, privacy: .private) \
+            actual=\(actualFamily, privacy: .private)
+            """
+        )
     }
 
     // changeTag is copied unconditionally — nil is a meaningful "no further tag" value that must propagate.
@@ -278,208 +315,226 @@ final class CacheService {
     // Synchronous @MainActor paths for optimistic UI writes by view models and services.
     // Background sync from CloudKit uses BackgroundCacheActor instead.
 
-    func upsertQuest(_ quest: Quest, family familyRecordName: String? = nil, isServerSync: Bool = false) {
+    private func applyUpsert<T: CacheMergeable>(
+        _ domain: T.DomainModel,
+        type _: T.Type,
+        recordName: String,
+        familyRecordName: String?,
+        isServerSync: Bool,
+        entityName: String
+    ) {
         guard let context else { return }
-        let name = quest.id.recordName
-        let expectedFamily = familyRecordName ?? quest.family.recordID.recordName
-        let descriptor = FetchDescriptor<QuestCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for Quest \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
+        let descriptor = T.fetchDescriptor(familyRecordName: familyRecordName)
+        do {
+            if let existing = try context.fetch(descriptor).first(where: { $0.recordName == recordName }) {
+                if let familyRecordName,
+                   !existing.familyRecordName.isEmpty,
+                   existing.familyRecordName != familyRecordName
+                {
+                    logger
+                        .warning(
+                            """
+                            Scope mismatch ignoring upsert for \(entityName, privacy: .public) \(recordName, privacy: .private): \
+                            existing=\(existing.familyRecordName, privacy: .private) expected=\(familyRecordName, privacy: .private)
+                            """
+                        )
+                    return
+                }
+                T.apply(existing, from: domain, isServerSync: isServerSync)
+            } else if let familyRecordName, !familyRecordName.isEmpty {
+                // Finding 1 — The family-scoped fetch missed a legacy row with
+                // an empty familyRecordName.  Look for it with an unscoped query;
+                // update(from:) stamps the correct family scope during apply.
+                let unscopedDescriptor = T.fetchDescriptor(familyRecordName: nil)
+                if let legacyRow = try context.fetch(unscopedDescriptor)
+                    .first(where: { $0.recordName == recordName }),
+                    legacyRow.familyRecordName.isEmpty
+                {
+                    T.apply(legacyRow, from: domain, isServerSync: isServerSync)
+                    logger
+                        .info(
+                            "Repaired empty-family legacy \(entityName, privacy: .public) \(recordName, privacy: .private) → family \(familyRecordName, privacy: .private)"
+                        )
+                } else {
+                    context.insert(T(from: domain))
+                }
+            } else {
+                context.insert(T(from: domain))
             }
-            QuestCache.apply(existing, from: quest, isServerSync: isServerSync)
-        } else {
-            context.insert(QuestCache(from: quest))
+        } catch {
+            logger.error("Failed to fetch \(entityName, privacy: .public) for upsert \(recordName, privacy: .private): \(error, privacy: .private)")
+            return
         }
         saveContext()
+    }
+
+    // Finding 2 — Explicit family arguments must match the domain model's own
+    // family reference.  A mismatched caller could insert or mutate data under
+    // the wrong scope.  Each upsert validates before forwarding to applyUpsert.
+
+    func upsertQuest(_ quest: Quest, family familyRecordName: String? = nil, isServerSync: Bool = false) {
+        if let explicit = familyRecordName, explicit != quest.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "Quest upsert",
+                recordName: quest.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: quest.family.recordID.recordName
+            )
+            return
+        }
+        applyUpsert(quest, type: QuestCache.self, recordName: quest.id.recordName,
+                    familyRecordName: familyRecordName ?? quest.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "Quest")
     }
 
     func upsertProfile(_ profile: Profile, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = profile.id.recordName
-        let expectedFamily = familyRecordName ?? profile.family.recordID.recordName
-        let descriptor = FetchDescriptor<ProfileCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for Profile \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            ProfileCache.apply(existing, from: profile, isServerSync: isServerSync)
-        } else {
-            context.insert(ProfileCache(from: profile))
+        if let explicit = familyRecordName, explicit != profile.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "Profile upsert",
+                recordName: profile.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: profile.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(profile, type: ProfileCache.self, recordName: profile.id.recordName,
+                    familyRecordName: familyRecordName ?? profile.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "Profile")
     }
 
     func upsertQuestCompletion(_ completion: QuestCompletion, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = completion.id.recordName
-        let expectedFamily = familyRecordName ?? completion.family.recordID.recordName
-        let descriptor = FetchDescriptor<QuestCompletionCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for QuestCompletion \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            QuestCompletionCache.apply(existing, from: completion, isServerSync: isServerSync)
-        } else {
-            context.insert(QuestCompletionCache(from: completion))
+        if let explicit = familyRecordName, explicit != completion.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "QuestCompletion upsert",
+                recordName: completion.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: completion.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(completion, type: QuestCompletionCache.self, recordName: completion.id.recordName,
+                    familyRecordName: familyRecordName ?? completion.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "QuestCompletion")
     }
 
     func upsertQuestTemplate(_ template: QuestTemplate, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = template.id.recordName
-        let expectedFamily = familyRecordName ?? template.family.recordID.recordName
-        let descriptor = FetchDescriptor<QuestTemplateCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for QuestTemplate \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            QuestTemplateCache.apply(existing, from: template, isServerSync: isServerSync)
-        } else {
-            context.insert(QuestTemplateCache(from: template))
+        if let explicit = familyRecordName, explicit != template.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "QuestTemplate upsert",
+                recordName: template.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: template.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(template, type: QuestTemplateCache.self, recordName: template.id.recordName,
+                    familyRecordName: familyRecordName ?? template.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "QuestTemplate")
     }
 
     func upsertFamily(_ family: Family, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = family.id.recordName
-        let descriptor = FetchDescriptor<FamilyCache>(
-            predicate: #Predicate { $0.recordName == name }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            FamilyCache.apply(existing, from: family, isServerSync: isServerSync)
-        } else {
-            context.insert(FamilyCache(from: family))
-        }
-        saveContext()
+        applyUpsert(family, type: FamilyCache.self, recordName: family.id.recordName,
+                    familyRecordName: nil, isServerSync: isServerSync, entityName: "Family")
     }
 
     func upsertLedgerEntry(_ entry: LedgerEntry, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = entry.id.recordName
-        let expectedFamily = familyRecordName ?? entry.family.recordID.recordName
-        let descriptor = FetchDescriptor<LedgerEntryCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for LedgerEntry \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            LedgerEntryCache.apply(existing, from: entry, isServerSync: isServerSync)
-        } else {
-            context.insert(LedgerEntryCache(from: entry))
+        if let explicit = familyRecordName, explicit != entry.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "LedgerEntry upsert",
+                recordName: entry.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: entry.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(entry, type: LedgerEntryCache.self, recordName: entry.id.recordName,
+                    familyRecordName: familyRecordName ?? entry.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "LedgerEntry")
     }
 
     func upsertAllowancePeriod(_ period: AllowancePeriod, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = period.id.recordName
-        let expectedFamily = familyRecordName ?? period.family.recordID.recordName
-        let descriptor = FetchDescriptor<AllowancePeriodCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for AllowancePeriod \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            AllowancePeriodCache.apply(existing, from: period, isServerSync: isServerSync)
-        } else {
-            context.insert(AllowancePeriodCache(from: period))
+        if let explicit = familyRecordName, explicit != period.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "AllowancePeriod upsert",
+                recordName: period.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: period.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(period, type: AllowancePeriodCache.self, recordName: period.id.recordName,
+                    familyRecordName: familyRecordName ?? period.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "AllowancePeriod")
     }
 
     func upsertAchievement(_ achievement: Achievement, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = achievement.id.recordName
-        let expectedFamily = familyRecordName ?? achievement.family.recordID.recordName
-        let descriptor = FetchDescriptor<AchievementCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for Achievement \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            AchievementCache.apply(existing, from: achievement, isServerSync: isServerSync)
-        } else {
-            context.insert(AchievementCache(from: achievement))
+        if let explicit = familyRecordName, explicit != achievement.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "Achievement upsert",
+                recordName: achievement.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: achievement.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(achievement, type: AchievementCache.self, recordName: achievement.id.recordName,
+                    familyRecordName: familyRecordName ?? achievement.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "Achievement")
     }
 
     func upsertNotificationPreference(_ pref: NotificationPreference, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = pref.id.recordName
-        let expectedFamily = familyRecordName ?? pref.family.recordID.recordName
-        let descriptor = FetchDescriptor<NotificationPreferenceCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for NotificationPreference \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            NotificationPreferenceCache.apply(existing, from: pref, isServerSync: isServerSync)
-        } else {
-            context.insert(NotificationPreferenceCache(from: pref))
+        if let explicit = familyRecordName, explicit != pref.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "NotificationPreference upsert",
+                recordName: pref.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: pref.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(pref, type: NotificationPreferenceCache.self, recordName: pref.id.recordName,
+                    familyRecordName: familyRecordName ?? pref.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "NotificationPreference")
     }
 
     func upsertGemLedger(_ entry: GemLedger, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = entry.id.recordName
-        let expectedFamily = familyRecordName ?? entry.family.recordID.recordName
-        let descriptor = FetchDescriptor<GemLedgerCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for GemLedger \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            GemLedgerCache.apply(existing, from: entry, isServerSync: isServerSync)
-        } else {
-            context.insert(GemLedgerCache(from: entry))
+        if let explicit = familyRecordName, explicit != entry.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "GemLedger upsert",
+                recordName: entry.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: entry.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(entry, type: GemLedgerCache.self, recordName: entry.id.recordName,
+                    familyRecordName: familyRecordName ?? entry.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "GemLedger")
     }
 
     func upsertRewardEvent(_ event: RewardEvent, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = event.id.recordName
-        let expectedFamily = familyRecordName ?? event.family.recordID.recordName
-        let descriptor = FetchDescriptor<RewardEventCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for RewardEvent \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            RewardEventCache.apply(existing, from: event, isServerSync: isServerSync)
-        } else {
-            context.insert(RewardEventCache(from: event))
+        if let explicit = familyRecordName, explicit != event.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "RewardEvent upsert",
+                recordName: event.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: event.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(event, type: RewardEventCache.self, recordName: event.id.recordName,
+                    familyRecordName: familyRecordName ?? event.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "RewardEvent")
     }
 
     /// Applies the server-accepted balance and its immutable debit in one
@@ -493,241 +548,282 @@ final class CacheService {
     }
 
     func upsertProfileAchievement(_ pa: ProfileAchievement, family familyRecordName: String? = nil, isServerSync: Bool = false) {
-        guard let context else { return }
-        let name = pa.id.recordName
-        let expectedFamily = familyRecordName ?? pa.family.recordID.recordName
-        let descriptor = FetchDescriptor<ProfileAchievementCache>(
-            predicate: #Predicate { $0.recordName == name && $0.familyRecordName == expectedFamily }
-        )
-        if let existing = try? context.fetch(descriptor).first {
-            guard existing.familyRecordName.isEmpty || existing.familyRecordName == expectedFamily else {
-                logger.warning("Scope mismatch ignoring upsert for ProfileAchievement \(name): existing=\(existing.familyRecordName) expected=\(expectedFamily)")
-                return
-            }
-            ProfileAchievementCache.apply(existing, from: pa, isServerSync: isServerSync)
-        } else {
-            context.insert(ProfileAchievementCache(from: pa))
+        if let explicit = familyRecordName, explicit != pa.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "ProfileAchievement upsert",
+                recordName: pa.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: pa.family.recordID.recordName
+            )
+            return
         }
-        saveContext()
+        applyUpsert(pa, type: ProfileAchievementCache.self, recordName: pa.id.recordName,
+                    familyRecordName: familyRecordName ?? pa.family.recordID.recordName,
+                    isServerSync: isServerSync, entityName: "ProfileAchievement")
     }
 
     // MARK: - Batch Upserts
 
-    private func existingByRecordName<T: CacheMergeable>(_: T.Type, family: String?) -> [String: T] {
-        guard let context else { return [:] }
-        let descriptor = T.fetchDescriptor(familyRecordName: family)
-        let existing = (try? context.fetch(descriptor)) ?? []
-        return Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { current, _ in current })
-    }
+    /// Returns all cached rows keyed by `recordName`.  When `family` is
+    /// non-nil the primary fetch is scoped to that family, but empty-family
+    /// legacy rows are **also** included so the batch upsert loop can repair
+    /// them via `update(from:)` instead of inserting duplicates (Finding 1).
+    private func existingByRecordName<T: CacheMergeable>(
+        _: T.Type,
+        family: String?
+    ) -> [String: T]? {
+        guard let context else { return nil }
+        do {
+            let descriptor = T.fetchDescriptor(familyRecordName: family)
+            var existing = try context.fetch(descriptor)
 
-    func upsertQuests(_ quests: [Quest], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? quests.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(QuestCache.self, family: targetFamily)
-        for quest in quests {
-            let expectedFamily = family ?? quest.family.recordID.recordName
-            if let cached = existingMap[quest.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger.warning("Scope mismatch ignoring batch upsert for Quest \(quest.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
-                    continue
+            // Finding 1 — Pull in empty-family legacy rows that the
+            // family-scoped fetch misses.  The batch upsert loop already
+            // tolerates `familyRecordName.isEmpty` and `update(from:)`
+            // stamps the correct family during apply.
+            if let family, !family.isEmpty {
+                let unscopedDescriptor = T.fetchDescriptor(familyRecordName: nil)
+                let allRows = try context.fetch(unscopedDescriptor)
+                for row in allRows where row.familyRecordName.isEmpty {
+                    existing.append(row)
                 }
-                QuestCache.apply(cached, from: quest)
-            } else {
-                context.insert(QuestCache(from: quest))
             }
+
+            return Dictionary(
+                existing.map { ($0.recordName, $0) },
+                uniquingKeysWith: { current, _ in current }
+            )
+        } catch {
+            logger.error(
+                """
+                Failed to fetch \(String(describing: T.self), privacy: .public) \
+                by record name: \(error, privacy: .private)
+                """
+            )
+            return nil
         }
-        saveContext()
     }
 
-    func upsertProfiles(_ profiles: [Profile], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? profiles.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(ProfileCache.self, family: targetFamily)
-        for profile in profiles {
-            let expectedFamily = family ?? profile.family.recordID.recordName
-            if let cached = existingMap[profile.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger.warning("Scope mismatch ignoring batch upsert for Profile \(profile.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
-                    continue
-                }
-                ProfileCache.apply(cached, from: profile)
-            } else {
-                context.insert(ProfileCache(from: profile))
-            }
-        }
-        saveContext()
-    }
+    // Finding 3 — Batch upserts must not derive the lookup scope from only
+    // the first item.  Mixed-family batches are grouped by domain family so
+    // each group gets its own existing-record map.  An explicit `family`
+    // argument scopes all items to that family; items whose domain family
+    // disagrees are rejected (Finding 2).
+    //
+    // Finding 13 — The nine batch upsert implementations below duplicate
+    // the same scope, validation, merge, and insert logic.  The generic
+    // `batchUpsertByFamily` helper extracts the shared boilerplate while
+    // each public method supplies only the per-type closures.
 
-    func upsertQuestCompletions(_ completions: [QuestCompletion], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? completions.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(QuestCompletionCache.self, family: targetFamily)
-        for completion in completions {
-            let expectedFamily = family ?? completion.family.recordID.recordName
-            if let cached = existingMap[completion.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger
-                        .warning(
-                            "Scope mismatch ignoring batch upsert for QuestCompletion \(completion.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)"
-                        )
-                    continue
-                }
-                QuestCompletionCache.apply(cached, from: completion)
-            } else {
-                context.insert(QuestCompletionCache(from: completion))
-            }
-        }
-        saveContext()
-    }
-
-    func upsertQuestTemplates(_ templates: [QuestTemplate], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? templates.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(QuestTemplateCache.self, family: targetFamily)
-        for template in templates {
-            let expectedFamily = family ?? template.family.recordID.recordName
-            if let cached = existingMap[template.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger
-                        .warning("Scope mismatch ignoring batch upsert for QuestTemplate \(template.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
-                    continue
-                }
-                QuestTemplateCache.apply(cached, from: template)
-            } else {
-                context.insert(QuestTemplateCache(from: template))
-            }
-        }
-        saveContext()
-    }
-
-    func upsertLedgerEntries(_ entries: [LedgerEntry], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? entries.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(LedgerEntryCache.self, family: targetFamily)
-        for entry in entries {
-            let expectedFamily = family ?? entry.family.recordID.recordName
-            if let cached = existingMap[entry.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger.warning("Scope mismatch ignoring batch upsert for LedgerEntry \(entry.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
-                    continue
-                }
-                LedgerEntryCache.apply(cached, from: entry)
-            } else {
-                context.insert(LedgerEntryCache(from: entry))
-            }
-        }
-        saveContext()
-    }
-
-    func upsertAllowancePeriods(_ periods: [AllowancePeriod], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? periods.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(AllowancePeriodCache.self, family: targetFamily)
-        for period in periods {
-            let expectedFamily = family ?? period.family.recordID.recordName
-            if let cached = existingMap[period.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger
-                        .warning("Scope mismatch ignoring batch upsert for AllowancePeriod \(period.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
-                    continue
-                }
-                AllowancePeriodCache.apply(cached, from: period)
-            } else {
-                context.insert(AllowancePeriodCache(from: period))
-            }
-        }
-        saveContext()
-    }
-
-    func upsertAchievements(_ achievements: [Achievement], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? achievements.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(AchievementCache.self, family: targetFamily)
-        for achievement in achievements {
-            let expectedFamily = family ?? achievement.family.recordID.recordName
-            if let cached = existingMap[achievement.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger
-                        .warning(
-                            "Scope mismatch ignoring batch upsert for Achievement \(achievement.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)"
-                        )
-                    continue
-                }
-                AchievementCache.apply(cached, from: achievement)
-            } else {
-                context.insert(AchievementCache(from: achievement))
-            }
-        }
-        saveContext()
-    }
-
-    func upsertProfileAchievements(_ pas: [ProfileAchievement], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? pas.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(ProfileAchievementCache.self, family: targetFamily)
-        for pa in pas {
-            let expectedFamily = family ?? pa.family.recordID.recordName
-            if let cached = existingMap[pa.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger
-                        .warning("Scope mismatch ignoring batch upsert for ProfileAchievement \(pa.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
-                    continue
-                }
-                ProfileAchievementCache.apply(cached, from: pa)
-            } else {
-                context.insert(ProfileAchievementCache(from: pa))
-            }
-        }
-        saveContext()
-    }
-
-    func upsertNotificationPreferences(_ prefs: [NotificationPreference], family: String? = nil) {
-        guard let context else { return }
-        let targetFamily = family ?? prefs.first?.family.recordID.recordName
-        let existingMap = existingByRecordName(NotificationPreferenceCache.self, family: targetFamily)
-        for pref in prefs {
-            let expectedFamily = family ?? pref.family.recordID.recordName
-            if let cached = existingMap[pref.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger
-                        .warning(
-                            "Scope mismatch ignoring batch upsert for NotificationPreference \(pref.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)"
-                        )
-                    continue
-                }
-                NotificationPreferenceCache.apply(cached, from: pref)
-            } else {
-                context.insert(NotificationPreferenceCache(from: pref))
-            }
-        }
-        saveContext()
-    }
-
-    func upsertGemLedgers(_ entries: [GemLedger], family: String? = nil) {
+    /// Generic batch upsert shared by every `upsert*` batch wrapper.
+    ///
+    /// When `family` is nil, items are grouped by their domain family and
+    /// this method recurses once per group (Finding 3).  Each item is
+    /// validated against the explicit family scope (Finding 2), merged via
+    /// `apply` when a cached row exists, or inserted as a new row.
+    private func batchUpsertByFamily<T: CacheMergeable>(
+        _ items: [T.DomainModel],
+        family: String?,
+        entityName: String,
+        recordName: (T.DomainModel) -> String,
+        familyOf: (T.DomainModel) -> String,
+        apply: (T.DomainModel, T) -> Void
+    ) {
         if family == nil {
-            let grouped = Dictionary(grouping: entries) { $0.family.recordID.recordName }
-            for (familyRecordName, familyEntries) in grouped {
-                upsertGemLedgers(familyEntries, family: familyRecordName)
+            let grouped = Dictionary(grouping: items) { familyOf($0) }
+            for (familyName, group) in grouped {
+                batchUpsertByFamily(
+                    group,
+                    family: familyName,
+                    entityName: entityName,
+                    recordName: recordName,
+                    familyOf: familyOf,
+                    apply: apply
+                )
             }
             return
         }
-
         guard let family, let context else { return }
-        var existingMap = existingByRecordName(GemLedgerCache.self, family: family)
-        for entry in entries {
-            let expectedFamily = family
-            if let cached = existingMap[entry.id.recordName] {
-                guard cached.familyRecordName.isEmpty || cached.familyRecordName == expectedFamily else {
-                    logger.warning("Scope mismatch ignoring batch upsert for GemLedger \(entry.id.recordName): existing=\(cached.familyRecordName) expected=\(expectedFamily)")
+        guard let existingMap = existingByRecordName(T.self, family: family) else {
+            return
+        }
+        for item in items {
+            let itemName = recordName(item)
+            guard familyOf(item) == family else {
+                logFamilyMismatch(
+                    action: "Explicit family mismatch ignoring batch upsert for",
+                    entityName: entityName,
+                    recordName: itemName,
+                    requestedFamily: family,
+                    actualFamily: familyOf(item)
+                )
+                continue
+            }
+            if let cached = existingMap[itemName] {
+                guard cached.familyRecordName.isEmpty
+                    || cached.familyRecordName == family
+                else {
+                    logger.warning(
+                        """
+                        Scope mismatch ignoring batch upsert for \
+                        \(entityName, privacy: .public) \
+                        \(itemName, privacy: .private): \
+                        existing=\(cached.familyRecordName, privacy: .private) \
+                        expected=\(family, privacy: .private)
+                        """
+                    )
                     continue
                 }
-                GemLedgerCache.apply(cached, from: entry)
+                apply(item, cached)
             } else {
-                let cached = GemLedgerCache(from: entry)
-                context.insert(cached)
-                existingMap[entry.id.recordName] = cached
+                context.insert(T(from: item))
             }
         }
         saveContext()
+    }
+
+    // Finding 3 — Each public batch wrapper handles the nil-family grouping
+    // at the top level, then delegates the per-item scope validation, lookup,
+    // merge, and insert to the generic helper above.
+
+    func upsertQuests(
+        _ quests: [Quest],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            quests,
+            family: family,
+            entityName: "Quest",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { QuestCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertProfiles(
+        _ profiles: [Profile],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            profiles,
+            family: family,
+            entityName: "Profile",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { ProfileCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertQuestCompletions(
+        _ completions: [QuestCompletion],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            completions,
+            family: family,
+            entityName: "QuestCompletion",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { QuestCompletionCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertQuestTemplates(
+        _ templates: [QuestTemplate],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            templates,
+            family: family,
+            entityName: "QuestTemplate",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { QuestTemplateCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertLedgerEntries(
+        _ entries: [LedgerEntry],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            entries,
+            family: family,
+            entityName: "LedgerEntry",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { LedgerEntryCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertAllowancePeriods(
+        _ periods: [AllowancePeriod],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            periods,
+            family: family,
+            entityName: "AllowancePeriod",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { AllowancePeriodCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertAchievements(
+        _ achievements: [Achievement],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            achievements,
+            family: family,
+            entityName: "Achievement",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { AchievementCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertProfileAchievements(
+        _ pas: [ProfileAchievement],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            pas,
+            family: family,
+            entityName: "ProfileAchievement",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { ProfileAchievementCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertNotificationPreferences(
+        _ prefs: [NotificationPreference],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            prefs,
+            family: family,
+            entityName: "NotificationPreference",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { NotificationPreferenceCache.apply($1, from: $0) }
+        )
+    }
+
+    func upsertGemLedgers(
+        _ entries: [GemLedger],
+        family: String? = nil
+    ) {
+        batchUpsertByFamily(
+            entries,
+            family: family,
+            entityName: "GemLedger",
+            recordName: { $0.id.recordName },
+            familyOf: { $0.family.recordID.recordName },
+            apply: { GemLedgerCache.apply($1, from: $0) }
+        )
     }
 }

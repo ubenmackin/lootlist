@@ -66,9 +66,12 @@ final class AppSyncCoordinator {
     func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase?) async {
         guard let database else { return }
         let subscriptionID = "lootlist-changes-\(zoneID.zoneName)"
-        if await (try? database.subscription(for: subscriptionID)) != nil {
+        do {
+            _ = try await database.subscription(for: subscriptionID)
             logger.debug("CloudKit subscription \(subscriptionID, privacy: .private) already registered")
             return
+        } catch {
+            logger.debug("Could not inspect CloudKit subscription \(subscriptionID, privacy: .private): \(error, privacy: .private)")
         }
 
         // Dual-path subscription strategy:

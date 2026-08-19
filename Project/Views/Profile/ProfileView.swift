@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import os
 import PhotosUI
 import SwiftData
 import SwiftUI
@@ -625,9 +626,23 @@ final class ProfileViewModel {
                 return
             }
         }
-        Task { _ = try? await achievementService.fetchEarned(profile: profile) }
+        Task {
+            do {
+                _ = try await achievementService.fetchEarned(profile: profile)
+            } catch {
+                let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ProfileView")
+                logger.debug("ProfileView: failed to fetch earned achievements for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)")
+            }
+        }
         if let family {
-            Task { _ = try? await achievementService.fetchAllDefinitions(family: family) }
+            Task {
+                do {
+                    _ = try await achievementService.fetchAllDefinitions(family: family)
+                } catch {
+                    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ProfileView")
+                    logger.debug("ProfileView: failed to fetch achievement definitions for family '\(family.id.recordName, privacy: .private)': \(error, privacy: .private)")
+                }
+            }
         }
     }
 }

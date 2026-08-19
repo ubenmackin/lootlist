@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 @MainActor
 class MockCloudKitService: CloudKitServiceProtocol {
@@ -79,6 +80,8 @@ class MockCloudKitService: CloudKitServiceProtocol {
     var saveError: Error?
 
     init() {}
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MockCloudKit")
 
     init(zoneID: CKRecordZone.ID) {
         self.activeFamilyZoneID = zoneID
@@ -171,7 +174,13 @@ class MockCloudKitService: CloudKitServiceProtocol {
         // not overwrite or clear the original server-stamped creator, so the
         // existing stamp (if any) is left untouched.
         if recordCreators[targetID] == nil {
-            recordCreators[targetID] = await (try? currentUserRecordID())?.recordName
+            do {
+                let recordID = try await currentUserRecordID()
+                recordCreators[targetID] = recordID.recordName
+            } catch {
+                logger.debug("MockCloudKitService: failed to resolve current user record ID while saving \(T.recordType) — setting creator to nil: \(error, privacy: .private)")
+                recordCreators[targetID] = nil
+            }
         }
         mockStore.setRecord(record, databaseScope: scope)
         savedRecords.append(record)
@@ -206,7 +215,13 @@ class MockCloudKitService: CloudKitServiceProtocol {
             record[key] = source[key]
         }
         record.setParent(CKRecord.ID(recordName: event.family.recordID.recordName, zoneID: zone))
-        recordCreators[targetID] = await (try? currentUserRecordID())?.recordName
+        do {
+            let recordID = try await currentUserRecordID()
+            recordCreators[targetID] = recordID.recordName
+        } catch {
+            logger.debug("MockCloudKitService: failed to resolve current user record ID while claiming reward event — setting creator to nil: \(error, privacy: .private)")
+            recordCreators[targetID] = nil
+        }
         mockStore.setRecord(record, databaseScope: scope)
         savedRecords.append(record)
         return true

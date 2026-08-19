@@ -25,7 +25,7 @@ extension CacheService {
             let descriptor = FetchDescriptor<T>(predicate: predicate, sortBy: sortBy)
             return try context.fetch(descriptor)
         } catch {
-            Self.fetchLogger.error("Failed to fetch \(String(describing: T.self)): \(error, privacy: .public)")
+            Self.fetchLogger.error("Failed to fetch \(String(describing: T.self), privacy: .private): \(error, privacy: .private)")
             return []
         }
     }

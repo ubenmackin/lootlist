@@ -5,10 +5,12 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 
 struct TrophyRoomView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TrophyRoom")
     @State private var viewModel: TrophyRoomViewModel?
 
     @Environment(AchievementService.self) private var achievementService
@@ -59,7 +61,11 @@ struct TrophyRoomView: View {
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
                 if let profile = appState.currentProfile, let family = appState.family {
-                    _ = try? await achievementService.evaluateAll(for: profile, family: family)
+                    do {
+                        _ = try await achievementService.evaluateAll(for: profile, family: family)
+                    } catch {
+                        Self.logger.warning("Failed to evaluate trophies during refresh: \(error, privacy: .private)")
+                    }
                 }
                 rebuild()
             }
@@ -74,7 +80,11 @@ struct TrophyRoomView: View {
             }
             rebuild()
             if let profile = appState.currentProfile, let family = appState.family {
-                _ = try? await achievementService.evaluateAll(for: profile, family: family)
+                do {
+                    _ = try await achievementService.evaluateAll(for: profile, family: family)
+                } catch {
+                    Self.logger.warning("Failed to evaluate trophies on entry: \(error, privacy: .private)")
+                }
                 rebuild()
             }
         }

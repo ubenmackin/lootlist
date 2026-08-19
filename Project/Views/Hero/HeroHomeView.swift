@@ -222,7 +222,7 @@ struct HeroHomeView: View {
     private var gemsBalance: Int {
         guard let profile = appState.currentProfile else { return 0 }
         let family = appState.family?.id.recordName ?? profile.family.recordID.recordName
-        return gemService.balance(for: profile.id.recordName, familyRecordName: family)
+        return (try? gemService.balance(for: profile.id.recordName, familyRecordName: family)) ?? 0
     }
 
     private func rebuildViewModel() {

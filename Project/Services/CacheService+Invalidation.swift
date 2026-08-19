@@ -15,9 +15,13 @@ extension CacheService {
     /// Fetches the first record matching `descriptor`, deletes it, and saves.
     func invalidate(_ descriptor: FetchDescriptor<some PersistentModel>) {
         guard let context else { return }
-        if let object = try? context.fetch(descriptor).first {
-            context.delete(object)
-            saveContext()
+        do {
+            if let object = try context.fetch(descriptor).first {
+                context.delete(object)
+                saveContext()
+            }
+        } catch {
+            logger.warning("Failed to fetch record for invalidation: \(error, privacy: .private)")
         }
     }
 
@@ -39,11 +43,14 @@ extension CacheService {
     ) {
         guard let context else { return }
         let descriptor = FetchDescriptor<T>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
-        if let matches = try? context.fetch(descriptor) {
+        do {
+            let matches = try context.fetch(descriptor)
             for match in matches {
                 context.delete(match)
             }
             saveContext()
+        } catch {
+            logger.warning("Failed to fetch \(T.self, privacy: .public) for invalidation: \(error, privacy: .private)")
         }
     }
 
@@ -114,11 +121,14 @@ extension CacheService {
     func invalidateFamily(recordName: String) {
         guard let context else { return }
         let descriptor = FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })
-        if let matches = try? context.fetch(descriptor) {
+        do {
+            let matches = try context.fetch(descriptor)
             for match in matches {
                 context.delete(match)
             }
             saveContext()
+        } catch {
+            logger.warning("Failed to invalidate family \(recordName, privacy: .private): \(error, privacy: .private)")
         }
     }
 
@@ -155,8 +165,13 @@ extension CacheService {
             predicate: #Predicate { $0.recordName == recordName }
         )
         guard let context else { return }
-        if let family = try? context.fetch(familyDescriptor).first {
-            context.delete(family)
+        do {
+            if let family = try context.fetch(familyDescriptor).first {
+                context.delete(family)
+            }
+        } catch {
+            logger.error("Failed to fetch family for purge: \(error, privacy: .private)")
+            return
         }
 
         // Cascade: delete all child caches scoped to this family.
@@ -183,18 +198,22 @@ extension CacheService {
 
     func clearAll() throws {
         guard let context else { return }
-        try? context.delete(model: QuestCache.self)
-        try? context.delete(model: QuestTemplateCache.self)
-        try? context.delete(model: ProfileCache.self)
-        try? context.delete(model: QuestCompletionCache.self)
-        try? context.delete(model: FamilyCache.self)
-        try? context.delete(model: LedgerEntryCache.self)
-        try? context.delete(model: AllowancePeriodCache.self)
-        try? context.delete(model: AchievementCache.self)
-        try? context.delete(model: ProfileAchievementCache.self)
-        try? context.delete(model: NotificationPreferenceCache.self)
-        try? context.delete(model: GemLedgerCache.self)
-        try? context.delete(model: RewardEventCache.self)
+
+        // Propagate every deletion failure so callers know the wipe was
+        // incomplete.  A swallowed `try?` would leave phantom rows and then
+        // declare the cache cleared, causing stale reads downstream.
+        try context.delete(model: QuestCache.self)
+        try context.delete(model: QuestTemplateCache.self)
+        try context.delete(model: ProfileCache.self)
+        try context.delete(model: QuestCompletionCache.self)
+        try context.delete(model: FamilyCache.self)
+        try context.delete(model: LedgerEntryCache.self)
+        try context.delete(model: AllowancePeriodCache.self)
+        try context.delete(model: AchievementCache.self)
+        try context.delete(model: ProfileAchievementCache.self)
+        try context.delete(model: NotificationPreferenceCache.self)
+        try context.delete(model: GemLedgerCache.self)
+        try context.delete(model: RewardEventCache.self)
 
         // A swallowed save failure would leave phantom rows persisting past the
         // invalidate-everything wipe — so the save is explicit and rethrown.

@@ -140,12 +140,22 @@ final class OnboardingViewModel {
     private func performExistingHeroCheck() async {
         guard userIntent == .joinFamily else { return }
 
-        guard let userID = await (try? familyService.cloudKitReference.currentUserRecordID()) else {
+        let userID: CKRecord.ID
+        do {
+            userID = try await familyService.cloudKitReference.currentUserRecordID()
+        } catch {
+            logger.warning("Failed to resolve current user record ID for hero check: \(error, privacy: .private)")
             detectedHero = nil
             return
         }
 
-        let sharedZones = await (try? familyService.cloudKitReference.fetchSharedZones()) ?? []
+        let sharedZones: [CKRecordZone]
+        do {
+            sharedZones = try await familyService.cloudKitReference.fetchSharedZones()
+        } catch {
+            logger.warning("Failed to fetch shared zones for hero check: \(error, privacy: .private)")
+            sharedZones = []
+        }
 
         var matches: [(zoneID: CKRecordZone.ID, profile: Profile)] = []
         for zone in sharedZones {
@@ -386,11 +396,13 @@ final class OnboardingViewModel {
             // pull overwrites the cache with the initial empty-name record.
             let zoneID = saved.id.zoneID
             let sharedDB = familyService.cloudKit.sharedDatabase
-            if let serverSaved = try? await familyService.cloudKit.save(saved, in: zoneID, using: sharedDB) {
+            do {
+                let serverSaved = try await familyService.cloudKit.save(saved, in: zoneID, using: sharedDB)
                 builtProfile = serverSaved
-            } else {
+            } catch {
                 // Fallback: the enqueueSave from the update calls will eventually
                 // push the correct data. Log and proceed with the local version.
+                logger.warning("Failed to persist completed joined profile immediately: \(error, privacy: .private)")
                 builtProfile = saved
             }
             push(.done)

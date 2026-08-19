@@ -502,7 +502,7 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     func leaveFamily(profile: Profile) async throws {
-        await unassignActiveQuests(for: profile)
+        try await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile)
 
         // Best-effort removal of the leaver's own share participant entry. Only
@@ -541,7 +541,7 @@ final class FamilyService: FamilyProfileFetching {
                 throw FamilyServiceError.unauthorized
             }
         }
-        await unassignActiveQuests(for: profile)
+        try await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile)
 
         // Revoke the kicked member's share access so a deactivated profile
@@ -591,10 +591,13 @@ final class FamilyService: FamilyProfileFetching {
             // app relaunch must never be masked by a stale cached identity
             // (which would authorize the pre-switch user's owner-gated
             // operations). Deny-by-default when resolution fails.
-            if let userRecordID = try? await cloudKit.currentUserRecordID() {
+            do {
+                let userRecordID = try await cloudKit.currentUserRecordID()
                 return userRecordID.recordName == anchor
+            } catch {
+                logger.warning("Could not resolve current user for owner check: \(error, privacy: .private)")
+                return false
             }
-            return false
         }
         // Legacy fallback: require supplied family zone matches active zone
         guard family.id.zoneID == appState.familyZoneID else {
@@ -637,7 +640,12 @@ final class FamilyService: FamilyProfileFetching {
             return cached.toFamily(zoneID: familyID.zoneID)
         }
         let (_, db) = familyContext(for: familyID)
-        return try? await cloudKit.fetch(Family.self, id: familyID, using: db)
+        do {
+            return try await cloudKit.fetch(Family.self, id: familyID, using: db)
+        } catch {
+            logger.warning("Failed to fetch family for profile authorization: \(error, privacy: .private)")
+            return nil
+        }
     }
 
     /// Immediately re-queries a family's profiles from CloudKit and
@@ -669,8 +677,11 @@ final class FamilyService: FamilyProfileFetching {
             ? appState.isZoneOwner
             : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
         let db = cloudKit.database(isOwner: isOwner)
-        if let fresh = try? await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db) {
+        do {
+            let fresh = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
             cacheService?.upsertProfiles(fresh)
+        } catch {
+            logger.warning("Failed to refresh profiles from CloudKit: \(error, privacy: .private)")
         }
     }
 
@@ -697,7 +708,7 @@ final class FamilyService: FamilyProfileFetching {
         return matches.first(where: { $0.isActive }) ?? matches.first
     }
 
-    private func unassignActiveQuests(for profile: Profile) async {
+    private func unassignActiveQuests(for profile: Profile) async throws {
         guard let family = appState.family else { return }
         let payoutDay = profile.payoutDay ?? family.payoutDay
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
@@ -710,12 +721,47 @@ final class FamilyService: FamilyProfileFetching {
             )
         #endif
 
-        let currentQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: currentWeek)) ?? []
+        let currentQuests: [Quest]
+        do {
+            currentQuests = try await questService.fetchActiveQuests(profile: profile, weekOf: currentWeek)
+        } catch {
+            logger.warning("Failed to fetch current-week quests for share revocation cleanup: \(error, privacy: .private)")
+            toastManager?.show(
+                message: "Couldn't verify the member's quests before removal. Please try again.",
+                type: .error
+            )
+            throw FamilyServiceError.persistenceFailed
+        }
         let nextWeek = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: 1, to: currentWeek) ?? currentWeek
-        let nextQuests = await (try? questService.fetchActiveQuests(profile: profile, weekOf: nextWeek)) ?? []
+        let nextQuests: [Quest]
+        do {
+            nextQuests = try await questService.fetchActiveQuests(profile: profile, weekOf: nextWeek)
+        } catch {
+            logger.warning("Failed to fetch next-week quests for share revocation cleanup: \(error, privacy: .private)")
+            toastManager?.show(
+                message: "Couldn't verify the member's quests before removal. Please try again.",
+                type: .error
+            )
+            throw FamilyServiceError.persistenceFailed
+        }
 
+        var unassignErrors: [Error] = []
         for quest in currentQuests + nextQuests {
-            try? await questService.unassignQuest(quest)
+            do {
+                try await questService.unassignQuest(quest)
+            } catch {
+                logger
+                    .error(
+                        "Failed to unassign quest '\(quest.id.recordName, privacy: .private)' for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)"
+                    )
+                unassignErrors.append(error)
+            }
+        }
+
+        if !unassignErrors.isEmpty {
+            let message = "Couldn't remove \(unassignErrors.count) quest(s) from the member. Please try again."
+            toastManager?.show(message: message, type: .error)
+            throw FamilyServiceError.persistenceFailed
         }
     }
 
