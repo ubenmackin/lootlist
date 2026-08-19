@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 import SwiftData
 
 @MainActor
@@ -34,12 +35,12 @@ final class GemService {
         self.soundManager = soundManager
     }
 
-    func balance(for profileRecordName: String, familyRecordName: String) -> Int {
+    func balance(for profileRecordName: String, familyRecordName: String) throws -> Int {
         guard let context = cacheService?.context else { return 0 }
         let descriptor = FetchDescriptor<GemLedgerCache>(predicate: #Predicate {
             $0.profileRecordName == profileRecordName && $0.familyRecordName == familyRecordName
         })
-        guard let entries = try? context.fetch(descriptor) else { return 0 }
+        let entries = try context.fetch(descriptor)
         return entries.reduce(0) { $0 + $1.amount }
     }
 
@@ -102,9 +103,13 @@ final class GemService {
         syncCoordinator?.enqueueSave(recordID: ledger.id, isOwner: appState?.isZoneOwner ?? false)
 
         var updatedProfile = profile
-        updatedProfile.gems = cacheService.map { _ in
-            balance(for: profile.id.recordName, familyRecordName: profile.family.recordID.recordName)
-        } ?? profile.gems + amount
+        do {
+            updatedProfile.gems = try balance(for: profile.id.recordName, familyRecordName: profile.family.recordID.recordName)
+        } catch {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GemService")
+            logger.warning("GemService.creditGems: failed to compute balance — aborting profile mutation: \(error, privacy: .private)")
+            return
+        }
         cacheService?.upsertProfile(updatedProfile)
         syncCoordinator?.enqueueSave(recordID: updatedProfile.id, isOwner: appState?.isZoneOwner ?? false)
 

@@ -237,7 +237,13 @@ final class QuestManagerViewModel {
         )
 
         // Single batch fetch — replaces per-quest N+1 queries.
-        let allCompletions = await (try? questService.fetchQuestCompletionsForFamily(family: family)) ?? []
+        let allCompletions: [QuestCompletion]
+        do {
+            allCompletions = try await questService.fetchQuestCompletionsForFamily(family: family)
+        } catch {
+            logger.warning("Failed to fetch quest completions for family: \(error, privacy: .private)")
+            allCompletions = []
+        }
 
         var completionsByQuest: [String: [QuestCompletion]] = [:]
         for completion in allCompletions {

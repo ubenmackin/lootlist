@@ -117,7 +117,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
     /// Maps a decoded payload onto the tab that shows its content.
     private func route(eventType: NotificationEventType, profileID: String?) {
         guard let route = route(for: eventType, profileID: profileID) else {
-            Self.logger.debug("No destination for \(eventType.rawValue, privacy: .public)")
+            Self.logger.debug("No destination for \(eventType.rawValue, privacy: .private)")
             return
         }
         deliver(route)
@@ -171,7 +171,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
                 }
                 verificationAction = result
             } catch {
-                Self.logger.error("Verification action '\(action, privacy: .public)' failed for quest log \(questLogID, privacy: .private): \(error, privacy: .public)")
+                Self.logger.error("Verification action '\(action, privacy: .private)' failed for quest log \(questLogID, privacy: .private): \(error, privacy: .private)")
                 return
             }
 

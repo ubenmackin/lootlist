@@ -101,7 +101,7 @@ extension QuestService {
                     }
                     _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: family)
                 } catch {
-                    logger.error("Failed to process real-time settlement for hero \(hero.id.recordName, privacy: .private): \(error, privacy: .public)")
+                    logger.error("Failed to process real-time settlement for hero \(hero.id.recordName, privacy: .private): \(error, privacy: .private)")
                 }
             }
         }

@@ -52,7 +52,7 @@ final class DataMigrationsCoordinator {
         }
         let lockKey = "\(accountID).\(familyRecordName)"
         guard !inFlightFamilyKeys.contains(lockKey) else {
-            logger.info("Migrations already in flight for \(lockKey), skipping.")
+            logger.info("Migrations already in flight for \(lockKey, privacy: .private), skipping.")
             return
         }
         inFlightFamilyKeys.insert(lockKey)
@@ -61,11 +61,11 @@ final class DataMigrationsCoordinator {
         for step in steps {
             let key = "migration.\(accountID).\(familyRecordName).\(step.id).v\(step.version).complete"
             guard !defaults.bool(forKey: key) else {
-                logger.debug("Migration \(step.id) v\(step.version) already complete for \(lockKey), skipping")
+                logger.debug("Migration \(step.id, privacy: .public) v\(step.version) already complete for \(lockKey, privacy: .private), skipping")
                 continue
             }
 
-            logger.info("Running migration: \(step.id) v\(step.version) for \(lockKey)")
+            logger.info("Running migration: \(step.id, privacy: .public) v\(step.version) for \(lockKey, privacy: .private)")
             do {
                 try await step.run()
                 defaults.set(true, forKey: key)
@@ -131,12 +131,12 @@ extension DataMigrationsCoordinator {
                     ) {
                         updated.name = template.name
                     } else {
-                        logger.warning("Template missing for quest \(quest.id.recordName); reconciling with fallback title.")
+                        logger.warning("Template missing for quest \(quest.id.recordName, privacy: .private); reconciling with fallback title.")
                         updated.name = "Quest"
                     }
                     _ = try await cloudKit.save(updated)
                 } catch {
-                    logger.error("Failed to backfill quest \(quest.id.recordName): \(error, privacy: .private)")
+                    logger.error("Failed to backfill quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
                     hadFailures = true
                 }
             }
@@ -294,8 +294,13 @@ extension DataMigrationsCoordinator {
                     let saved = try await cloudKit.save(canonical, in: zoneID, using: nil)
                     cacheService?.upsertAchievement(saved)
 
-                    try? await cloudKit.delete(achievement.id, in: zoneID, using: nil)
-                    logger.info("Migrated legacy achievement \(achievement.id.recordName) to canonical \(canonicalID.recordName)")
+                    do {
+                        try await cloudKit.delete(achievement.id, in: zoneID, using: nil)
+                    } catch {
+                        logger.warning("Failed to delete legacy achievement \(achievement.id.recordName, privacy: .private): \(error, privacy: .private)")
+                        throw error
+                    }
+                    logger.info("Migrated legacy achievement \(achievement.id.recordName, privacy: .private) to canonical \(canonicalID.recordName, privacy: .private)")
                 }
             }
         }

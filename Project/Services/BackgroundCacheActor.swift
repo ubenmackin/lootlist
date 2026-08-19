@@ -44,7 +44,7 @@ actor BackgroundCacheActor {
         do {
             existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
         } catch {
-            logger.error("Failed to fetch existing \(T.self, privacy: .public) for batchUpsert: \(error, privacy: .public)")
+            logger.error("Failed to fetch existing \(T.self, privacy: .private) for batchUpsert: \(error, privacy: .private)")
             return false
         }
         let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
@@ -52,14 +52,26 @@ actor BackgroundCacheActor {
             let name = item.id.recordName
             if let target = byName[name] {
                 if let familyRecordName, target.familyRecordName != familyRecordName {
-                    logger.warning("BackgroundCacheActor batchUpsert target family mismatch for \(name): expected \(familyRecordName), found \(target.familyRecordName)")
+                    logger
+                        .warning(
+                            """
+                            BackgroundCacheActor batchUpsert target family mismatch for \(name, privacy: .private): \
+                            expected \(familyRecordName, privacy: .private), found \(target.familyRecordName, privacy: .private)
+                            """
+                        )
                     continue
                 }
                 target.update(from: item, isServerSync: true)
             } else {
                 let newRow = T(from: item)
                 if let familyRecordName, newRow.familyRecordName != familyRecordName {
-                    logger.warning("BackgroundCacheActor batchUpsert new row family mismatch for \(name): expected \(familyRecordName), found \(newRow.familyRecordName)")
+                    logger
+                        .warning(
+                            """
+                            BackgroundCacheActor batchUpsert new row family mismatch for \(name, privacy: .private): \
+                            expected \(familyRecordName, privacy: .private), found \(newRow.familyRecordName, privacy: .private)
+                            """
+                        )
                     continue
                 }
                 modelContext.insert(newRow)
@@ -86,7 +98,7 @@ actor BackgroundCacheActor {
         do {
             existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
         } catch {
-            logger.error("Failed to fetch existing \(T.self, privacy: .public) for purgeMissing: \(error, privacy: .public)")
+            logger.error("Failed to fetch existing \(T.self, privacy: .private) for purgeMissing: \(error, privacy: .private)")
             existing = []
         }
         for cached in existing where !validRecordNames.contains(cached.recordName) {
@@ -376,7 +388,7 @@ actor BackgroundCacheActor {
                     applyRewardEvent(event, to: match)
                 }
             } catch {
-                logger.error("Failed to query QuestCompletionCache for RewardEvent reconciliation: \(error, privacy: .public)")
+                logger.error("Failed to query QuestCompletionCache for RewardEvent reconciliation: \(error, privacy: .private)")
                 return false
             }
         }
@@ -405,7 +417,7 @@ actor BackgroundCacheActor {
                     }
                 }
             } catch {
-                logger.error("Failed to reconcile stored RewardEvent for completion \(completion.id.recordName, privacy: .private): \(error, privacy: .public)")
+                logger.error("Failed to reconcile stored RewardEvent for completion \(completion.id.recordName, privacy: .private): \(error, privacy: .private)")
                 return false
             }
         }
@@ -497,8 +509,12 @@ actor BackgroundCacheActor {
     /// background context. Used when `CKSyncEngine` reports a whole zone
     /// (family) deleted server-side, so stale rows cannot survive the sync.
     func purgeFamily(recordName: String) async {
-        if let match = try? modelContext.fetch(FamilyCache.fetchDescriptor(recordName: recordName)).first {
-            modelContext.delete(match)
+        do {
+            if let match = try modelContext.fetch(FamilyCache.fetchDescriptor(recordName: recordName)).first {
+                modelContext.delete(match)
+            }
+        } catch {
+            logger.error("Failed to purge family cache \(recordName, privacy: .private): \(error, privacy: .private)")
         }
         await purgeFamilyRows(ProfileCache.self, familyRecordName: recordName)
         await purgeFamilyRows(QuestCache.self, familyRecordName: recordName)
@@ -520,7 +536,7 @@ actor BackgroundCacheActor {
         do {
             existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
         } catch {
-            logger.error("Failed to fetch \(T.self, privacy: .public) for family purge: \(error, privacy: .public)")
+            logger.error("Failed to fetch \(T.self, privacy: .private) for family purge: \(error, privacy: .private)")
             existing = []
         }
         for cached in existing {
@@ -536,7 +552,7 @@ actor BackgroundCacheActor {
         do {
             quests = try modelContext.fetch(FetchDescriptor<QuestCache>())
         } catch {
-            logger.error("Failed to fetch QuestCache for backfill: \(error, privacy: .public)")
+            logger.error("Failed to fetch QuestCache for backfill: \(error, privacy: .private)")
             quests = []
         }
         for quest in quests where quest.targetCount <= 0 {
@@ -548,7 +564,7 @@ actor BackgroundCacheActor {
         do {
             templates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>())
         } catch {
-            logger.error("Failed to fetch QuestTemplateCache for backfill: \(error, privacy: .public)")
+            logger.error("Failed to fetch QuestTemplateCache for backfill: \(error, privacy: .private)")
             templates = []
         }
         for template in templates where template.targetCount <= 0 {
@@ -564,7 +580,7 @@ actor BackgroundCacheActor {
         do {
             zeroQuests = try modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.targetCount <= 0 }))
         } catch {
-            logger.error("Failed to fetch zero-target QuestCache post-backfill: \(error, privacy: .public)")
+            logger.error("Failed to fetch zero-target QuestCache post-backfill: \(error, privacy: .private)")
             zeroQuests = []
         }
         for quest in zeroQuests {
@@ -575,7 +591,7 @@ actor BackgroundCacheActor {
         do {
             zeroTemplates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.targetCount <= 0 }))
         } catch {
-            logger.error("Failed to fetch zero-target QuestTemplateCache post-backfill: \(error, privacy: .public)")
+            logger.error("Failed to fetch zero-target QuestTemplateCache post-backfill: \(error, privacy: .private)")
             zeroTemplates = []
         }
         for template in zeroTemplates {
@@ -612,13 +628,19 @@ actor BackgroundCacheActor {
         do {
             match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first
         } catch {
-            logger.error("Failed to fetch \(T.self, privacy: .public) for record deletion (\(recordName, privacy: .private)): \(error, privacy: .public)")
+            logger.error("Failed to fetch \(T.self, privacy: .private) for record deletion (\(recordName, privacy: .private)): \(error, privacy: .private)")
             match = nil
         }
         if let match {
             if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
                 guard scoped.familyRecordName == expectedFamily else {
-                    logger.warning("BackgroundCacheActor deletion aborted for \(recordName): expected family \(expectedFamily), found \(scoped.familyRecordName)")
+                    logger
+                        .warning(
+                            """
+                            BackgroundCacheActor deletion aborted for \(recordName, privacy: .private): \
+                            expected family \(expectedFamily, privacy: .private), found \(scoped.familyRecordName, privacy: .private)
+                            """
+                        )
                     return
                 }
             }
@@ -627,7 +649,13 @@ actor BackgroundCacheActor {
                    identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
                    sourceZone != identity.zoneID.zoneName
                 {
-                    logger.warning("BackgroundCacheActor deletion aborted for \(recordName): expected zone \(identity.zoneID.zoneName), found \(sourceZone)")
+                    logger
+                        .warning(
+                            """
+                            BackgroundCacheActor deletion aborted for \(recordName, privacy: .private): \
+                            expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)
+                            """
+                        )
                     return
                 }
             }

@@ -396,10 +396,11 @@ final class AppState {
         zoneID: CKRecordZone.ID,
         isOwner: Bool
     ) -> Bool {
-        guard let cache = cacheService,
-              let cachedProfile = cache.fetchProfile(recordName: profileRecordName, family: familyRecordName),
-              let cachedFamily = cache.fetchFamily(recordName: familyRecordName)
-        else {
+        guard let cache = cacheService else { return false }
+
+        let cachedProfile = cache.fetchProfile(recordName: profileRecordName, family: familyRecordName)
+        let cachedFamily = cache.fetchFamily(recordName: familyRecordName)
+        guard let cachedProfile, let cachedFamily else {
             return false
         }
 
@@ -701,20 +702,35 @@ final class AppState {
         var matches: [Profile] = []
         for profile in profiles where profile.isActive && profile.iCloudUserID.recordName == userRecordName {
             if let creatorUserRecordName = profile.creatorUserRecordName {
-                guard creatorUserRecordName == userRecordName else { continue }
+                guard creatorUserRecordName == userRecordName
+                    || creatorUserRecordName == CKCurrentUserDefaultName
+                    || creatorUserRecordName == "_defaultOwner_"
+                else { continue }
                 matches.append(profile)
                 continue
             }
 
-            guard let serverProfile = try? await cloudKit.fetch(
-                Profile.self,
-                id: profile.id,
-                using: cloudKit.sharedDatabase
-            ),
-                serverProfile.isActive,
-                serverProfile.iCloudUserID.recordName == userRecordName,
-                serverProfile.creatorUserRecordName == userRecordName,
-                serverProfile.family.recordID == profile.family.recordID
+            let serverProfile: Profile
+            do {
+                serverProfile = try await cloudKit.fetch(
+                    Profile.self,
+                    id: profile.id,
+                    using: cloudKit.sharedDatabase
+                )
+            } catch {
+                logger
+                    .debug(
+                        "Shared profile fetch failed for '\(profile.id.recordName, privacy: .private)' (expected for revoked/missing shares): \(error, privacy: .private)"
+                    )
+                continue
+            }
+
+            guard serverProfile.isActive,
+                  serverProfile.iCloudUserID.recordName == userRecordName,
+                  serverProfile.creatorUserRecordName == userRecordName
+                  || serverProfile.creatorUserRecordName == CKCurrentUserDefaultName
+                  || serverProfile.creatorUserRecordName == "_defaultOwner_",
+                  serverProfile.family.recordID == profile.family.recordID
             else { continue }
 
             matches.append(serverProfile)

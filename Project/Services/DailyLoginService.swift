@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 import SwiftUI
 
 enum DailyLoginStatus: Equatable, Sendable {
@@ -19,6 +20,7 @@ enum DailyLoginStatus: Equatable, Sendable {
 @Observable
 final class DailyLoginService {
     private let cloudKitService: any CloudKitServiceProtocol
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DailyLogin")
 
     var cacheService: CacheService?
     var appState: AppState?
@@ -76,17 +78,24 @@ final class DailyLoginService {
     private func resolvedActiveProfile() -> Profile? {
         guard let appState,
               let profile = appState.currentProfile,
-              appState.isAuthenticatedActiveProfile(profile),
-              (try? ActiveFamilyScopeGuard.requireAuthenticatedActiveProfile(profile, appState: appState)) != nil,
-              (try? ActiveFamilyScopeGuard.requireActiveFamilyScope(
-                  familyRef: profile.family,
-                  zoneID: profile.id.zoneID,
-                  appState: appState,
-                  cloudKit: cloudKitService
-              )) != nil
+              appState.isAuthenticatedActiveProfile(profile)
         else {
             return nil
         }
+
+        do {
+            try ActiveFamilyScopeGuard.requireAuthenticatedActiveProfile(profile, appState: appState)
+            try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+                familyRef: profile.family,
+                zoneID: profile.id.zoneID,
+                appState: appState,
+                cloudKit: cloudKitService
+            )
+        } catch {
+            logger.warning("Daily login profile scope validation failed: \(error, privacy: .private)")
+            return nil
+        }
+
         return resolvedProfile(profile) ?? profile
     }
 

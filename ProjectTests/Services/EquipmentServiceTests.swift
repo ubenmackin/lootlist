@@ -156,7 +156,7 @@ struct EquipmentServiceTests {
 
         // Credit 200 gems to profile
         try await env.gemService.creditGems(amount: 200, to: env.profile, source: "testReward", eventKey: "test-setup")
-        let startingBalance = env.gemService.balance(for: env.profile.id.recordName, familyRecordName: "test-family")
+        let startingBalance = try env.gemService.balance(for: env.profile.id.recordName, familyRecordName: "test-family")
         #expect(startingBalance == 200)
 
         // Buy Golden Crown (price 120, level 5)
@@ -169,7 +169,7 @@ struct EquipmentServiceTests {
         #expect(env.equipmentService.equippedItem(for: .headwear, profile: env.profile) == crown)
 
         // Verify balance deducted (200 - 120 = 80)
-        let remainingBalance = env.gemService.balance(for: env.profile.id.recordName, familyRecordName: "test-family")
+        let remainingBalance = try env.gemService.balance(for: env.profile.id.recordName, familyRecordName: "test-family")
         #expect(remainingBalance == 80)
     }
 
@@ -189,7 +189,7 @@ struct EquipmentServiceTests {
             source: "testReward",
             eventKey: "setup-event"
         )
-        #expect(env.gemService.balance(for: "hero-1", familyRecordName: "test-family") == 200)
+        #expect(try env.gemService.balance(for: "hero-1", familyRecordName: "test-family") == 200)
 
         let firstSpend = try await env.gemService.spendGems(
             amount: 120,
@@ -208,7 +208,7 @@ struct EquipmentServiceTests {
 
         #expect(firstSpend)
         #expect(retrySpend)
-        #expect(env.gemService.balance(for: "hero-1", familyRecordName: "test-family") == 80)
+        #expect(try env.gemService.balance(for: "hero-1", familyRecordName: "test-family") == 80)
         #expect(env.cache.fetchGemLedgers(family: "test-family").count == 2)
     }
 

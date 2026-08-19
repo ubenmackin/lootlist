@@ -52,6 +52,7 @@ final class AppDependencies {
 
         let cache = Self.makeCacheService(app: app, isTest: isTest, logger: logger)
         let toast = ToastManager()
+        cache?.toastManager = toast
         let celebration = CelebrationManager()
         celebration.toastManager = toast
         let sound = SoundManager()

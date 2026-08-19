@@ -133,7 +133,13 @@ final class FamilyShareReconciler {
                 return
             }
 
-            let profiles = await (try? familyService.fetchAllProfilesForFamily(family)) ?? []
+            let profiles: [Profile]
+            do {
+                profiles = try await familyService.fetchAllProfilesForFamily(family)
+            } catch {
+                logger.error("Family share reconciliation skipped: could not fetch profiles (\(error, privacy: .private))")
+                return
+            }
             for profile in profiles where profile.isActive {
                 // The Guild Master (owner) is never a participant, and the
                 // current user's own profile must never be self-deactivated, so

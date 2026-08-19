@@ -141,7 +141,7 @@ final class EquipmentService {
             throw EquipmentError.levelTooLow(required: item.requiredLevel)
         }
 
-        let currentBalance = gemService.balance(for: profile.id.recordName, familyRecordName: profile.family.recordID.recordName)
+        let currentBalance = try gemService.balance(for: profile.id.recordName, familyRecordName: profile.family.recordID.recordName)
         guard currentBalance >= item.gemPrice else {
             throw EquipmentError.insufficientGems(required: item.gemPrice, current: currentBalance)
         }

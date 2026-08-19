@@ -100,11 +100,11 @@ final class AutoPayoutCoordinator {
                             continue
                         }
 
-                        logger.info("Executing auto-payout for hero \(hero.displayName) for week \(weekOf)")
+                        logger.info("Executing auto-payout for hero \(hero.displayName, privacy: .private) for week \(weekOf, privacy: .private)")
                         try await treasuryService.runPayout(period: period)
                         processedCount += 1
                     } catch {
-                        logger.error("Error processing auto-payout for hero \(hero.displayName, privacy: .private): \(error, privacy: .public)")
+                        logger.error("Error processing auto-payout for hero \(hero.displayName, privacy: .private): \(error, privacy: .private)")
                     }
                 }
             }
@@ -115,7 +115,7 @@ final class AutoPayoutCoordinator {
             let familyWeekStart = WeekMath.startOfWeek(for: now, payoutDay: family.payoutDay)
             let sweptQuests = try await questService.sweepExpiredQuests(family: family, currentWeekOf: familyWeekStart)
             if !sweptQuests.isEmpty {
-                logger.info("Swept \(sweptQuests.count) expired quests for family \(family.name)")
+                logger.info("Swept \(sweptQuests.count) expired quests for family \(family.name, privacy: .private)")
             }
 
             // Recurring quest carry-forward: roll template-backed quests from
@@ -130,7 +130,7 @@ final class AutoPayoutCoordinator {
                 now: now
             )
         } catch {
-            logger.error("Failed during auto-payout evaluation: \(error, privacy: .public)")
+            logger.error("Failed during auto-payout evaluation: \(error, privacy: .private)")
         }
 
         return processedCount
@@ -320,7 +320,7 @@ final class AutoPayoutCoordinator {
                 carriedPerAssignee[pair.assignee, default: 0] += 1
             } catch {
                 logger.error(
-                    "Carry-forward assignment failed for template \(pair.template, privacy: .public) assignee \(pair.assignee, privacy: .public): \(error, privacy: .public)"
+                    "Carry-forward assignment failed for template \(pair.template, privacy: .private) assignee \(pair.assignee, privacy: .private): \(error, privacy: .private)"
                 )
             }
         }
@@ -343,7 +343,7 @@ final class AutoPayoutCoordinator {
                 do {
                     try await notificationService.send(.questAssigned, to: hero, title: title, body: body)
                 } catch {
-                    logger.error("Carry-forward summary notification failed: \(error, privacy: .public)")
+                    logger.error("Carry-forward summary notification failed: \(error, privacy: .private)")
                 }
             }
         }

@@ -210,15 +210,16 @@ final class TreasuryService {
         // Cache-first profile/family resolution mirrors QuestService's
         // settlement hot path: serve the family's cached records when fresh
         // (no CloudKit round-trip), else fall through to a single fetch.
-        if let profile = try? await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName),
-           let family = try? await resolveFamily(recordID: period.family.recordID)
-        {
+        do {
+            let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
+            let family = try await resolveFamily(recordID: period.family.recordID)
             let breakdown = try await weeklyBreakdown(profile: profile,
                                                       family: family,
                                                       weekOf: period.weekOf)
             updated.totalEarned = totalEarned ?? breakdown.totalEarned
             updated.questsCompleted = questsCompleted ?? breakdown.questsCount
-        } else {
+        } catch {
+            logger.warning("Could not resolve payout context for period update: \(error, privacy: .private)")
             if let totalEarned {
                 updated.totalEarned = totalEarned
             }
@@ -260,9 +261,9 @@ final class TreasuryService {
 
         var resolvedProfile: Profile?
         var questGoldToPayout = 0.0
-        if let profile = try? await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName),
-           let family = try? await resolveFamily(recordID: period.family.recordID)
-        {
+        do {
+            let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
+            let family = try await resolveFamily(recordID: period.family.recordID)
             resolvedProfile = profile
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
@@ -271,11 +272,13 @@ final class TreasuryService {
             updated.totalEarned = breakdown.totalEarned
             updated.questsCompleted = breakdown.questsCount
             questGoldToPayout = breakdown.goldFromQuests
-        } else {
-            guard (updated.totalEarned) > 0 else {
-                return
-            }
-            questGoldToPayout = updated.totalEarned
+        } catch {
+            logger.warning("Could not resolve payout context for period payout: \(error, privacy: .private)")
+            // Abort instead of falling back to stale cached totals. Silently
+            // using a stale totalEarned and marking the period .paid can mint
+            // an incorrect payout during a transient resolution failure. The
+            // caller (AutoPayoutCoordinator) will retry on next activation.
+            throw error
         }
 
         updated.status = .paid
@@ -304,7 +307,7 @@ final class TreasuryService {
                     let family = try await resolveFamily(recordID: period.family.recordID)
                     try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
                 } catch {
-                    logger.error("Failed to send weekly summary notification: \(error, privacy: .public)")
+                    logger.error("Failed to send weekly summary notification: \(error, privacy: .private)")
                 }
             }
         }
@@ -333,7 +336,7 @@ final class TreasuryService {
                 appState: appState
             )
         } catch {
-            logger.warning("processRealTimeSettlement aborted due to scope violation: \(error, privacy: .public)")
+            logger.warning("processRealTimeSettlement aborted due to scope violation: \(error, privacy: .private)")
             return nil
         }
 
@@ -497,12 +500,18 @@ final class TreasuryService {
         // Fallback to CloudKit — preserve the original sort: newest week first.
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = await (try? cloudKit.query(
-            AllowancePeriod.self,
-            predicate: predicate,
-            in: family.id.zoneID,
-            sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
-        )) ?? []
+        let all: [AllowancePeriod]
+        do {
+            all = try await cloudKit.query(
+                AllowancePeriod.self,
+                predicate: predicate,
+                in: family.id.zoneID,
+                sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
+            )
+        } catch {
+            logger.warning("Failed to fetch allowance periods: \(error, privacy: .private)")
+            all = []
+        }
         cacheService?.upsertAllowancePeriods(all)
         return all
     }

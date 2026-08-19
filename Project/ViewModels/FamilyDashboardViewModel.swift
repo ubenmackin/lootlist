@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import CryptoKit
 import Foundation
 import Observation
 import os
@@ -46,6 +47,17 @@ final class FamilyDashboardViewModel {
     private let familyService: FamilyProfileFetching
     private let appState: AppState
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboard")
+
+    /// Stable, non-PII row token cache. Each unique identity key is mapped to
+    /// a deterministic HMAC-SHA256 token on first encounter and reused on
+    /// subsequent calls so SwiftUI row identity stays stable across refreshes.
+    private static var identityTokenCache: [String: String] = [:]
+
+    /// Per-refresh counter for assigning sequential numeric labels to
+    /// identities. Reset at the start of each `refreshInvitations()` call so
+    /// labels stay stable within a single pass regardless of how many
+    /// identities are present.
+    private var identityLabelCounter: [String: Int] = [:]
 
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
@@ -101,7 +113,11 @@ final class FamilyDashboardViewModel {
         defer { isLoading = false }
 
         if let family = appState.family {
-            try? await achievements.seedDefaultAchievements(family: family)
+            do {
+                try await achievements.seedDefaultAchievements(family: family)
+            } catch {
+                logger.debug("Default achievements seed skipped: \(error, privacy: .private)")
+            }
         }
     }
 
@@ -125,8 +141,8 @@ final class FamilyDashboardViewModel {
     /// Reloads the Invitations panel from the family's `CKShare` participant
     /// records. Classification is driven by `fetchShareParticipantStatuses`
     /// (identity + acceptance status, testable without fabricated
-    /// `CKShare.Participant` objects) and the participant objects enrich the
-    /// rows with display handles and revocation handles. Rows are classified
+    /// `CKShare.Participant` objects) and the participant objects provide
+    /// revocation handles. Rows are classified
     /// three ways: active member Profiles are skipped (shown in `heroes` /
     /// `parents`); deactivated member Profiles whose identity is still an
     /// accepted participant are flagged as departed members so the Guild Master
@@ -134,7 +150,8 @@ final class FamilyDashboardViewModel {
     /// identities surface read-only while CloudKit propagates the removal.
     /// Pending invites that have not yet established an iCloud identity
     /// (email/phone only) have no status entry and are rendered from the
-    /// participant objects directly. The share owner's own participant entry —
+    /// participant objects directly. Their display labels are always redacted.
+    /// The share owner's own participant entry —
     /// the signed-in user's identity — is never rendered as a revocable row.
     func refreshInvitations() async {
         guard appState.isZoneOwner, let family = appState.family else {
@@ -142,6 +159,7 @@ final class FamilyDashboardViewModel {
             return
         }
         let cloudKit = questService.cloudKitReference
+        var currentUserRecordName: String
         do {
             // Resolve the signed-in user's identity before classifying rows:
             // the share owner's participant entry is that identity, and it must
@@ -149,70 +167,104 @@ final class FamilyDashboardViewModel {
             // current user's own zone access). Resolution failure is
             // fail-closed — the panel loads nothing rather than risk offering a
             // revoke button on the user's own access.
-            let currentUserRecordName = try await cloudKit.currentUserRecordID().recordName
-
-            let activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
-            // Deactivated member profiles: their identity can remain an
-            // accepted share participant (a self-leave cannot revoke a share it
-            // does not own), which is why the panel flags them for owner-side
-            // revocation instead of hiding them.
-            let inactiveIdentities = await departedMemberIdentities(for: family)
-
-            let participants = try await cloudKit.fetchShareParticipants(for: family.id)
-            let participantByRecordName = Dictionary(
-                participants.compactMap { participant -> (String, CKShare.Participant)? in
-                    guard let recordName = participant.userIdentity.userRecordID?.recordName else { return nil }
-                    return (recordName, participant)
-                },
-                uniquingKeysWith: { first, _ in first }
-            )
-            let statuses = try await cloudKit.fetchShareParticipantStatuses(for: family.id)
-            let roleMap = await (try? cloudKit.fetchShareParticipantRoles(for: family.id)) ?? [:]
-
-            var result: [FamilyInvitation] = []
-            var handledRecordNames = Set<String>()
-            var handledKeys = Set<String>()
-
-            // Statuses are the authoritative identity view (they include
-            // `.removed` markers that object-only reading has to filter).
-            for status in statuses {
-                let key = status.identityKey ?? status.recordName.map { "record:\($0)" }
-                guard let key else { continue }
-                handledKeys.insert(key)
-                if let recordName = status.recordName {
-                    handledRecordNames.insert(recordName)
-                }
-                if let invitation = buildStatusInvitation(
-                    status: status,
-                    currentUserRecordName: currentUserRecordName,
-                    activeRecordNames: activeRecordNames,
-                    inactiveIdentities: inactiveIdentities,
-                    participantByRecordName: participantByRecordName,
-                    roleMap: roleMap
-                ) {
-                    result.append(invitation)
-                }
-            }
-
-            // Pending invites without an established iCloud identity have no
-            // status entry; render them from the participant objects.
-            for participant in participants {
-                if let invitation = buildParticipantInvitation(
-                    participant: participant,
-                    currentUserRecordName: currentUserRecordName,
-                    handledRecordNames: handledRecordNames,
-                    handledKeys: handledKeys,
-                    roleMap: roleMap
-                ) {
-                    result.append(invitation)
-                }
-            }
-
-            invitations = result
+            let currentUserRecordID = try await cloudKit.currentUserRecordID()
+            currentUserRecordName = currentUserRecordID.recordName
         } catch {
-            logger.error("Failed to load share invitations: \(error, privacy: .private)")
+            logger.warning("Failed to resolve current user record ID for invitation refresh: \(error, privacy: .private)")
             invitations = []
+            return
         }
+
+        let activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
+        // Deactivated member profiles: their identity can remain an
+        // accepted share participant (a self-leave cannot revoke a share it
+        // does not own), which is why the panel flags them for owner-side
+        // revocation instead of hiding them.
+        let inactiveIdentities = await departedMemberIdentities(for: family)
+
+        let participants: [CKShare.Participant]
+        do {
+            participants = try await cloudKit.fetchShareParticipants(for: family.id)
+        } catch {
+            logger.error("Failed to load share participants: \(error, privacy: .private)")
+            invitations = []
+            return
+        }
+        let participantByRecordName = Dictionary(
+            participants.compactMap { participant -> (String, CKShare.Participant)? in
+                guard let recordName = participant.userIdentity.userRecordID?.recordName else { return nil }
+                return (recordName, participant)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let statuses: [ShareParticipantStatus]
+        do {
+            statuses = try await cloudKit.fetchShareParticipantStatuses(for: family.id)
+        } catch {
+            logger.error("Failed to load share participant statuses: \(error, privacy: .private)")
+            invitations = []
+            return
+        }
+        let roleMap: [String: UserRole]
+        do {
+            roleMap = try await cloudKit.fetchShareParticipantRoles(for: family.id)
+        } catch {
+            logger.warning("Failed to fetch share participant roles: \(error, privacy: .private)")
+            roleMap = [:]
+        }
+
+        var result: [FamilyInvitation] = []
+        var handledRecordNames = Set<String>()
+        var handledKeys = Set<String>()
+
+        // Pre-compute a stable numeric label for every status-based identity.
+        // Sorted by identity key so the same set of identities always receives
+        // the same sequential numbers, regardless of processing order.
+        identityLabelCounter = [:]
+        var labelIndex = 0
+        for status in statuses.sorted(by: { ($0.identityKey ?? "") < ($1.identityKey ?? "") }) {
+            if let key = status.identityKey {
+                identityLabelCounter[key] = labelIndex
+                labelIndex += 1
+            }
+        }
+
+        // Statuses are the authoritative identity view (they include
+        // `.removed` markers that object-only reading has to filter).
+        for status in statuses {
+            let key = status.identityKey ?? status.recordName.map { "record:\($0)" }
+            guard let key else { continue }
+            handledKeys.insert(key)
+            if let recordName = status.recordName {
+                handledRecordNames.insert(recordName)
+            }
+            if let invitation = buildStatusInvitation(
+                status: status,
+                currentUserRecordName: currentUserRecordName,
+                activeRecordNames: activeRecordNames,
+                inactiveIdentities: inactiveIdentities,
+                participantByRecordName: participantByRecordName,
+                roleMap: roleMap
+            ) {
+                result.append(invitation)
+            }
+        }
+
+        // Pending invites without an established iCloud identity have no
+        // status entry; render them from the participant objects.
+        for participant in participants {
+            if let invitation = buildParticipantInvitation(
+                participant: participant,
+                currentUserRecordName: currentUserRecordName,
+                handledRecordNames: handledRecordNames,
+                handledKeys: handledKeys,
+                roleMap: roleMap
+            ) {
+                result.append(invitation)
+            }
+        }
+
+        invitations = result
     }
 
     private func buildStatusInvitation(
@@ -306,7 +358,11 @@ final class FamilyDashboardViewModel {
     /// fails the map is empty and departed members degrade to plain invitation
     /// rows rather than blocking the panel.
     private func departedMemberIdentities(for family: Family) async -> [String: String] {
-        guard let profiles = try? await familyService.fetchAllProfilesForFamily(family) else {
+        let profiles: [Profile]
+        do {
+            profiles = try await familyService.fetchAllProfilesForFamily(family)
+        } catch {
+            logger.warning("Failed to fetch all profiles for family: \(error, privacy: .private)")
             return [:]
         }
         var identities: [String: String] = [:]
@@ -316,25 +372,15 @@ final class FamilyDashboardViewModel {
         return identities
     }
 
-    /// Display handle for a status-driven row: the participant's name/contact
-    /// when an object is available (production), else the formatted identity key or raw record name.
+    /// Returns a stable, redacted label for a status-driven row. CloudKit
+    /// record names and contact lookup values are retained only in the
+    /// revocation fields, never in the value rendered by the dashboard.
     private func identityDisplay(for key: String, recordName: String?, participant: CKShare.Participant?) -> String {
         if let participant {
             return participantIdentityDisplay(participant)
         }
-        if let recordName {
-            return recordName
-        }
-        if key.hasPrefix("email:") {
-            return String(key.dropFirst("email:".count))
-        }
-        if key.hasPrefix("phone:") {
-            return String(key.dropFirst("phone:".count))
-        }
-        if key.hasPrefix("record:") {
-            return String(key.dropFirst("record:".count))
-        }
-        return key
+        let identityKey = recordName.map { "record:\($0)" } ?? key
+        return Self.redactedIdentityLabel(for: identityKey, counter: identityLabelCounter)
     }
 
     /// Revokes a pending invitation or a departed member's lingering share access
@@ -358,13 +404,19 @@ final class FamilyDashboardViewModel {
         if invitation.participant?.role == .owner {
             return
         }
-        if let identityRecordName = invitation.identityRecordName,
-           let currentUserRecordName = try? await cloudKit.currentUserRecordID().recordName,
-           identityRecordName == currentUserRecordName
-        {
-            logger.error("Refusing to revoke the current user's own share access")
-            return
+        if let identityRecordName = invitation.identityRecordName {
+            do {
+                let currentUserRecordID = try await cloudKit.currentUserRecordID()
+                if identityRecordName == currentUserRecordID.recordName {
+                    logger.error("Refusing to revoke the current user's own share access")
+                    return
+                }
+            } catch {
+                logger.warning("Failed to resolve current user record ID for revocation guard: \(error, privacy: .private)")
+                return
+            }
         }
+
         do {
             if let participant = invitation.participant {
                 try await cloudKit.removeParticipant(participant, from: family.id)
@@ -403,28 +455,42 @@ final class FamilyDashboardViewModel {
     /// identity (iCloud record name, email, or phone number) must never appear
     /// in a `FamilyInvitation` identifier — those identifiers back SwiftUI row
     /// identity and surface in accessibility identifiers / UI-test queries.
-    /// FNV-1a keeps the token deterministic across refreshes and launches while
-    /// leaking nothing about the identity.
+    /// HMAC-SHA256 with a static secret key produces a deterministic,
+    /// collision-resistant token that cannot be reverse-engineered to the
+    /// underlying identity.
     private static func opaqueIdentityToken(_ value: String) -> String {
-        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash = hash &* 0x0000_0100_0000_01B3
+        if let cached = identityTokenCache[value] {
+            return cached
         }
-        return String(format: "inv-%08x", UInt32(truncatingIfNeeded: hash))
+        let key = SymmetricKey(data: Data([
+            0x4C, 0x6F, 0x6F, 0x74, 0x4C, 0x69, 0x73, 0x74,
+            0x49, 0x6E, 0x76, 0x69, 0x74, 0x61, 0x74, 0x69,
+            0x6F, 0x6E, 0x54, 0x6F, 0x6B, 0x65, 0x6E, 0x53,
+            0x61, 0x6C, 0x74, 0x31, 0x32, 0x33, 0x34, 0x35
+        ]))
+        let token = HMAC<SHA256>.authenticationCode(for: Data(value.utf8), using: key)
+        let result = String(describing: token)
+        identityTokenCache[value] = result
+        return result
     }
 
     private func participantIdentityDisplay(_ participant: CKShare.Participant) -> String {
-        if let name = participant.userIdentity.nameComponents {
-            return PersonNameComponentsFormatter().string(from: name)
+        guard let key = ShareParticipantKey.key(for: participant) else {
+            return "Invited member"
         }
-        if let email = participant.userIdentity.lookupInfo?.emailAddress {
-            return email
+        return Self.redactedIdentityLabel(for: key, counter: identityLabelCounter)
+    }
+
+    /// Produces a stable display label without exposing the participant's
+    /// record name, email address, phone number, or display name. When a
+    /// counter is available, labels are sequential ("Guild Member 1", etc.)
+    /// so different identities are visually distinguishable without leaking
+    /// any identity-derived information.
+    private static func redactedIdentityLabel(for identityKey: String, counter: [String: Int] = [:]) -> String {
+        if let number = counter[identityKey] {
+            return "Guild Member \(number + 1)"
         }
-        if let phone = participant.userIdentity.lookupInfo?.phoneNumber {
-            return phone
-        }
-        return "Invited member"
+        return "Guild Member"
     }
 
     private static func invitationStatusText(_ status: CKShare.ParticipantAcceptanceStatus) -> String {
@@ -637,7 +703,7 @@ struct HeroSummary: Equatable, Identifiable {
 }
 
 /// A `CKShare` participant (or participant-derived identity) shown in the Guild
-/// Settings Invitations panel: with a human-readable handle, a CloudKit
+/// Settings Invitations panel: with a stable redacted display label, a CloudKit
 /// acceptance status, a `kind` that drives presentation and availability of the
 /// revocation action, and identity fields for the revocation call itself —
 /// `participant` when an object is available, else `identityRecordName`. `id`

@@ -60,13 +60,23 @@ enum RecordBridge {
         name: String
     ) -> Bool {
         if cache.familyRecordName != expectedFamily {
-            logger.warning("RecordBridge family mismatch for \(entity) \(name): expected \(expectedFamily), got \(cache.familyRecordName)")
+            logger
+                .warning(
+                    """
+                    RecordBridge family mismatch for \(entity, privacy: .public) \(name, privacy: .private): \
+                    expected \(expectedFamily, privacy: .private), got \(cache.familyRecordName, privacy: .private)
+                    """
+                )
             return false
         }
         if cache.validatedDatabaseScope(expectedScope: expectedDatabaseScope) == nil {
             logger
                 .warning(
-                    "RecordBridge database scope mismatch for \(entity) \(name): expected \(String(describing: expectedDatabaseScope)), got \(cache.sourceDatabaseScope ?? "nil")"
+                    """
+                    RecordBridge database scope mismatch for \(entity, privacy: .public) \(name, privacy: .private): \
+                    expected \(String(describing: expectedDatabaseScope), privacy: .public), \
+                    got \(cache.sourceDatabaseScope ?? "nil", privacy: .private)
+                    """
                 )
             return false
         }
@@ -104,11 +114,21 @@ enum RecordBridge {
     private static func bridgeFamily(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
         guard let cache = cacheService.fetchFamily(recordName: name) else { return nil }
         if cache.recordName != expectedFamily {
-            logger.warning("RecordBridge family mismatch for family \(name): expected \(expectedFamily), got \(cache.recordName)")
+            logger
+                .warning(
+                    "RecordBridge family mismatch for family \(name, privacy: .private): expected \(expectedFamily, privacy: .private), got \(cache.recordName, privacy: .private)"
+                )
             return nil
         }
         if cache.validatedDatabaseScope(expectedScope: expectedDatabase) == nil {
-            logger.warning("RecordBridge database scope mismatch for family \(name): expected \(String(describing: expectedDatabase)), got \(cache.sourceDatabaseScope ?? "nil")")
+            logger
+                .warning(
+                    """
+                    RecordBridge database scope mismatch for family \(name, privacy: .private): \
+                    expected \(String(describing: expectedDatabase), privacy: .public), \
+                    got \(cache.sourceDatabaseScope ?? "nil", privacy: .private)
+                    """
+                )
             return nil
         }
         return cache.toFamily(zoneID: zoneID).toRecord()

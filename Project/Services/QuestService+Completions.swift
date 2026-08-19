@@ -244,7 +244,7 @@ extension QuestService {
                     do {
                         try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
                     } catch {
-                        logger.error("Failed to send quest review notification: \(error, privacy: .public)")
+                        logger.error("Failed to send quest review notification: \(error, privacy: .private)")
                     }
                 }
             }
@@ -259,7 +259,7 @@ extension QuestService {
                         await MainActor.run { self.cacheService?.upsertProfile(parent) }
                         try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
                     } catch {
-                        logger.error("Failed to send async quest review notification: \(error, privacy: .public)")
+                        logger.error("Failed to send async quest review notification: \(error, privacy: .private)")
                     }
                 }
             }
@@ -273,7 +273,7 @@ extension QuestService {
                     do {
                         try await notificationService.sendQuestRejected(questLog: updated, to: hero)
                     } catch {
-                        logger.error("Failed to send quest rejection notification: \(error, privacy: .public)")
+                        logger.error("Failed to send quest rejection notification: \(error, privacy: .private)")
                     }
                 }
             }
@@ -288,7 +288,7 @@ extension QuestService {
                         await MainActor.run { self.cacheService?.upsertProfile(hero) }
                         try await notificationService.sendQuestRejected(questLog: updated, to: hero)
                     } catch {
-                        logger.error("Failed to send async quest rejection notification: \(error, privacy: .public)")
+                        logger.error("Failed to send async quest rejection notification: \(error, privacy: .private)")
                     }
                 }
             }
@@ -319,7 +319,11 @@ extension QuestService {
         if let achievementService, let family = appState?.family {
             let achService = achievementService
             Task {
-                _ = try? await achService.evaluateAll(for: hero, family: family)
+                do {
+                    _ = try await achService.evaluateAll(for: hero, family: family)
+                } catch {
+                    logger.warning("Failed to evaluate achievements after quest verification: \(error, privacy: .private)")
+                }
             }
         }
 
@@ -334,7 +338,7 @@ extension QuestService {
                         body: "Your quest was verified! You earned \(goldText)."
                     )
                 } catch {
-                    logger.error("Failed to send quest completion notification: \(error, privacy: .public)")
+                    logger.error("Failed to send quest completion notification: \(error, privacy: .private)")
                 }
             }
         }

@@ -163,7 +163,15 @@ enum ActiveFamilyScopeGuard {
             throw ScopeViolation.identityUnavailable
         }
 
-        guard profile.creatorUserRecordName == currentUserRecordName,
+        let creatorIsResolved: Bool = if let creator = profile.creatorUserRecordName {
+            creator == currentUserRecordName
+                || creator == CKCurrentUserDefaultName
+                || creator == "_defaultOwner_"
+        } else {
+            false
+        }
+
+        guard creatorIsResolved,
               profile.iCloudUserID.recordName == currentUserRecordName
         else {
             throw ScopeViolation.identityMismatch

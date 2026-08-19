@@ -62,7 +62,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             do {
                 try BGTaskScheduler.shared.submit(request)
             } catch {
-                logger.debug("Failed to submit BGAppRefreshTask: \(error, privacy: .public)")
+                logger.debug("Failed to submit BGAppRefreshTask: \(error, privacy: .private)")
             }
         #endif
     }
