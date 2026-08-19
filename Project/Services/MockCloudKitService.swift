@@ -176,7 +176,17 @@ class MockCloudKitService: CloudKitServiceProtocol {
         mockStore.setRecord(record, databaseScope: scope)
         savedRecords.append(record)
         let decoded = try T(record: record)
-        return applyingCreatorStamp(for: targetID, on: decoded)
+        guard let creator = recordCreators[targetID] else {
+            return decoded
+        }
+        if var family = decoded as? Family {
+            family.creatorUserRecordName = creator
+            return family as? T ?? decoded
+        }
+        if let profile = decoded as? Profile {
+            return profile.applyingServerCreator(creator) as? T ?? decoded
+        }
+        return decoded
     }
 
     func claimRewardEvent(_ event: RewardEvent, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws -> Bool {
@@ -222,7 +232,28 @@ class MockCloudKitService: CloudKitServiceProtocol {
             throw CloudKitServiceError.notFound(id.recordName)
         }
         let decoded = try T(record: record)
-        return applyingCreatorStamp(for: targetID, on: decoded)
+        // Apply creator-stamp to match production CloudKit behavior.
+        if let creator = recordCreators[record.recordID],
+           let stamped = stampCreatorRecord(decoded, creator: creator) as? T
+        {
+            return stamped
+        }
+        return decoded
+    }
+
+    /// Applies the server-stamped creator to concrete record types that carry a
+    /// `creatorUserRecordName`. Returns `nil` when the record type does not
+    /// support creator stamps, allowing the caller to fall through to the
+    /// unstamped original without a force cast.
+    private func stampCreatorRecord(_ record: any CloudKitRecord, creator: String) -> (any CloudKitRecord)? {
+        if var family = record as? Family {
+            family.creatorUserRecordName = creator
+            return family
+        }
+        if let profile = record as? Profile {
+            return profile.applyingServerCreator(creator)
+        }
+        return nil
     }
 
     func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?,
@@ -231,12 +262,27 @@ class MockCloudKitService: CloudKitServiceProtocol {
         let scope: CKDatabase.Scope? = db?.databaseScope
         let targetZone = zoneID ?? activeFamilyZoneID
         let records = try mockStore.query(T.self, predicate: predicate, in: targetZone, sortDescriptors: sortDescriptors, databaseScope: scope)
-        return records.map { record in
-            if let family = record as? Family {
-                return applyingCreatorStamp(for: family.id, on: record)
+
+        // Apply creator-stamps to match production CloudKit behavior.
+        // Use `toRecord().recordID` to get a concrete CKRecord.ID, sidestepping
+        // the generic T.ID issue that confuses the type checker with dict keys.
+        var results: [any CloudKitRecord] = []
+        for record in records {
+            let rid = record.toRecord().recordID
+            guard let creator = recordCreators[rid] else {
+                results.append(record)
+                continue
             }
-            return record
+            if var family = record as? Family {
+                family.creatorUserRecordName = creator
+                results.append(family)
+            } else if let profile = record as? Profile {
+                results.append(profile.applyingServerCreator(creator))
+            } else {
+                results.append(record)
+            }
         }
+        return results as? [T] ?? []
     }
 
     func delete(_ recordID: CKRecord.ID, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws {
@@ -413,22 +459,5 @@ class MockCloudKitService: CloudKitServiceProtocol {
 
     func deleteZone(_ zoneID: CKRecordZone.ID) async throws {
         _ = zoneID
-    }
-
-    /// Applies the emulated server creator stamp onto a decoded model. The
-    /// registry is authoritative because CloudKit owns the creator field — a
-    /// locally-authored value cannot override the stamp.
-    private func applyingCreatorStamp<T: CloudKitRecord>(for recordID: CKRecord.ID, on result: T) -> T {
-        guard let creator = recordCreators[recordID] else {
-            return result
-        }
-        if var family = result as? Family {
-            family.creatorUserRecordName = creator
-            return family as? T ?? result
-        }
-        if let profile = result as? Profile {
-            return profile.applyingServerCreator(creator) as? T ?? result
-        }
-        return result
     }
 }

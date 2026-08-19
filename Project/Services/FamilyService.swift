@@ -387,6 +387,15 @@ final class FamilyService: FamilyProfileFetching {
         // their own profile. Routine updates stay push-driven via CKSyncEngine.
         await refreshProfilesFromCloudKit(for: family)
 
+        // Defense-in-depth: re-apply the locally saved profile after the
+        // refresh. The CloudKit query may return a stale copy (e.g. the
+        // profile was just minted with a placeholder displayName that the
+        // server hasn't yet overwritten with the real name). Ensuring the
+        // locally-known-correct profile is never evicted from the cache
+        // during the join flow prevents a later `updateCurrentProfileFromCache`
+        // from merging an empty displayName into `appState.currentProfile`.
+        cacheService?.upsertProfile(savedProfile)
+
         progressHandler?("Joined Guild!", 1.0)
         return JoinedFamilyResult(
             family: family,

@@ -45,10 +45,9 @@ final class AppState {
 
     var authStatus: AuthStatus {
         didSet {
-            // CKSyncEngine delegates are created before the initial bootstrap.
-            // A sign-in event can therefore try to replace the launch splash
-            // with discovery while a complete persisted session is still
-            // waiting for restoreSession to run.
+            // An account event can arrive while a complete persisted session is
+            // still waiting for restoreSession to run. Keep the launch splash
+            // in place until that authoritative restoration attempt finishes.
             guard authStatus == .checkingCloudData,
                   oldValue == .restoringSession,
                   family == nil,
@@ -123,6 +122,12 @@ final class AppState {
     @ObservationIgnored
     private var notificationRouteTask: Task<Void, Never>?
 
+    @ObservationIgnored
+    private var isDiscoveryInFlight = false
+
+    @ObservationIgnored
+    private var discoveryWaiters: [CheckedContinuation<Void, Never>] = []
+
     // MARK: - Session Persistence Keys
 
     private static let profileIDKey = "session_profileRecordName"
@@ -131,6 +136,7 @@ final class AppState {
     private static let zoneOwnerKey = "session_familyZoneOwnerName"
     private static let isOwnerKey = "session_isZoneOwner"
     private static let hasSessionKey = "session_hasActiveSession"
+    private static let hasOnboardedKey = "session_hasOnboarded"
     private static let abandonedZoneIDsKey = "session_abandonedFamilyZoneNames"
 
     private let defaults: UserDefaults
@@ -143,13 +149,25 @@ final class AppState {
             && defaults.string(forKey: Self.zoneOwnerKey) != nil
     }
 
+    private func hasOnboarded() -> Bool {
+        defaults.bool(forKey: Self.hasOnboardedKey)
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        // Keep `.restoringSession` whenever `hasSession` is set so a partial-write
-        // (force-quit during `saveSession`) gets a single re-read pass through
-        // `restoreSession` before falling through to discovery.
         let hasSession = defaults.bool(forKey: Self.hasSessionKey)
-        authStatus = hasSession ? .restoringSession : .checkingCloudData
+        let onboarded = defaults.bool(forKey: Self.hasOnboardedKey)
+        // A completed onboarding that lacks a session means we should probe
+        // for a recoverable family (restore / reconnect); a brand-new install
+        // goes straight to the discovery state so RootView renders the
+        // scanning placeholder rather than bouncing through restoringSession.
+        if hasSession {
+            authStatus = .restoringSession
+        } else if onboarded {
+            authStatus = .checkingCloudData
+        } else {
+            authStatus = .checkingCloudData
+        }
 
         quickActionTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
@@ -209,6 +227,7 @@ final class AppState {
         defaults.set(zoneID.ownerName, forKey: Self.zoneOwnerKey)
         defaults.set(isOwner, forKey: Self.isOwnerKey)
         defaults.set(true, forKey: Self.hasSessionKey)
+        defaults.set(true, forKey: Self.hasOnboardedKey)
     }
 
     func clearSession() {
@@ -228,6 +247,9 @@ final class AppState {
         defaults.removeObject(forKey: Self.zoneOwnerKey)
         defaults.removeObject(forKey: Self.isOwnerKey)
         defaults.removeObject(forKey: Self.hasSessionKey)
+        // Preserve `hasOnboardedKey` so the app knows this user has completed
+        // onboarding before and should attempt recovery rather than showing
+        // the brand-new Welcome screen on the next launch.
     }
 
     /// Extended session clearing that also resets CloudKit scope and engine state.
@@ -251,6 +273,10 @@ final class AppState {
               let zoneName = defaults.string(forKey: Self.zoneNameKey),
               let zoneOwnerName = defaults.string(forKey: Self.zoneOwnerKey)
         else {
+            // A sign-in callback can finish discovery before the bootstrap task
+            // reaches this branch. Do not reset a completed reconnect or
+            // onboarding result and start a second discovery pass.
+            guard authStatus == .checkingCloudData || authStatus == .restoringSession else { return }
             authStatus = .checkingCloudData
             await discoverExistingCloudState(cloudKit: cloudKit)
             return
@@ -296,6 +322,13 @@ final class AppState {
         } catch {
             logger.error("Session restoration failed: \(error, privacy: .private)")
             if error is ScopeViolation {
+                // The CloudKit-fetched session could not be re-authenticated for
+                // this iCloud account. Try restoring from the local cache before
+                // wiping state and falling through to discovery — the cache may
+                // still have a viable offline session from a prior successful sync.
+                if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
+                    return
+                }
                 clearSessionAndCloudKitScope(cloudKit: cloudKit)
                 authStatus = .checkingCloudData
                 await discoverExistingCloudState(cloudKit: cloudKit)
@@ -414,12 +447,30 @@ final class AppState {
     func discoverExistingCloudState(cloudKit: any CloudKitServiceProtocol) async {
         guard authStatus == .checkingCloudData else { return }
 
+        if isDiscoveryInFlight {
+            logger.info("Cloud state discovery joined the in-progress discovery")
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                discoveryWaiters.append(continuation)
+            }
+            return
+        }
+
         // If restoration has already populated the active session, a
         // redundant account-change callback must not replace it with
         // discovery and the "Guild Detected" screen.
         if family != nil, currentProfile != nil {
             authStatus = .authenticated
             return
+        }
+
+        isDiscoveryInFlight = true
+        defer {
+            isDiscoveryInFlight = false
+            let waiters = discoveryWaiters
+            discoveryWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
         }
 
         logger.info("Starting iCloud family discovery...")
@@ -508,6 +559,7 @@ final class AppState {
                 if let foundFamily = family,
                    let userRecordID,
                    foundFamily.creatorUserRecordName == userRecordID.recordName
+                   || foundFamily.createdBy.recordName == userRecordID.recordName
                 {
                     do {
                         let familyRef = CKRecord.Reference(recordID: foundFamily.id, action: .none)
@@ -547,54 +599,69 @@ final class AppState {
         cloudKit: any CloudKitServiceProtocol,
         userRecordID: CKRecord.ID?
     ) async -> [DiscoveredFamilyCandidate] {
+        let sharedZones = await fetchSharedZonesWithBoundedRetry(cloudKit: cloudKit)
+
+        logger.info("Final shared zones count: \(sharedZones.count)")
+
+        var candidates: [DiscoveredFamilyCandidate] = []
+        for zone in sharedZones {
+            logger.info("Inspecting shared zone: '\(zone.zoneID.zoneName, privacy: .private)' (owner: '\(zone.zoneID.ownerName, privacy: .private)')")
+
+            // Only adopt a profile whose server-authenticated identity
+            // matches the current user. When the current user ID cannot be
+            // resolved (nil), the helper returns no matches and this shared
+            // zone is skipped — never fall back to an arbitrary active
+            // profile, which could adopt another user's session.
+            let activeProfiles = await Self.activeSharedHeroProfiles(
+                cloudKit: cloudKit,
+                userRecordID: userRecordID,
+                zoneID: zone.zoneID
+            )
+            if activeProfiles.count == 1,
+               let activeHeroProfile = activeProfiles.first,
+               let family = await Self.sharedZoneFamily(cloudKit: cloudKit, zoneID: zone.zoneID),
+               activeHeroProfile.family.recordID == family.id
+            {
+                candidates.append(DiscoveredFamilyCandidate(family: family, profile: activeHeroProfile, zoneID: zone.zoneID))
+            }
+            // Heroes have no private-zone proof of individual membership.
+            // A kicked-out hero could still see the shared zone during
+            // share-revocation propagation and would otherwise incorrectly
+            // adopt another active hero's profile if we fell back to an
+            // identity-free scan here. Respect the strict filter's 0-match
+            // result and fall through to onboarding so the user must
+            // re-accept a fresh share from the GM.
+        }
+        return candidates
+    }
+
+    private func fetchSharedZonesWithBoundedRetry(
+        cloudKit: any CloudKitServiceProtocol
+    ) async -> [CKRecordZone] {
         do {
-            var sharedZones = try await cloudKit.fetchSharedZones()
+            let sharedZones = try await cloudKit.fetchSharedZones()
             logger.info("Initial shared zones check: \(sharedZones.count) shared zones")
 
-            // If empty on cold launch (reinstall), perform a brief retry pulse to allow CloudKit daemon to sync accepted shares
+            // If empty on cold launch (reinstall), perform a brief retry pulse
+            // to allow the CloudKit daemon to sync accepted shares. A hard
+            // failure on the first attempt (503 / rate-limited) falls through
+            // the outer catch and returns [] — no retries are issued against
+            // a throttling response.
             if sharedZones.isEmpty {
                 for attempt in 1 ... AppConstants.Sync.maxPulseAttempts {
                     logger.info("Shared zone sync pulse attempt \(attempt)...")
                     do {
-                        sharedZones = try await cloudKit.fetchSharedZones()
+                        let retryZones = try await cloudKit.fetchSharedZones()
+                        if !retryZones.isEmpty {
+                            return retryZones
+                        }
                     } catch {
                         logger.debug("Shared zone sync pulse attempt \(attempt) failed: \(error, privacy: .private)")
-                        sharedZones = []
-                    }
-                    if !sharedZones.isEmpty {
-                        logger.info("Shared zone sync pulse succeeded! Found \(sharedZones.count) shared zones.")
-                        break
                     }
                 }
             }
 
-            logger.info("Final shared zones count: \(sharedZones.count)")
-
-            var candidates: [DiscoveredFamilyCandidate] = []
-            for zone in sharedZones {
-                logger.info("Inspecting shared zone: '\(zone.zoneID.zoneName, privacy: .private)' (owner: '\(zone.zoneID.ownerName, privacy: .private)')")
-
-                // Only adopt a profile whose server-authenticated identity
-                // matches the current user. When the current user ID cannot be
-                // resolved (nil), the helper returns no matches and this shared
-                // zone is skipped — never fall back to an arbitrary active
-                // profile, which could adopt another user's session.
-                let activeProfiles = await Self.activeSharedHeroProfiles(
-                    cloudKit: cloudKit,
-                    userRecordID: userRecordID,
-                    zoneID: zone.zoneID
-                )
-                logger.info("Shared zone '\(zone.zoneID.zoneName, privacy: .private)' returned \(activeProfiles.count) matching Profile records.")
-
-                if activeProfiles.count == 1,
-                   let activeHeroProfile = activeProfiles.first,
-                   let family = await Self.sharedZoneFamily(cloudKit: cloudKit, zoneID: zone.zoneID),
-                   activeHeroProfile.family.recordID == family.id
-                {
-                    candidates.append(DiscoveredFamilyCandidate(family: family, profile: activeHeroProfile, zoneID: zone.zoneID))
-                }
-            }
-            return candidates
+            return sharedZones
         } catch {
             logger.error("Error fetching shared zones: \(error, privacy: .private)")
             return []
@@ -762,6 +829,15 @@ final class AppState {
     /// the next launch. The brief `.checkingCloudData` window during discovery
     /// is hidden by the root view's existing `ProgressView` rendering.
     func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
+        if isDiscoveryInFlight {
+            logger.info("Sign-out discovered ongoing discovery; cancelling in-flight waiters and deferring completion")
+            let waiters = discoveryWaiters
+            discoveryWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+            return
+        }
         clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
         authStatus = .checkingCloudData // flip to state discoverExistingCloudState requires
         await discoverExistingCloudState(cloudKit: cloudKit)

@@ -14,6 +14,11 @@ struct GuildPayoutDefaultsSectionView: View {
 
     @Binding var isPayoutPolicyExpanded: Bool
 
+    @State private var selectedPolicy: PayoutPolicy = .perQuest
+    @State private var saveTask: Task<Void, Never>?
+    @State private var saveTaskDay: Task<Void, Never>?
+    @State private var actionError: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Allowance & Payout Defaults")
@@ -26,23 +31,7 @@ struct GuildPayoutDefaultsSectionView: View {
                     Label("Weekly Payout Day", systemImage: "calendar.badge.clock")
                         .font(.subheadline.weight(.semibold))
                     Spacer()
-                    Picker("Payout Day", selection: Binding(
-                        get: { appState.family?.payoutDay ?? .sunday },
-                        set: { newDay in
-                            if let family = appState.family {
-                                Task {
-                                    do {
-                                        try await familyService.updatePayoutDay(family: family, day: newDay)
-                                    } catch {
-                                        toastManager.show(
-                                            message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
-                                            type: .error
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    )) {
+                    Picker("Payout Day", selection: payoutDayBinding) {
                         ForEach(PayoutDay.allCases) { day in
                             Text(day.displayName).tag(day)
                         }
@@ -71,7 +60,7 @@ struct GuildPayoutDefaultsSectionView: View {
                                 Text("Default Payout Policy")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(Color.primary)
-                                Text(appState.family?.payoutPolicy.displayName ?? "Pay Per Quest (Standard)")
+                                Text(selectedPolicy.displayName)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -84,21 +73,36 @@ struct GuildPayoutDefaultsSectionView: View {
             .background(cardBackground)
         }
         .padding(.horizontal)
+        .onAppear {
+            selectedPolicy = appState.family?.payoutPolicy ?? .perQuest
+        }
+        .onChange(of: appState.family?.payoutPolicy) { _, newPolicy in
+            if let newPolicy {
+                selectedPolicy = newPolicy
+            }
+        }
+        .onChange(of: actionError) { _, error in
+            if let error {
+                toastManager.show(message: error, type: .error)
+            }
+        }
     }
 
     private func familyPayoutPolicyOptionRow(policy: PayoutPolicy) -> some View {
-        let currentPolicy = appState.family?.payoutPolicy ?? .perQuest
-        let isSelected = currentPolicy == policy
+        let isSelected = selectedPolicy == policy
         return Button {
             if !isSelected, let family = appState.family {
-                Task {
+                saveTask?.cancel()
+                let previousPolicy = selectedPolicy
+                selectedPolicy = policy
+                saveTask = Task {
                     do {
                         _ = try await familyService.updatePayoutPolicy(family: family, policy: policy)
                     } catch {
-                        toastManager.show(
-                            message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
-                            type: .error
-                        )
+                        if !Task.isCancelled {
+                            selectedPolicy = previousPolicy
+                            actionError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                        }
                     }
                 }
             }
@@ -138,6 +142,26 @@ struct GuildPayoutDefaultsSectionView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private var payoutDayBinding: Binding<PayoutDay> {
+        Binding(
+            get: { appState.family?.payoutDay ?? .sunday },
+            set: { newDay in
+                if let family = appState.family {
+                    saveTaskDay?.cancel()
+                    saveTaskDay = Task {
+                        do {
+                            try await familyService.updatePayoutDay(family: family, day: newDay)
+                        } catch {
+                            if !Task.isCancelled {
+                                actionError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                            }
+                        }
+                    }
+                }
+            }
+        )
     }
 
     private var cardBackground: some View {
