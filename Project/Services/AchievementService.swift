@@ -347,7 +347,10 @@ final class AchievementService {
                 } catch {
                     logger
                         .error(
-                            "Failed to send trophyEarned notification for achievement \(achievement.id.recordName, privacy: .private) to profile \(profile.id.recordName, privacy: .private): \(String(describing: error), privacy: .private)"
+                            "Failed to send trophyEarned notification for achievement "
+                                + "\(achievement.id.recordName, privacy: .private) to profile "
+                                + "\(profile.id.recordName, privacy: .private): "
+                                + "\(String(describing: error), privacy: .private)"
                         )
                 }
             }
@@ -379,7 +382,10 @@ final class AchievementService {
                 } catch {
                     logger
                         .error(
-                            "Failed to send streakMilestone notification for \(streakDays)-day streak to profile \(profile.id.recordName, privacy: .private): \(String(describing: error), privacy: .private)"
+                            "Failed to send streakMilestone notification for "
+                                + "\(streakDays)-day streak to profile "
+                                + "\(profile.id.recordName, privacy: .private): "
+                                + "\(String(describing: error), privacy: .private)"
                         )
                 }
             }

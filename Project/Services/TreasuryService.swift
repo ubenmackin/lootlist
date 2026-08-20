@@ -572,43 +572,43 @@ private final class PeriodMutex: Sendable {
 
     private let state = Mutex<State>(State())
 
+    private struct WaiterEntry {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
     /// Actor-isolated FIFO waiter queue — holds `CheckedContinuation`
     /// outside `Mutex` state so `State` remains `Sendable` without
     /// `@unchecked` suppressants.
     private actor WaiterQueue {
-        struct Entry {
-            let id: UUID
-            let continuation: CheckedContinuation<Void, Error>
-        }
-
-        var queues: [String: [Entry]] = [:]
+        var queues: [String: [WaiterEntry]] = [:]
 
         func wait(for key: String, id: UUID) async throws {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                queues[key, default: []].append(Entry(id: id, continuation: cont))
+                queues[key, default: []].append(WaiterEntry(id: id, continuation: cont))
             }
         }
 
         func signal(for key: String) {
-            guard var q = queues[key], !q.isEmpty else { return }
-            let entry = q.removeFirst()
-            if q.isEmpty {
+            guard var queue = queues[key], !queue.isEmpty else { return }
+            let entry = queue.removeFirst()
+            if queue.isEmpty {
                 queues.removeValue(forKey: key)
             } else {
-                queues[key] = q
+                queues[key] = queue
             }
             entry.continuation.resume()
         }
 
         func cancel(for key: String, id: UUID) {
-            guard var q = queues[key],
-                  let idx = q.firstIndex(where: { $0.id == id })
+            guard var queue = queues[key],
+                  let idx = queue.firstIndex(where: { $0.id == id })
             else { return }
-            let entry = q.remove(at: idx)
-            if q.isEmpty {
+            let entry = queue.remove(at: idx)
+            if queue.isEmpty {
                 queues.removeValue(forKey: key)
             } else {
-                queues[key] = q
+                queues[key] = queue
             }
             entry.continuation.resume(throwing: CancellationError())
         }
