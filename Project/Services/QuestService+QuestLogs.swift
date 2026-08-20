@@ -36,6 +36,17 @@ extension QuestService {
         return streak
     }
 
+    /// Authoritative week earnings for the wallet. Delegates gold proration to
+    /// `GoldCalculation.totalCredit` which keys quests by `recordName` and
+    /// **throws** on transient `CloudKitServiceProtocol` fetch failures instead
+    /// of `try?` → `0` silent under-credit.
+    ///
+    /// - Throws: Re-throws `GoldCalculation.totalCredit` / `fetchQuestLogs`
+    ///   CloudKit errors. Callers (notably `HeroDashboardViewModel.refreshEarnedThisWeek`
+    ///   and any `View` pull-to-refresh) must handle with `do { try await ... } catch`
+    ///   + `ToastManager.show` + retry affordance so the wallet never hangs.
+    ///   Cache-only callers should use `HeroDashboardViewModel.earnedThisWeek`
+    ///   / `GoldCalculation.netWeeklyGold` instead, which are `sync`/`non-throwing`.
     func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
         let payoutDay = effectivePayoutDay(for: profile)
         let normalizedWeek = QuestService.startOfWeek(for: weekOf, payoutDay: payoutDay)
@@ -47,7 +58,7 @@ extension QuestService {
 
         guard !logs.isEmpty else { return 0 }
 
-        return await GoldCalculation.totalCredit(
+        return try await GoldCalculation.totalCredit(
             logs: logs,
             cacheService: cacheService,
             cloudKit: cloudKit,

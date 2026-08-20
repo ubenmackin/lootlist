@@ -22,6 +22,16 @@ final class TreasuryService {
     /// In-flight settlement lock per period to prevent concurrent real-time settlement races.
     private let inFlightSettlements = Mutex<Set<String>>([])
 
+    // MARK: - Period Creation Serialization
+
+    /// Serializes concurrent `getOrCreateAllowancePeriod` calls for the same
+    /// deterministic `period-<family>-<profile>-<week>` record name. Two
+    /// quest completions in the same week would otherwise both observe nil
+    /// and create competing rows with identical record names, leaving
+    /// `totalEarned` / `questsCompleted` indeterminate after the race
+    /// through cache upsert and `enqueueSave`.
+    private let periodCreationLocks = PeriodMutex()
+
     /// The active session's app state, used to resolve the acting profile for
     /// privileged payout finalization. Wired by `AppDependencies`; optional so
     /// read-only callers (tests, real-time settlement) need not set it.
@@ -67,6 +77,23 @@ final class TreasuryService {
         var paidAmount: Double?
     }
 
+    /// Wallet-week gold breakdown for a single hero. Cache-first for
+    /// quest logs / assigned quests / ledger entries; falls through to
+    /// CloudKit when `CacheService.isCacheFresh` is false. Gold proration
+    /// delegates to `GoldCalculation.totalCredit` via `sumGold`.
+    ///
+    /// - Throws: `CloudKitServiceError` / `CKError` when `sumGold`'s batched
+    ///   quest fetch fails, or when `fetchQuestLogs` / `fetchAssignedQuests` /
+    ///   `fetchLedgerEntries` requires a CloudKit round trip that fails.
+    ///   Transient failures are **re-thrown** (never `try?` → `0`) so callers
+    ///   surface the failure instead of silently under-crediting the wallet.
+    ///   UI callers (ViewModels / Views) must invoke with `do { _ = try await
+    ///   treasury.weeklyBreakdown(...) } catch { toast + retry }` — a hanging
+    ///   `ProgressView` or an uncaught throw that crashes the view hierarchy
+    ///   is a contract violation. `TreasuryViewModel.refreshWeeklyBreakdown`,
+    ///   `FamilyDashboardViewModel.refreshWeekSummary`, and
+    ///   `QuestService.earnedThisWeek` document the view-model side of this
+    ///   contract.
     func weeklyBreakdown(profile: Profile,
                          family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown
@@ -83,8 +110,11 @@ final class TreasuryService {
             let assigned = try await fetchAssignedQuests(profile: profile, family: family, weekOf: startOfWeek)
             if !assigned.isEmpty {
                 let approvedLogsScoped = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+                // Use recordName equality — CKRecord.ID equality includes zoneID (ownerName)
+                // so a quest fetched from private vs shared zone would otherwise
+                // fail the comparison and incorrectly zero the all-or-nothing payout.
                 let fullyCompletedCount = assigned.filter { quest in
-                    let questLogs = approvedLogsScoped.filter { $0.quest.recordID == quest.id }
+                    let questLogs = approvedLogsScoped.filter { $0.quest.recordID.recordName == quest.id.recordName }
                     return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: questLogs.count)
                 }.count
                 if fullyCompletedCount < assigned.count {
@@ -136,6 +166,25 @@ final class TreasuryService {
 
         let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
         let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
+        let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(startOfWeek.timeIntervalSince1970))"
+
+        // Serialize the fetch-or-create critical section per deterministic
+        // period record name. Without this, two concurrent settlements for
+        // the same hero/week can both observe nil and create duplicate
+        // AllowancePeriod rows with identical record names.
+        try await periodCreationLocks.lock(key: periodRecordName)
+        defer { periodCreationLocks.unlock(key: periodRecordName) }
+
+        // Fast cache existence check that bypasses the `isCacheFresh` gate.
+        // The cache upsert from the first holder is visible immediately even
+        // when the freshness watermark is stale; `fetchAllowancePeriod` would
+        // otherwise discard the cached row and re-query CloudKit, missing the
+        // just-created local row and creating a duplicate.
+        if let cache = cacheService,
+           let cached = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName)
+        {
+            return cached.toAllowancePeriod(zoneID: family.id.zoneID)
+        }
 
         if let existing = try await fetchAllowancePeriod(profile: profile, weekOf: startOfWeek) {
             return existing
@@ -210,6 +259,13 @@ final class TreasuryService {
         // Cache-first profile/family resolution mirrors QuestService's
         // settlement hot path: serve the family's cached records when fresh
         // (no CloudKit round-trip), else fall through to a single fetch.
+        // Throw contract: `weeklyBreakdown` rethrows on `GoldCalculation.totalCredit`
+        // fetch failures rather than silently under-crediting. This helper is
+        // intentionally tolerant — a transient breakdown failure falls back to the
+        // caller-supplied `totalEarned` / `questsCompleted` so an in-flight
+        // settlement never hangs the wallet — but the failure is still surfaced
+        // via `logger` + `ToastManager` with a retry affordance, consistent with
+        // `processRealTimeSettlement`'s `do/catch` in `QuestService.applyReward`.
         do {
             let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
             let family = try await resolveFamily(recordID: period.family.recordID)
@@ -220,6 +276,7 @@ final class TreasuryService {
             updated.questsCompleted = questsCompleted ?? breakdown.questsCount
         } catch {
             logger.warning("Could not resolve payout context for period update: \(error, privacy: .private)")
+            toastManager?.show(message: "Could not refresh wallet totals. Pull to retry.", type: .warning)
             if let totalEarned {
                 updated.totalEarned = totalEarned
             }
@@ -314,6 +371,18 @@ final class TreasuryService {
     }
 
     /// Process real-time settlement for heroes with `.realTime` payout policy.
+    ///
+    /// Auth / scope guards return `nil` (not `throw`) so a benign
+    /// unauthorized or out-of-scope call is a no-op rather than a wallet
+    /// error. All CloudKit-backed work — `getOrCreateAllowancePeriod`,
+    /// `weeklyBreakdown`, `fetchQuestLogs`, `sumGold` — **throws** on
+    /// transient failure (see `GoldCalculation.totalCredit`'s documented
+    /// throw contract) and callers must handle with `do/catch` + toast + retry
+    /// rather than letting the throw hang the UI. The canonical caller is
+    /// `QuestService.applyReward`, which wraps this in a detached `Task` with
+    /// `logger.error` + `toastManager.show` so the wallet never appears to hang
+    /// and the error is consistently surfaced (mirroring `updateAllowance`'s
+    /// tolerant `do/catch` + toast fallback).
     @discardableResult
     func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
         guard let appState, let acting = appState.currentProfile,
@@ -343,11 +412,14 @@ final class TreasuryService {
         guard profile.payoutPolicy == .realTime else { return nil }
         let weekOf = WeekMath.startOfWeek(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
         let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(weekOf.timeIntervalSince1970))"
-        let alreadyInFlight = inFlightSettlements.withLock { $0.contains(periodRecordName) }
+        let alreadyInFlight = inFlightSettlements.withLock {
+            if $0.contains(periodRecordName) {
+                return true
+            }; $0.insert(periodRecordName); return false
+        }
         if alreadyInFlight {
             return nil
         }
-        inFlightSettlements.withLock { _ = $0.insert(periodRecordName) }
         defer { inFlightSettlements.withLock { _ = $0.remove(periodRecordName) } }
 
         let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
@@ -362,34 +434,28 @@ final class TreasuryService {
         let questGold = try await sumGold(for: logs, family: family)
 
         var updated = period
-        updated.paidAmount = questGold
+        updated.paidAmount = max(period.paidAmount ?? 0, questGold)
         updated.paidDate = Date()
-        let amountChanged: Bool = {
-            if let previous = period.paidAmount, let current = updated.paidAmount {
-                return abs(previous - current) > 0.001
-            }
-            return period.paidAmount != updated.paidAmount
-        }()
-        if amountChanged {
-            let saved = try await updateAllowance(period: updated,
-                                                  totalEarned: questGold,
-                                                  questsCompleted: breakdown.questsCount)
-
-            // Upsert the real-time quest-earnings ledger entry. The record name
-            // is derived from the period so each settlement upserts the same
-            // row with the cumulative amount.
-            await mintRealTimeLedgerEntry(
-                periodRecordName: period.id.recordName,
-                amount: questGold,
-                weekOf: weekOf,
-                profile: period.profile,
-                family: CKRecord.Reference(recordID: family.id, action: .none),
-                date: Date()
-            )
-
-            return saved
+        guard questGold - (period.paidAmount ?? 0) > 0.001 else {
+            return updated
         }
-        return period
+        let saved = try await updateAllowance(period: updated,
+                                              totalEarned: questGold,
+                                              questsCompleted: breakdown.questsCount)
+
+        // Upsert the real-time quest-earnings ledger entry. The record name
+        // is derived from the period so each settlement upserts the same
+        // row with the cumulative amount.
+        await mintRealTimeLedgerEntry(
+            periodRecordName: period.id.recordName,
+            amount: questGold,
+            weekOf: weekOf,
+            profile: period.profile,
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            date: Date()
+        )
+
+        return saved
     }
 
     /// Mints or skips a quest-earnings LedgerEntry for a batch/manual payout.
@@ -603,10 +669,13 @@ final class TreasuryService {
                                       weekOf: Date) async throws -> AllowancePeriod?
     {
         let familyName = profile.family.recordID.recordName
+        // Normalize both sides to start-of-day to avoid daylight-edge mismatches
+        // where isDate(inSameDayAs:) can diverge on DST boundaries.
+        let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: weekOf)
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
-                .first { Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf) }
+                .first { Calendar.iso8601UTC.startOfDay(for: $0.weekOf) == normalizedWeekStart }
             if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
                 return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
             }
@@ -653,8 +722,18 @@ final class TreasuryService {
         return try await cloudKit.fetch(Family.self, id: recordID)
     }
 
+    // MARK: - Gold Aggregation
+
+    /// Zone-aware gold summation: delegates to `GoldCalculation.totalCredit` which
+    /// keys quests by `recordName` (zone-independent) and surfaces transient
+    /// CloudKit fetch failures instead of silently under-crediting.
+    ///
+    /// - Throws: Re-throws any `GoldCalculation.totalCredit` fetch failure.
+    ///   Callers (notably `weeklyBreakdown` and `processRealTimeSettlement`)
+    ///   must handle with `do/catch` + `ToastManager.show` + retry; do not
+    ///   `try?` to `0` or leave the wallet hanging.
     private func sumGold(for logs: [QuestCompletion], family: Family? = nil) async throws -> Double {
-        await GoldCalculation.totalCredit(
+        try await GoldCalculation.totalCredit(
             logs: logs,
             cacheService: cacheService,
             cloudKit: cloudKit,
@@ -673,5 +752,91 @@ final class TreasuryService {
 
     static func mondayOfWeek(for date: Date) -> Date {
         WeekMath.mondayOfWeek(for: date)
+    }
+}
+
+// MARK: - PeriodMutex
+
+/// Per-key async mutex that serializes callers contending on the same
+/// deterministic period record name while allowing different periods to
+/// proceed in parallel. Uses `Synchronization.Mutex` to protect the
+/// locked-key set and waiter queues so `unlock` can be called
+/// synchronously from `defer` inside `getOrCreateAllowancePeriod`.
+private final class PeriodMutex: Sendable {
+    private final class Box: @unchecked Sendable {
+        var continuation: CheckedContinuation<Void, Error>?
+    }
+
+    private struct State {
+        var locked = Set<String>()
+        var waiters: [String: [Box]] = [:]
+    }
+
+    private let state = Mutex<State>(State())
+
+    /// Acquires the lock for `key`. If the key is already held, the
+    /// caller suspends until the current holder releases it. Ownership
+    /// is transferred directly to the next waiter on `unlock`.
+    /// The waiter is appended atomically inside the same `withLock` that
+    /// decides to wait, closing the TOCTOU between check and enqueue.
+    /// Cancellation removes the waiter and resumes throwing
+    /// `CancellationError` so a cancelled task never holds the lock.
+    func lock(key: String) async throws {
+        let box = Box()
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                box.continuation = continuation
+                let didAcquire = state.withLock { state -> Bool in
+                    if state.locked.contains(key) {
+                        state.waiters[key, default: []].append(box)
+                        return false
+                    }
+                    state.locked.insert(key)
+                    return true
+                }
+                if didAcquire {
+                    box.continuation = nil
+                    continuation.resume()
+                }
+            }
+        }, onCancel: {
+            var toResume: CheckedContinuation<Void, Error>?
+            state.withLock { state in
+                guard var queue = state.waiters[key] else { return }
+                if let idx = queue.firstIndex(where: { $0 === box }) {
+                    let removed = queue.remove(at: idx)
+                    toResume = removed.continuation
+                    removed.continuation = nil
+                    if queue.isEmpty {
+                        state.waiters.removeValue(forKey: key)
+                    } else {
+                        state.waiters[key] = queue
+                    }
+                }
+            }
+            toResume?.resume(throwing: CancellationError())
+        })
+    }
+
+    /// Releases the lock for `key`, resuming the next waiter if present
+    /// and transferring ownership, otherwise clearing the locked flag.
+    func unlock(key: String) {
+        var next: CheckedContinuation<Void, Error>?
+        state.withLock { state in
+            if var queue = state.waiters[key], !queue.isEmpty {
+                let box = queue.removeFirst()
+                next = box.continuation
+                box.continuation = nil
+                if queue.isEmpty {
+                    state.waiters.removeValue(forKey: key)
+                } else {
+                    state.waiters[key] = queue
+                }
+                // Ownership stays with the resumed waiter; keep `locked`.
+            } else {
+                state.locked.remove(key)
+            }
+        }
+        next?.resume()
     }
 }

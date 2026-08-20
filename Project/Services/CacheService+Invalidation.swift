@@ -12,6 +12,124 @@ import SwiftData
 extension CacheService {
     // MARK: - Generic helper
 
+    /// The active family's zone derived from the persisted session (UserDefaults).
+    /// Used by `deleteByIdentity` to distinguish a zone-switch orphan (same
+    /// familyRecordName, old zone) from a genuine cross-zone mismatch when
+    /// deciding whether to delete despite a sourceZoneName mismatch.
+    private var currentActiveFamilyZoneID: CKRecordZone.ID? {
+        let defaults = UserDefaults.standard
+        guard let zoneName = defaults.string(forKey: "session_familyZoneName"),
+              let ownerName = defaults.string(forKey: "session_familyZoneOwnerName")
+        else { return nil }
+        return CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+    }
+
+    /// Deletes every record matching `predicate` from the given context.
+    /// Internal so the `CacheService+Invalidation` extension can cascade-delete
+    /// from `purgeFamily(recordName:)`.
+    func deleteAll<T: PersistentModel>(
+        from context: ModelContext?,
+        where predicate: Predicate<T>
+    ) {
+        guard let context else { return }
+        do {
+            let items = try context.fetch(FetchDescriptor<T>(predicate: predicate))
+            for item in items {
+                context.delete(item)
+            }
+        } catch {
+            logger.error("Failed to fetch \(T.self, privacy: .public) for deleteAll: \(error, privacy: .private)")
+        }
+    }
+
+    func invalidateRecord(identity: ScopedRecordIdentity, type: CachedRecordType) {
+        guard let context else { return }
+        switch type {
+        case .profile:
+            deleteByIdentity(ProfileCache.self, identity: identity, in: context)
+        case .family:
+            deleteByIdentity(FamilyCache.self, identity: identity, in: context)
+        case .quest:
+            deleteByIdentity(QuestCache.self, identity: identity, in: context)
+        case .questTemplate:
+            deleteByIdentity(QuestTemplateCache.self, identity: identity, in: context)
+        case .questCompletion:
+            deleteByIdentity(QuestCompletionCache.self, identity: identity, in: context)
+        case .ledgerEntry:
+            deleteByIdentity(LedgerEntryCache.self, identity: identity, in: context)
+        case .allowancePeriod:
+            deleteByIdentity(AllowancePeriodCache.self, identity: identity, in: context)
+        case .achievement:
+            deleteByIdentity(AchievementCache.self, identity: identity, in: context)
+        case .profileAchievement:
+            deleteByIdentity(ProfileAchievementCache.self, identity: identity, in: context)
+        case .notificationPreference:
+            deleteByIdentity(NotificationPreferenceCache.self, identity: identity, in: context)
+        case .gemLedger:
+            deleteByIdentity(GemLedgerCache.self, identity: identity, in: context)
+        case .rewardEvent:
+            deleteByIdentity(RewardEventCache.self, identity: identity, in: context)
+        }
+        _ = saveContext()
+    }
+
+    private func deleteByIdentity(
+        _ type: (some CacheMergeable).Type,
+        identity: ScopedRecordIdentity,
+        in context: ModelContext
+    ) {
+        let recordName = identity.recordID.recordName
+        do {
+            guard let match = try context.fetch(type.fetchDescriptor(recordName: recordName)).first else {
+                return
+            }
+            if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
+                guard scoped.familyRecordName == expectedFamily else {
+                    logger
+                        .warning(
+                            "Cache deletion aborted for \(recordName, privacy: .private): expected family \(expectedFamily, privacy: .private), found \(scoped.familyRecordName, privacy: .private)"
+                        )
+                    return
+                }
+            }
+            if let scoped = match as? any FamilyScopedCache {
+                if let sourceZone = scoped.sourceZoneName,
+                   identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
+                   sourceZone != identity.zoneID.zoneName
+                {
+                    // Zone mismatch: if the family matches and the identity's
+                    // zone is the active family's zone, this is a zone-switch
+                    // orphan (owner recreated family with same recordName but
+                    // new zoneName). Retain would leak the old row forever, so
+                    // delete the orphan. Otherwise keep the warning and abort.
+                    let isFamilyMatch: Bool = {
+                        guard let expectedFamily = identity.familyRecordName else { return false }
+                        return scoped.familyRecordName == expectedFamily
+                    }()
+                    let isActiveZone = currentActiveFamilyZoneID.map { $0 == identity.zoneID } ?? false
+                    if isFamilyMatch, isActiveZone {
+                        logger.info(
+                            """
+                            Deleting orphan cache row for \(recordName, privacy: .private) \
+                            after family zone switch: old zone \(sourceZone, privacy: .private) \
+                            → active zone \(identity.zoneID.zoneName, privacy: .private)
+                            """
+                        )
+                    } else {
+                        logger
+                            .warning(
+                                "Cache deletion aborted for \(recordName, privacy: .private): expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)"
+                            )
+                        return
+                    }
+                }
+            }
+            context.delete(match)
+        } catch {
+            logger.warning("Failed to fetch \(recordName, privacy: .private) for identity deletion: \(error, privacy: .private)")
+        }
+    }
+
     /// Fetches the first record matching `descriptor`, deletes it, and saves.
     func invalidate(_ descriptor: FetchDescriptor<some PersistentModel>) {
         guard let context else { return }
@@ -36,7 +154,9 @@ extension CacheService {
 
     // MARK: - Per-record invalidation
 
-    private func deleteByNameAndFamily<T: CacheMergeable & FamilyScopedCache>(
+    /// Internal so CacheService can reuse the same family-scoped deletion
+    /// from removePhantomRewardEvent without duplicating fetch logic.
+    func deleteByNameAndFamily<T: CacheMergeable & FamilyScopedCache>(
         _: T.Type,
         recordName: String,
         familyRecordName: String

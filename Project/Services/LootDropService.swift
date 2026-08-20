@@ -81,11 +81,35 @@ final class LootDropService {
     /// to a single credit.
     @discardableResult
     func rollAndCredit(questRarity: QuestRarity, streakDays: Int, to profile: Profile, eventKey: String) async -> LootDrop? {
+        // MARK: - Atomic idempotency guard
+
+        // Mirrors the atomic check inside `GemService.creditGems`: the same
+        // deterministic ledger ID (`gem-{profile}-{eventKey}-lootDrop`) is the
+        // idempotency key. A pre-roll guard avoids presenting a duplicate chest
+        // for a re-delivered event, and the post-credit `Bool` check ensures a
+        // concurrent race that slipped past this guard still does not double-
+        // present. The underlying `CacheService`/`BackgroundCacheActor` atomic
+        // path guarantees only one ledger+profile mutation persists.
+        if let cache = gemService.cacheService {
+            let ledgerID = GemLedger.deterministicRecordID(
+                profileRecordName: profile.id.recordName,
+                eventKey: eventKey,
+                source: "lootDrop",
+                zoneID: profile.id.zoneID
+            )
+            if cache.fetchGemLedger(recordName: ledgerID.recordName, family: profile.family.recordID.recordName) != nil {
+                return nil
+            }
+        }
+
         guard let loot = rollForLoot(questRarity: questRarity, streakDays: streakDays) else {
             return nil
         }
         do {
-            try await gemService.creditGems(amount: loot.gemAmount, to: profile, source: "lootDrop", eventKey: eventKey, detail: loot.description)
+            let credited = try await gemService.creditGems(amount: loot.gemAmount, to: profile, source: "lootDrop", eventKey: eventKey, detail: loot.description)
+            // `creditGems` is idempotent — `false` means a concurrent credit for
+            // the same `eventKey` already won the deterministic ledger row.
+            guard credited else { return nil }
         } catch {
             logger.error("Failed to credit loot drop for profile \(profile.id.recordName, privacy: .private): \(error, privacy: .private)")
             return nil

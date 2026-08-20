@@ -458,7 +458,6 @@ final class QuestService {
         )
 
         let familyName = family.id.recordName
-        let normalizedCurrentWeek = WeekMath.startOfWeek(for: currentWeekOf, payoutDay: family.payoutDay)
 
         // Query allowance periods to identify weeks whose payouts have been completed (.paid)
         let allowancePeriods: [AllowancePeriod]
@@ -476,7 +475,11 @@ final class QuestService {
             }
         }
 
-        let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map { Calendar.iso8601UTC.startOfDay(for: $0.weekOf) })
+        // Store raw weekOf values without re-normalizing via startOfDay. Each
+        // AllowancePeriod.weekOf was already normalized via WeekMath.startOfWeek
+        // with the profile's effective payoutDay (profile override → family), so
+        // the raw value is the canonical per-hero week anchor.
+        let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map(\.weekOf))
 
         let allQuests: [Quest]
         if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
@@ -493,8 +496,24 @@ final class QuestService {
         var deactivated: [Quest] = []
         let isOwner = appState.isZoneOwner
         for var quest in allQuests {
-            let questWeekStart = Calendar.iso8601UTC.startOfDay(for: quest.weekOf)
-            if questWeekStart < normalizedCurrentWeek, paidWeeks.contains(questWeekStart) {
+            // Resolve the assignee's effective payout day from cache (profile
+            // override wins, then family, then .sunday fallback) — mirrors the
+            // write-path normalization in assignQuest/assignQuickQuest and the
+            // read-path in effectivePayoutDay(for:) so the stored weekOf is
+            // interpreted on the same cycle it was created on. Without this,
+            // a hero with a .friday override (weekOf = Saturday) compared
+            // against a family-anchored current week (Monday) never matches.
+            let effectivePayoutDay = cacheService?.fetchProfile(recordName: quest.assignee.recordID.recordName, family: quest.family.recordID.recordName)?.payoutDayEnum
+                ?? cacheService?.fetchFamily(recordName: quest.family.recordID.recordName)?.payoutDayEnum
+                ?? family.payoutDay
+            // Re-normalize the quest's stored weekOf through the assignee's
+            // effective payout day — idempotent when already correctly bucketed,
+            // but repairs legacy rows that may have been stored with a different
+            // anchor. Keep half-open Range semantics via WeekMath.weekRange
+            // elsewhere; here we compare discrete week anchors directly.
+            let questWeek = WeekMath.startOfWeek(for: quest.weekOf, payoutDay: effectivePayoutDay)
+            let currentWeekForAssignee = WeekMath.startOfWeek(for: currentWeekOf, payoutDay: effectivePayoutDay)
+            if questWeek < currentWeekForAssignee, paidWeeks.contains(questWeek) {
                 quest.active = false
                 cacheService?.upsertQuest(quest)
                 syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)

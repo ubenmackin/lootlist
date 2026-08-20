@@ -44,12 +44,16 @@ struct HeroDashboardViewModelTests {
 
     @Test
     func `sunday-Saturday week days calculation`() {
+        // PayoutDay .sunday anchors the cycle on Monday (next-day rotation),
+        // so the 7-day strip is Mon-Sun — matching WeekMath.startOfWeek's
+        // (targetWeekday % 7) + 1 rotation (see WeekMath exhaustive table).
+        // A Sunday-first strip corresponds to .saturday payout, not .sunday.
         let weekDays = HeroDashboardViewModel.currentWeekDays()
         #expect(weekDays.count == 7)
-        #expect(weekDays.first?.weekdayCode == "sunday")
-        #expect(weekDays.first?.shortName == "Sun")
-        #expect(weekDays.last?.weekdayCode == "saturday")
-        #expect(weekDays.last?.shortName == "Sat")
+        #expect(weekDays.first?.weekdayCode == "monday")
+        #expect(weekDays.first?.shortName == "Mon")
+        #expect(weekDays.last?.weekdayCode == "sunday")
+        #expect(weekDays.last?.shortName == "Sun")
         // swiftformat:disable:next preferKeyPath redundantClosure
         #expect(weekDays.contains(where: { $0.isToday }))
     }

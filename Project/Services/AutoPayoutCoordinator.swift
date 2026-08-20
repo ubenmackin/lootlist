@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 
 @MainActor
 final class AutoPayoutCoordinator {
@@ -24,7 +25,12 @@ final class AutoPayoutCoordinator {
     /// present, a summary banner is emitted after a weekly carry-forward pass.
     let toastManager: ToastManager?
 
-    private var isProcessing = false
+    /// Atomic double-run guard. See `processPendingPayoutsIfDue` — a plain Bool on
+    /// `@MainActor` races when two callers (scenePhase .active + BGAppRefreshTask)
+    /// invoke concurrently: the second can read `false` before the first sets `true`
+    /// across the first `await` gap (fetchHeroes). `Mutex<Bool>` makes check-and-set
+    /// synchronous via `withLock` before any suspension point.
+    private let isProcessing = Mutex<Bool>(false)
 
     init(
         treasuryService: TreasuryService,
@@ -40,15 +46,12 @@ final class AutoPayoutCoordinator {
         self.toastManager = toastManager
     }
 
+    // MARK: - Payout Evaluation
+
     /// Evaluates whether payouts or quest sweeps are due for any hero in the active family
     /// and executes them atomically. Safe to call on cold launch, scene foreground, or background refresh.
     @discardableResult
     func processPendingPayoutsIfDue(now: Date = Date()) async -> Int {
-        guard !isProcessing else {
-            logger.debug("Auto-payout evaluation already in progress. Skipping.")
-            return 0
-        }
-
         guard let currentProfile = appState.currentProfile,
               currentProfile.role.isParent,
               let family = appState.family
@@ -57,8 +60,22 @@ final class AutoPayoutCoordinator {
             return 0
         }
 
-        isProcessing = true
-        defer { isProcessing = false }
+        // Atomic check-and-set via Mutex so concurrent callers (scenePhase .active
+        // + BGAppRefreshTask) cannot both enter the heroes loop. The withLock
+        // section is synchronous and completes before the first await (fetchHeroes),
+        // closing the await-gap race where a plain Bool on @MainActor would still
+        // read false after the first caller yielded. Reproduce: concurrent
+        // Task { await coordinator.processPendingPayoutsIfDue(now:) } x2 with same
+        // now where payout is due — processedCount must be 1, not 2.
+        guard isProcessing.withLock({ flag in
+            guard !flag else { return false }
+            flag = true
+            return true
+        }) else {
+            logger.debug("Auto-payout evaluation already in progress. Skipping.")
+            return 0
+        }
+        defer { isProcessing.withLock { $0 = false } }
 
         var processedCount = 0
 
@@ -82,9 +99,23 @@ final class AutoPayoutCoordinator {
                 ]
 
                 for weekOf in candidateWeeks {
-                    // Check if today has reached or passed the payout day for this week
-                    let payoutDate = Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.payoutCutoffDayOffset, to: weekOf) ?? weekOf
-                    guard now >= Calendar.iso8601UTC.startOfDay(for: payoutDate) else {
+                    // Half-open payout gate: the week owns [weekOf, weekOf+7d).
+                    // payoutDate is the exclusive upper bound (next Monday 00:00 UTC
+                    // for the effective per-hero payout-day-anchored week) via
+                    // WeekMath.weekRange(starting:).upperBound. Gating on
+                    // now >= upperBound fires at the instant the week closes, not
+                    // at Sunday 00:00 a full day early (prior: weekOf + 6 days then
+                    // startOfDay(payoutDate)). Reusing the canonical half-open
+                    // range also avoids DST 23h/25h midnight drift — UTC has no
+                    // DST, but the +6d + startOfDay path double-normalizes and
+                    // could fire early on spring-forward 23h days if the calendar
+                    // were ever non-UTC. Documented choice: strict >= upperBound
+                    // (end-of-day Sunday Loot Day) keeps the range half-open and
+                    // consistent with WeekMath/TreasuryService/QuestService; callers
+                    // needing inclusive end-of-day should use upperBound - 1 second
+                    // with a calendar-aware check explicitly.
+                    let payoutDate = WeekMath.weekRange(starting: weekOf).upperBound
+                    guard now >= payoutDate else {
                         continue
                     }
 
@@ -200,8 +231,26 @@ final class AutoPayoutCoordinator {
 
         for (currentWeekStart, weekHeroes) in heroesByWeekStart {
             // Reuse the same ISO8601-UTC shift used elsewhere in this function
-            // for deriving the previous week's start.
+            // for deriving the previous week's start. This is the group's
+            // per-hero previousWeekStart, NOT familyWeekStart — using the
+            // family-anchored week would bucket override heroes (e.g. Friday
+            // hero in Sunday family) 6 days off and either duplicate or miss
+            // carry-forward tuples. Assertion: previousWeekStart must derive
+            // from currentWeekStart for this payout-day group.
             let previousWeekStart = Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.previousWeekDayOffset, to: currentWeekStart) ?? currentWeekStart
+            guard previousWeekStart < currentWeekStart else {
+                logger
+                    .error(
+                        "Carry-forward week math corrupt: previousWeekStart \(previousWeekStart, privacy: .private) >= currentWeekStart \(currentWeekStart, privacy: .private). Skipping group."
+                    )
+                continue
+            }
+            guard WeekMath.weekRange(starting: previousWeekStart).upperBound == WeekMath.weekRange(starting: previousWeekStart).lowerBound
+                .addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek))
+            else {
+                logger.error("Carry-forward weekRange invariant violated for previousWeekStart \(previousWeekStart, privacy: .private). Skipping group.")
+                continue
+            }
 
             let previousQuests = cache.fetchQuests(
                 family: familyName,
@@ -295,6 +344,20 @@ final class AutoPayoutCoordinator {
         var carriedCount = 0
         var carriedPerAssignee: [String: Int] = [:]
         let zoneID = family.id.zoneID
+        // Guard: every carry-forward assignment must land in the family's
+        // zoneID consistently. activeTemplateByRecordName lookup is keyed on
+        // templateRecordName only, but the resulting template is rehydrated
+        // via toQuestTemplate(zoneID: zoneID) with family.id.zoneID so the
+        // minted Quest recordName/zoneID matches the family's zone. A mismatch
+        // would place the quest in the wrong zone and break fetch scoping.
+        guard zoneID == family.id.zoneID else {
+            logger.error("Carry-forward zoneID mismatch for family \(family.name, privacy: .private). Aborting carry-forward assignments for this group.")
+            return (0, [:])
+        }
+        guard !zoneID.zoneName.isEmpty else {
+            logger.error("Carry-forward zoneID zoneName is empty for family \(family.name, privacy: .private). Aborting carry-forward assignments for this group.")
+            return (0, [:])
+        }
 
         for pair in pendingTuples {
             if existingPairs.contains(pair) {

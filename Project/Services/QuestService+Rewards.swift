@@ -19,8 +19,18 @@ extension QuestService {
         else {
             throw FamilyServiceError.unauthorized
         }
+        // Single source for the approved count: mirror Treasury's
+        // GoldCalculation.totalCredit filtered set (verified || autoApproved).
+        // Dedupe by recordName so an optimistic cache upsert that already
+        // contains the current completion does not double-count (+1 only
+        // when the current log is not already in the approved set). The XP
+        // grant then flows exclusively through GoldCalculation.marginalXPCredit
+        // (capped by xpBanked), keeping UI preview and wallet in sync.
         let logs = try await fetchQuestLogs(forQuest: quest, useCache: true)
-        let approvedCount = max(1, logs.filter(\.verificationStatus.countsTowardCompletion).count)
+        let approvedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+        let priorApproved = approvedLogs.count
+        let alreadyCounted = approvedLogs.contains { $0.id.recordName == completion.id.recordName }
+        let approvedCount = alreadyCounted ? max(1, priorApproved) : max(1, priorApproved + 1)
 
         let creditedGold = GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
 
@@ -36,6 +46,9 @@ extension QuestService {
                 let heroProfile = resolveAuthoritativeHero(hero)
                 let (totalXP, _) = xpService.calculatedXP(baseXP: remaining, profile: heroProfile)
 
+                // Deterministic idempotency key: reward-{completionID} in the quest's zone.
+                // Construct the event locally but do not persist or enqueue until the
+                // server confirms this device won the atomic claim.
                 let rewardID = RewardEvent.recordID(completionRecordName: completion.id.recordName, zoneID: quest.id.zoneID)
                 let rewardEvent = cacheService?.fetchRewardEvent(
                     recordName: rewardID.recordName,
@@ -50,13 +63,27 @@ extension QuestService {
                     id: rewardID
                 )
 
-                // Keep the immutable event local-first. The atomic claim is the
-                // server-side gate; only its winner may apply XP or stamp the log.
-                cacheService?.upsertRewardEvent(rewardEvent)
-                syncCoordinator?.enqueueRewardEvent(rewardEvent, isOwner: appState.isZoneOwner)
-                guard try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil) else {
+                // Atomic gate: only the device that creates the record on CloudKit wins.
+                // Local persistence and sync enqueue must happen after this point to avoid
+                // leaving a phantom RewardEvent that would later rehydrate xpCredited via
+                // BackgroundCacheActor.reconcileRewardEvents and double-credit.
+                let didClaim = try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil)
+                guard didClaim else {
+                    // Lost the race — another device already claimed the deterministic event.
+                    // Ensure no phantom row survives locally; a prior optimistic insert or
+                    // a cached row from an earlier attempt must be removed so reconcile
+                    // cannot hydrate xpCredited on the loser.
+                    if let cacheService,
+                       cacheService.fetchRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName) != nil
+                    {
+                        cacheService.invalidateRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
+                    }
                     return 0
                 }
+
+                // Winner path: persist the claimed event and enqueue for CKSyncEngine sync.
+                cacheService?.upsertRewardEvent(rewardEvent)
+                syncCoordinator?.enqueueRewardEvent(rewardEvent, isOwner: appState.isZoneOwner)
 
                 // Grant XP only after this device atomically claimed the event.
                 try await xpService.addXP(totalXP, to: hero)
@@ -70,38 +97,51 @@ extension QuestService {
 
                 // Stamp completion credit only after the claim and grant.
                 await stampCompletionCredit(completion, xpGain: remaining)
+
+                // Loot drop rolls only when the reward actually settles (winner only).
+                // Gating on successful claim prevents double-rolling across concurrent devices.
+                let rarity = QuestRarity.from(xp: quest.xpReward)
+                let streakDays = currentStreak(for: heroProfile, familyName: quest.family.recordID.recordName)
+                await lootDropService?.rollAndCredit(questRarity: rarity, streakDays: streakDays, to: heroProfile, eventKey: completion.id.recordName)
             } else {
+                // Cap reached: no marginal XP remains. Stamp 0 so the GoldCalculation cap
+                // is enforced via the idempotency marker and a re-run cannot re-credit.
                 await stampCompletionCredit(completion, xpGain: 0)
             }
-
-            // Loot drop rolls only when the reward actually settles.
-            // `applyReward` is reached on `.autoApproved` submission (hero
-            // device) or parent `.verified` (verifying device) — never on a
-            // `.pending` submission, which creates a log but skips this path.
-            // Gating on `xpCredited == nil` also makes it idempotent across
-            // repeated reward applications, so a re-run cannot double-roll.
-            let rarity = QuestRarity.from(xp: quest.xpReward)
-            let streakDays = currentStreak(for: hero, familyName: quest.family.recordID.recordName)
-            await lootDropService?.rollAndCredit(questRarity: rarity, streakDays: streakDays, to: hero, eventKey: completion.id.recordName)
         }
 
         if hero.payoutPolicy == .realTime, creditedGold > 0, let treasuryService {
-            let questFamilyID = quest.family.recordID
             let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
-            Task { @MainActor [logger] in
+            // Consistent with `TreasuryService.updateAllowance`'s tolerant catch:
+            // log + toast + retry affordance so the wallet never silently hangs.
+            // `processRealTimeSettlement` rethrows `GoldCalculation.totalCredit`
+            // fetch failures rather than `try?` → 0; this `Task` is the UI-facing
+            // `do/catch` boundary for that throw path.
+            Task { @MainActor [logger, self] in
                 do {
                     let family: Family
-                    if let cached = cacheService?.fetchFamily(recordName: questFamilyID.recordName),
-                       cacheService?.isCacheFresh(familyRecordName: questFamilyID.recordName, type: .family) == true
+                    let familyRecordID = quest.family.recordID
+                    if let cached = self.cacheService?.fetchFamily(recordName: familyRecordID.recordName),
+                       self.cacheService?.isCacheFresh(familyRecordName: familyRecordID.recordName, type: .family) == true
                     {
-                        family = cached.toFamily(zoneID: questFamilyID.zoneID)
+                        family = cached.toFamily(zoneID: familyRecordID.zoneID)
                     } else {
-                        family = try await cloudKit.fetch(Family.self, id: questFamilyID)
-                        cacheService?.upsertFamily(family)
+                        family = try await self.cloudKit.fetch(Family.self, id: familyRecordID)
+                        self.cacheService?.upsertFamily(family)
                     }
                     _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: family)
                 } catch {
                     logger.error("Failed to process real-time settlement for hero \(hero.id.recordName, privacy: .private): \(error, privacy: .private)")
+                    // Mirror `TreasuryService.updateAllowance`'s toast so a transient
+                    // `totalCredit` fetch failure is surfaced with a retry hint instead
+                    // of silently leaving the real-time ledger entry absent.
+                    // `QuestService.toastManager` and `TreasuryService.toastManager`
+                    // share the same `ToastManager` instance via `AppDependencies`.
+                    if let toast = treasuryService.toastManager ?? self.toastManager {
+                        toast.show(message: "Could not settle quest reward. Pull to retry.", type: .warning)
+                    } else {
+                        self.toastManager?.show(message: "Could not settle quest reward. Pull to retry.", type: .warning)
+                    }
                 }
             }
         }
@@ -140,9 +180,20 @@ extension QuestService {
 
     /// Cache-only quest-completion streak for `hero`, mirroring the
     /// `HeroDashboardViewModel.streak` computation so the loot-drop streak
-    /// bonus matches the value the hero dashboard renders.
+    /// bonus matches the value the hero dashboard renders. When the
+    /// quest-completion cache is not fresh (cold install or unfresh family),
+    /// the local StreakCalculator would see a missing yesterday completion
+    /// and yield 0 bonus when the UI shows 5+. Fall back to the
+    /// CloudKit-backed `Profile.dailyLoginStreakDays` (authoritative) in
+    /// that case — the same value `XPService.calculatedXP(baseXP:profile:)`
+    /// uses — so the streak multiplier never diverges from the level/XP
+    /// path. `streakDays` param is the authoritative source when cache is
+    /// unfresh; the computed streak is used only when cache is fresh.
     private func currentStreak(for hero: Profile, familyName: String) -> Int {
-        guard let cache = cacheService else { return 0 }
+        guard let cache = cacheService else { return hero.dailyLoginStreakDays }
+        if !cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+            return hero.dailyLoginStreakDays
+        }
         let heroLogs = cache.fetchQuestCompletions(family: familyName)
             .filter { $0.completerRecordName == hero.id.recordName }
         return StreakCalculator.computeStreak(from: heroLogs)

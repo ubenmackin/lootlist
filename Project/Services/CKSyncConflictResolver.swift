@@ -40,9 +40,13 @@ final class CKSyncConflictResolver {
 
     /// Resolves a single failed record save. Returns a resolved `CKRecord` if the record
     /// should be re-saved to CloudKit, or `nil` if the conflict was resolved by adopting server state.
+    /// - Parameter databaseScope: The `CKDatabase.Scope` of the `CKSyncEngine` that delivered the error.
+    ///   Threaded from `CKSyncEngineDelegateHandler` so deletions resolve without inferring scope from
+    ///   `appState`/`CKCurrentUserDefaultName` (unreliable when `appState` is nil in background pushes).
     func resolveFailedSave(
         record: CKRecord,
-        error: Error
+        error: Error,
+        databaseScope: CKDatabase.Scope? = nil
     ) async -> CKRecord? {
         guard let ckError = error as? CKError else {
             logger.error("Non-CKError during save: \(error, privacy: .private)")
@@ -61,7 +65,11 @@ final class CKSyncConflictResolver {
                 logger.warning("resolveFailedSave could not resolve family for deleted record \(record.recordID.recordName, privacy: .private)")
                 return nil
             }
-            let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : ((record.recordID.zoneID.ownerName == CKCurrentUserDefaultName) ? .private : .shared)
+            let scope: CKDatabase.Scope = if let databaseScope {
+                databaseScope
+            } else {
+                (appState?.isZoneOwner == true) ? .private : ((record.recordID.zoneID.ownerName == CKCurrentUserDefaultName) ? .private : .shared)
+            }
             await handleDeletedRecord(
                 recordID: record.recordID,
                 recordType: record.recordType,
@@ -100,6 +108,8 @@ final class CKSyncConflictResolver {
             return resolveProfileConflict(serverRecord: serverRecord, originalRecord: originalRecord)
         case QuestCompletion.recordType:
             return resolveQuestCompletionConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+        case AllowancePeriod.recordType:
+            return resolveAllowancePeriodConflict(serverRecord: serverRecord, originalRecord: originalRecord)
         default:
             break
         }
@@ -236,6 +246,10 @@ final class CKSyncConflictResolver {
         }
         mergedProfile.changeTag = serverRecord.recordChangeTag
         mergedProfile.encodedSystemFields = serverRecord.encodedSystemFields
+        // Single save via isServerSync path: ProfileCache.update(lastSyncedXP = profile.xp)
+        // handles the baseline advance atomically within the same apply/save. A second
+        // fetch + save would double-save and, if the first save failed, re-advance a
+        // stale lastSyncedXP incorrectly.
         cacheService?.upsertProfile(mergedProfile, isServerSync: true)
 
         let mergedRecord = mergedProfile.toRecord()
@@ -276,6 +290,69 @@ final class CKSyncConflictResolver {
         let mergedRecord = merged.toRecord()
         mergedRecord.parent = serverRecord.parent
         return mergedRecord
+    }
+
+    /// Additive/monotonic merge for `AllowancePeriod`. Two devices settling the
+    /// same period (deterministic `period-{family}-{profile}-{week}` recordName)
+    /// race through `getOrCreateAllowancePeriod → updateAllowance → mintRealTimeLedgerEntry`.
+    /// Server-wins would drop one device's `paidAmount` delta. Mirrors the
+    /// `Quest.xpBanked` max-merge pattern so concurrent increments are preserved.
+    private func resolveAllowancePeriodConflict(serverRecord: CKRecord, originalRecord: CKRecord) -> CKRecord? {
+        let serverPaidAmount = serverRecord["paidAmount"] as? Double
+        let clientPaidAmount = originalRecord["paidAmount"] as? Double
+        let mergedPaidAmount: Double? = {
+            if serverPaidAmount == nil, clientPaidAmount == nil {
+                return nil
+            }
+            return max(serverPaidAmount ?? 0, clientPaidAmount ?? 0)
+        }()
+
+        let serverTotalEarned = serverRecord["totalEarned"] as? Double ?? 0
+        let clientTotalEarned = originalRecord["totalEarned"] as? Double ?? 0
+        let mergedTotalEarned = max(serverTotalEarned, clientTotalEarned)
+
+        let serverQuestsCompleted = serverRecord["questsCompleted"] as? Int ?? 0
+        let clientQuestsCompleted = originalRecord["questsCompleted"] as? Int ?? 0
+        let mergedQuestsCompleted = max(serverQuestsCompleted, clientQuestsCompleted)
+
+        let serverStatusRaw = serverRecord["status"] as? String ?? PayoutStatus.active.rawValue
+        let clientStatusRaw = originalRecord["status"] as? String ?? PayoutStatus.active.rawValue
+        let serverStatus = PayoutStatus(rawValue: serverStatusRaw) ?? .active
+        let clientStatus = PayoutStatus(rawValue: clientStatusRaw) ?? .active
+        let mergedStatus = payoutRank(serverStatus) >= payoutRank(clientStatus) ? serverStatus : clientStatus
+
+        let serverPaidDate = serverRecord["paidDate"] as? Date
+        let clientPaidDate = originalRecord["paidDate"] as? Date
+        let mergedPaidDate = serverPaidDate ?? clientPaidDate
+
+        var merged: AllowancePeriod
+        do {
+            merged = try AllowancePeriod(record: serverRecord)
+        } catch {
+            logger.warning("Failed to decode AllowancePeriod from server record: \(error, privacy: .private)")
+            toastManager?.show(message: "An allowance period couldn't be synced. Pull down to refresh.", type: .warning)
+            return nil
+        }
+        merged.paidAmount = mergedPaidAmount
+        merged.totalEarned = mergedTotalEarned
+        merged.questsCompleted = mergedQuestsCompleted
+        merged.status = mergedStatus
+        merged.paidDate = mergedPaidDate
+        merged.changeTag = serverRecord.recordChangeTag
+        merged.encodedSystemFields = serverRecord.encodedSystemFields
+        cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
+
+        let mergedRecord = merged.toRecord()
+        mergedRecord.parent = serverRecord.parent
+        return mergedRecord
+    }
+
+    private func payoutRank(_ status: PayoutStatus) -> Int {
+        switch status {
+        case .paid: 2
+        case .payoutPending: 1
+        case .active: 0
+        }
     }
 
     /// Client-wins display fields per record type. Server wins for state/status

@@ -46,11 +46,57 @@ final class HeroDashboardViewModel {
 
     private var templatesByID: [String: QuestTemplateCache] = [:]
 
-    init(appState: AppState) {
+    /// Last authoritative CloudKit error when an async wallet fetch fails.
+    /// Surfaces via `HeroDashboardView` as a toast with pull-to-retry; the
+    /// cache-driven `earnedThisWeek` value is preserved so the UI never hangs.
+    private(set) var lastGoldError: String?
+
+    /// Optional toast surface for the async `refreshEarnedThisWeek` throw path.
+    /// Mirrors `TreasuryService.toastManager` wiring via `AppDependencies`;
+    /// when nil the error is still preserved in `lastGoldError` for the view
+    /// to toast via its own `@Environment(ToastManager.self)`.
+    var toastManager: ToastManager?
+
+    init(appState: AppState, toastManager: ToastManager? = nil) {
         self.appState = appState
+        self.toastManager = toastManager
+        // Default mirrors the effective payout fallback (.sunday) used in
+        // rebuildLists so the initial weekDays do not shift by one day before
+        // the first cache-driven rebuild.
         weekDays = HeroDashboardViewModel.currentWeekDays()
     }
 
+    /// Async authoritative refresh for callers that need `QuestService.earnedThisWeek`
+    /// (which delegates to `GoldCalculation.totalCredit` and **throws** on fetch failure).
+    /// Cache-only `rebuildLists` / `Self.earnedThisWeek` below must remain `sync`/`non-throwing`
+    /// so `HeroDashboardView` hydrates instantly offline. This async boundary is the
+    /// `do/catch` + toast + retry path for the throwing CloudKit variant:
+    /// it preserves `earnedThisWeek` on failure and sets `lastGoldError` for the view
+    /// to toast and offer retry. Consistent with `TreasuryService.updateAllowance`'s
+    /// tolerant catch and `QuestService.applyReward`'s detached `Task` handling of
+    /// `processRealTimeSettlement` throws.
+    func refreshEarnedThisWeek(questService: QuestService) async {
+        guard let profile = appState.currentProfile else { return }
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: profile.payoutDay ?? appState.family?.payoutDay ?? .sunday)
+        do {
+            let gold = try await questService.earnedThisWeek(profile: profile, weekOf: weekOf)
+            earnedThisWeek = gold
+            lastGoldError = nil
+        } catch {
+            // Preserve last successful totals so the hero card never hangs empty;
+            // surface the failure via error state that the view toasts with retry.
+            lastGoldError = "Could not load earnings. Pull to retry."
+            toastManager?.show(message: lastGoldError ?? "Could not load earnings. Pull to retry.", type: .warning)
+        }
+    }
+
+    /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
+    /// intentionally **does not throw** and does not call
+    /// `QuestService.earnedThisWeek` / `GoldCalculation.totalCredit`.
+    /// It derives gold via `GoldCalculation.netWeeklyGold` (pure cache math)
+    /// so the hero dashboard hydrates instantly offline and never hangs on a
+    /// network failure. Throwing CloudKit work belongs in
+    /// `refreshEarnedThisWeek(_:)` above, which callers invoke with `do/catch` + toast + retry.
     func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache] = [], allowancePeriods: [AllowancePeriodCache] = []) {
         guard let profileName = appState.currentProfile?.id.recordName,
               appState.family != nil
@@ -168,6 +214,8 @@ final class HeroDashboardViewModel {
         GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount(for: quest))
     }
 
+    // MARK: - Weekly Earnings
+
     nonisolated static func earnedThisWeek(
         logs: [QuestCompletionCache],
         quests: [QuestCache],
@@ -177,10 +225,13 @@ final class HeroDashboardViewModel {
         payoutDay: PayoutDay = .sunday
     ) -> Double {
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+        // Compare normalized week starts rather than isDate(inSameDayAs:) to
+        // avoid daylight-boundary mismatches when stored weekOf values straddle
+        // a DST transition in a non-UTC calendar.
         let isPaid = allowancePeriods.contains {
             $0.profileRecordName == profileRecordName &&
                 $0.statusEnum == .paid &&
-                Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf)
+                WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
         }
         if isPaid {
             return 0.0
@@ -257,7 +308,12 @@ final class HeroDashboardViewModel {
         return codes[safe]
     }
 
-    static func currentWeekDays(for date: Date = Date(), payoutDay: PayoutDay = .saturday, calendar: Calendar = .iso8601UTC) -> [DayInfo] {
+    // MARK: - Week Strip
+
+    static func currentWeekDays(for date: Date = Date(), payoutDay: PayoutDay = .sunday, calendar: Calendar = .iso8601UTC) -> [DayInfo] {
+        // Cycle starts the day after payoutDay (Sunday payout → Monday start),
+        // matching WeekMath.startOfWeek's (targetWeekday % 7) + 1 rotation so
+        // the strip and stored weekOf values anchor on the same weekday.
         let firstDayOfWeek = payoutDay.nextDay.weekdayNumber // 1 (Sun) .. 7 (Sat)
         let weekday = calendar.component(.weekday, from: date)
         let diff = (firstDayOfWeek - weekday)

@@ -36,14 +36,18 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let questName = quest.id.recordName
-        if inFlightCompletions.withLock({ $0.contains(questName) }) {
+        let alreadyInFlight = inFlightCompletions.withLock {
+            if $0.contains(questName) {
+                return true
+            }; $0.insert(questName); return false
+        }
+        if alreadyInFlight {
             toastManager?.show(message: "This quest is already being completed.", type: .info)
             throw QuestServiceError.alreadyInFlight
         }
-        inFlightCompletions.withLock { _ = $0.insert(questName) }
         defer { inFlightCompletions.withLock { _ = $0.remove(questName) } }
 
-        try validateCanCompleteQuest(quest, questName: questName)
+        try await validateCanCompleteQuest(quest, questName: questName)
 
         var log = QuestCompletion(
             quest: CKRecord.Reference(recordID: quest.id, action: .none),
@@ -92,11 +96,14 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let logName = questLog.id.recordName
-        let alreadyInFlight = inFlightWithdrawals.withLock { $0.contains(logName) }
+        let alreadyInFlight = inFlightWithdrawals.withLock {
+            if $0.contains(logName) {
+                return true
+            }; $0.insert(logName); return false
+        }
         if alreadyInFlight {
             throw QuestServiceError.alreadyInFlight
         }
-        inFlightWithdrawals.withLock { _ = $0.insert(logName) }
         defer { inFlightWithdrawals.withLock { _ = $0.remove(logName) } }
 
         try validateCanTransitionCompletion(questLog, logName: logName)
@@ -127,11 +134,14 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let logName = questLog.id.recordName
-        let alreadyInFlight = inFlightVerifications.withLock { $0.contains(logName) }
+        let alreadyInFlight = inFlightVerifications.withLock {
+            if $0.contains(logName) {
+                return true
+            }; $0.insert(logName); return false
+        }
         if alreadyInFlight {
             throw QuestServiceError.alreadyInFlight
         }
-        inFlightVerifications.withLock { _ = $0.insert(logName) }
         defer { inFlightVerifications.withLock { _ = $0.remove(logName) } }
 
         try validateCanTransitionCompletion(questLog, logName: logName)
@@ -172,11 +182,14 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let logName = questLog.id.recordName
-        let alreadyInFlight = inFlightVerifications.withLock { $0.contains(logName) }
+        let alreadyInFlight = inFlightVerifications.withLock {
+            if $0.contains(logName) {
+                return true
+            }; $0.insert(logName); return false
+        }
         if alreadyInFlight {
             throw QuestServiceError.alreadyInFlight
         }
-        inFlightVerifications.withLock { _ = $0.insert(logName) }
         defer { inFlightVerifications.withLock { _ = $0.remove(logName) } }
 
         try validateCanTransitionCompletion(questLog, logName: logName)
@@ -200,7 +213,7 @@ extension QuestService {
 
     // MARK: - Validation Helpers
 
-    private func validateCanCompleteQuest(_ quest: Quest, questName: String) throws {
+    private func validateCanCompleteQuest(_ quest: Quest, questName: String) async throws {
         if let cachedQuest = cacheService?.fetchQuest(recordName: questName, family: quest.family.recordID.recordName) {
             guard cachedQuest.isActive else {
                 throw QuestServiceError.alreadyCompleted
@@ -209,12 +222,18 @@ extension QuestService {
                 throw QuestServiceError.staleData("quest was updated on another device")
             }
         }
-        let cachedLogs = cachedQuestLogs(forQuest: quest)
-        let cachedNonRejectedCount = cachedLogs.filter(\.verificationStatus.countsTowardCompletion).count
-        if GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: cachedNonRejectedCount) {
+        // Strictly-local double-submit guard: `validateCanCompleteQuest` must
+        // not issue an ad-hoc CloudKit query. Cross-device reconciliation is
+        // handled exclusively by `CKSyncEngine` (single writer) and the
+        // server-side `xpBanked` cap, so a fresh local cache miss simply
+        // proceeds — the reward step caps any over-completion to zero XP and
+        // the inFlightCompletions Mutex guards the process-local double tap.
+        let logs = cachedQuestLogs(forQuest: quest)
+        let nonRejectedCount = logs.filter(\.verificationStatus.countsTowardCompletion).count
+        if GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejectedCount) {
             throw QuestServiceError.alreadyCompleted
         }
-        if quest.approvalMode == .parentVerify, cachedLogs.contains(where: { $0.verificationStatus == .pending }) {
+        if quest.approvalMode == .parentVerify, logs.contains(where: { $0.verificationStatus == .pending }) {
             toastManager?.show(message: "The previous completion is awaiting parent verification.", type: .info)
             throw QuestServiceError.alreadyInFlight
         }

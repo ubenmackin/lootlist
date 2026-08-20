@@ -295,74 +295,174 @@ enum GoldCalculation: Sendable {
         return totalEarned
     }
 
-    /// Single source of truth for "sum gold across logs, cache-first with per-id CK fallback".
-    /// Used by TreasuryService.sumGold and QuestService+QuestLogs.earnedThisWeek to
+    // MARK: - Wallet Gold Aggregation
+
+    /// Single source of truth for "sum gold across logs, cache-first with batched CK fallback".
+    /// Used by `TreasuryService.sumGold` and `QuestService+QuestLogs.earnedThisWeek` to
     /// prevent duplicated cache-then-CK-fallback-then-prorate gold summation.
+    ///
+    /// Why recordName-keyed: `CKRecord.ID` equality includes `zoneID` (zoneName+ownerName).
+    /// A quest created in the owner's private zone and a completion observed from a
+    /// shared zone can carry different `ownerName`s. Keying by `CKRecord.ID` would miss
+    /// the cache entry and force a redundant CloudKit fetch that hides the miss behind a
+    /// `values.first(where: recordName)` fallback. Gold proration is zone-independent —
+    /// `goldReward` does not vary by zone — and `recordName` is unique per family, so a
+    /// `String`→`Quest` map is the correct, zone-agnostic index.
+    ///
+    /// Batch fetching: missing quests are fetched in chunks via `cloudKit.query` with
+    /// `recordName IN %@` when available to avoid N sequential round trips. On any
+    /// transient failure the error is logged and rethrown so callers (e.g.
+    /// `TreasuryService.weeklyBreakdown`) surface the failure instead of silently
+    /// under-crediting the wallet.
+    ///
+    /// - Throws: `CloudKitServiceError` or underlying `CKError` when the batched
+    ///   `recordName IN` query or a per-`recordName` point fetch fails (network,
+    ///   auth, or zone-not-found). The error is always logged (`Logger.warning`)
+    ///   before rethrowing. **Callers must handle `throws` with `do/catch` +**
+    ///   **`ToastManager.show` + retry affordance** — never `try?` silently
+    ///   returning `0` or leaving a `ProgressView`/wallet in a hanging state.
+    ///   `TreasuryService.weeklyBreakdown` documents the view-model contract;
+    ///   cache-only ViewModel builders (`FamilyDashboardViewModel.rebuildLists`,
+    ///   `HeroDashboardViewModel.rebuildLists`, `TreasuryViewModel.rebuildLists`)
+    ///   intentionally avoid calling this throwing path and use
+    ///   `GoldCalculation.netWeeklyGold` instead.
     static func totalCredit(
         logs: [QuestCompletion],
         cacheService: CacheService?,
         cloudKit: any CloudKitServiceProtocol,
         family: Family? = nil,
         calendar _: Calendar = .iso8601UTC
-    ) async -> Double {
+    ) async throws -> Double {
         let completedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
         guard !completedLogs.isEmpty else { return 0 }
 
-        let uniqueQuestIDs = Array(Set(completedLogs.map(\.quest.recordID)))
-        var questMap: [CKRecord.ID: Quest] = [:]
+        // Unique quest identities are zone-independent: recordName only.
+        let uniqueRecordNames = Set(completedLogs.map(\.quest.recordID.recordName))
+        var questMapByName: [String: Quest] = [:]
 
-        var isFresh = false
-        if let cache = cacheService {
-            let familyName = family?.id.recordName
-            isFresh = await MainActor.run {
-                if let familyName {
-                    return cache.isCacheFresh(familyRecordName: familyName, type: .quest)
-                }
-                return false
-            }
-            if isFresh {
-                let quests = await MainActor.run {
-                    let zoneID = family?.id.zoneID ?? completedLogs.first?.quest.recordID.zoneID ?? CKRecordZone.default().zoneID
-                    return cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
-                }
-                for quest in quests {
-                    questMap[quest.id] = quest
-                }
-            }
-        }
-
-        if !isFresh {
-            let missingIDs = uniqueQuestIDs.filter { questID in
-                questMap[questID] == nil && !questMap.keys.contains { $0.recordName == questID.recordName }
-            }
-
-            if !missingIDs.isEmpty {
-                for questID in missingIDs {
-                    do {
-                        let fetched = try await cloudKit.fetch(Quest.self, id: questID)
-                        questMap[questID] = fetched
-                        questMap[fetched.id] = fetched
-                    } catch {
-                        // A transient fetch failure must not silently under-credit
-                        // this quest's gold; surface it and leave the quest out of
-                        // questMap so the aggregation below excludes it.
-                        logger.warning("Failed to fetch quest \(questID.recordName, privacy: .private) for gold credit: \(error, privacy: .private)")
-                    }
-                }
+        if let cache = cacheService,
+           let cachedMap = await loadCachedQuests(
+               cache: cache,
+               family: family,
+               fallbackZoneID: completedLogs.first?.quest.recordID.zoneID
+           )
+        {
+            questMapByName = cachedMap
+        } else {
+            let missingNames = Array(uniqueRecordNames.filter { questMapByName[$0] == nil })
+            let fetched = try await fetchMissingQuests(
+                missingNames: missingNames,
+                cloudKit: cloudKit,
+                family: family,
+                completedLogs: completedLogs
+            )
+            for (name, quest) in fetched {
+                questMapByName[name] = quest
             }
         }
 
-        var approvedCountByQuest: [CKRecord.ID: Int] = [:]
+        var approvedCountByName: [String: Int] = [:]
         for log in completedLogs {
-            approvedCountByQuest[log.quest.recordID, default: 0] += 1
+            approvedCountByName[log.quest.recordID.recordName, default: 0] += 1
         }
 
         var total: Double = 0
-        for (questID, approvedCount) in approvedCountByQuest {
-            if let quest = questMap[questID] ?? questMap.values.first(where: { $0.id.recordName == questID.recordName }) {
-                total += creditAsDouble(for: quest, approvedCount: approvedCount)
+        for (recordName, approvedCount) in approvedCountByName {
+            guard let quest = questMapByName[recordName] else {
+                logger.warning("Missing quest \(recordName, privacy: .private) for gold proration — no cached or fetched record available")
+                continue
             }
+            total += creditAsDouble(for: quest, approvedCount: approvedCount)
         }
         return total
+    }
+
+    private static func loadCachedQuests(
+        cache: CacheService,
+        family: Family?,
+        fallbackZoneID: CKRecordZone.ID?
+    ) async -> [String: Quest]? {
+        let familyName = family?.id.recordName
+        // isFresh must be read on MainActor consistently because CacheService
+        // is @MainActor and freshness watermarks live in UserDefaults.
+        let isFresh = await MainActor.run {
+            if let familyName {
+                return cache.isCacheFresh(familyRecordName: familyName, type: .quest)
+            }
+            return false
+        }
+        guard isFresh else { return nil }
+
+        // Cache read is family-scoped (familyRecordName) so a multi-family
+        // device never mixes quests across families. The zoneID used to
+        // materialize `Quest` from `QuestCache` is the family's zone when
+        // known, otherwise the first log's zone — either is valid because
+        // gold proration never inspects the zone.
+        let cachedQuests: [Quest] = await MainActor.run {
+            let zoneID = family?.id.zoneID ?? fallbackZoneID ?? CKRecordZone.default().zoneID
+            return cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
+        }
+        var map: [String: Quest] = [:]
+        for quest in cachedQuests {
+            map[quest.id.recordName] = quest
+        }
+        return map
+    }
+
+    private static func fetchMissingQuests(
+        missingNames: [String],
+        cloudKit: any CloudKitServiceProtocol,
+        family: Family?,
+        completedLogs: [QuestCompletion]
+    ) async throws -> [String: Quest] {
+        var questMapByName: [String: Quest] = [:]
+        guard !missingNames.isEmpty else { return questMapByName }
+
+        // Prefer batched query to avoid N sequential round trips. Chunk to
+        // stay within CloudKit predicate limits.
+        let chunkSize = 100
+        for start in stride(from: 0, to: missingNames.count, by: chunkSize) {
+            let end = min(start + chunkSize, missingNames.count)
+            let chunk = Array(missingNames[start ..< end])
+            let predicate = NSPredicate(format: "recordName IN %@", chunk)
+            do {
+                let fetched: [Quest] = try await cloudKit.query(Quest.self, predicate: predicate, in: family?.id.zoneID)
+                for quest in fetched {
+                    questMapByName[quest.id.recordName] = quest
+                }
+            } catch {
+                logger.warning("Batch fetch failed for quest chunk \(chunk, privacy: .private): \(error, privacy: .private)")
+                throw error
+            }
+        }
+        // If batch query is not queryable (returns empty) or partially
+        // fulfilled, fall back to per-ID fetch for any names still missing.
+        // Each transient failure is logged and rethrown to prevent silent
+        // under-crediting; callers surface the error instead of returning 0.
+        let stillMissing = missingNames.filter { questMapByName[$0] == nil }
+        if !stillMissing.isEmpty {
+            for recordName in stillMissing {
+                // Reconstruct a zone-aware ID for the point fetch: prefer
+                // the family's zone, otherwise the originating log's zone.
+                let zoneID = family?.id.zoneID ?? completedLogs.first(where: { $0.quest.recordID.recordName == recordName })?.quest.recordID.zoneID ?? CKRecordZone
+                    .default().zoneID
+                let recordID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+                do {
+                    let fetched: Quest = try await cloudKit.fetch(Quest.self, id: recordID)
+                    questMapByName[fetched.id.recordName] = fetched
+                    questMapByName[recordName] = fetched
+                } catch {
+                    // A transient fetch failure must not silently under-credit
+                    // this quest's gold; log and rethrow so the wallet can
+                    // surface the failure instead of returning a partial total.
+                    logger.warning("Failed to fetch quest \(recordName, privacy: .private) for gold credit: \(error, privacy: .private)")
+                    // Do not silently drop notFound either would hide
+                    // misconfiguration — let the caller decide. Treat
+                    // notFound as rethrow to ensure under-credit is never silent.
+                    throw error
+                }
+            }
+        }
+        return questMapByName
     }
 }
