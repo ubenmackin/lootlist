@@ -331,14 +331,27 @@ final class AchievementService {
             awarded.append(definition)
         }
 
+        // Notify trophy awards. Never `try?` — notification failures must be
+        // logged (logger.error) so silent drops are observable; send is
+        // best-effort, so failures are logged and the loop continues rather
+        // than aborting the remaining awards.
         if let notificationService, !awarded.isEmpty {
             for achievement in awarded {
-                try? await notificationService.send(
-                    .trophyEarned,
-                    to: profile,
-                    title: "🏅 Trophy Earned!",
-                    body: "You unlocked '\(achievement.name)'!"
-                )
+                do {
+                    try await notificationService.send(
+                        .trophyEarned,
+                        to: profile,
+                        title: "🏅 Trophy Earned!",
+                        body: "You unlocked '\(achievement.name)'!"
+                    )
+                } catch {
+                    let achievementName = achievement.id.recordName
+                    let profileName = profile.id.recordName
+                    logger
+                        .error(
+                            "Failed to send trophyEarned notification for achievement \(achievementName, privacy: .private) to profile \(profileName, privacy: .private): \(error, privacy: .private)"
+                        )
+                }
             }
         }
 
@@ -347,6 +360,8 @@ final class AchievementService {
         // in this pass. longestStreakDays is a lifetime best, so gating on
         // it directly would re-notify a hero whose best streak has plateaued
         // on every TrophyRoom open or verification.
+        // Never `try?` — log failures explicitly; best-effort delivery continues
+        // to the next threshold on error.
         if let notificationService {
             let newlyAwardedStreakThresholds = awarded.compactMap { achievement -> Int? in
                 switch achievement.requirementType {
@@ -356,12 +371,18 @@ final class AchievementService {
                 }
             }
             for streakDays in newlyAwardedStreakThresholds.sorted() {
-                try? await notificationService.send(
-                    .streakMilestone,
-                    to: profile,
-                    title: "🔥 Streak Milestone!",
-                    body: "You've hit a \(streakDays)-day streak!"
-                )
+                do {
+                    try await notificationService.send(
+                        .streakMilestone,
+                        to: profile,
+                        title: "🔥 Streak Milestone!",
+                        body: "You've hit a \(streakDays)-day streak!"
+                    )
+                } catch {
+                    let profileName = profile.id.recordName
+                    logger
+                        .error("Failed to send streakMilestone notification for \(streakDays)-day streak to profile \(profileName, privacy: .private): \(error, privacy: .private)")
+                }
             }
         }
 

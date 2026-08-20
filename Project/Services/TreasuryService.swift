@@ -338,6 +338,18 @@ final class TreasuryService {
             resolvedFamily = family
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
+                // Even when nothing was earned this week the period must still
+                // be closed as paid with zero — otherwise the week stays
+                // open and the auto-payout coordinator retries it on every
+                // launch, foreground transition, and background refresh.
+                updated.status = .paid
+                updated.paidDate = Date()
+                updated.paidAmount = 0
+                updated.totalEarned = breakdown.totalEarned
+                updated.questsCompleted = breakdown.questsCount
+                cacheService?.upsertAllowancePeriod(updated)
+                let isOwner = appState.isZoneOwner
+                syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
                 return
             }
             updated.totalEarned = breakdown.totalEarned
@@ -386,10 +398,10 @@ final class TreasuryService {
     /// Auth / scope guards return `nil` (not `throw`) so a benign
     /// unauthorized or out-of-scope call is a no-op rather than a wallet
     /// error. All CloudKit-backed work — `getOrCreateAllowancePeriod`,
-    /// `weeklyBreakdown`, `fetchQuestLogs`, `sumGold` — **throws** on
-    /// transient failure (see `GoldCalculation.totalCredit`'s documented
-    /// throw contract) and callers must handle with `do/catch` + toast + retry
-    /// rather than letting the throw hang the UI. The canonical caller is
+    /// `fetchQuestLogs`, `sumGold` — **throws** on transient failure
+    /// (see `GoldCalculation.totalCredit`'s documented throw contract) and
+    /// callers must handle with `do/catch` + toast + retry rather than letting
+    /// the throw hang the UI. The canonical caller is
     /// `QuestService.applyReward`, which wraps this in a detached `Task` with
     /// `logger.error` + `toastManager.show` so the wallet never appears to hang
     /// and the error is consistently surfaced (mirroring `updateAllowance`'s
@@ -432,45 +444,25 @@ final class TreasuryService {
 
         let period = try await getOrCreateAllowancePeriod(profile: profile, weekOf: weekOf, family: family)
 
-        let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: weekOf)
-
+        // Single snapshot for quest logs and gold — prevents divergence
+        // between quest count and earned amount if the SwiftData cache
+        // changes between separate async fetches.
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: weekOf,
                                             weekEnding: TreasuryService.weekRange(starting: weekOf).upperBound)
         let questGold = try await sumGold(for: logs, family: family)
+        let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         var updated = period
         updated.paidAmount = max(period.paidAmount ?? 0, questGold)
         updated.paidDate = Date()
-        let amountChanged: Bool = {
-            if let previous = period.paidAmount, let current = updated.paidAmount {
-                return abs(previous - current) > 0.001
-            }
-            return period.paidAmount != updated.paidAmount
-        }()
-        if amountChanged {
-            let saved = try await updateAllowance(period: updated,
-                                                  totalEarned: questGold,
-                                                  questsCompleted: breakdown.questsCount)
-
-            await mintRealTimeLedgerEntry(
-                periodRecordName: period.id.recordName,
-                amount: questGold,
-                weekOf: weekOf,
-                profile: period.profile,
-                family: CKRecord.Reference(recordID: family.id, action: .none),
-                date: Date()
-            )
-
-            return saved
-        }
+        // Single persistence point — totalEarned / questsCompleted are always
+        // reconciled from the live quest snapshot regardless of whether
+        // paidAmount moved, so one call covers both cases.
         let saved = try await updateAllowance(period: updated,
                                               totalEarned: questGold,
-                                              questsCompleted: breakdown.questsCount)
+                                              questsCompleted: questsCount)
 
-        // Upsert the real-time quest-earnings ledger entry. The record name
-        // is derived from the period so each settlement upserts the same
-        // row with the cumulative amount.
         await mintRealTimeLedgerEntry(
             periodRecordName: period.id.recordName,
             amount: questGold,
@@ -561,86 +553,105 @@ final class TreasuryService {
 
 // MARK: - PeriodMutex
 
+// MARK: - helpers
+
 /// Per-key async mutex that serializes callers contending on the same
 /// deterministic period record name while allowing different periods to
-/// proceed in parallel. Uses `Synchronization.Mutex` to protect the
-/// locked-key set and waiter queues so `unlock` can be called
-/// synchronously from `defer` inside `getOrCreateAllowancePeriod`.
+/// proceed in parallel. The locked-key set is protected by
+/// `Synchronization.Mutex` so `unlock` stays synchronous for `defer` in
+/// `getOrCreateAllowancePeriod`; waiters suspend in an actor-isolated
+/// queue via `CheckedContinuation` rather than `Task.yield()` polling.
+/// This preserves FIFO fairness, avoids unbounded wake-ups while the
+/// holder awaits `fetchAllowancePeriod`/`fetchQuestLogs` (100s+ ms), and
+/// prevents starvation on `@MainActor` — continuations are never stored
+/// in `Mutex`-protected `Sendable` state, satisfying Swift 6 concurrency.
 private final class PeriodMutex: Sendable {
-    private final class Box: @unchecked Sendable {
-        var continuation: CheckedContinuation<Void, Error>?
-    }
-
-    private struct State {
+    private struct State: Sendable {
         var locked = Set<String>()
-        var waiters: [String: [Box]] = [:]
     }
 
     private let state = Mutex<State>(State())
 
-    /// Acquires the lock for `key`. If the key is already held, the
-    /// caller suspends until the current holder releases it. Ownership
-    /// is transferred directly to the next waiter on `unlock`.
-    /// The waiter is appended atomically inside the same `withLock` that
-    /// decides to wait, closing the TOCTOU between check and enqueue.
-    /// Cancellation removes the waiter and resumes throwing
-    /// `CancellationError` so a cancelled task never holds the lock.
-    func lock(key: String) async throws {
-        let box = Box()
-        try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                box.continuation = continuation
-                let didAcquire = state.withLock { state -> Bool in
-                    if state.locked.contains(key) {
-                        state.waiters[key, default: []].append(box)
-                        return false
-                    }
-                    state.locked.insert(key)
-                    return true
-                }
-                if didAcquire {
-                    box.continuation = nil
-                    continuation.resume()
-                }
-            }
-        }, onCancel: {
-            var toResume: CheckedContinuation<Void, Error>?
-            state.withLock { state in
-                guard var queue = state.waiters[key] else { return }
-                if let idx = queue.firstIndex(where: { $0 === box }) {
-                    let removed = queue.remove(at: idx)
-                    toResume = removed.continuation
-                    removed.continuation = nil
-                    if queue.isEmpty {
-                        state.waiters.removeValue(forKey: key)
-                    } else {
-                        state.waiters[key] = queue
-                    }
-                }
-            }
-            toResume?.resume(throwing: CancellationError())
-        })
+    private struct WaiterEntry {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Error>
     }
 
-    /// Releases the lock for `key`, resuming the next waiter if present
-    /// and transferring ownership, otherwise clearing the locked flag.
-    func unlock(key: String) {
-        var next: CheckedContinuation<Void, Error>?
-        state.withLock { state in
-            if var queue = state.waiters[key], !queue.isEmpty {
-                let box = queue.removeFirst()
-                next = box.continuation
-                box.continuation = nil
-                if queue.isEmpty {
-                    state.waiters.removeValue(forKey: key)
-                } else {
-                    state.waiters[key] = queue
-                }
-                // Ownership stays with the resumed waiter; keep `locked`.
-            } else {
-                state.locked.remove(key)
+    /// Actor-isolated FIFO waiter queue — holds `CheckedContinuation`
+    /// outside `Mutex` state so `State` remains `Sendable` without
+    /// `@unchecked` suppressants.
+    private actor WaiterQueue {
+        var queues: [String: [WaiterEntry]] = [:]
+
+        func wait(for key: String, id: UUID) async throws {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                queues[key, default: []].append(WaiterEntry(id: id, continuation: cont))
             }
         }
-        next?.resume()
+
+        func signal(for key: String) {
+            guard var queue = queues[key], !queue.isEmpty else { return }
+            let entry = queue.removeFirst()
+            if queue.isEmpty {
+                queues.removeValue(forKey: key)
+            } else {
+                queues[key] = queue
+            }
+            entry.continuation.resume()
+        }
+
+        func cancel(for key: String, id: UUID) {
+            guard var queue = queues[key],
+                  let idx = queue.firstIndex(where: { $0.id == id })
+            else { return }
+            let entry = queue.remove(at: idx)
+            if queue.isEmpty {
+                queues.removeValue(forKey: key)
+            } else {
+                queues[key] = queue
+            }
+            entry.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    private let waiters = WaiterQueue()
+
+    /// Acquires the lock for `key`. The check-and-insert is atomic inside
+    /// `withLock`; contending callers suspend in the actor queue instead of
+    /// spinning. Cancellation is cooperative — a cancelled waiter is removed
+    /// from the queue without consuming the holder's wake-up.
+    func lock(key: String) async throws {
+        while true {
+            let acquired = state.withLock { state -> Bool in
+                if state.locked.contains(key) {
+                    return false
+                }
+                state.locked.insert(key)
+                return true
+            }
+            if acquired {
+                return
+            }
+            try Task.checkCancellation()
+            let id = UUID()
+            do {
+                try await withTaskCancellationHandler(
+                    operation: { try await waiters.wait(for: key, id: id) },
+                    onCancel: { Task { await self.waiters.cancel(for: key, id: id) } }
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            }
+        }
+    }
+
+    /// Releases the lock for `key` and wakes the next FIFO waiter, if any.
+    /// Synchronous `withLock` allows `defer { unlock }` without `await`.
+    func unlock(key: String) {
+        let wasLocked = state.withLock { state -> Bool in
+            state.locked.remove(key) != nil
+        }
+        guard wasLocked else { return }
+        Task { await waiters.signal(for: key) }
     }
 }

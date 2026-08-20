@@ -121,11 +121,11 @@ final class AppState {
 
     var familyZoneID: CKRecordZone.ID? {
         didSet {
-            // Only broadcast after the family is resolved and the zone actually
-            // changed — an early zoneID write before family is set would cause
-            // ActiveFamilyScopeGuard to see a spurious mismatch and block the
-            // offline cache fallback.
-            guard oldValue != familyZoneID, family != nil else { return }
+            // Broadcast on any zone identity change so cached scope state is
+            // invalidated even before the family is resolved. Clearing the
+            // lifecycle scope key is safe and idempotent — a stale key must not
+            // survive a zone switch regardless of family resolution order.
+            guard oldValue != familyZoneID else { return }
             NotificationCenter.default.post(name: .didChangeFamilyZoneID, object: nil)
         }
     }
@@ -925,12 +925,27 @@ final class AppState {
     /// is hidden by the root view's existing `ProgressView` rendering.
     func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
         if isDiscoveryInFlight {
-            logger.info("Sign-out discovered ongoing discovery; cancelling in-flight waiters and deferring completion")
-            let waiters = discoveryWaiters
-            discoveryWaiters.removeAll()
-            for waiter in waiters {
-                waiter.resume()
+            // Do not resume discoveryWaiters early — those continuations are
+            // joiners expecting to observe the completed discovery result.
+            // Waking them before the original scan finishes would let them
+            // return with a stale authStatus that is about to be overwritten,
+            // and a re-entered discoverExistingCloudState would itself join
+            // the still-in-flight pass and never produce a fresh post-clear
+            // result, leaving the pre-clear scan as the final state.
+            // Instead, clear the local session and CloudKit scope immediately
+            // so sign-out wins, then join the original discovery and guarantee
+            // a fresh scan once it finishes.
+            clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
+            authStatus = .checkingCloudData
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                discoveryWaiters.append(continuation)
             }
+            // Original discovery has now completed and its defer has resumed
+            // all joiners, overwriting authStatus with the stale pre-clear
+            // result. Force back to checkingCloudData and run a fresh scan
+            // so the final state reflects the cleared session.
+            authStatus = .checkingCloudData
+            await discoverExistingCloudState(cloudKit: cloudKit)
             return
         }
         clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)

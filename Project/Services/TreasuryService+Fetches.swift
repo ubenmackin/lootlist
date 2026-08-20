@@ -158,6 +158,15 @@ extension TreasuryService {
                     return []
                 }
             }
+            // Stale cache with existing rows: avoid a blocking CloudKit round-trip
+            // when offline — return cached data immediately for instant UI. When
+            // online, attempt a refresh and fall back to stale cache on failure
+            // so offline/poor-network users do not pay network latency before
+            // seeing valid cached logs.
+            if !NetworkMonitor.shared.isConnected {
+                logger.warning("fetchQuestLogs offline — serving stale cached logs without CloudKit query")
+                return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
+            }
             do {
                 let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                 let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
@@ -218,7 +227,7 @@ extension TreasuryService {
                 let predicate = NSPredicate(format: "family == %@ AND isActive == 1", familyRef as CVarArg)
                 let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
                 cacheService?.upsertQuests(all)
-                return all.filter { range.contains($0.weekOf) }
+                return all.filter { range.contains($0.weekOf) && $0.assignee.recordID == profile.id }
             } catch {
                 logger.warning("fetchAssignedQuests fallback to cached: \(error, privacy: .private)")
                 return filtered.map { $0.toQuest(zoneID: family.id.zoneID) }
@@ -233,7 +242,7 @@ extension TreasuryService {
         do {
             let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
             cacheService?.upsertQuests(all)
-            return all.filter { range.contains($0.weekOf) }
+            return all.filter { range.contains($0.weekOf) && $0.assignee.recordID == profile.id }
         } catch {
             logger.warning("fetchAssignedQuests CloudKit failure: \(error, privacy: .private)")
             return []
@@ -244,13 +253,35 @@ extension TreasuryService {
                               weekOf: Date) async throws -> AllowancePeriod?
     {
         let familyName = profile.family.recordID.recordName
-        // Normalize both sides to start-of-day to avoid daylight-edge mismatches
-        // where isDate(inSameDayAs:) can diverge on DST boundaries.
+        // WHY direct `==` and not day-equality (`isDate(inSameDayAs:)` /
+        // `startOfDay(for:) ==`): `AllowancePeriod.weekOf` is always
+        // payout-day-normalized at write time via `WeekMath.startOfWeek(for:payoutDay:)`
+        // (midnight UTC on the payout-anchored cycle start — Monday 00:00 UTC
+        // for `.sunday`, Sunday 00:00 UTC for `.saturday`, etc.). Both the
+        // stored row and `normalizedWeekStart` are therefore already at
+        // `Calendar.iso8601UTC.startOfDay` granularity. Collapsing the stored
+        // side with `startOfDay(for: $0.weekOf)` would alias a legacy
+        // pre-migration row that carries a time-of-day component (e.g. 13:00)
+        // to the same calendar day as the correctly-normalized midnight row,
+        // potentially matching the wrong week. The correct invariant is strict
+        // identity ` $0.weekOf == normalizedWeekStart` — both already
+        // normalized. If DST normalization is ever needed, it must be applied
+        // once at write time via `WeekMath.startOfWeek` / `startOfDay`, not
+        // at comparison time. On `iso8601UTC` there is no DST 23h/25h drift
+        // (UTC is DST-free), but this preserves the invariant for legacy rows
+        // — e.g. a DST spring-forward legacy `weekOf` at 02:30 local that was
+        // persisted as 13:00 UTC must NOT alias to the midnight row for that
+        // day; only an exact midnight match is valid.
         let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: weekOf)
         if let cache = cacheService {
             let profileName = profile.id.recordName
+            // Strict identity preserves week identity; do NOT use
+            // `Calendar.iso8601UTC.isDate(_:inSameDayAs:)` or
+            // `Calendar.iso8601UTC.startOfDay(for: $0.weekOf) ==` on the
+            // stored side — that would mask the `weekOf` time component and
+            // alias legacy 13:00 rows to midnight rows on the same day.
             let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
-                .first { Calendar.iso8601UTC.startOfDay(for: $0.weekOf) == normalizedWeekStart }
+                .first { $0.weekOf == normalizedWeekStart }
             if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
                 return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
             }
@@ -260,7 +291,7 @@ extension TreasuryService {
             if cached != nil {
                 do {
                     let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-                    let predicate = NSPredicate(format: "profile == %@ AND weekOf == %@", profileRef as CVarArg, weekOf as CVarArg)
+                    let predicate = NSPredicate(format: "profile == %@ AND weekOf == %@", profileRef as CVarArg, normalizedWeekStart as CVarArg)
                     let periods = try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
                     cacheService?.upsertAllowancePeriods(periods)
                     return periods.first ?? cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
@@ -275,7 +306,7 @@ extension TreasuryService {
         let predicate = NSPredicate(
             format: "profile == %@ AND weekOf == %@",
             profileRef as CVarArg,
-            weekOf as CVarArg
+            normalizedWeekStart as CVarArg
         )
         do {
             let periods = try await cloudKit.query(AllowancePeriod.self,
@@ -286,8 +317,10 @@ extension TreasuryService {
         } catch {
             logger.warning("fetchAllowancePeriod CloudKit failure: \(error, privacy: .private)")
             if let cache = cacheService {
+                // Strict identity — see comment above for why `startOfDay`
+                // collapsing on the stored side is forbidden.
                 let cached = cache.fetchAllowancePeriods(profileRecordName: profile.id.recordName, family: familyName)
-                    .first { Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: weekOf) }
+                    .first { $0.weekOf == normalizedWeekStart }
                 return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
             }
             return nil

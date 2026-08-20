@@ -150,10 +150,31 @@ final class AutoPayoutCoordinator {
             // Retire quests from past weeks whose payouts have been finalized. The sweep
             // excludes the current week, so an early payout never deactivates this
             // week's still-active quests; they retire on the next week rollover.
-            let familyWeekStart = WeekMath.startOfWeek(for: now, payoutDay: family.payoutDay)
-            let sweptQuests = try await questService.sweepExpiredQuests(family: family, currentWeekOf: familyWeekStart)
-            if !sweptQuests.isEmpty {
-                logger.info("Swept \(sweptQuests.count) expired quests for family \(family.name, privacy: .private)")
+            // Sweep must respect per-hero effective payout day — each hero's week is
+            // anchored on hero.payoutDay ?? family.payoutDay. A single family-anchored
+            // weekStart would retire quests up to 6 days early or late for heroes
+            // with overrides (e.g. Sunday family with Friday hero: Friday hero's
+            // quest from previous Friday week must not be swept until his Saturday
+            // rollover). Derive the distinct effective weekStarts among heroes and
+            // sweep once per distinct anchor so every hero's cycle is respected.
+            // sweepExpiredQuests re-anchors per-quest internally, but the passed
+            // currentWeekOf must already be hero-anchored to avoid a double-shift
+            // when a family-anchored date is re-snapped to the hero's payout day.
+            let heroesByWeekStart = Dictionary(grouping: heroes) { hero in
+                WeekMath.startOfWeek(for: now, payoutDay: hero.payoutDay ?? family.payoutDay)
+            }
+            let distinctWeekStarts: Set<Date> = if heroesByWeekStart.isEmpty {
+                [WeekMath.startOfWeek(for: now, payoutDay: family.payoutDay)]
+            } else {
+                Set(heroesByWeekStart.keys)
+            }
+            var allSweptQuests: [Quest] = []
+            for weekStart in distinctWeekStarts {
+                let swept = try await questService.sweepExpiredQuests(family: family, currentWeekOf: weekStart)
+                allSweptQuests.append(contentsOf: swept)
+            }
+            if !allSweptQuests.isEmpty {
+                logger.info("Swept \(allSweptQuests.count) expired quests for family \(family.name, privacy: .private)")
             }
 
             // Recurring quest carry-forward: roll template-backed quests from
