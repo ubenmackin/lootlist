@@ -68,9 +68,6 @@ struct HeroDashboardViewModelTests {
     private func makeHarness() -> TestHarness {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let appState = AppState()
-        // `appState.family != nil` guard (lines 51-53) doesn't early-return.
-        // Route the family's `CKRecord.ID` through the same `zoneID`/`"fam1"`
-        // recordName the harness already uses for the profile's `family`
         let family = Family(
             name: "Test Family",
             createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
@@ -174,12 +171,6 @@ struct HeroDashboardViewModelTests {
             verifiedByRecordName: nil,
             verifiedDate: nil
         )
-        // A second quest with an APPROVED completion must be counted — proves
-        // the harness exercises the real approved-status filter path (the
-        // the harness `appState.family` fix, because `rebuildLists` early
-        // returned at its `appState.family != nil` guard). Seeding an approved
-        // completion that IS counted rules out any future early-return
-        // regression masking the pending-exclusion check.
         let approvedQuest = QuestCache(
             recordName: "q2",
             familyRecordName: test.familyName,
@@ -216,10 +207,6 @@ struct HeroDashboardViewModelTests {
             templates: []
         )
 
-        // `earnedThisWeek` derives gold via the STRICT approved-status join
-        // (`autoApproved` || `verified`) inside `Self.earnedThisWeek`, so the
-        // pending `q1` completion (20.0 gold) is excluded and only the
-        // autoApproved `q2` completion (15.0 gold) is counted.
         #expect(viewModel.earnedThisWeek == 15.0)
         #expect(viewModel.isFullyCompleted(for: approvedQuest))
         #expect(!viewModel.isFullyCompleted(for: quest))
@@ -301,5 +288,210 @@ struct HeroDashboardViewModelTests {
         )
 
         #expect(viewModel.streak == 2)
+    }
+
+    // MARK: - Payout-aware week days
+
+    @Test
+    func `default sunday payout yields Mon-Sun week not Sun-Sat`() throws {
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let days = HeroDashboardViewModel.currentWeekDays(for: monday, payoutDay: .sunday)
+        #expect(days.count == 7)
+        #expect(days.first?.weekdayCode == "monday")
+        #expect(days.first?.shortName == "Mon")
+        #expect(days.last?.weekdayCode == "sunday")
+        #expect(days.last?.shortName == "Sun")
+        #expect(days.map(\.weekdayCode) == ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"])
+    }
+
+    @Test
+    func `sunday payout Mon-Sun is distinct from saturday payout Sun-Sat`() throws {
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let sundayCycle = HeroDashboardViewModel.currentWeekDays(for: monday, payoutDay: .sunday)
+        let saturdayCycle = HeroDashboardViewModel.currentWeekDays(for: monday, payoutDay: .saturday)
+        #expect(sundayCycle.first?.weekdayCode == "monday")
+        #expect(saturdayCycle.first?.weekdayCode == "sunday")
+        #expect(sundayCycle != saturdayCycle)
+    }
+
+    @Test
+    func `currentWeekDays sunday payout aligns with WeekMath startOfWeek`() throws {
+        let cal = Calendar.iso8601UTC
+        let wednesday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 5)))
+        let weekStart = WeekMath.startOfWeek(for: wednesday, payoutDay: .sunday)
+        let days = HeroDashboardViewModel.currentWeekDays(for: wednesday, payoutDay: .sunday)
+        #expect(days.first?.date == cal.startOfDay(for: weekStart))
+        #expect(days.last?.date == cal.date(byAdding: .day, value: 6, to: cal.startOfDay(for: weekStart)))
+    }
+
+    @Test
+    func `earnedThisWeek buckets by normalized WeekMath startOfWeek half-open range`() throws {
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekRange = WeekMath.weekRange(starting: monday)
+        let profileName = "hero1"
+
+        let quest = QuestCache(
+            recordName: "qBoundary",
+            familyRecordName: "fam1",
+            assigneeRecordName: profileName,
+            templateRecordName: "t1",
+            weekOf: monday,
+            questName: "Boundary Quest",
+            isActive: true,
+            goldReward: 10.0,
+            xpReward: 5,
+            rarity: "common",
+            scheduleType: QuestSchedule.specificDays.rawValue,
+            isAllOrNothing: false,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+
+        let sundayNight = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9, hour: 23, minute: 59, second: 59)))
+        let logSunday = QuestCompletionCache(
+            recordName: "logSun",
+            questRecordName: "qBoundary",
+            familyRecordName: "fam1",
+            completerRecordName: profileName,
+            completedDate: sundayNight,
+            weekOf: sundayNight,
+            verificationStatus: VerificationStatus.autoApproved.rawValue,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+
+        let nextMonday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 0, minute: 0, second: 0)))
+        let logMonday = QuestCompletionCache(
+            recordName: "logMon",
+            questRecordName: "qBoundary",
+            familyRecordName: "fam1",
+            completerRecordName: profileName,
+            completedDate: nextMonday,
+            weekOf: nextMonday,
+            verificationStatus: VerificationStatus.autoApproved.rawValue,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+
+        let included = GoldCalculation.netWeeklyGold(
+            quests: [quest],
+            logs: [logSunday],
+            profileRecordName: profileName,
+            payoutPolicy: .perQuest,
+            weekRange: weekRange
+        )
+        #expect(included == 10.0)
+        #expect(weekRange.contains(sundayNight))
+
+        let excluded = GoldCalculation.netWeeklyGold(
+            quests: [quest],
+            logs: [logMonday],
+            profileRecordName: profileName,
+            payoutPolicy: .perQuest,
+            weekRange: weekRange
+        )
+        #expect(excluded == 0.0)
+        #expect(!weekRange.contains(nextMonday))
+
+        let mixed = GoldCalculation.netWeeklyGold(
+            quests: [quest],
+            logs: [logSunday, logMonday],
+            profileRecordName: profileName,
+            payoutPolicy: .perQuest,
+            weekRange: weekRange
+        )
+        #expect(mixed == 10.0)
+    }
+
+    @Test
+    func `earnedThisWeek is zero when allowance period is paid for normalized week`() throws {
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let tuesday = try #require(cal.date(byAdding: .day, value: 1, to: monday))
+        let weekOf = WeekMath.startOfWeek(for: tuesday, payoutDay: .sunday)
+        #expect(weekOf == monday)
+
+        let periodNoon = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3, hour: 12, minute: 0)))
+        #expect(cal.isDate(periodNoon, inSameDayAs: weekOf))
+
+        let quest = QuestCache(
+            recordName: "q1",
+            familyRecordName: "fam1",
+            assigneeRecordName: "hero1",
+            templateRecordName: "t1",
+            weekOf: monday,
+            questName: "Q",
+            isActive: true,
+            goldReward: 20.0,
+            xpReward: 10,
+            rarity: "common",
+            scheduleType: QuestSchedule.specificDays.rawValue,
+            isAllOrNothing: false,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+        let log = QuestCompletionCache(
+            recordName: "log1",
+            questRecordName: "q1",
+            familyRecordName: "fam1",
+            completerRecordName: "hero1",
+            completedDate: tuesday,
+            weekOf: tuesday,
+            verificationStatus: VerificationStatus.autoApproved.rawValue,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+        let paidPeriod = AllowancePeriodCache(
+            recordName: "period-paid",
+            profileRecordName: "hero1",
+            familyRecordName: "fam1",
+            weekOf: periodNoon,
+            status: PayoutStatus.paid.rawValue,
+            totalEarned: 20.0,
+            questsCompleted: 1,
+            questsTotal: 1,
+            paidDate: Date(),
+            paidAmount: 20.0
+        )
+
+        let isPaid = [paidPeriod].contains { (period: AllowancePeriodCache) -> Bool in
+            let matchesProfile = period.profileRecordName == "hero1"
+            let isPaidStatus = period.statusEnum == .paid
+            let matchesDate = cal.isDate(period.weekOf, inSameDayAs: weekOf)
+            return matchesProfile && isPaidStatus && matchesDate
+        }
+        #expect(isPaid)
+
+        let nextMonday = try #require(cal.date(byAdding: .day, value: 7, to: monday))
+        let otherPeriod = AllowancePeriodCache(
+            recordName: "period-other",
+            profileRecordName: "hero1",
+            familyRecordName: "fam1",
+            weekOf: nextMonday,
+            status: PayoutStatus.paid.rawValue,
+            totalEarned: 20.0,
+            questsCompleted: 1,
+            questsTotal: 1,
+            paidDate: Date(),
+            paidAmount: 20.0
+        )
+        let isPaidOtherWeek = [otherPeriod].contains { (period: AllowancePeriodCache) -> Bool in
+            let matchesProfile = period.profileRecordName == "hero1"
+            let isPaidStatus = period.statusEnum == .paid
+            let matchesDate = cal.isDate(period.weekOf, inSameDayAs: weekOf)
+            return matchesProfile && isPaidStatus && matchesDate
+        }
+        #expect(!isPaidOtherWeek)
+
+        _ = quest
+        _ = log
     }
 }

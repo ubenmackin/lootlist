@@ -122,7 +122,8 @@ final class TreasuryViewModel {
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let currentAllowance = allowancePeriods.first {
-            $0.profileRecordName == profileName && $0.weekOf == weekOf
+            $0.profileRecordName == profileName &&
+                WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
         }
         let payoutStatus = currentAllowance?.statusEnum
         let paidAmount = currentAllowance?.paidAmount

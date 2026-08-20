@@ -36,12 +36,8 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let questName = quest.id.recordName
-        let alreadyInFlight = inFlightCompletions.withLock {
-            if $0.contains(questName) {
-                return true
-            }; $0.insert(questName); return false
-        }
-        if alreadyInFlight {
+        let inserted = inFlightCompletions.withLock { $0.insert(questName).inserted }
+        guard inserted else {
             toastManager?.show(message: "This quest is already being completed.", type: .info)
             throw QuestServiceError.alreadyInFlight
         }
@@ -96,12 +92,8 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let logName = questLog.id.recordName
-        let alreadyInFlight = inFlightWithdrawals.withLock {
-            if $0.contains(logName) {
-                return true
-            }; $0.insert(logName); return false
-        }
-        if alreadyInFlight {
+        let insertedWithdrawal = inFlightWithdrawals.withLock { $0.insert(logName).inserted }
+        guard insertedWithdrawal else {
             throw QuestServiceError.alreadyInFlight
         }
         defer { inFlightWithdrawals.withLock { _ = $0.remove(logName) } }
@@ -134,12 +126,8 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let logName = questLog.id.recordName
-        let alreadyInFlight = inFlightVerifications.withLock {
-            if $0.contains(logName) {
-                return true
-            }; $0.insert(logName); return false
-        }
-        if alreadyInFlight {
+        let insertedVerify = inFlightVerifications.withLock { $0.insert(logName).inserted }
+        guard insertedVerify else {
             throw QuestServiceError.alreadyInFlight
         }
         defer { inFlightVerifications.withLock { _ = $0.remove(logName) } }
@@ -182,12 +170,8 @@ extension QuestService {
             cloudKit: cloudKit
         )
         let logName = questLog.id.recordName
-        let alreadyInFlight = inFlightVerifications.withLock {
-            if $0.contains(logName) {
-                return true
-            }; $0.insert(logName); return false
-        }
-        if alreadyInFlight {
+        let insertedReject = inFlightVerifications.withLock { $0.insert(logName).inserted }
+        guard insertedReject else {
             throw QuestServiceError.alreadyInFlight
         }
         defer { inFlightVerifications.withLock { _ = $0.remove(logName) } }
@@ -203,7 +187,6 @@ extension QuestService {
         updated.verifiedDate = Date()
 
         cacheService?.upsertQuestCompletion(updated)
-        // Route the enqueued save to the shared engine unless the acting user owns the family zone.
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
@@ -257,7 +240,8 @@ extension QuestService {
     // MARK: - Post-Transition Notification & Settlement Helpers
 
     private func dispatchParentReviewNotification(for log: QuestCompletion, quest: Quest) {
-        if let parent = resolveParent(recordID: quest.createdBy.recordID, familyRecordName: quest.family.recordID.recordName) {
+        let familyName = quest.family.recordID.recordName
+        if let parent = resolveParent(recordID: quest.createdBy.recordID, familyRecordName: familyName) {
             if let notificationService {
                 Task { @Sendable [logger] in
                     do {
@@ -267,22 +251,21 @@ extension QuestService {
                     }
                 }
             }
-        } else {
-            logger.info("Parent profile not cached; dispatching async review notification")
-            if let notificationService {
-                let parentID = quest.createdBy.recordID
-                Task { [weak self, logger] in
-                    guard let self else { return }
-                    do {
-                        let parent = try await self.cloudKit.fetch(Profile.self, id: parentID)
-                        await MainActor.run { self.cacheService?.upsertProfile(parent) }
-                        try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
-                    } catch {
-                        logger.error("Failed to send async quest review notification: \(error, privacy: .private)")
-                    }
+            return
+        }
+        if let parent = resolveParentViaCacheScan(familyRecordName: familyName),
+           let notificationService
+        {
+            Task { @Sendable [logger] in
+                do {
+                    try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
+                } catch {
+                    logger.error("Failed to send quest review notification via scan: \(error, privacy: .private)")
                 }
             }
+            return
         }
+        logger.info("Parent profile not cached; skipping review notification — cache will sync via CKSyncEngine")
     }
 
     private func dispatchRejectionNotification(for updated: QuestCompletion) {
@@ -296,22 +279,21 @@ extension QuestService {
                     }
                 }
             }
-        } else {
-            logger.info("Hero profile not cached during reject; dispatching async rejection notification")
-            if let notificationService {
-                let heroID = updated.completedBy.recordID
-                Task { [weak self, logger] in
-                    guard let self else { return }
-                    do {
-                        let hero = try await self.cloudKit.fetch(Profile.self, id: heroID)
-                        await MainActor.run { self.cacheService?.upsertProfile(hero) }
-                        try await notificationService.sendQuestRejected(questLog: updated, to: hero)
-                    } catch {
-                        logger.error("Failed to send async quest rejection notification: \(error, privacy: .private)")
-                    }
+            return
+        }
+        if let hero = resolveHeroViaCacheScan(for: updated),
+           let notificationService
+        {
+            Task { @Sendable [logger] in
+                do {
+                    try await notificationService.sendQuestRejected(questLog: updated, to: hero)
+                } catch {
+                    logger.error("Failed to send quest rejection notification via scan: \(error, privacy: .private)")
                 }
             }
+            return
         }
+        logger.info("Hero profile not cached during reject; skipping rejection notification — cache will sync via CKSyncEngine")
     }
 
     private func handlePostVerifySettlement(questLog: QuestCompletion, updated: QuestCompletion) async throws {
@@ -323,14 +305,24 @@ extension QuestService {
         {
             quest = cachedQuest
             hero = cachedHero
+        } else if let cachedQuest = resolveQuest(for: questLog),
+                  let scannedHero = resolveHeroViaCacheScan(for: questLog)
+        {
+            quest = cachedQuest
+            hero = scannedHero
+        } else if let scannedQuest = resolveQuestViaCacheScan(for: questLog),
+                  let cachedHero = resolveHero(for: questLog)
+        {
+            quest = scannedQuest
+            hero = cachedHero
+        } else if let scannedQuest = resolveQuestViaCacheScan(for: questLog),
+                  let scannedHero = resolveHeroViaCacheScan(for: questLog)
+        {
+            quest = scannedQuest
+            hero = scannedHero
         } else {
-            logger.info("Cache miss during verify for quest/hero; resolving synchronously from CloudKit")
-            let questID = questLog.quest.recordID
-            let heroID = questLog.completedBy.recordID
-            quest = try await cloudKit.fetch(Quest.self, id: questID)
-            hero = try await cloudKit.fetch(Profile.self, id: heroID)
-            cacheService?.upsertQuest(quest)
-            cacheService?.upsertProfile(hero)
+            logger.warning("Cache miss during verify for quest/hero; skipping reward settlement — cache will sync via CKSyncEngine")
+            throw QuestServiceError.missingRecord(questLog.quest.recordID.recordName)
         }
 
         let creditedGold = try await applyReward(for: quest, to: hero, completion: updated)
@@ -388,6 +380,44 @@ extension QuestService {
             return cached.toProfile(zoneID: heroID.zoneID)
         }
         return nil
+    }
+
+    private func resolveParentViaCacheScan(familyRecordName: String) -> Profile? {
+        guard let cache = cacheService else { return nil }
+        let candidates = cache.fetchProfiles(family: familyRecordName)
+            .filter { $0.roleEnum?.isParent == true }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        guard let match = candidates.first else { return nil }
+        let zoneID = CKRecordZone.ID(
+            zoneName: match.sourceZoneName ?? familyRecordName,
+            ownerName: match.sourceZoneOwnerName ?? CKCurrentUserDefaultName
+        )
+        return match.toProfile(zoneID: zoneID)
+    }
+
+    private func resolveHeroViaCacheScan(for questLog: QuestCompletion) -> Profile? {
+        guard let cache = cacheService else { return nil }
+        let familyName = questLog.family.recordID.recordName
+        let heroID = questLog.completedBy.recordID
+        if let exact = cache.fetchProfiles(family: familyName).first(where: { $0.recordName == heroID.recordName }) {
+            return exact.toProfile(zoneID: heroID.zoneID)
+        }
+        guard let match = cache.fetchProfiles(family: familyName).first(where: { $0.roleEnum == .hero }) else { return nil }
+        let zoneID = CKRecordZone.ID(
+            zoneName: match.sourceZoneName ?? familyName,
+            ownerName: match.sourceZoneOwnerName ?? CKCurrentUserDefaultName
+        )
+        return match.toProfile(zoneID: zoneID)
+    }
+
+    private func resolveQuestViaCacheScan(for questLog: QuestCompletion) -> Quest? {
+        guard let cache = cacheService else { return nil }
+        let questID = questLog.quest.recordID
+        let familyName = questLog.family.recordID.recordName
+        if let exact = cache.fetchQuest(recordName: questID.recordName, family: familyName) {
+            return exact.toQuest(zoneID: questID.zoneID)
+        }
+        return cache.fetchQuests(family: familyName).first?.toQuest(zoneID: questID.zoneID)
     }
 
     /// Strictly-local cached logs for a quest, sorted newest-first.

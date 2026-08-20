@@ -248,27 +248,27 @@ class MockCloudKitService: CloudKitServiceProtocol {
         }
         let decoded = try T(record: record)
         // Apply creator-stamp to match production CloudKit behavior.
-        if let creator = recordCreators[record.recordID],
-           let stamped = stampCreatorRecord(decoded, creator: creator) as? T
-        {
-            return stamped
+        if let creator = recordCreators[record.recordID] {
+            return stampCreatorRecord(decoded, creator: creator)
         }
         return decoded
     }
 
     /// Applies the server-stamped creator to concrete record types that carry a
-    /// `creatorUserRecordName`. Returns `nil` when the record type does not
-    /// support creator stamps, allowing the caller to fall through to the
-    /// unstamped original without a force cast.
-    private func stampCreatorRecord(_ record: any CloudKitRecord, creator: String) -> (any CloudKitRecord)? {
+    /// `creatorUserRecordName`.
+    private func stampCreatorRecord<T: CloudKitRecord>(_ record: T, creator: String) -> T {
         if var family = record as? Family {
             family.creatorUserRecordName = creator
-            return family
+            if let stamped = family as? T {
+                return stamped
+            }
         }
         if let profile = record as? Profile {
-            return profile.applyingServerCreator(creator)
+            if let stamped = profile.applyingServerCreator(creator) as? T {
+                return stamped
+            }
         }
-        return nil
+        return record
     }
 
     func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?,
@@ -279,25 +279,16 @@ class MockCloudKitService: CloudKitServiceProtocol {
         let records = try mockStore.query(T.self, predicate: predicate, in: targetZone, sortDescriptors: sortDescriptors, databaseScope: scope)
 
         // Apply creator-stamps to match production CloudKit behavior.
-        // Use `toRecord().recordID` to get a concrete CKRecord.ID, sidestepping
-        // the generic T.ID issue that confuses the type checker with dict keys.
-        var results: [any CloudKitRecord] = []
+        var results: [T] = []
         for record in records {
             let rid = record.toRecord().recordID
-            guard let creator = recordCreators[rid] else {
-                results.append(record)
-                continue
-            }
-            if var family = record as? Family {
-                family.creatorUserRecordName = creator
-                results.append(family)
-            } else if let profile = record as? Profile {
-                results.append(profile.applyingServerCreator(creator))
+            if let creator = recordCreators[rid] {
+                results.append(stampCreatorRecord(record, creator: creator))
             } else {
                 results.append(record)
             }
         }
-        return results as? [T] ?? []
+        return results
     }
 
     func delete(_ recordID: CKRecord.ID, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws {

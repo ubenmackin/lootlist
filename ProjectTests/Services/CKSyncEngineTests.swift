@@ -644,4 +644,333 @@ struct CKSyncEngineTests {
 
         defaults.removePersistentDomain(forName: suite)
     }
+
+    // MARK: - StateKey Migration & Freshness Watermark Suite
+
+    @Test
+    func `stable stateKey uses familyRecordName not profile`() throws {
+        let suite = "CKSyncEngineTests_StableKey_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let zoneID = CKRecordZone.ID(zoneName: "family-stable", ownerName: CKCurrentUserDefaultName)
+        let appState = AppState(defaults: defaults)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+        appState.family = Family(name: "Stable", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-stable", zoneID: zoneID))
+        appState.currentProfile = try Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user"),
+            family: CKRecord.Reference(recordID: #require(appState.family?.id), action: .none),
+            id: CKRecord.ID(recordName: "profile-orphan", zoneID: zoneID)
+        )
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+
+        let orphanPrivate = "ck_sync_engine_state.profile-orphan.private"
+        defaults.set(Data([0xAA]), forKey: orphanPrivate)
+        #expect(coordinator.loadState(for: .private) == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-stable.private") == nil)
+        #expect(defaults.data(forKey: orphanPrivate) == Data([0xAA]))
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `saveState scopes to stable family key`() async throws {
+        let suite = "CKSyncEngineTests_SaveScope_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let zoneID = CKRecordZone.ID(zoneName: "family-save", ownerName: CKCurrentUserDefaultName)
+        let appState = AppState(defaults: defaults)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+        appState.family = Family(name: "Save", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-save", zoneID: zoneID))
+        appState.currentProfile = try Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user"),
+            family: CKRecord.Reference(recordID: #require(appState.family?.id), action: .none),
+            id: CKRecord.ID(recordName: "profile-save", zoneID: zoneID)
+        )
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+
+        let validData = try await makeValidDataForTesting(pendingName: "save-pending", zoneID: zoneID)
+        let serialization = try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: validData)
+        coordinator.saveState(serialization, for: .private)
+        coordinator.saveState(serialization, for: .shared)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-save.private") != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-save.shared") != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.profile-save.private") == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.profile-save.shared") == nil)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `loadState migrates legacy profile payload to family key with priority`() async throws {
+        let suite = "CKSyncEngineTests_Migrate_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let zoneID = CKRecordZone.ID(zoneName: "family-migrate", ownerName: CKCurrentUserDefaultName)
+        let appState = AppState(defaults: defaults)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+        appState.family = Family(name: "Migrate", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-migrate", zoneID: zoneID))
+        let profile = try Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user"),
+            family: CKRecord.Reference(recordID: #require(appState.family?.id), action: .none),
+            id: CKRecord.ID(recordName: "profile-legacy", zoneID: zoneID)
+        )
+        appState.currentProfile = profile
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+
+        let validData = try await makeValidDataForTesting(pendingName: "migrate-pending", zoneID: zoneID)
+        defaults.set(validData, forKey: "ck_sync_engine_state.profile-legacy.private")
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-migrate.private") == nil)
+        let loaded = coordinator.loadState(for: .private)
+        #expect(loaded != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-migrate.private") == validData)
+
+        let stableData = try await makeValidDataForTesting(pendingName: "stable-pending", zoneID: zoneID)
+        defaults.set(stableData, forKey: "ck_sync_engine_state.family-migrate.private")
+        defaults.set(validData, forKey: "ck_sync_engine_state.profile-legacy.private")
+        defaults.set(validData, forKey: "ck_sync_engine_state_private")
+        let priorityLoaded = coordinator.loadState(for: .private)
+        #expect(priorityLoaded != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-migrate.private") == stableData)
+
+        defaults.removeObject(forKey: "ck_sync_engine_state.family-migrate.private")
+        let profileLoaded = coordinator.loadState(for: .private)
+        #expect(profileLoaded != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-migrate.private") == validData)
+
+        defaults.removeObject(forKey: "ck_sync_engine_state.profile-legacy.private")
+        defaults.removeObject(forKey: "ck_sync_engine_state.family-migrate.private")
+        let unscopedLoaded = coordinator.loadState(for: .private)
+        #expect(unscopedLoaded != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-migrate.private") == validData)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `resetState clears stable family plus orphaned profile keys`() async throws {
+        let suite = "CKSyncEngineTests_Reset_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let zoneID = CKRecordZone.ID(zoneName: "family-reset", ownerName: CKCurrentUserDefaultName)
+        let appState = AppState(defaults: defaults)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+        appState.family = Family(name: "Reset", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-reset", zoneID: zoneID))
+        appState.currentProfile = try Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user"),
+            family: CKRecord.Reference(recordID: #require(appState.family?.id), action: .none),
+            id: CKRecord.ID(recordName: "profile-reset", zoneID: zoneID)
+        )
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+
+        let validData = try await makeValidDataForTesting(pendingName: "reset-pending", zoneID: zoneID)
+        for key in [
+            "ck_sync_engine_state.family-reset.private",
+            "ck_sync_engine_state.family-reset.shared",
+            "ck_sync_engine_state.profile-reset.private",
+            "ck_sync_engine_state.profile-reset.shared",
+            "ck_sync_engine_state_private",
+            "ck_sync_engine_state_shared",
+            "ck_sync_engine_state.orphan-family.private"
+        ] {
+            defaults.set(validData, forKey: key)
+        }
+        coordinator.resetState()
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-reset.private") == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-reset.shared") == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.profile-reset.private") == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.profile-reset.shared") == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state_private") == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state_shared") == nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.orphan-family.private") == nil)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `stampCacheFreshness requires familyRecordName no zoneName fallback`() throws {
+        let suite = "CKSyncEngineTests_Freshness_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let zoneID = CKRecordZone.ID(zoneName: "fallback-zone", ownerName: CKCurrentUserDefaultName)
+        let appState = AppState(defaults: defaults)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        cache.invalidateAllFreshness()
+        appState.cacheService = cache
+        appState.family = nil
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+
+        coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
+        for type in CachedRecordType.allCases {
+            #expect(cache.isCacheFresh(familyRecordName: "fallback-zone", type: type) == false)
+        }
+
+        appState.family = Family(name: "Real", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-real", zoneID: zoneID))
+        coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
+        for type in CachedRecordType.allCases {
+            #expect(cache.isCacheFresh(familyRecordName: "family-real", type: type) == true)
+        }
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `reOnboarding from nil profile does not orphan pending changes`() throws {
+        let suite = "CKSyncEngineTests_Reonboard_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let zoneID = CKRecordZone.ID(zoneName: "family-reonboard", ownerName: CKCurrentUserDefaultName)
+        let appState = AppState(defaults: defaults)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+        appState.family = Family(name: "Reonboard", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-reonboard", zoneID: zoneID))
+        appState.currentProfile = nil
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+        let container = MockCloudKitService.defaultContainer
+        coordinator.privateSyncEngine = CKSyncEngine(CKSyncEngine.Configuration(
+            database: container.privateCloudDatabase,
+            stateSerialization: coordinator.loadState(for: .private),
+            delegate: delegate
+        ))
+        coordinator.sharedSyncEngine = CKSyncEngine(CKSyncEngine.Configuration(
+            database: container.sharedCloudDatabase,
+            stateSerialization: coordinator.loadState(for: .shared),
+            delegate: delegate
+        ))
+
+        let pendingID = CKRecord.ID(recordName: "pending-reonboard", zoneID: zoneID)
+        coordinator.enqueueSave(recordID: pendingID, isOwner: true)
+        #expect(coordinator.pendingUploadCount == 1)
+        #expect(coordinator.privateSyncEngine?.state.pendingRecordZoneChanges.contains(.saveRecord(pendingID)) == true)
+
+        let profile = try Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user"),
+            family: CKRecord.Reference(recordID: #require(appState.family?.id), action: .none),
+            id: CKRecord.ID(recordName: "profile-reonboard", zoneID: zoneID)
+        )
+        appState.currentProfile = profile
+        #expect(coordinator.pendingUploadCount == 1)
+        #expect(coordinator.privateSyncEngine?.state.pendingRecordZoneChanges.contains(.saveRecord(pendingID)) == true)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.profile-reonboard.private") == nil)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `loadState checks both family and legacy keys`() async throws {
+        let suite = "CKSyncEngineTests_BothKeys_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let zoneID = CKRecordZone.ID(zoneName: "family-both", ownerName: CKCurrentUserDefaultName)
+        let appState = AppState(defaults: defaults)
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        appState.cacheService = cache
+        appState.family = Family(name: "Both", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-both", zoneID: zoneID))
+        appState.currentProfile = try Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user"),
+            family: CKRecord.Reference(recordID: #require(appState.family?.id), action: .none),
+            id: CKRecord.ID(recordName: "profile-both", zoneID: zoneID)
+        )
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: appState)
+        let coordinator = CKSyncEngineCoordinator(cloudKitService: cloudKit, delegateHandler: delegate, appState: appState, defaults: defaults)
+
+        let validData = try await makeValidDataForTesting(pendingName: "both-pending", zoneID: zoneID)
+        defaults.set(validData, forKey: "ck_sync_engine_state.profile-both.private")
+        #expect(coordinator.loadState(for: .private) != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-both.private") == validData)
+
+        defaults.removeObject(forKey: "ck_sync_engine_state.profile-both.private")
+        defaults.removeObject(forKey: "ck_sync_engine_state.family-both.private")
+        defaults.set(validData, forKey: "ck_sync_engine_state_private")
+        #expect(coordinator.loadState(for: .private) != nil)
+        #expect(defaults.data(forKey: "ck_sync_engine_state.family-both.private") == validData)
+        defaults.removePersistentDomain(forName: suite)
+    }
+}
+
+@MainActor
+private func makeValidDataForTesting(pendingName: String, zoneID: CKRecordZone.ID) async throws -> Data {
+    let delegate = TestingCaptureDelegate()
+    let container = MockCloudKitService.defaultContainer
+    let config = CKSyncEngine.Configuration(database: container.privateCloudDatabase, stateSerialization: nil, delegate: delegate)
+    let engine = CKSyncEngine(config)
+    let recordID = CKRecord.ID(recordName: pendingName, zoneID: zoneID)
+    engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+    let serialization = await delegate.waitForSerialization(timeout: 1.0)
+    if let serialization {
+        return try PropertyListEncoder().encode(serialization)
+    }
+    if let captured = delegate.capturedSerialization {
+        return try PropertyListEncoder().encode(captured)
+    }
+    throw NSError(domain: "TestHelper", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to capture serialization"])
+}
+
+@MainActor
+private final class TestingCaptureDelegate: NSObject, CKSyncEngineDelegate {
+    var capturedSerialization: CKSyncEngine.State.Serialization?
+    private var continuation: CheckedContinuation<CKSyncEngine.State.Serialization?, Never>?
+
+    func handleEvent(_ event: CKSyncEngine.Event, syncEngine _: CKSyncEngine) async {
+        if case let .stateUpdate(stateEvent) = event {
+            capturedSerialization = stateEvent.stateSerialization
+            continuation?.resume(returning: stateEvent.stateSerialization)
+            continuation = nil
+        }
+    }
+
+    func nextRecordZoneChangeBatch(_: CKSyncEngine.SendChangesContext, syncEngine _: CKSyncEngine) async -> CKSyncEngine.RecordZoneChangeBatch? {
+        nil
+    }
+
+    func waitForSerialization(timeout: TimeInterval) async -> CKSyncEngine.State.Serialization? {
+        if let capturedSerialization {
+            return capturedSerialization
+        }
+        return await withCheckedContinuation { cont in
+            continuation = cont
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard let pending = self.continuation else { return }
+                self.continuation = nil
+                pending.resume(returning: nil)
+            }
+        }
+    }
 }

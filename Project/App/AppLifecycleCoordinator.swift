@@ -1,6 +1,7 @@
 //
 //  AppLifecycleCoordinator.swift
 //  LootList
+//
 //  Created by Ben Mackin on 8/17/26.
 //
 
@@ -8,6 +9,29 @@ import CloudKit
 import Foundation
 import os
 import Synchronization
+
+// MARK: - CoordinatorState
+
+/// Single-flight state machine for lifecycle coordination.
+enum CoordinatorState: Equatable, Sendable {
+    case idle
+    case bootstrapping
+    case syncing
+    case zoneChanging
+}
+
+// MARK: - SyncCoordinating
+
+/// Minimal surface `AppLifecycleCoordinator` needs from the sync engine.
+@MainActor
+protocol SyncCoordinating: AnyObject {
+    func fetchChanges() async
+    func sendPendingChanges() async
+}
+
+extension CKSyncEngineCoordinator: SyncCoordinating {}
+
+// MARK: - AppLifecycleCoordinator
 
 @MainActor
 @Observable
@@ -39,7 +63,7 @@ final class AppLifecycleCoordinator {
     /// `isManualSyncing` is tracked separately from `phase == .syncing` so a
     /// user-initiated manual sync is not starved while a foreground sync holds
     /// the syncing phase — the two sync paths use independent flags.
-    private struct CoordinatorState: Sendable {
+    private struct LifecycleFlags: Sendable {
         var phase: Phase = .idle
         var isManualSyncing = false
         var hasCompletedInitialBootstrap = false
@@ -47,16 +71,52 @@ final class AppLifecycleCoordinator {
         var lastObservedZoneID: CKRecordZone.ID?
     }
 
-    private let state = Mutex<CoordinatorState>(CoordinatorState())
+    private let state = Mutex<LifecycleFlags>(LifecycleFlags())
 
-    // MARK: - Dependencies
+    // MARK: - Test Accessors
+
+    /// Exposed for tests to assert the coordinator's current phase via the public enum.
+    var coordinatorStateForTests: CoordinatorState {
+        state.withLock { flags in
+            switch flags.phase {
+            case .idle: .idle
+            case .bootstrapping: .bootstrapping
+            case .syncing: .syncing
+            case .zoneChanging: .zoneChanging
+            }
+        }
+    }
+
+    /// Test-only helper for atomic phase transitions.
+    @discardableResult
+    func transitionPhaseForTests(to newPhase: CoordinatorState) -> Bool {
+        let target: Phase = switch newPhase {
+        case .idle: .idle
+        case .bootstrapping: .bootstrapping
+        case .syncing: .syncing
+        case .zoneChanging: .zoneChanging
+        }
+        return state.withLock { flags -> Bool in
+            guard flags.phase == .idle else { return false }
+            flags.phase = target
+            return true
+        }
+    }
+
+    /// Reset phase to idle for tests.
+    func resetPhaseForTests() {
+        state.withLock { $0.phase = .idle }
+    }
 
     private weak var appState: AppState?
-    private weak var syncCoordinator: CKSyncEngineCoordinator?
+    private weak var syncCoordinator: (any SyncCoordinating)?
     private weak var appSyncCoordinator: AppSyncCoordinator?
     private weak var dataMigrationsCoordinator: DataMigrationsCoordinator?
     private weak var autoPayoutCoordinator: AutoPayoutCoordinator?
     private let cloudKitService: any CloudKitServiceProtocol
+
+    /// Injected scheduler so tests can simulate a failing `scheduleWeeklyPayoutRefresh`.
+    private let payoutScheduler: (PayoutDay) -> Bool
 
     // Observer handles must be accessible from nonisolated deinit; MainActor-isolated
     // storage would be unreachable during deallocation on Swift 6's strict isolation.
@@ -68,10 +128,11 @@ final class AppLifecycleCoordinator {
     init(
         appState: AppState,
         cloudKitService: any CloudKitServiceProtocol,
-        syncCoordinator: CKSyncEngineCoordinator,
+        syncCoordinator: any SyncCoordinating,
         appSyncCoordinator: AppSyncCoordinator,
         dataMigrationsCoordinator: DataMigrationsCoordinator,
-        autoPayoutCoordinator: AutoPayoutCoordinator
+        autoPayoutCoordinator: AutoPayoutCoordinator,
+        payoutScheduler: ((PayoutDay) -> Bool)? = nil
     ) {
         self.appState = appState
         self.cloudKitService = cloudKitService
@@ -79,6 +140,10 @@ final class AppLifecycleCoordinator {
         self.appSyncCoordinator = appSyncCoordinator
         self.dataMigrationsCoordinator = dataMigrationsCoordinator
         self.autoPayoutCoordinator = autoPayoutCoordinator
+        self.payoutScheduler = payoutScheduler ?? { day in
+            AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: day)
+            return true
+        }
 
         // Observe session clear so the cached scope key does not survive a sign-out.
         // `resetState` on the sync coordinator clears engines, but without clearing
@@ -106,6 +171,26 @@ final class AppLifecycleCoordinator {
                 self?.invalidateScopeForZoneChange()
             }
         }
+    }
+
+    /// Convenience initializer preserving the existing `CKSyncEngineCoordinator` call site.
+    convenience init(
+        appState: AppState,
+        cloudKitService: any CloudKitServiceProtocol,
+        syncCoordinator: CKSyncEngineCoordinator,
+        appSyncCoordinator: AppSyncCoordinator,
+        dataMigrationsCoordinator: DataMigrationsCoordinator,
+        autoPayoutCoordinator: AutoPayoutCoordinator
+    ) {
+        self.init(
+            appState: appState,
+            cloudKitService: cloudKitService,
+            syncCoordinator: syncCoordinator as any SyncCoordinating,
+            appSyncCoordinator: appSyncCoordinator,
+            dataMigrationsCoordinator: dataMigrationsCoordinator,
+            autoPayoutCoordinator: autoPayoutCoordinator,
+            payoutScheduler: nil
+        )
     }
 
     deinit {
@@ -257,36 +342,31 @@ final class AppLifecycleCoordinator {
 
         logger.info("Starting initial bootstrap sequence")
 
-        // 1. CloudKit availability check
         await checkCloudKitAccountStatus()
 
-        // 2. Process abandoned zones queue
         if let appState {
             await cloudKitService.processAbandonedZonesQueue(appState: appState)
         }
 
-        // 3. Session restoration
         await appState?.restoreSession(cloudKit: cloudKitService)
 
-        // Discovery deliberately ends before engine construction. A detected
-        // family remains on the reconnect screen until the user accepts it.
         guard await initializeAndSyncActiveScope() else {
             // Even when no authenticated scope is available the weekly payout
             // schedule must be attempted before marking bootstrap complete, so
             // hasCompletedInitialBootstrap never flips before the schedule call.
-            AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState?.family?.payoutDay ?? .sunday)
-            state.withLock { $0.hasCompletedInitialBootstrap = true }
+            let didSchedule = payoutScheduler(appState?.family?.payoutDay ?? .sunday)
+            if didSchedule {
+                state.withLock { $0.hasCompletedInitialBootstrap = true }
+            }
             logger.info("Initial bootstrap paused without an authenticated family scope")
             return
         }
 
-        // 5. Subscription registration
         if let zoneID = appState?.familyZoneID {
             let db = cloudKitService.database(isOwner: appState?.isZoneOwner ?? false)
             await appSyncCoordinator?.registerSubscriptions(for: zoneID, in: db)
         }
 
-        // 6. Data migrations (only when account and family are authenticated)
         if let accountID = appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName,
            let familyRecordName = appState?.family?.id.recordName
         {
@@ -298,7 +378,12 @@ final class AppLifecycleCoordinator {
 
         // 7. Payout processing — schedule must succeed before marking bootstrap complete.
         await autoPayoutCoordinator?.processPendingPayoutsIfDue()
-        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState?.family?.payoutDay ?? .sunday)
+        let didSchedule = payoutScheduler(appState?.family?.payoutDay ?? .sunday)
+        guard didSchedule else {
+            logger.warning("Bootstrap not marked completed: payout scheduler failed")
+            return
+        }
+
         state.withLock { $0.hasCompletedInitialBootstrap = true }
         logger.info("Initial bootstrap sequence completed successfully")
     }
@@ -320,8 +405,12 @@ final class AppLifecycleCoordinator {
         handleZoneChangeIfNeeded(currentZoneID: zoneID)
 
         let scopeKey = "\(profile.id.recordName)|\(family.id.recordName)|\(zoneID.zoneName)|\(zoneID.ownerName)|\(appState.isZoneOwner)"
-        let enginesNeedInitialization = syncCoordinator.privateSyncEngine == nil
-            || syncCoordinator.sharedSyncEngine == nil
+        let enginesNeedInitialization: Bool = {
+            if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
+                return concrete.privateSyncEngine == nil || concrete.sharedSyncEngine == nil
+            }
+            return false
+        }()
 
         let shouldInitialize: Bool = state.withLock { flags in
             guard flags.lastSynchronizedScopeKey != scopeKey || enginesNeedInitialization else {
@@ -333,11 +422,16 @@ final class AppLifecycleCoordinator {
             return true
         }
 
-        syncCoordinator.initializeEngines()
         await syncCoordinator.fetchChanges()
         await syncCoordinator.sendPendingChanges()
 
-        if syncCoordinator.syncError == nil {
+        if let concrete = syncCoordinator as? CKSyncEngineCoordinator, concrete.syncError == nil {
+            state.withLock { flags in
+                flags.lastSynchronizedScopeKey = scopeKey
+                flags.lastObservedZoneID = zoneID
+            }
+        } else if syncCoordinator is CKSyncEngineCoordinator == false {
+            // Test doubles have no syncError — stamp on success.
             state.withLock { flags in
                 flags.lastSynchronizedScopeKey = scopeKey
                 flags.lastObservedZoneID = zoneID
@@ -367,7 +461,6 @@ final class AppLifecycleCoordinator {
     // MARK: - Foreground and Manual Sync
 
     /// Lightweight re-sync for scene activation.
-    /// Does NOT re-run migrations, bootstrap, or payouts. Guarded against in-flight and requires completed bootstrap.
     func performForegroundSync() async {
         guard tryEnterSync() else {
             let completed = state.withLock { $0.hasCompletedInitialBootstrap }
@@ -383,7 +476,9 @@ final class AppLifecycleCoordinator {
         logger.info("Foreground sync completed")
     }
 
-    /// User-initiated manual sync (e.g. "Sync Now" in settings or pull-to-refresh).
+    // MARK: - Manual Sync
+
+    /// User-initiated manual sync.
     func performManualSync() async {
         guard tryEnterManualSync() else {
             let phase = state.withLock { $0.phase }
@@ -435,7 +530,7 @@ final class AppLifecycleCoordinator {
         }
 
         await autoPayoutCoordinator?.processPendingPayoutsIfDue()
-        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: appState.family?.payoutDay ?? .sunday)
+        _ = payoutScheduler(appState.family?.payoutDay ?? .sunday)
     }
 
     // MARK: - Remote Notification
@@ -460,7 +555,30 @@ final class AppLifecycleCoordinator {
     func handleWeeklyPayoutBackgroundRefresh() async -> Bool {
         await autoPayoutCoordinator?.processPendingPayoutsIfDue()
         let payoutDay = appState?.family?.payoutDay ?? .sunday
-        AppDelegate.scheduleWeeklyPayoutRefresh(payoutDay: payoutDay)
+        _ = payoutScheduler(payoutDay)
         return true
+    }
+
+    // MARK: - Test Helpers
+
+    /// Test-only helper to set scope key directly.
+    func setLastSynchronizedScopeKeyForTests(_ key: String?) {
+        state.withLock { $0.lastSynchronizedScopeKey = key }
+    }
+
+    func setHasCompletedInitialBootstrapForTests(_ value: Bool) {
+        state.withLock { $0.hasCompletedInitialBootstrap = value }
+    }
+
+    var isManualSyncingForTests: Bool {
+        state.withLock { $0.isManualSyncing }
+    }
+
+    var lastSynchronizedScopeKey: String? {
+        state.withLock { $0.lastSynchronizedScopeKey }
+    }
+
+    var hasCompletedInitialBootstrap: Bool {
+        state.withLock { $0.hasCompletedInitialBootstrap }
     }
 }

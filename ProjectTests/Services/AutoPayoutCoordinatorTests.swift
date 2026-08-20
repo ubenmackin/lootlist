@@ -77,9 +77,6 @@ struct AutoPayoutCoordinatorTests {
         cache.upsertProfile(parentProfile)
         cache.upsertProfile(heroProfile)
 
-        // Cache-first reads (e.g. FamilyService.fetchHeroes) only serve rows
-        // whose cache domain is fresh; without this the hero roster resolves
-        // to an empty CloudKit query and parent-only flows no-op.
         cache.markCacheFresh(familyRecordName: familyObj.id.recordName, type: .profile)
 
         let coordinator = AutoPayoutCoordinator(
@@ -113,10 +110,6 @@ struct AutoPayoutCoordinatorTests {
         let weekStart = WeekMath.startOfWeek(for: now, payoutDay: .sunday)
         let pastWeek = try #require(Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: weekStart))
 
-        // Seed paid periods for both candidate payout weeks. The hero is now
-        // resolvable by fetchHeroes, so an unseeded previous week would be paid
-        // on its due date; seeding both makes the double-run lock the only
-        // reason nothing is processed below.
         for (index, weekOf) in [weekStart, pastWeek].enumerated() {
             var paidPeriod = AllowancePeriod(
                 weekOf: weekOf,
@@ -131,37 +124,26 @@ struct AutoPayoutCoordinatorTests {
             paidPeriod.paidDate = now
             ctx.cache.upsertAllowancePeriod(paidPeriod)
         }
-        // getOrCreateAllowancePeriod's lookup is cache-first but freshness
-        // gated, so stamp the domain for the seeded periods to be honored.
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
 
-        // Process auto-payout
         let count = await ctx.coordinator.processPendingPayoutsIfDue(now: now)
 
-        // Should skip processing because period status is .paid (0 processed)
         #expect(count == 0)
     }
 
     @Test
     func `realTime heroes are skipped in weekly payout evaluation`() async throws {
-        // Seed the hero with a real-time payout policy so the coordinator's
-        // weekly payout evaluation skips them entirely.
         let ctx = try setupServices(heroPayoutPolicy: .realTime)
 
         let now = Date()
         let weekStart = WeekMath.startOfWeek(for: now, payoutDay: .sunday)
         let payoutDate = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
-        // Set time to payout day so the guard passes
         let payoutDayDate = Calendar.iso8601UTC.startOfDay(for: payoutDate)
 
-        // No allowance period exists yet; processPendingPayoutsIfDue would normally
-        // call getOrCreateAllowancePeriod. A real-time hero should be skipped entirely
-        // so no period is created and the count stays 0.
         let count = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutDayDate)
 
         #expect(count == 0)
 
-        // Verify no allowance period was created for the real-time hero
         let periods = ctx.cache.fetchAllowancePeriods(family: ctx.family.id.recordName)
         #expect(periods.filter { $0.profileRecordName == "hero-1" }.isEmpty)
     }
@@ -174,7 +156,6 @@ struct AutoPayoutCoordinatorTests {
         let currentWeek = WeekMath.startOfWeek(for: now, payoutDay: .sunday)
         let pastWeek = try #require(Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeek))
 
-        // Finalize the past week's payout so its quests are legitimately expired.
         var paidPeriod = AllowancePeriod(
             weekOf: pastWeek,
             profile: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
@@ -200,7 +181,6 @@ struct AutoPayoutCoordinatorTests {
         )
         ctx.cache.upsertQuestTemplate(template)
 
-        // Assign a quest for the past week
         let pastQuest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
@@ -225,7 +205,6 @@ struct AutoPayoutCoordinatorTests {
         #expect(swept.count == 1)
         #expect(swept.first?.active == false)
 
-        // Ensure active quest query excludes the swept quest
         let active = try await ctx.questService.fetchActiveQuests(profile: ctx.heroProfile, weekOf: currentWeek)
         #expect(active.isEmpty)
     }
@@ -237,8 +216,6 @@ struct AutoPayoutCoordinatorTests {
         let now = Date()
         let currentWeek = WeekMath.startOfWeek(for: now, payoutDay: .sunday)
 
-        // Simulate a mid-week early payout: the current week's period is .paid
-        // even though the week is still in progress.
         var earlyPaidPeriod = AllowancePeriod(
             weekOf: currentWeek,
             profile: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
@@ -264,7 +241,6 @@ struct AutoPayoutCoordinatorTests {
         )
         ctx.cache.upsertQuestTemplate(template)
 
-        // Assign a quest for the current week (still active mid-week)
         let currentQuest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
@@ -286,18 +262,12 @@ struct AutoPayoutCoordinatorTests {
 
         let swept = try await ctx.questService.sweepExpiredQuests(family: ctx.family, currentWeekOf: currentWeek)
 
-        // The current week's quests survive even though the week was paid early
         #expect(swept.isEmpty)
 
         let active = try await ctx.questService.fetchActiveQuests(profile: ctx.heroProfile, weekOf: currentWeek)
         #expect(active.count == 1)
     }
 
-    // MARK: - Weekly Quest Carry-Forward
-
-    /// Seeds a finalized (`.paid`) allowance period for `weekOf` so the expired
-    /// quest sweep deactivates that week's quests — the realistic rollover path
-    /// the carry-forward engine runs behind.
     private func seedPaidPeriod(ctx: TestContext, weekOf: Date, recordName: String = "period-paid-cf") {
         var period = AllowancePeriod(
             weekOf: weekOf,
@@ -313,9 +283,6 @@ struct AutoPayoutCoordinatorTests {
         ctx.cache.upsertAllowancePeriod(period)
     }
 
-    /// Builds an active quest template + previous-week quest backed by it, then
-    /// marks the quest cache fresh so the sweep reads from the cache. Returns the
-    /// seeded template for assertions.
     @discardableResult
     private func seedActiveTemplateAndPastQuest(
         ctx: TestContext,
@@ -367,8 +334,6 @@ struct AutoPayoutCoordinatorTests {
 
     @Test
     func `carry-forward creates new quests for active templates with valid assignees from previous week`() async throws {
-        // Real-time hero skips the weekly payout loop entirely, isolating the
-        // carry-forward path under test.
         let ctx = try setupServices(heroPayoutPolicy: .realTime)
 
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
@@ -381,8 +346,6 @@ struct AutoPayoutCoordinatorTests {
             weekOf: pastWeek
         )
 
-        // `now` is the start of the current week, so the current week's payout
-        // day is not yet reached and the carry-forward is the only write.
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
         let currentWeekQuests = ctx.cache.fetchQuests(
@@ -394,7 +357,6 @@ struct AutoPayoutCoordinatorTests {
         #expect(currentWeekQuests.first?.templateRecordName == template.id.recordName)
         #expect(currentWeekQuests.first?.assigneeRecordName == ctx.heroProfile.id.recordName)
 
-        // A summary toast should be emitted to the parent.
         #expect(ctx.toastManager.toasts.contains { $0.message == "Carried forward 1 quest(s) for the new week." })
     }
 
@@ -406,8 +368,6 @@ struct AutoPayoutCoordinatorTests {
         let pastWeek = try #require(Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeek))
 
         seedPaidPeriod(ctx: ctx, weekOf: pastWeek)
-        // Ad-hoc Quick Create quests carry an inactive backing template and must
-        // not recur into the new week.
         _ = try await seedActiveTemplateAndPastQuest(
             ctx: ctx,
             templateIsActive: false,
@@ -423,7 +383,6 @@ struct AutoPayoutCoordinatorTests {
         )
         #expect(currentWeekQuests.isEmpty)
 
-        // No carry occurred, so no summary toast.
         #expect(!ctx.toastManager.toasts.contains { $0.message.contains("Carried forward") })
     }
 
@@ -436,8 +395,6 @@ struct AutoPayoutCoordinatorTests {
 
         seedPaidPeriod(ctx: ctx, weekOf: pastWeek)
 
-        // Seed a previous-week quest whose backing template has since been
-        // deleted (never upserted into the active template cache).
         let deletedTemplateID = CKRecord.ID(recordName: "template-deleted", zoneID: ctx.family.id.zoneID)
         let quest = Quest(
             template: CKRecord.Reference(recordID: deletedTemplateID, action: .none),
@@ -477,9 +434,6 @@ struct AutoPayoutCoordinatorTests {
 
         seedPaidPeriod(ctx: ctx, weekOf: pastWeek)
 
-        // Previous-week quest assigned to a profile that is no longer on the
-        // family roster (never upserted as a hero). fetchHeroes returns only the
-        // seeded hero, so this assignee should be skipped.
         let removedAssignee = CKRecord.ID(recordName: "removed-hero-1", zoneID: ctx.family.id.zoneID)
         _ = try await seedActiveTemplateAndPastQuest(
             ctx: ctx,
@@ -511,10 +465,8 @@ struct AutoPayoutCoordinatorTests {
             weekOf: pastWeek
         )
 
-        // First run carries the quest forward.
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
-        // Second run in the same week must not duplicate the assignment.
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
         let currentWeekQuests = ctx.cache.fetchQuests(
@@ -541,7 +493,6 @@ struct AutoPayoutCoordinatorTests {
             weekOf: pastWeek
         )
 
-        // First run carries the recurring quest into the current week.
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
         let carriedQuests = ctx.cache.fetchQuests(
@@ -553,20 +504,11 @@ struct AutoPayoutCoordinatorTests {
         #expect(carried.assigneeRecordName == ctx.heroProfile.id.recordName)
         #expect(carried.isActive)
 
-        // The parent unassigns the carried-forward quest mid-week. This leaves a
-        // suppression tombstone — the row retained with `active == false` —
-        // instead of deleting the pair from the current week.
         try await ctx.questService.unassignQuest(carried.toQuest(zoneID: ctx.family.id.zoneID))
 
-        // The quest is gone from the hero's active list immediately.
         let activeAfterUnassign = try await ctx.questService.fetchActiveQuests(profile: ctx.heroProfile, weekOf: currentWeek)
         #expect(activeAfterUnassign.isEmpty)
 
-        // A second run in the same week must NOT re-create the unassigned pair:
-        // the previous-week row is still present, but the tombstone occupies the
-        // pair in the idempotency gate.
-        // The first run already emitted a "Carried forward" toast, so the gate
-        // is measured by toast-count growth rather than the message's presence.
         let toastsBeforeReRun = ctx.toastManager.toasts.count
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
@@ -579,8 +521,6 @@ struct AutoPayoutCoordinatorTests {
         }
         #expect(resurrected.isEmpty)
 
-        // The tombstone itself is retained (inactive) and the second run emits
-        // no new carry-forward toast for the suppressed pair.
         #expect(afterReRun.count == 1)
         #expect(afterReRun.first?.isActive == false)
         #expect(ctx.toastManager.toasts.count == toastsBeforeReRun)
@@ -594,10 +534,6 @@ struct AutoPayoutCoordinatorTests {
         let pastWeek = try #require(Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeek))
 
         seedPaidPeriod(ctx: ctx, weekOf: pastWeek)
-        // A multi-day template (`.specificDays` with `targetCount > 1`) must
-        // carry over as a single Quest row that preserves the template's
-        // scheduleType + targetCount, since carry-forward passes `nil` overrides
-        // to assignQuest so template defaults are used.
         let template = try await seedActiveTemplateAndPastQuest(
             ctx: ctx,
             templateRecordName: "template-multiday",
@@ -625,23 +561,10 @@ struct AutoPayoutCoordinatorTests {
         #expect(carried.targetCount == 3)
     }
 
-    // MARK: - Per-Profile Payout-Day Override
-
-    /// Asserts that a hero whose effective payout day differs from the family's
-    /// (`.friday` override in a `.sunday` family) gets exactly one current-week
-    /// quest carried forward — no duplicates across repeated runs. This is the
-    /// regression for the payout-day mismatch: `assignQuest` stores `weekOf`
-    /// normalized to the assignee's effective payout day (Saturday for a
-    /// `.friday` hero), and the engine must anchor its source window, its
-    /// idempotency gate, AND the `weekOf` it writes on that same per-assignee
-    /// anchor — otherwise the stored row falls outside the family-anchored gate
-    /// and the pair is duplicated on every pass.
     @Test
     func `carry-forward is idempotent for a per-profile payout-day override hero`() async throws {
         let ctx = try setupServices(heroPayoutPolicy: .realTime, heroPayoutDay: .friday)
 
-        // The hero's week is anchored on `.friday` (cycle start = Saturday),
-        // which differs from the `.sunday` family cycle (cycle start = Monday).
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .friday)
         let pastWeek = try #require(Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeek))
 
@@ -652,12 +575,8 @@ struct AutoPayoutCoordinatorTests {
             weekOf: pastWeek
         )
 
-        // First run carries the quest forward into the override hero's week.
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
-        // Second run in the same week must not duplicate the assignment — the
-        // stored current-week row's `weekOf` (assignee-anchored) must fall
-        // inside the engine's (now per-assignee-anchored) gate.
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
         let currentWeekQuests = ctx.cache.fetchQuests(
@@ -669,18 +588,9 @@ struct AutoPayoutCoordinatorTests {
         }
         #expect(matchingQuests.count == 1)
 
-        // The stored row is binned to the override hero's week (Saturday), which
-        // for a `.friday` override sits inside the per-assignee-gated window but
-        // outside the family (.sunday) window — the crux of the regression.
         #expect(Calendar.iso8601UTC.startOfDay(for: matchingQuests.first?.weekOf ?? Date()) == Calendar.iso8601UTC.startOfDay(for: currentWeek))
     }
 
-    /// Asserts that a parent's mid-week unassign of a carried-forward quest for
-    /// a per-profile payout-day override hero is NOT resurrected on the next
-    /// run. This is the regression for the tombstone-visibility gap: the unassign
-    /// suppression tombstone is keyed on the assignee-anchored `weekOf`, so the
-    /// engine's gate must be anchored on the same per-assignee payout day for the
-    /// tombstone to be visible to it.
     @Test
     func `carry-forward does not resurrect an unassigned quest for a per-profile payout-day override hero`() async throws {
         let ctx = try setupServices(heroPayoutPolicy: .realTime, heroPayoutDay: .friday)
@@ -695,7 +605,6 @@ struct AutoPayoutCoordinatorTests {
             weekOf: pastWeek
         )
 
-        // First run carries the recurring quest into the override hero's week.
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
         let carriedQuests = ctx.cache.fetchQuests(
@@ -707,19 +616,11 @@ struct AutoPayoutCoordinatorTests {
         #expect(carried.assigneeRecordName == ctx.heroProfile.id.recordName)
         #expect(carried.isActive)
 
-        // The parent unassigns the carried-forward quest mid-week. Because the
-        // hero's week is anchored on `.friday`, `isCarryForwardSuppressible`
-        // (which day-normalizes against the assignee's effective payout day)
-        // still recognizes this as a suppressible carry-window quest and leaves
-        // a tombstone rather than hard-deleting the pair.
         try await ctx.questService.unassignQuest(carried.toQuest(zoneID: ctx.family.id.zoneID))
 
         let activeAfterUnassign = try await ctx.questService.fetchActiveQuests(profile: ctx.heroProfile, weekOf: currentWeek)
         #expect(activeAfterUnassign.isEmpty)
 
-        // A second run in the same week must NOT re-create the unassigned pair:
-        // the tombstone occupies the pair in the per-assignee-anchored
-        // idempotency gate, same as the default-configuration case.
         let toastsBeforeReRun = ctx.toastManager.toasts.count
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
@@ -732,10 +633,145 @@ struct AutoPayoutCoordinatorTests {
         }
         #expect(resurrected.isEmpty)
 
-        // The tombstone itself is retained (inactive) and the second run emits
-        // no new carry-forward toast for the suppressed pair.
         #expect(afterReRun.count == 1)
         #expect(afterReRun.first?.isActive == false)
         #expect(ctx.toastManager.toasts.count == toastsBeforeReRun)
+    }
+
+    // MARK: - Half-open week cutoff: payoutDate = weekOf + 6 days
+
+    @Test
+    func `weekRange half-open cutoff includes Sunday 23-59 and excludes Monday 00-00`() throws {
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
+        #expect(weekStart == cal.startOfDay(for: monday))
+        let range = WeekMath.weekRange(starting: weekStart)
+        let payoutDate = try #require(cal.date(byAdding: .day, value: AppConstants.Economy.payoutCutoffDayOffset, to: weekStart))
+        #expect(payoutDate == cal.date(from: DateComponents(year: 2026, month: 8, day: 9))!)
+        #expect(try cal.isDate(payoutDate, inSameDayAs: #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9)))))
+
+        let sundayNight = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9, hour: 23, minute: 59, second: 59)))
+        let nextMonday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 0, minute: 0, second: 0)))
+
+        #expect(range.contains(sundayNight))
+        #expect(!range.contains(nextMonday))
+        #expect(WeekMath.weekRange(starting: nextMonday).contains(nextMonday))
+        #expect(!range.contains(range.upperBound))
+        #expect(range.upperBound == nextMonday)
+    }
+
+    @Test
+    func `payoutDate is weekOf plus 6 days and guard fires at startOfDay`() throws {
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
+        let payoutDate = try #require(cal.date(byAdding: .day, value: AppConstants.Economy.payoutCutoffDayOffset, to: weekStart))
+        let payoutStart = cal.startOfDay(for: payoutDate)
+
+        let beforePayout = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9, hour: 0, minute: 0, second: 0)))
+        let afterMidnight = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9, hour: 12, minute: 0)))
+        let justBefore = try #require(cal.date(byAdding: .second, value: -1, to: payoutStart))
+
+        #expect(beforePayout >= payoutStart)
+        #expect(afterMidnight >= payoutStart)
+        #expect(!(justBefore >= payoutStart))
+    }
+
+    @Test
+    func `payout cutoff respects payoutDay override with half-open semantics`() throws {
+        let cal = Calendar.iso8601UTC
+        let fridayWeek = try WeekMath.startOfWeek(for: #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 5))), payoutDay: .friday)
+        let range = WeekMath.weekRange(starting: fridayWeek)
+        #expect(cal.component(.weekday, from: fridayWeek) == PayoutDay.friday.nextDay.calendarWeekday)
+        let lastSecond = fridayWeek.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek - 1))
+        let nextStart = fridayWeek.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek))
+        #expect(range.contains(lastSecond))
+        #expect(!range.contains(nextStart))
+        let payoutDate = try #require(cal.date(byAdding: .day, value: AppConstants.Economy.payoutCutoffDayOffset, to: fridayWeek))
+        #expect(cal.startOfDay(for: payoutDate) == fridayWeek.addingTimeInterval(TimeInterval(6 * 24 * 3600)))
+    }
+
+    @Test
+    func `autoPayout coordinator payout window processes due week and skips premature week`() async throws {
+        let ctx = try setupServices()
+
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
+        let sundayNoon = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 9, hour: 12, minute: 0)))
+        let saturdayNoon = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 8, hour: 12, minute: 0)))
+
+        let template = QuestTemplate(
+            name: "Guild Quest",
+            description: "Earn",
+            defaultGold: 10.0,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            createdBy: CKRecord.Reference(recordID: ctx.parentProfile.id, action: .none),
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+            id: CKRecord.ID(recordName: "tmpl-payout-cutoff", zoneID: ctx.family.id.zoneID)
+        )
+        ctx.cache.upsertQuestTemplate(template)
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: template.id, action: .none),
+            assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+            goldReward: 10.0,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekStart,
+            createdBy: CKRecord.Reference(recordID: ctx.parentProfile.id, action: .none),
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+            name: "Guild Quest",
+            id: CKRecord.ID(recordName: "quest-payout-cutoff", zoneID: ctx.family.id.zoneID)
+        )
+        ctx.cache.upsertQuest(quest)
+        let completion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: weekStart,
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none)
+        )
+        ctx.cache.upsertQuestCompletion(completion)
+        let period = AllowancePeriod(
+            weekOf: weekStart,
+            profile: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+            questsTotal: 1,
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+            id: CKRecord.ID(recordName: "period-payout-cutoff", zoneID: ctx.family.id.zoneID)
+        )
+        ctx.cache.upsertAllowancePeriod(period)
+        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
+        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .questCompletion)
+        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
+
+        let nextMondayNoon = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
+
+        let saturdayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: saturdayNoon)
+        #expect(saturdayCount == 0)
+
+        let sundayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: sundayNoon)
+        #expect(sundayCount == 0)
+
+        let mondayCount = await ctx.coordinator.processPendingPayoutsIfDue(now: nextMondayNoon)
+        #expect(mondayCount >= 1)
+    }
+
+    @Test
+    func `weekRange DST spring-forward still normalizes to midnight UTC`() throws {
+        let cal = Calendar.iso8601UTC
+        let dstDay = try #require(cal.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 9, minute: 30)))
+        let weekStart = WeekMath.startOfWeek(for: dstDay, payoutDay: .sunday)
+        let range = WeekMath.weekRange(starting: weekStart)
+        let comps = cal.dateComponents([.hour, .minute, .second], from: range.lowerBound)
+        #expect(comps.hour == 0)
+        #expect(comps.minute == 0)
+        #expect(comps.second == 0)
+        #expect(range.upperBound == range.lowerBound.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek)))
+        #expect(range.contains(dstDay))
     }
 }

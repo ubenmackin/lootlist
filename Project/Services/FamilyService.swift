@@ -85,7 +85,7 @@ final class FamilyService: FamilyProfileFetching {
 
     let cloudKit: any CloudKitServiceProtocol
     let appState: AppState
-    private let questService: QuestService
+    let questService: QuestService
 
     var cacheService: CacheService? {
         didSet {
@@ -100,6 +100,23 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     let toastManager: ToastManager?
+
+    /// Bootstrap seeder for default achievements. Injected when available;
+    /// when nil an ephemeral `AchievementService` is built from the current
+    /// `cacheService`/`syncCoordinator`/`appState` at seeding time so tests
+    /// using the legacy initializer still seed idempotently.
+    var achievementService: AchievementService?
+
+    /// Optional collaborators for hero bootstrap seeding. When not injected the
+    /// join path falls back to direct cache + sync coordination so legacy
+    /// initializers continue to seed without additional wiring.
+    var notificationService: NotificationService?
+    var treasuryService: TreasuryService?
+
+    /// Guards allowance period seeding against concurrent duplicate minting for
+    /// the same hero week, mirroring the settlement mutex used in
+    /// TreasuryService to avoid duplicate period races.
+    private let allowancePeriodSeedMutex = Mutex<Set<String>>([])
 
     /// Keys of immediate profile refreshes currently in flight, formatted as
     /// `"<operation>|<familyRecordName>"`. Actor-isolated dedupe guard: when a
@@ -144,7 +161,10 @@ final class FamilyService: FamilyProfileFetching {
         questService: QuestService,
         cacheService: CacheService? = nil,
         toastManager: ToastManager? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: CKSyncEngineCoordinator? = nil,
+        achievementService: AchievementService? = nil,
+        notificationService: NotificationService? = nil,
+        treasuryService: TreasuryService? = nil
     ) {
         self.cloudKit = cloudKit
         self.appState = appState
@@ -155,6 +175,9 @@ final class FamilyService: FamilyProfileFetching {
         }
         self.toastManager = toastManager
         self.syncCoordinator = syncCoordinator
+        self.achievementService = achievementService
+        self.notificationService = notificationService
+        self.treasuryService = treasuryService
     }
 
     // MARK: - Family Creation (Guild Master Flow)
@@ -206,6 +229,7 @@ final class FamilyService: FamilyProfileFetching {
             let session = finalizeOwnerSession(family: existingFamily,
                                                profile: resolvedOwner,
                                                zoneID: existingZoneID)
+            await seedDefaultAchievements(for: session.family)
             return (family: session.family, profile: session.profile)
         }
 
@@ -246,7 +270,29 @@ final class FamilyService: FamilyProfileFetching {
         let session = finalizeOwnerSession(family: family,
                                            profile: savedOwner,
                                            zoneID: zoneID)
+        await seedDefaultAchievements(for: session.family)
         return (family: session.family, profile: session.profile)
+    }
+
+    // MARK: - Achievement Seeding
+
+    /// Best-effort bootstrap of default achievements after family creation.
+    /// Idempotent: `AchievementService` checks `cache.isCacheFresh` and
+    /// CloudKit for existing definitions before enqueuing saves, using the
+    /// deterministic recordName `<familyRecordName>-<requirementRawValue>`.
+    private func seedDefaultAchievements(for family: Family) async {
+        if let achievementService {
+            try? await achievementService.seedDefaultAchievements(family: family)
+            return
+        }
+        // Ephemeral seeder when not injected (tests / legacy init).
+        let seeder = AchievementService(
+            cloudKit: cloudKit,
+            cacheService: cacheService,
+            appState: appState,
+            syncCoordinator: syncCoordinator
+        )
+        try? await seeder.seedDefaultAchievements(family: family)
     }
 
     // MARK: - Join Family (Joiner Flow via CKShare Link)
@@ -417,6 +463,11 @@ final class FamilyService: FamilyProfileFetching {
         // from merging an empty displayName into `appState.currentProfile`.
         cacheService?.upsertProfile(savedProfile)
 
+        // Hero bootstrap: seed per-hero defaults so the new member has a
+        // complete local state before the first sync round trips.
+        await seedNotificationPreferences(for: savedProfile, family: family)
+        await seedAllowancePeriod(for: savedProfile, family: family)
+
         progressHandler?("Joined Guild!", 1.0)
         return JoinedFamilyResult(
             family: family,
@@ -492,11 +543,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    func updateMemberRole(profile: Profile, newRole: UserRole) async throws {
-        // Privileged mutation: only the owner anchor (server-authenticated
-        // family owner) may promote, demote, or reassign a member's role.
-        // Legacy families without an owner anchor fall back to the parent-role
-        // check (Guild Master / Ranger).
+    func requireParentOrOwner(for profile: Profile) async throws -> Family {
         let family = await family(for: profile)
         guard let family else {
             throw FamilyServiceError.unauthorized
@@ -510,6 +557,15 @@ final class FamilyService: FamilyProfileFetching {
                 throw FamilyServiceError.unauthorized
             }
         }
+        return family
+    }
+
+    func updateMemberRole(profile: Profile, newRole: UserRole) async throws {
+        // Privileged mutation: only the owner anchor (server-authenticated
+        // family owner) may promote, demote, or reassign a member's role.
+        // Legacy families without an owner anchor fall back to the parent-role
+        // check (Guild Master / Ranger).
+        _ = try await requireParentOrOwner(for: profile)
 
         var updated = profile
         updated.role = newRole
@@ -520,80 +576,6 @@ final class FamilyService: FamilyProfileFetching {
         }
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
-    }
-
-    func leaveFamily(profile: Profile) async throws {
-        try await unassignActiveQuests(for: profile)
-        try await deactivateProfile(profile)
-
-        // Best-effort removal of the leaver's own share participant entry. Only
-        // the zone owner can mutate a `CKShare` participant list. For non-owner
-        // members (Rangers/Heroes), the profile deactivation above is the authoritative
-        // leave; the owner-side share reconciler and Invitations panel observe the
-        // departed identity and surface it for owner-side revocation.
-        if appState.isZoneOwner {
-            let family = await family(for: profile)
-            let rootRecordID = family?.id ?? profile.family.recordID
-            do {
-                try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
-            } catch {
-                logger.error("Failed to remove leaving member's share participant: \(error, privacy: .private)")
-            }
-        }
-
-        appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
-    }
-
-    @discardableResult
-    func kickMember(profile: Profile) async throws -> FamilyKickResult {
-        // Privileged mutation: removing a member from the guild is reserved for
-        // the owner anchor (server-authenticated family owner). Legacy families
-        // without an owner anchor fall back to the parent-role check.
-        let family = await family(for: profile)
-        guard let family else {
-            throw FamilyServiceError.unauthorized
-        }
-        if family.creatorUserRecordName != nil {
-            guard await isFamilyOwner(family) else {
-                throw FamilyServiceError.unauthorized
-            }
-        } else {
-            guard let acting = appState.currentProfile, acting.role.isParent else {
-                throw FamilyServiceError.unauthorized
-            }
-        }
-        try await unassignActiveQuests(for: profile)
-        try await deactivateProfile(profile)
-
-        // Revoke the kicked member's share access so a deactivated profile
-        // cannot keep reading the shared zone. Best-effort: the deactivation
-        // above is the authoritative kick and already succeeded, so a failed
-        // revocation here must NOT throw (that would imply the kick itself
-        // rolled back). Surface the partial outcome to the caller via
-        // `FamilyKickResult.partialRevocationFailed` so the Guild Master is
-        // told their share access persists and can revoke it from the
-        // Invitations panel.
-        let rootRecordID = family.id
-        do {
-            try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)
-            return .fully
-        } catch {
-            logger.error("Failed to remove kicked member's share participant: \(error, privacy: .private)")
-            return .partialRevocationFailed(
-                error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-            )
-        }
-    }
-
-    /// Deactivates a member profile whose CloudKit share access was revoked at
-    /// the access layer — used by the share-reconciliation observer when a
-    /// participant is removed out-of-band (e.g. through the system share
-    /// sheet), which the app's `Profile` records do not observe directly.
-    /// Best-effort: a failure leaves the profile active and is logged
-    /// privately; the in-app membership list stays as-is until a later
-    /// reconciliation pass reconciles it.
-    func deactivateMemberAfterShareRevocation(_ profile: Profile) async throws {
-        try await deactivateProfile(profile)
     }
 
     // MARK: - Private Helpers
@@ -698,7 +680,7 @@ final class FamilyService: FamilyProfileFetching {
     /// owner-anchor authorization can be evaluated without threading a `family`
     /// parameter through `updateMemberRole` / `kickMember`. Returns nil when the
     /// family cannot be resolved — callers treat that as unauthorized.
-    private func family(for profile: Profile) async -> Family? {
+    func family(for profile: Profile) async -> Family? {
         let familyID = profile.family.recordID
         if let cached = cacheService?.fetchFamily(recordName: familyID.recordName) {
             return cached.toFamily(zoneID: familyID.zoneID)
@@ -747,6 +729,96 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
+    // MARK: - Hero Bootstrap Seeding
+
+    /// Seeds per-hero notification preferences for the newly joined profile.
+    /// Each `NotificationEventType` receives a deterministic record so the
+    /// seed is idempotent across retries and devices; existing rows are left
+    /// untouched so a user's prior opt-out is never clobbered.
+    private func seedNotificationPreferences(for profile: Profile, family: Family) async {
+        guard let cacheService else { return }
+        let familyRecordName = family.id.recordName
+        let profileRecordName = profile.id.recordName
+        let zoneID = family.id.zoneID
+        var missing: [NotificationPreference] = []
+        missing.reserveCapacity(NotificationEventType.allCases.count)
+        for event in NotificationEventType.allCases {
+            let deterministicName = "\(familyRecordName)-\(profileRecordName)-\(event.rawValue)"
+            // Idempotent gate: skip when a row already exists in the local cache.
+            if cacheService.fetchNotificationPreference(
+                profileRecordName: profileRecordName,
+                familyRecordName: familyRecordName,
+                eventType: event.rawValue
+            ) != nil {
+                continue
+            }
+            // Also avoid duplicating a cached row under the alternative pref- prefix
+            // that older seeds may have written for the same event.
+            let altName = "pref-\(profileRecordName)-\(familyRecordName)-\(event.rawValue)"
+            if cacheService.fetchNotificationPreference(recordName: altName, family: familyRecordName) != nil
+                || cacheService.fetchNotificationPreference(recordName: deterministicName, family: familyRecordName) != nil
+            {
+                continue
+            }
+            let recordID = CKRecord.ID(recordName: deterministicName, zoneID: zoneID)
+            let pref = NotificationPreference(
+                profile: CKRecord.Reference(recordID: profile.id, action: .none),
+                eventType: event,
+                enabled: true,
+                family: CKRecord.Reference(recordID: family.id, action: .none),
+                id: recordID
+            )
+            missing.append(pref)
+        }
+        guard !missing.isEmpty else { return }
+        // Batch upsert mirrors BackgroundCacheActor.batchUpsertNotificationPreferences
+        // to keep the write off the per-row save path.
+        cacheService.upsertNotificationPreferences(missing, family: familyRecordName)
+        let isOwner = appState.isZoneOwner
+        for pref in missing {
+            syncCoordinator?.enqueueSave(recordID: pref.id, isOwner: isOwner)
+        }
+    }
+
+    /// Seeds the active allowance period for the current week for the new hero.
+    /// Uses the payout-day-aware week anchor so the period matches the week
+    /// bucket treasury reads use. The deterministic period name makes the
+    /// write idempotent, and a lightweight in-flight mutex prevents concurrent
+    /// join retries from racing to create the same period.
+    private func seedAllowancePeriod(for profile: Profile, family: Family) async {
+        // Prefer the injected treasury when available so the period creation
+        // shares its single-flight and authorization checks.
+        let payoutDay = profile.payoutDay ?? family.payoutDay
+        let startOfWeek = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+        let weekInt = Int(startOfWeek.timeIntervalSince1970)
+        let recordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(weekInt)"
+        let alreadyInFlight = allowancePeriodSeedMutex.withLock { $0.contains(recordName) }
+        guard !alreadyInFlight else { return }
+        allowancePeriodSeedMutex.withLock { _ = $0.insert(recordName) }
+        defer { allowancePeriodSeedMutex.withLock { _ = $0.remove(recordName) } }
+
+        if let treasuryService {
+            // Treasury path already handles cache and enqueue with its own mutex.
+            _ = try? await treasuryService.getOrCreateAllowancePeriod(profile: profile, weekOf: startOfWeek, family: family)
+            return
+        }
+
+        guard let cacheService else { return }
+        if cacheService.fetchAllowancePeriod(recordName: recordName, family: family.id.recordName) != nil {
+            return
+        }
+        let period = AllowancePeriod(
+            weekOf: startOfWeek,
+            profile: CKRecord.Reference(recordID: profile.id, action: .none),
+            questsTotal: 0,
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
+        )
+        cacheService.upsertAllowancePeriod(period)
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
+    }
+
     /// Looks up the joining user's existing `Profile` (any role) within the
     /// joined shared zone so a re-join can reactivate rather than duplicate.
     /// The predicate keys on `iCloudUserID + family` — never `displayName`, which is
@@ -770,122 +842,10 @@ final class FamilyService: FamilyProfileFetching {
         return matches.first(where: { $0.isActive }) ?? matches.first
     }
 
-    private func unassignActiveQuests(for profile: Profile) async throws {
-        guard let family = appState.family else { return }
-        let payoutDay = profile.payoutDay ?? family.payoutDay
-        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
-
-        #if DEBUG
-            let questStart = QuestService.startOfWeek(for: Date(), payoutDay: payoutDay)
-            assert(
-                currentWeek == questStart,
-                "QuestService.startOfWeek and WeekMath.startOfWeek diverged: \(currentWeek) vs \(questStart)"
-            )
-        #endif
-
-        let currentQuests: [Quest]
-        do {
-            currentQuests = try await questService.fetchActiveQuests(profile: profile, weekOf: currentWeek)
-        } catch {
-            logger.warning("Failed to fetch current-week quests for share revocation cleanup: \(error, privacy: .private)")
-            toastManager?.show(
-                message: "Couldn't verify the member's quests before removal. Please try again.",
-                type: .error
-            )
-            throw FamilyServiceError.persistenceFailed
-        }
-        let nextWeek = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: 1, to: currentWeek) ?? currentWeek
-        let nextQuests: [Quest]
-        do {
-            nextQuests = try await questService.fetchActiveQuests(profile: profile, weekOf: nextWeek)
-        } catch {
-            logger.warning("Failed to fetch next-week quests for share revocation cleanup: \(error, privacy: .private)")
-            toastManager?.show(
-                message: "Couldn't verify the member's quests before removal. Please try again.",
-                type: .error
-            )
-            throw FamilyServiceError.persistenceFailed
-        }
-
-        var unassignErrors: [Error] = []
-        for quest in currentQuests + nextQuests {
-            do {
-                try await questService.unassignQuest(quest)
-            } catch {
-                logger
-                    .error(
-                        "Failed to unassign quest '\(quest.id.recordName, privacy: .private)' for profile '\(profile.id.recordName, privacy: .private)': \(error, privacy: .private)"
-                    )
-                unassignErrors.append(error)
-            }
-        }
-
-        if !unassignErrors.isEmpty {
-            let message = "Couldn't remove \(unassignErrors.count) quest(s) from the member. Please try again."
-            toastManager?.show(message: message, type: .error)
-            throw FamilyServiceError.persistenceFailed
-        }
-    }
-
     func familyContext(for recordID: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase?) {
         let zoneID = recordID.zoneID
         let isOwner = (recordID.zoneID.ownerName == CKCurrentUserDefaultName) || (appState.family?.id.recordName == recordID.recordName && appState.isZoneOwner)
         let db = cloudKit.database(isOwner: isOwner)
         return (zoneID, db)
-    }
-
-    private func deactivateProfile(_ profile: Profile) async throws {
-        // Privileged mutation: a parent may deactivate any member. A member may
-        // only deactivate their own profile (self-service leave); deactivating
-        // another member's profile is parent-only.
-        let actingProfile = appState.currentProfile
-        let isSelfDeactivation = actingProfile?.id == profile.id
-        guard isSelfDeactivation || actingProfile?.role.isParent == true else {
-            throw FamilyServiceError.unauthorized
-        }
-
-        var updated = profile
-        updated.isActive = false
-
-        cacheService?.upsertProfile(updated)
-        if appState.currentProfile?.id == updated.id {
-            appState.currentProfile = updated
-        }
-        let isOwner = appState.isZoneOwner
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
-    }
-
-    func deleteFamilyAndReset(family: Family) async throws {
-        // Privileged mutation: irreversible — deleting the family is reserved
-        // for the owner anchor (server-authenticated family owner). Legacy
-        // families without an owner anchor fall back to the zone-owner +
-        // parent-role check.
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
-            family: family,
-            cloudKit: cloudKit,
-            appState: appState
-        )
-
-        let isOwner = await isFamilyOwner(family)
-        let actingRoleIsParent = appState.currentProfile?.role.isParent ?? false
-        let isAuthorized: Bool = if let anchor = family.creatorUserRecordName, anchor != "__defaultOwner__", anchor != "_defaultOwner_" {
-            isOwner
-        } else {
-            appState.isZoneOwner && actingRoleIsParent
-        }
-        guard isAuthorized else {
-            throw FamilyServiceError.unauthorized
-        }
-        // 1. Delete the CloudKit zone if this user owns it, or add to abandoned queue if offline.
-        let targetZoneID = family.id.zoneID
-        do {
-            try await cloudKit.deleteZone(targetZoneID)
-        } catch {
-            logger.error("Could not delete zone immediately; queueing abandoned zone: \(error, privacy: .private)")
-            appState.addAbandonedZoneID(targetZoneID.zoneName)
-        }
-
-        // 2. Clear CloudKit active state, purge family cache, reset sync coordinator, and clear session.
-        appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
 }

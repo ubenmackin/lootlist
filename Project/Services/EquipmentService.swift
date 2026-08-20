@@ -133,25 +133,23 @@ final class EquipmentService {
         gemService: GemService,
         soundManager: SoundManager
     ) async throws {
-        guard !isOwned(item: item, profile: profile) else {
+        // Re-resolve the authoritative profile BEFORE the level and gem spend checks so the
+        // upsert inside `GemService.spendGems` carries the real owned-equipment and level
+        // list forward — the passed `profile` copy may carry a stale snapshot.
+        var current = resolvedProfile(profile) ?? profile
+
+        guard !isOwned(item: item, profile: current) else {
             throw EquipmentError.alreadyOwned
         }
 
-        guard profile.level >= item.requiredLevel else {
+        guard current.level >= item.requiredLevel else {
             throw EquipmentError.levelTooLow(required: item.requiredLevel)
         }
 
-        let currentBalance = try gemService.balance(for: profile.id.recordName, familyRecordName: profile.family.recordID.recordName)
+        let currentBalance = try gemService.balance(for: current.id.recordName, familyRecordName: current.family.recordID.recordName)
         guard currentBalance >= item.gemPrice else {
             throw EquipmentError.insufficientGems(required: item.gemPrice, current: currentBalance)
         }
-
-        // Re-resolve the authoritative profile BEFORE the gem spend so the
-        // upsert inside `GemService.spendGems` carries the real owned-equipment
-        // list forward — the passed `profile` copy may carry a stale empty
-        // list that would otherwise wipe previously-owned items when spendGems
-        // upserts its debited copy.
-        var current = resolvedProfile(profile) ?? profile
 
         let success = try await gemService.spendGems(
             amount: item.gemPrice,

@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
     case unsupported
@@ -107,6 +108,8 @@ final class ManualSpendingService: SpendingService {
 
     var appState: AppState?
 
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ManualSpending")
+
     init(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService? = nil,
@@ -122,6 +125,8 @@ final class ManualSpendingService: SpendingService {
     func isAvailable() -> Bool {
         true
     }
+
+    // MARK: - Fetch
 
     func fetchTransactions(for profile: Profile,
                            in dateRange: DateInterval) async throws -> [LedgerEntry]
@@ -146,22 +151,89 @@ final class ManualSpendingService: SpendingService {
                     )
                 }
             }
+            // Cache-first fallback for new hero without freshness stamp.
+            if !filtered.isEmpty || !cached.isEmpty {
+                if !filtered.isEmpty {
+                    logger.debug("fetchTransactions: returning cached \(filtered.count) rows without freshness stamp for new hero")
+                }
+            }
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
         let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (appState?.isZoneOwner == true && appState?.familyZoneID == targetZoneID)
         let db = cloudKit.database(isOwner: isOwner)
-        let all = try await cloudKit.query(
-            LedgerEntry.self,
-            predicate: predicate,
-            in: targetZoneID,
-            sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
-            using: db
-        )
-        cacheService?.upsertLedgerEntries(all)
-        return all.filter { dateRange.contains($0.date) }
+        do {
+            let all = try await cloudKit.query(
+                LedgerEntry.self,
+                predicate: predicate,
+                in: targetZoneID,
+                sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
+                using: db
+            )
+            cacheService?.upsertLedgerEntries(all)
+            return all.filter { dateRange.contains($0.date) }
+        } catch {
+            // Offline fallback: return cached rows so a new hero does not surface an error.
+            logger.warning("fetchTransactions CloudKit query failed, falling back to cache: \(error, privacy: .private)")
+            if let cache = cacheService {
+                let profileName = profile.id.recordName
+                let familyName = profile.family.recordID.recordName
+                let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
+                return cached.filter { dateRange.contains($0.date) }.map { cacheRow in
+                    LedgerEntry(
+                        profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
+                        amount: cacheRow.amount,
+                        description: cacheRow.entryDescription,
+                        location: cacheRow.location,
+                        date: cacheRow.date,
+                        source: cacheRow.source,
+                        family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
+                        id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
+                    )
+                }
+            }
+            throw error
+        }
     }
+
+    // MARK: - Helpers
+
+    /// Deterministic record name for idempotent writes — same inputs reuse the same record.
+    private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> String {
+        let ms = Int(date.timeIntervalSince1970 * 1000)
+        let cents = Int((abs(amount) * 100).rounded())
+        // Stable djb2 hash — Swift's hashValue is per-process randomized.
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var hash: UInt64 = 5381
+        for byte in trimmed.utf8 {
+            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
+        }
+        let descHash = hash % 10000
+        return "\(source)-\(profile.id.recordName)-\(family.id.recordName)-\(ms)-\(cents)-\(descHash)"
+    }
+
+    /// Scope check that tolerates a brand-new hero whose zone has not yet synced.
+    private func validateScopeAllowingNewHero(family: Family) throws {
+        guard let appState else { throw ScopeViolation.noActiveFamily }
+        do {
+            try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
+        } catch {
+            logger.warning("Strict scope check failed, falling back to family-only check: \(error, privacy: .private)")
+            try ActiveFamilyScopeGuard.requireActiveFamily(familyRecordName: family.id.recordName, appState: appState)
+        }
+    }
+
+    private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> CKRecord.ID {
+        var base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
+        // Disambiguate on deterministic collision (e.g. double-tap with identical timestamp).
+        if let cache = cacheService, cache.fetchLedgerEntry(recordName: base, family: family.id.recordName) != nil {
+            base += "-\(UUID().uuidString.prefix(8))"
+        }
+        return CKRecord.ID(recordName: base, zoneID: family.id.zoneID)
+    }
+
+    // MARK: - Mutations (local-first)
 
     func logManual(profile: Profile,
                    family: Family,
@@ -180,26 +252,29 @@ final class ManualSpendingService: SpendingService {
         guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
+        try validateScopeAllowingNewHero(family: family)
 
-        guard amount.isFinite else {
+        guard amount.isFinite, amount > 0 else {
             throw SpendingServiceError.invalidAmount
         }
-        guard amount > 0 else {
+
+        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDesc.isEmpty else {
             throw SpendingServiceError.invalidAmount
         }
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: -abs(amount),
-            description: description,
-            location: location,
+            description: trimmedDesc,
+            location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
             source: "manual",
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
+            id: makeLedgerID(source: "manual", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
         )
 
+        // Local-first: cache before enqueue for instant offline display.
         cacheService?.upsertLedgerEntry(entry)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
@@ -223,21 +298,26 @@ final class ManualSpendingService: SpendingService {
         guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
+        try validateScopeAllowingNewHero(family: family)
 
         guard amount.isFinite, amount > 0 else {
+            throw SpendingServiceError.invalidAmount
+        }
+
+        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDesc.isEmpty else {
             throw SpendingServiceError.invalidAmount
         }
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: abs(amount),
-            description: description,
-            location: location,
+            description: trimmedDesc,
+            location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
             source: "deposit",
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
+            id: makeLedgerID(source: "deposit", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
         )
 
         cacheService?.upsertLedgerEntry(entry)
@@ -263,21 +343,26 @@ final class ManualSpendingService: SpendingService {
         guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
+        try validateScopeAllowingNewHero(family: family)
 
         guard amount.isFinite, amount > 0 else {
+            throw SpendingServiceError.invalidAmount
+        }
+
+        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDesc.isEmpty else {
             throw SpendingServiceError.invalidAmount
         }
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: -abs(amount),
-            description: description,
-            location: location,
+            description: trimmedDesc,
+            location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
             source: "withdrawal",
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
+            id: makeLedgerID(source: "withdrawal", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
         )
 
         cacheService?.upsertLedgerEntry(entry)

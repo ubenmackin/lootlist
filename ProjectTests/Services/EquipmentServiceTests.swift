@@ -154,21 +154,17 @@ struct EquipmentServiceTests {
         let env = try makeIsolatedEnvironment()
         let sound = SoundManager()
 
-        // Credit 200 gems to profile
         try await env.gemService.creditGems(amount: 200, to: env.profile, source: "testReward", eventKey: "test-setup")
         let startingBalance = try env.gemService.balance(for: env.profile.id.recordName, familyRecordName: "test-family")
         #expect(startingBalance == 200)
 
-        // Buy Golden Crown (price 120, level 5)
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
         try await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
 
-        // Verify owned and equipped
         #expect(env.equipmentService.isOwned(item: crown, profile: env.profile))
         #expect(env.equipmentService.isEquipped(item: crown, profile: env.profile))
         #expect(env.equipmentService.equippedItem(for: .headwear, profile: env.profile) == crown)
 
-        // Verify balance deducted (200 - 120 = 80)
         let remainingBalance = try env.gemService.balance(for: env.profile.id.recordName, familyRecordName: "test-family")
         #expect(remainingBalance == 80)
     }
@@ -218,10 +214,9 @@ struct EquipmentServiceTests {
         var profile = env.profile
         let sound = SoundManager()
 
-        profile.level = 2 // Level 2
+        profile.level = 2
         try await env.gemService.creditGems(amount: 300, to: profile, source: "testReward", eventKey: "test-setup")
 
-        // Golden Crown requires level 5
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
         await #expect(throws: EquipmentError.levelTooLow(required: 5)) {
@@ -236,10 +231,8 @@ struct EquipmentServiceTests {
         let env = try makeIsolatedEnvironment()
         let sound = SoundManager()
 
-        // Profile has 50 gems
         try await env.gemService.creditGems(amount: 50, to: env.profile, source: "testReward", eventKey: "test-setup")
 
-        // Golden Crown costs 120 gems
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
         await #expect(throws: EquipmentError.insufficientGems(required: 120, current: 50)) {
@@ -272,22 +265,18 @@ struct EquipmentServiceTests {
 
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
-        // Cannot toggle unowned item
         await #expect(throws: EquipmentError.notOwned) {
             try await env.equipmentService.toggleEquip(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
         }
 
-        // Buy item (auto-equips)
         try await env.gemService.creditGems(amount: 200, to: env.profile, source: "testReward", eventKey: "test-setup")
         try await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
         #expect(env.equipmentService.isEquipped(item: crown, profile: env.profile))
 
-        // Toggle to unequip
         try await env.equipmentService.toggleEquip(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
         #expect(!env.equipmentService.isEquipped(item: crown, profile: env.profile))
         #expect(env.equipmentService.equippedItem(for: .headwear, profile: env.profile) == nil)
 
-        // Toggle to re-equip
         try await env.equipmentService.toggleEquip(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
         #expect(env.equipmentService.isEquipped(item: crown, profile: env.profile))
         #expect(env.equipmentService.equippedItem(for: .headwear, profile: env.profile) == crown)
@@ -317,9 +306,90 @@ struct EquipmentServiceTests {
         #expect(equipped[.auras] == aura)
         #expect(equipped[.companions] == dragon)
 
-        // Unequip weapon
         env.equipmentService.unequip(category: .weapons, profile: env.profile)
         #expect(env.equipmentService.equippedItem(for: .weapons, profile: env.profile) == nil)
         #expect(env.equipmentService.equippedItems(for: env.profile).count == 4)
+    }
+
+    @Test
+    func `buyItem succeeds when cached profile level meets requirement despite stale profile snapshot`() async throws {
+        let env = try makeIsolatedEnvironment()
+        let sound = SoundManager()
+
+        try await env.gemService.creditGems(amount: 300, to: env.profile, source: "testReward", eventKey: "test-setup")
+        let item = try #require(ShopItem.item(withId: "weapon_holy_mace"))
+        #expect(item.requiredLevel == 5)
+
+        var staleProfile = env.profile
+        staleProfile.level = 1
+
+        try await env.equipmentService.buyItem(item: item, profile: staleProfile, gemService: env.gemService, soundManager: sound)
+        #expect(env.equipmentService.isOwned(item: item, profile: env.profile))
+    }
+
+    @Test
+    func `payout and rt recordNames are stable and zone independent`() {
+        let zoneA = CKRecordZone.ID(zoneName: "ZoneA", ownerName: "OwnerA")
+        let zoneB = CKRecordZone.ID(zoneName: "ZoneB", ownerName: "OwnerB")
+        let periodName = "period-fam1-hero1-9999999999"
+        let payoutA = CKRecord.ID(recordName: "payout-\(periodName)", zoneID: zoneA)
+        let payoutB = CKRecord.ID(recordName: "payout-\(periodName)", zoneID: zoneB)
+        #expect(payoutA.recordName == payoutB.recordName)
+        #expect(payoutA.recordName == "payout-period-fam1-hero1-9999999999")
+
+        let rtA = CKRecord.ID(recordName: "rt-\(periodName)", zoneID: zoneA)
+        let rtB = CKRecord.ID(recordName: "rt-\(periodName)", zoneID: zoneB)
+        #expect(rtA.recordName == rtB.recordName)
+        #expect(rtA.recordName == "rt-period-fam1-hero1-9999999999")
+        #expect(payoutA.recordName != rtA.recordName)
+    }
+
+    @Test
+    func `purchaseRecordID deterministic and zone independent`() {
+        let zoneA = CKRecordZone.ID(zoneName: "ZoneA", ownerName: "OwnerA")
+        let zoneB = CKRecordZone.ID(zoneName: "ZoneB", ownerName: "OwnerB")
+        let fallbackA = GemLedger.purchaseRecordID(profileRecordName: "hero-1", itemID: "weapon_flaming_sword", eventKey: nil, zoneID: zoneA)
+        let fallbackB = GemLedger.purchaseRecordID(profileRecordName: "hero-1", itemID: "weapon_flaming_sword", eventKey: nil, zoneID: zoneB)
+        #expect(fallbackA.recordName == fallbackB.recordName)
+        #expect(fallbackA.recordName == "gem-hero-1-purchase-weapon_flaming_sword-shopPurchase")
+
+        let explicitA = GemLedger.purchaseRecordID(profileRecordName: "hero-1", itemID: "weapon_flaming_sword", eventKey: "shopPurchase-weapon_flaming_sword", zoneID: zoneA)
+        let explicitB = GemLedger.purchaseRecordID(profileRecordName: "hero-1", itemID: "weapon_flaming_sword", eventKey: "shopPurchase-weapon_flaming_sword", zoneID: zoneB)
+        #expect(explicitA.recordName == explicitB.recordName)
+    }
+
+    @Test
+    func `reward event recordName stable and zone independent`() {
+        let zoneA = CKRecordZone.ID(zoneName: "ZoneA", ownerName: "OwnerA")
+        let zoneB = CKRecordZone.ID(zoneName: "ZoneB", ownerName: "OwnerB")
+        let idA = RewardEvent.recordID(completionRecordName: "completion-abc", zoneID: zoneA)
+        let idB = RewardEvent.recordID(completionRecordName: "completion-abc", zoneID: zoneB)
+        #expect(idA.recordName == idB.recordName)
+        #expect(idA.recordName == "reward-completion-abc")
+    }
+
+    @Test
+    func `concurrent duplicate eventKey via equipment purchase does not double mint`() async throws {
+        let env = try makeIsolatedEnvironment()
+        try await env.gemService.creditGems(amount: 500, to: env.profile, source: "testReward", eventKey: "setup-concurrent-buy")
+        let sound = SoundManager()
+        let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
+
+        var tasks: [Task<Void, Never>] = []
+        for _ in 0 ..< 5 {
+            tasks.append(Task { @MainActor in
+                try? await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+            })
+        }
+        for task in tasks {
+            _ = await task.value
+        }
+
+        #expect(env.equipmentService.isOwned(item: crown, profile: env.profile))
+        let ledgers = env.cache.fetchGemLedgers(family: "test-family")
+        let purchaseLedgers = ledgers.filter { $0.recordName.contains("headwear_golden_crown") }
+        #expect(purchaseLedgers.count == 1, "Concurrent duplicate purchase must collapse to a single ledger row")
+        let balance = try env.gemService.balance(for: "hero-1", familyRecordName: "test-family")
+        #expect(balance == 380, "500 - 120 must be charged exactly once despite concurrent attempts")
     }
 }

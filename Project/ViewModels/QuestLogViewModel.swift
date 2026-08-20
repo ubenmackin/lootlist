@@ -107,7 +107,8 @@ final class QuestLogViewModel {
 
     func applyFilters() {
         let familyPayoutDay = appState.family?.payoutDay ?? .sunday
-        let filteredByDate = rawQuests.filter { dateRangePreset.contains($0.weekOf, payoutDay: familyPayoutDay) }
+        let effectivePayoutDay = selectedHero?.payoutDayEnum ?? familyPayoutDay
+        let filteredByDate = rawQuests.filter { dateRangePreset.contains($0.weekOf, payoutDay: effectivePayoutDay) }
 
         let filteredByHero: [QuestCache] = if let selectedHero {
             filteredByDate.filter {
@@ -137,10 +138,10 @@ final class QuestLogViewModel {
                 .notStarted
             } else if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count) {
                 .completed
-            } else if hasRejectedLog {
-                .rejected
             } else if approvedLogs.count > 0 {
                 .inProgress(completedCount: approvedLogs.count, targetCount: target)
+            } else if hasRejectedLog {
+                .rejected
             } else {
                 .pending
             }

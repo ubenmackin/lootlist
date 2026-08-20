@@ -9,6 +9,11 @@ import CloudKit
 import Foundation
 import os
 
+extension Notification.Name {
+    static let didClearSession = Notification.Name("didClearSession")
+    static let didChangeFamilyZoneID = Notification.Name("didChangeFamilyZoneID")
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -113,13 +118,8 @@ final class AppState {
 
     var familyZoneID: CKRecordZone.ID? {
         didSet {
-            // Zone identity change invalidates any cached sync scope. A stale
-            // `lastSynchronizedScopeKey` would make a new family appear already
-            // synchronized and skip engine initialization even though the zone
-            // has never been hydrated on this device.
-            if oldValue != familyZoneID {
-                NotificationCenter.default.post(name: Notification.Name("didChangeFamilyZoneID"), object: nil)
-            }
+            guard oldValue != familyZoneID else { return }
+            NotificationCenter.default.post(name: .didChangeFamilyZoneID, object: nil)
         }
     }
 
@@ -255,7 +255,7 @@ final class AppState {
         // Without this, a sign-out that clears engines via `resetState` would
         // leave `lastSynchronizedScopeKey` stale and a subsequent sign-in to a
         // different family could incorrectly skip `initializeEngines`.
-        NotificationCenter.default.post(name: Notification.Name("didClearSession"), object: nil)
+        NotificationCenter.default.post(name: .didClearSession, object: nil)
     }
 
     /// Extended session clearing that also resets CloudKit scope and engine state.

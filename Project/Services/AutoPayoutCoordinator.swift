@@ -120,14 +120,21 @@ final class AutoPayoutCoordinator {
                     }
 
                     do {
-                        let period = try await treasuryService.getOrCreateAllowancePeriod(
-                            profile: hero,
-                            weekOf: weekOf,
-                            family: family
-                        )
+                        let period: AllowancePeriod? = if weekOf == currentWeekStart {
+                            try await treasuryService.getOrCreateAllowancePeriod(
+                                profile: hero,
+                                weekOf: weekOf,
+                                family: family
+                            )
+                        } else {
+                            try await treasuryService.fetchAllowancePeriod(
+                                profile: hero,
+                                weekOf: weekOf
+                            )
+                        }
 
-                        // Local status pre-check backed by save-layer CAS on AllowancePeriod: skip if already paid
-                        guard period.status != .paid else {
+                        // Local status pre-check backed by save-layer CAS on AllowancePeriod: skip if missing or already paid
+                        guard let period, period.status != .paid else {
                             continue
                         }
 

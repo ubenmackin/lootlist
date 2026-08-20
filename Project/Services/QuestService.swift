@@ -588,7 +588,6 @@ final class QuestService {
         let familyRecordName = profile.family.recordID.recordName
         if !familyRecordName.isEmpty,
            let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: familyRecordName, type: .family),
            let familyCache = cache.fetchFamily(recordName: familyRecordName),
            let familyPayoutDay = familyCache.payoutDayEnum
         {

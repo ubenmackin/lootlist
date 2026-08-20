@@ -132,6 +132,8 @@ extension FamilyService {
                               profile: Profile,
                               zoneID: CKRecordZone.ID) -> OwnerSessionResult
     {
+        appState.family = family
+        appState.currentProfile = profile
         appState.familyZoneID = zoneID
         appState.isZoneOwner = true
         cloudKit.activeFamilyZoneID = zoneID

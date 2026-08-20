@@ -27,7 +27,7 @@ final class CKSyncEngineCoordinator {
     /// falling back to the in-memory family record name. This avoids coupling
     /// the key to the mutable profile identity which can change after dedupe reuse.
     private func stableFamilyRecordName() -> String? {
-        if let zoneName = cloudKitService.activeFamilyZoneID?.zoneName {
+        if let zoneName = cloudKitService.activeFamilyZoneID?.zoneName, !zoneName.isEmpty {
             return zoneName
         }
         return appState?.family?.id.recordName
@@ -71,13 +71,7 @@ final class CKSyncEngineCoordinator {
     @ObservationIgnored var privateSyncEngine: CKSyncEngine?
     @ObservationIgnored var sharedSyncEngine: CKSyncEngine?
 
-    /// Tracks whether engine events during the current pass actually moved data.
-    /// Set by the delegate handler and read when the pass settles to derive a
-    /// truthful `.changed`/`.noChange` outcome for `.syncDidComplete`.
     @ObservationIgnored private var passProducedChanges = false
-
-    /// Tracks active database scopes executing in the current fetch pass.
-    /// Freshness is only stamped after all active scopes complete with zero parse or write failures.
     @ObservationIgnored private var activeFetchPassScopes: Set<CKDatabase.Scope> = []
     @ObservationIgnored private var completedFetchPassScopes: Set<CKDatabase.Scope> = []
     @ObservationIgnored private var currentPassHadParseFailures = false
@@ -109,8 +103,6 @@ final class CKSyncEngineCoordinator {
         self.appState = appState
         self.defaults = defaults
 
-        // Engine construction is deferred until AppLifecycleCoordinator has
-        // restored and validated the active family scope.
         delegateHandler.setCoordinator(self)
     }
 
@@ -144,7 +136,6 @@ final class CKSyncEngineCoordinator {
         guard let ckConcrete = cloudKitService as? CloudKitService else { return }
         let container = ckConcrete.container
 
-        // Setup private database engine (for Guild Master family zones)
         if privateSyncEngine == nil {
             let privateSavedState = loadState(for: .private)
             let privateConfig = CKSyncEngine.Configuration(
@@ -155,7 +146,6 @@ final class CKSyncEngineCoordinator {
             privateSyncEngine = CKSyncEngine(privateConfig)
         }
 
-        // Setup shared database engine (for Hero / Participant accepted shares)
         if sharedSyncEngine == nil {
             let sharedSavedState = loadState(for: .shared)
             let sharedConfig = CKSyncEngine.Configuration(
@@ -287,21 +277,14 @@ final class CKSyncEngineCoordinator {
 
     // MARK: - Sync Pass Settlement
 
-    /// Records that engine events during the current pass moved data. Invoked
-    /// by `CKSyncEngineDelegateHandler` (on the main actor) so the terminal
-    /// outcome posted at pass end distinguishes `.changed` from `.noChange`.
     func noteChangesProcessed() {
         passProducedChanges = true
     }
 
-    /// Records that one or more record parse failures occurred during the current pass.
-    /// Blocks cache freshness stamping for the pass so bad data does not mark the cache fresh.
     func noteParseFailure() {
         currentPassHadParseFailures = true
     }
 
-    /// Records that a cache persistence failure occurred during the current pass.
-    /// Blocks cache freshness stamping so disk errors do not claim successful hydration.
     func noteCacheWriteFailure() {
         currentPassHadCacheWriteFailures = true
     }
@@ -448,12 +431,13 @@ final class CKSyncEngineCoordinator {
         }
 
         if let legacyProfileKey = legacyProfileStateKey(for: scope), let data = defaults.data(forKey: legacyProfileKey) {
-            // Migrate orphaned profile-keyed state to the stable family key.
-            if let newKey = stateKey(for: scope) {
-                defaults.set(data, forKey: newKey)
-            }
             do {
-                return try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+                let serialization = try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+                // Migrate orphaned profile-keyed state to the stable family key.
+                if let newKey = stateKey(for: scope) {
+                    defaults.set(data, forKey: newKey)
+                }
+                return serialization
             } catch {
                 logger.error("Failed to decode legacy profile CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
                 return nil
@@ -462,14 +446,15 @@ final class CKSyncEngineCoordinator {
 
         let legacyKey = (scope == .private) ? "ck_sync_engine_state_private" : "ck_sync_engine_state_shared"
         guard let data = defaults.data(forKey: legacyKey) else { return nil }
-        // Migrate unscoped legacy state to the stable family key when possible.
-        if let newKey = stateKey(for: scope) {
-            defaults.set(data, forKey: newKey)
-        }
         do {
-            return try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+            let serialization = try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+            // Migrate unscoped legacy state to the stable family key when possible.
+            if let newKey = stateKey(for: scope) {
+                defaults.set(data, forKey: newKey)
+            }
+            return serialization
         } catch {
-            logger.error("Failed to decode CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
+            logger.error("Failed to decode legacy unscoped CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
             return nil
         }
     }
@@ -478,26 +463,46 @@ final class CKSyncEngineCoordinator {
         if let explicitAccountID {
             defaults.removeObject(forKey: "ck_sync_engine_state.\(explicitAccountID).private")
             defaults.removeObject(forKey: "ck_sync_engine_state.\(explicitAccountID).shared")
-        } else if let familyRecordName = stableFamilyRecordName() {
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(familyRecordName).private")
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(familyRecordName).shared")
-            // Clear any orphaned profile-keyed state from before the family-stable migration
-            // so a reused profile does not leave stale pending changes behind.
-            if let profileRecordName = appState?.currentProfile?.id.recordName, profileRecordName != familyRecordName {
-                defaults.removeObject(forKey: "ck_sync_engine_state.\(profileRecordName).private")
-                defaults.removeObject(forKey: "ck_sync_engine_state.\(profileRecordName).shared")
-            }
-        } else if let fallbackID = appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName {
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(fallbackID).private")
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(fallbackID).shared")
+            defaults.removeObject(forKey: "ck_sync_engine_state_private")
+            defaults.removeObject(forKey: "ck_sync_engine_state_shared")
+            privateSyncEngine = nil
+            sharedSyncEngine = nil
+            lastSyncedAt = nil
+            syncError = nil
+            logger.info("CKSyncEngine state reset for both private and shared databases (account: \(explicitAccountID, privacy: .private))")
+            return
+        }
+
+        let stableName = stableFamilyRecordName()
+        let profileName = appState?.currentProfile?.id.recordName
+
+        if let stableName {
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).private")
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).shared")
+        }
+        if let profileName, profileName != stableName {
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(profileName).private")
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(profileName).shared")
         }
         defaults.removeObject(forKey: "ck_sync_engine_state_private")
         defaults.removeObject(forKey: "ck_sync_engine_state_shared")
+
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_sync_engine_state.") {
+            if key == "ck_sync_engine_state_private" || key == "ck_sync_engine_state_shared" {
+                continue
+            }
+            let isStable = stableName.map { key == "ck_sync_engine_state.\($0).private" || key == "ck_sync_engine_state.\($0).shared" } ?? false
+            let isProfile = profileName.map { key == "ck_sync_engine_state.\($0).private" || key == "ck_sync_engine_state.\($0).shared" } ?? false
+            if !isStable, !isProfile {
+                defaults.removeObject(forKey: key)
+            }
+        }
+
         privateSyncEngine = nil
         sharedSyncEngine = nil
         lastSyncedAt = nil
         syncError = nil
-        let logID = explicitAccountID ?? stableFamilyRecordName() ?? appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName
-        logger.info("CKSyncEngine state reset for both private and shared databases (account: \(logID ?? "none", privacy: .private))")
+        let logID = explicitAccountID ?? stableName ?? profileName ?? "none"
+        logger.info("CKSyncEngine state reset for both private and shared databases (account: \(logID, privacy: .private))")
     }
 }

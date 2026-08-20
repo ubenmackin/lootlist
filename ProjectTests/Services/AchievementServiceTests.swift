@@ -467,4 +467,108 @@ struct AchievementServiceTests {
         let awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(!awarded.contains { $0.requirementType == .weekly100 }, "Stale cache fallback should accurately read all 2 assigned quests and reject 1/2 completion")
     }
+
+    @Test
+    func `multi target quest does not artificially inflate weekly completion ratio`() async throws {
+        let (service, cloudKit) = makeDependencies()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let hero = makeHero(zoneID)
+        let parent = makeParent(zoneID)
+        let family = Family(name: "Test Family", createdBy: parent.id, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let appState = AppState()
+        appState.currentProfile = parent
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.activeIsOwner = true
+        service.appState = appState
+
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let templateRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none)
+
+        // Quest 1 has targetCount = 3
+        let quest1 = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 30.0,
+            xpReward: 60,
+            scheduleType: .weeklyFlexible,
+            targetCount: 3,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: makeFamilyRef(zoneID),
+            name: "Feed the Dog (3x)",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        )
+
+        // Quest 2 has targetCount = 1
+        let quest2 = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+            goldReward: 10.0,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+            family: makeFamilyRef(zoneID),
+            name: "Clean Room",
+            id: CKRecord.ID(recordName: "quest2", zoneID: zoneID)
+        )
+
+        // Hero completed Quest 1 three times (3 logs), Quest 2 untouched (0 logs)
+        let log1 = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest1.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .autoApprove,
+            completedDate: weekOf,
+            weekOf: weekOf,
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "log1", zoneID: zoneID)
+        )
+        let log2 = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest1.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .autoApprove,
+            completedDate: weekOf,
+            weekOf: weekOf,
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "log2", zoneID: zoneID)
+        )
+        let log3 = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest1.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+            approvalMode: .autoApprove,
+            completedDate: weekOf,
+            weekOf: weekOf,
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "log3", zoneID: zoneID)
+        )
+
+        let weeklyAchievement = Achievement(
+            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.weekly100.rawValue)", zoneID: zoneID),
+            name: "Week Warrior",
+            description: "Complete all quests in a week",
+            iconSystemName: "calendar.badge.checkmark",
+            category: .special,
+            requirementType: .weekly100,
+            requirementValue: 1,
+            family: makeFamilyRef(zoneID)
+        )
+
+        _ = try await cloudKit.save(quest1, in: zoneID, using: nil)
+        _ = try await cloudKit.save(quest2, in: zoneID, using: nil)
+        _ = try await cloudKit.save(log1, in: zoneID, using: nil)
+        _ = try await cloudKit.save(log2, in: zoneID, using: nil)
+        _ = try await cloudKit.save(log3, in: zoneID, using: nil)
+        _ = try await cloudKit.save(weeklyAchievement, in: zoneID, using: nil)
+
+        let awarded = try await service.evaluateAll(for: hero, family: family)
+        #expect(!awarded.contains { $0.requirementType == .weekly100 }, "1 out of 2 quests completed should yield 50% weekly ratio, not 100%, despite 3 logs on Quest 1")
+    }
 }

@@ -23,6 +23,8 @@ struct DayInfo: Identifiable, Hashable {
 @MainActor
 @Observable
 final class HeroDashboardViewModel {
+    // MARK: - Properties
+
     private(set) var todaysQuests: [QuestCache] = []
     private(set) var overdueQuests: [QuestCache] = []
     private(set) var weeklyFlexibleQuests: [QuestCache] = []
@@ -34,9 +36,6 @@ final class HeroDashboardViewModel {
     private(set) var availableTemplatesCount: Int = 0
     private(set) var logsByQuestRecordName: [String: QuestCompletionCache] = [:]
     private(set) var allLogsByQuestRecordName: [String: [QuestCompletionCache]] = [:]
-    /// Precomputed count of `weekQuests` whose approved-log count meets or
-    /// exceeds `targetCount`. Avoids an O(quests × logs) recomputation in
-    /// the view body on every render.
     private(set) var completedQuestCount: Int = 0
 
     private(set) var weekDays: [DayInfo] = []
@@ -45,6 +44,8 @@ final class HeroDashboardViewModel {
     private let appState: AppState
 
     private var templatesByID: [String: QuestTemplateCache] = [:]
+
+    // MARK: - Initialization
 
     /// Last authoritative CloudKit error when an async wallet fetch fails.
     /// Surfaces via `HeroDashboardView` as a toast with pull-to-retry; the
@@ -65,6 +66,8 @@ final class HeroDashboardViewModel {
         // the first cache-driven rebuild.
         weekDays = HeroDashboardViewModel.currentWeekDays()
     }
+
+    // MARK: - List Building
 
     /// Async authoritative refresh for callers that need `QuestService.earnedThisWeek`
     /// (which delegates to `GoldCalculation.totalCredit` and **throws** on fetch failure).
@@ -193,12 +196,12 @@ final class HeroDashboardViewModel {
             payoutDay: payoutDay
         )
 
-        // Precompute the number of fully-completed quests once, so the view
-        // body can read a plain Int instead of re-filtering logs per quest.
         completedQuestCount = quests.reduce(0) { count, quest in
             count + (isFullyCompleted(for: quest) ? 1 : 0)
         }
     }
+
+    // MARK: - Helpers
 
     func logs(for quest: QuestCache) -> [QuestCompletionCache] {
         allLogsByQuestRecordName[quest.recordName] ?? []
@@ -300,6 +303,8 @@ final class HeroDashboardViewModel {
     func log(for quest: QuestCache) -> QuestCompletionCache? {
         logsByQuestRecordName[quest.recordName]
     }
+
+    // MARK: - Date Helpers
 
     static func todayWeekdayCode(calendar: Calendar = .iso8601UTC) -> String {
         let weekdayIndex = calendar.component(.weekday, from: Date()) - 1

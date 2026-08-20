@@ -30,6 +30,8 @@ final class HeroLedgerViewModel {
         self.appState = appState
     }
 
+    // MARK: - Ledger
+
     func rebuildLedger(
         ledgers: [LedgerEntryCache],
         quests: [QuestCache] = [],
@@ -70,15 +72,15 @@ final class HeroLedgerViewModel {
         }.sorted { $0.date > $1.date }
     }
 
+    // MARK: - Mutations
+
     func deposit(description: String, amount: Double, date: Date) async -> Bool {
         guard let family = appState.family else {
             errorMessage = "No family loaded."
             return false
         }
-        guard let zoneID = appState.familyZoneID else {
-            errorMessage = "No active zone."
-            return false
-        }
+        // Fallback to family's zone when `familyZoneID` has not yet propagated for a new hero.
+        let zoneID = appState.familyZoneID ?? family.id.zoneID
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
         isLoading = true
@@ -93,6 +95,7 @@ final class HeroLedgerViewModel {
                 amount: amount,
                 date: date
             )
+            errorMessage = nil
             return true
         } catch {
             logger.error("Failed to deposit: \(error, privacy: .private)")
@@ -106,10 +109,8 @@ final class HeroLedgerViewModel {
             errorMessage = "No family loaded."
             return false
         }
-        guard let zoneID = appState.familyZoneID else {
-            errorMessage = "No active zone."
-            return false
-        }
+        // Fallback to family's zone when `familyZoneID` has not yet propagated for a new hero.
+        let zoneID = appState.familyZoneID ?? family.id.zoneID
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
         isLoading = true
@@ -124,6 +125,7 @@ final class HeroLedgerViewModel {
                 amount: amount,
                 date: date
             )
+            errorMessage = nil
             return true
         } catch {
             logger.error("Failed to withdraw: \(error, privacy: .private)")

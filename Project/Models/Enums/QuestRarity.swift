@@ -8,17 +8,17 @@
 import Foundation
 import SwiftUI
 
-enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
+public enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
     case common = "Common"
     case rare = "Rare"
     case epic = "Epic"
     case legendary = "Legendary"
 
-    var id: String {
+    public var id: String {
         rawValue
     }
 
-    var xpReward: Int {
+    public var xpReward: Int {
         switch self {
         case .common: AppConstants.Rarity.commonXP
         case .rare: AppConstants.Rarity.rareXP
@@ -27,7 +27,7 @@ enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
-    var color: Color {
+    public var color: Color {
         switch self {
         case .common: Color.secondary
         case .rare: Color.blue
@@ -36,7 +36,7 @@ enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
-    var iconSystemName: String {
+    public var iconSystemName: String {
         switch self {
         case .common: "shield"
         case .rare: "sparkles"
@@ -45,7 +45,7 @@ enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
-    static func from(xp: Int) -> QuestRarity {
+    public static func from(xp: Int) -> QuestRarity {
         if xp >= AppConstants.Rarity.legendaryXP {
             return .legendary
         }

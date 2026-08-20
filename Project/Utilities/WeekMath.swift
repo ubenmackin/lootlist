@@ -12,7 +12,7 @@ enum WeekMath {
         AppConstants.Time.secondsInWeek
     }
 
-    // MARK: - Week Anchors
+    // MARK: - Week Calculations
 
     static func mondayOfWeek(for date: Date) -> Date {
         let cal = Calendar.iso8601UTC

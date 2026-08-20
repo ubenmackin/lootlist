@@ -589,7 +589,7 @@ final class FamilyDashboardViewModel {
 
             let heroPeriod = allowancePeriods.first {
                 $0.profileRecordName == hero.recordName &&
-                    Calendar.iso8601UTC.isDate($0.weekOf, inSameDayAs: heroWeekOf)
+                    WeekMath.startOfWeek(for: $0.weekOf, payoutDay: heroPayoutDay) == heroWeekOf
             }
             let isPeriodPaid = heroPeriod?.statusEnum == .paid
 

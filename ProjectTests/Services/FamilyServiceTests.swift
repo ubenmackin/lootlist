@@ -112,8 +112,8 @@ struct FamilyServiceTests {
 
     // MARK: - Freshness-Aware Cache Reads
 
-    private func makeFamilyServiceWithCache(cloudKit: any CloudKitServiceProtocol,
-                                            cache: CacheService) -> FamilyService
+    func makeFamilyServiceWithCache(cloudKit: any CloudKitServiceProtocol,
+                                    cache: CacheService) -> FamilyService
     {
         let appState = AppState()
         let zoneID = cloudKit.activeFamilyZoneID ?? CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -886,53 +886,6 @@ private final class QueryCountingCloudKitService: MockCloudKitService {
     ) async throws -> [T] {
         queryCallCount += 1
         return try await super.query(T.self, predicate: predicate, in: zoneID, sortDescriptors: sortDescriptors, using: db)
-    }
-}
-
-private final class GatedQueryCloudKitService: MockCloudKitService {
-    override init(zoneID: CKRecordZone.ID? = nil) {
-        super.init()
-        self.activeFamilyZoneID = zoneID
-    }
-
-    private let gate = QueryGate()
-    private(set) var queryCallCount = 0
-
-    override func query<T: CloudKitRecord>(
-        _: T.Type,
-        predicate: NSPredicate,
-        in zoneID: CKRecordZone.ID? = nil,
-        sortDescriptors: [NSSortDescriptor]? = nil,
-        using db: CKDatabase? = nil
-    ) async throws -> [T] {
-        queryCallCount += 1
-        await gate.park()
-        return try await super.query(T.self, predicate: predicate, in: zoneID, sortDescriptors: sortDescriptors, using: db)
-    }
-
-    func releaseQueries() {
-        gate.releaseAll()
-    }
-}
-
-private final class QueryGate: Sendable {
-    private let lock = Mutex<[CheckedContinuation<Void, Never>]>([])
-
-    func park() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            lock.withLock { $0.append(continuation) }
-        }
-    }
-
-    func releaseAll() {
-        let parked = lock.withLock { continuations -> [CheckedContinuation<Void, Never>] in
-            let all = continuations
-            continuations.removeAll()
-            return all
-        }
-        for continuation in parked {
-            continuation.resume()
-        }
     }
 }
 

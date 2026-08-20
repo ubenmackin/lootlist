@@ -141,7 +141,8 @@ struct HeroTransactionView: View {
             )
             return
         }
-        guard let amount = Double(amountText), amount.isFinite, amount > 0 else {
+        // Locale-aware parsing — handles comma decimal separators.
+        guard let amount = Self.parseAmount(amountText), amount.isFinite, amount > 0 else {
             toastManager.show(message: "Please enter a valid positive amount.", type: .warning)
             return
         }
@@ -150,11 +151,32 @@ struct HeroTransactionView: View {
                 ? await viewModel.deposit(description: trimmedDescription, amount: amount, date: date)
                 : await viewModel.withdraw(description: trimmedDescription, amount: amount, date: date)
             if success {
+                toastManager.show(
+                    message: mode == .deposit ? "Deposit added!" : "Withdrawal saved!",
+                    type: .success
+                )
                 dismiss()
             } else if let error = viewModel.errorMessage {
                 toastManager.show(message: error, type: .error)
             }
         }
+    }
+
+    // MARK: - Parsing
+
+    /// Parses amount using the current locale, falling back to dot-normalized Double.
+    static func parseAmount(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let formatter = NumberFormatter()
+        formatter.locale = Locale.current
+        formatter.numberStyle = .decimal
+        if let number = formatter.number(from: trimmed) {
+            return number.doubleValue
+        }
+        // Fallback for pasted values with comma separator.
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        return Double(normalized)
     }
 }
 
