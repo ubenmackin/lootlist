@@ -20,11 +20,43 @@ final class CKSyncEngineCoordinator {
         category: "CKSyncEngineCoordinator"
     )
 
+    // MARK: - State Key Resolution
+
+    /// Resolves the stable family identifier that scopes persisted engine state.
+    /// Uses the active zone name when available (set during engine initialization)
+    /// falling back to the in-memory family record name. This avoids coupling
+    /// the key to the mutable profile identity which can change after dedupe reuse.
+    private func stableFamilyRecordName() -> String? {
+        if let zoneName = cloudKitService.activeFamilyZoneID?.zoneName {
+            return zoneName
+        }
+        return appState?.family?.id.recordName
+    }
+
+    /// Builds the UserDefaults key for persisted `CKSyncEngine` state.
+    /// Keyed by stable family plus database scope so pending saves survive
+    /// profile switches and re-onboarding within the same family.
     private func stateKey(for scope: CKDatabase.Scope) -> String? {
-        guard let accountID = appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName else {
+        guard let familyRecordName = stableFamilyRecordName() else {
             return nil
         }
-        return (scope == .private) ? "ck_sync_engine_state.\(accountID).private" : "ck_sync_engine_state.\(accountID).shared"
+        return (scope == .private)
+            ? "ck_sync_engine_state.\(familyRecordName).private"
+            : "ck_sync_engine_state.\(familyRecordName).shared"
+    }
+
+    /// Legacy profile-keyed state location used before the family-stable migration.
+    /// Retained only to source a one-time copy into the new family-keyed key.
+    private func legacyProfileStateKey(for scope: CKDatabase.Scope) -> String? {
+        guard let profileRecordName = appState?.currentProfile?.id.recordName,
+              let familyRecordName = stableFamilyRecordName(),
+              profileRecordName != familyRecordName
+        else {
+            return nil
+        }
+        return (scope == .private)
+            ? "ck_sync_engine_state.\(profileRecordName).private"
+            : "ck_sync_engine_state.\(profileRecordName).shared"
     }
 
     let cloudKitService: any CloudKitServiceProtocol
@@ -277,13 +309,33 @@ final class CKSyncEngineCoordinator {
     /// Finalizes a sync pass over active engines: stamps the
     /// cache-freshness watermark for the active family if all active scopes
     /// hydrated successfully without errors, then posts `.syncDidComplete`.
+    /// Freshness is stamped per-database-scope so a private-only pass never
+    /// marks shared data as fresh. When the active family is participant-owned
+    /// (`isZoneOwner == false`) the shared scope must have completed; a
+    /// private-only success therefore does not stamp shared types, preventing
+    /// a subsequent `fetchProfiles` for a shared-DB hero from seeing
+    /// `isCacheFresh == true` and returning an empty authoritative result.
     private func completeSyncPass() {
         let isFetchPass = !activeFetchPassScopes.isEmpty
         let allEnginesHydrated = isFetchPass && activeFetchPassScopes.isSubset(of: completedFetchPassScopes)
         let zeroErrors = !currentPassHadParseFailures && !currentPassHadCacheWriteFailures
 
         if allEnginesHydrated, zeroErrors {
-            stampCacheFreshness()
+            // Participant-owned families must have fetched the shared scope for
+            // any type that is shared-fetchable to be considered fresh. If both
+            // engines exist but only private completed, stamping is still gated:
+            // we stamp only the scopes that actually completed.
+            if let appState, !appState.isZoneOwner, sharedSyncEngine != nil, !completedFetchPassScopes.contains(.shared) {
+                logger.warning(
+                    """
+                    Cache freshness stamping skipped: participant zone requires shared scope \
+                    activeScopes=\(self.activeFetchPassScopes), \
+                    completedScopes=\(self.completedFetchPassScopes)
+                    """
+                )
+            } else {
+                stampCacheFreshness(scopes: completedFetchPassScopes)
+            }
         } else if isFetchPass {
             logger.warning(
                 """
@@ -324,12 +376,37 @@ final class CKSyncEngineCoordinator {
     /// freshness watermark (not a `CKServerChangeToken` cursor): it only asserts
     /// that a full pass completed so `CacheService.isCacheFresh` can gate
     /// cache-first reads.
-    private func stampCacheFreshness() {
+    /// - Parameter scopes: The database scopes that successfully completed in
+    ///   this pass. Only types whose `fetchScopes` intersect `scopes` are
+    ///   stamped, so a private-only pass never marks shared data fresh. When
+    ///   `scopes` is empty the legacy unscoped stamp is used for backward
+    ///   compatibility (tests and single-engine passes).
+    private func stampCacheFreshness(scopes: Set<CKDatabase.Scope> = []) {
+        // Require an explicit family record to avoid stamping freshness under a zoneName
+        // that cache reads do not gate on, which would mark the wrong family as fresh.
         guard let appState,
-              let familyRecordName = appState.family?.id.recordName ?? cloudKitService.activeFamilyZoneID?.zoneName,
+              let familyRecordName = appState.family?.id.recordName,
               let cacheService = appState.cacheService
         else { return }
+        let effectiveScopes = scopes.isEmpty ? completedFetchPassScopes : scopes
+        if effectiveScopes.isEmpty {
+            // Fallback for non-fetch passes or legacy callers: stamp unscoped keys.
+            for type in CachedRecordType.allCases {
+                cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
+            }
+            return
+        }
         for type in CachedRecordType.allCases {
+            // Only stamp types whose fetch scopes intersect the completed scopes.
+            // All current family-zone types have fetchScopes == [.private, .shared],
+            // so this effectively stamps every type for each completed scope, but
+            // future scope-specific types will be filtered correctly.
+            let shouldStamp = !type.fetchScopes.isDisjoint(with: effectiveScopes)
+            guard shouldStamp else { continue }
+            for scope in effectiveScopes where type.fetchScopes.contains(scope) {
+                cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
+            }
+            // Also maintain legacy unscoped stamp for backward-compatible readers.
             cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
         }
     }
@@ -346,7 +423,7 @@ final class CKSyncEngineCoordinator {
 
     func saveState(_ serialization: CKSyncEngine.State.Serialization, for scope: CKDatabase.Scope) {
         guard let key = stateKey(for: scope) else {
-            logger.info("saveState skipped: no active account identity in appState to scope CKSyncEngine state")
+            logger.info("saveState skipped: no active family identity to scope CKSyncEngine state")
             return
         }
         do {
@@ -358,9 +435,37 @@ final class CKSyncEngineCoordinator {
     }
 
     func loadState(for scope: CKDatabase.Scope) -> CKSyncEngine.State.Serialization? {
-        guard let key = stateKey(for: scope) else { return nil }
+        // Priority: new family-keyed > legacy profile-keyed (migrated) > unscoped legacy.
+        // Each legacy hit is copied forward to the new key so subsequent loads are stable
+        // across profile switches and future writes remain discoverable.
+        if let key = stateKey(for: scope), let data = defaults.data(forKey: key) {
+            do {
+                return try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+            } catch {
+                logger.error("Failed to decode CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
+                return nil
+            }
+        }
+
+        if let legacyProfileKey = legacyProfileStateKey(for: scope), let data = defaults.data(forKey: legacyProfileKey) {
+            // Migrate orphaned profile-keyed state to the stable family key.
+            if let newKey = stateKey(for: scope) {
+                defaults.set(data, forKey: newKey)
+            }
+            do {
+                return try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+            } catch {
+                logger.error("Failed to decode legacy profile CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
+                return nil
+            }
+        }
+
         let legacyKey = (scope == .private) ? "ck_sync_engine_state_private" : "ck_sync_engine_state_shared"
-        guard let data = defaults.data(forKey: key) ?? defaults.data(forKey: legacyKey) else { return nil }
+        guard let data = defaults.data(forKey: legacyKey) else { return nil }
+        // Migrate unscoped legacy state to the stable family key when possible.
+        if let newKey = stateKey(for: scope) {
+            defaults.set(data, forKey: newKey)
+        }
         do {
             return try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
         } catch {
@@ -370,10 +475,21 @@ final class CKSyncEngineCoordinator {
     }
 
     func resetState(forAccountID explicitAccountID: String? = nil) {
-        let accountID = explicitAccountID ?? appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName
-        if let accountID {
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(accountID).private")
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(accountID).shared")
+        if let explicitAccountID {
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(explicitAccountID).private")
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(explicitAccountID).shared")
+        } else if let familyRecordName = stableFamilyRecordName() {
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(familyRecordName).private")
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(familyRecordName).shared")
+            // Clear any orphaned profile-keyed state from before the family-stable migration
+            // so a reused profile does not leave stale pending changes behind.
+            if let profileRecordName = appState?.currentProfile?.id.recordName, profileRecordName != familyRecordName {
+                defaults.removeObject(forKey: "ck_sync_engine_state.\(profileRecordName).private")
+                defaults.removeObject(forKey: "ck_sync_engine_state.\(profileRecordName).shared")
+            }
+        } else if let fallbackID = appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName {
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(fallbackID).private")
+            defaults.removeObject(forKey: "ck_sync_engine_state.\(fallbackID).shared")
         }
         defaults.removeObject(forKey: "ck_sync_engine_state_private")
         defaults.removeObject(forKey: "ck_sync_engine_state_shared")
@@ -381,6 +497,7 @@ final class CKSyncEngineCoordinator {
         sharedSyncEngine = nil
         lastSyncedAt = nil
         syncError = nil
-        logger.info("CKSyncEngine state reset for both private and shared databases (account: \(accountID ?? "none", privacy: .private))")
+        let logID = explicitAccountID ?? stableFamilyRecordName() ?? appState?.currentProfile?.id.recordName ?? appState?.family?.id.recordName
+        logger.info("CKSyncEngine state reset for both private and shared databases (account: \(logID ?? "none", privacy: .private))")
     }
 }

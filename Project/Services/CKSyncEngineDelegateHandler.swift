@@ -364,8 +364,9 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         for failedSave in sentEvent.failedRecordSaves {
             let record = failedSave.record
             let error = failedSave.error
+            let scope = syncEngine.database.databaseScope
 
-            if let resolvedRecord = await conflictResolver.resolveFailedSave(record: record, error: error) {
+            if let resolvedRecord = await conflictResolver.resolveFailedSave(record: record, error: error, databaseScope: scope) {
                 let pendingSave = CKSyncEngine.PendingRecordZoneChange.saveRecord(resolvedRecord.recordID)
                 syncEngine.state.add(pendingRecordZoneChanges: [pendingSave])
             }

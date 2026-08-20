@@ -9,7 +9,6 @@ import CloudKit
 import Foundation
 import os
 import SwiftData
-import Synchronization
 
 @MainActor
 @Observable
@@ -28,11 +27,13 @@ final class CacheService {
         var ledgerEntryFetchScopes: [String?] = []
     #endif
 
-    /// Cancellable handle for the `ModelContext.didSave` observer task.
-    /// Wrapped in a `Mutex` so `nonisolated deinit` can cancel the
-    /// listener without touching main-actor-isolated state (the same `Mutex`
-    /// pattern used to guard sync-task handles elsewhere in the service layer).
-    private let didSaveObserverMutex = Mutex<Task<Void, Never>?>(nil)
+    /// Cancellable handle for the `ModelContext.didSave` observer.
+    /// Stored as `nonisolated(unsafe)` so `deinit` can unregister the
+    /// listener without touching main-actor-isolated state — the same
+    /// pattern used in `AppLifecycleCoordinator` for `NotificationCenter`
+    /// observer tokens, which are not `Sendable` and must not be wrapped
+    /// in `@unchecked Sendable` + `Mutex`.
+    @ObservationIgnored private nonisolated(unsafe) var didSaveObserver: (any NSObjectProtocol)?
 
     /// Shorthand for `container.mainContext`. Used by every read/write on this
     /// service so the underlying access path lives in one place.
@@ -82,34 +83,40 @@ final class CacheService {
         String(describing: type(of: error))
     }
 
-    nonisolated deinit {
-        didSaveObserverMutex.withLock { $0?.cancel() }
+    deinit {
+        if let token = didSaveObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     /// Installs the didSave observer: observes every `ModelContext.didSave` and,
     /// when the saved context is a background context of this container, forces
     /// `container.mainContext` to re-evaluate so `@Query` results update
     /// deterministically even when the OS misses automatic cross-context
-    /// propagation. The listener runs as a `@MainActor` task (isolation
-    /// inherited from this class), so the hop to main is implicit — no
-    /// `@Sendable` closure capture of `self` is involved. Skipped when the
-    /// container failed to initialize.
+    /// propagation. The synchronous callback verifies the container pointer
+    /// identity (`savedContext.container === container`) while the saved
+    /// context is still guaranteed alive on the calling stack, then dispatches
+    /// the refresh kick to `@MainActor`.
     private func installDidSaveObserver() {
-        guard container != nil else { return }
-        let task = Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
-                guard let self,
-                      let savedContext = notification.object as? ModelContext else { continue }
-                // Main-context saves already re-fire @Query through normal
-                // SwiftUI observation; only background-context saves need the
-                // deterministic kick. Accessing `savedContext.container` is unsafe
-                // across actor boundaries and crashes if `savedContext` is deallocating,
-                // so we check pointer inequality against `mainContext`.
-                guard savedContext !== container?.mainContext else { continue }
-                refreshMainContextAfterBackgroundSave()
+        guard let container else { return }
+        if let token = didSaveObserver {
+            NotificationCenter.default.removeObserver(token)
+            didSaveObserver = nil
+        }
+        let token = NotificationCenter.default.addObserver(
+            forName: ModelContext.didSave,
+            object: nil,
+            queue: nil
+        ) { [weak self, weak container] notification in
+            guard let container else { return }
+            guard let savedContext = notification.object as? ModelContext else { return }
+            guard savedContext.container === container else { return }
+            guard !Thread.isMainThread else { return }
+            Task { @MainActor [weak self] in
+                self?.refreshMainContextAfterBackgroundSave()
             }
         }
-        didSaveObserverMutex.withLock { $0 = task }
+        didSaveObserver = token
     }
 
     /// Forces the main context to incorporate a background save:
@@ -165,16 +172,63 @@ final class CacheService {
         UserDefaults.standard.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
     }
 
+    /// Scope-aware overload: stamps freshness for a specific database scope.
+    /// A private-only CKSyncEngine pass stamps only the private scope so a
+    /// subsequent shared-DB fetch (e.g. hero profiles in the shared database)
+    /// does not see `isCacheFresh == true` and return an empty authoritative
+    /// result. See `CachedRecordType.fetchScopes` for the scope split and
+    /// `CKSyncEngineCoordinator.completeSyncPass` for the gating logic that
+    /// requires the relevant scope to have completed before stamping.
+    func markCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, at date: Date = Date()) {
+        UserDefaults.standard.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+    }
+
     /// Returns true when a successful sync pass has stamped this
     /// family + entity type. Absent stamps (never synced) and stamps cleared
     /// by `clearAll()` / `purgeFamily(recordName:)` read as stale.
+    /// - Note: This legacy scope-agnostic check returns true if *any* scope
+    ///   has stamped the type (or the legacy unscoped key exists). Prefer the
+    ///   scope-aware `isCacheFresh(familyRecordName:type:scope:)` overload for
+    ///   new cache-first gates so a private-only stamp never satisfies a
+    ///   shared-DB read.
     func isCacheFresh(familyRecordName: String, type: CachedRecordType) -> Bool {
-        UserDefaults.standard.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type)) != nil
+        // Backward-compatible: legacy unscoped key OR any scoped key counts as fresh.
+        // New code should use the scoped overload to avoid cross-scope false positives.
+        let legacyKey = freshnessKey(familyRecordName: familyRecordName, type: type)
+        if UserDefaults.standard.object(forKey: legacyKey) != nil {
+            return true
+        }
+        for scope in [CKDatabase.Scope.private, .shared]
+            where UserDefaults.standard.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
+        {
+            return true
+        }
+        return false
+    }
+
+    /// Scope-aware freshness check. Returns true only when the given scope
+    /// has been stamped for this family + type. A private-only pass therefore
+    /// does not satisfy a shared-scope gate, fixing the hero-list-empty bug
+    /// where a subsequent `fetchProfiles` for a shared-DB hero would see an
+    /// empty cache as authoritative. Legacy unscoped keys are intentionally
+    /// not considered here so per-scope isolation is enforced; callers that
+    /// need backward compatibility should use the unscoped overload.
+    func isCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
+        UserDefaults.standard.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
     }
 
     /// Removes the freshness stamp for one family + type.
     func invalidateFreshness(familyRecordName: String, type: CachedRecordType) {
         UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
+        // Also clear scoped keys so a purge fully invalidates per-scope stamps.
+        for scope in [CKDatabase.Scope.private, .shared] {
+            UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        }
+    }
+
+    /// Scope-aware removal for one family + type + scope.
+    func invalidateFreshness(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) {
+        UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
     }
 
     /// Removes every freshness stamp (all families + types). Called by
@@ -203,93 +257,17 @@ final class CacheService {
         "\(Self.freshnessKeyPrefix)\(familyRecordName)_\(type.rawValue)"
     }
 
+    private func freshnessKey(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> String {
+        let scopeString = switch scope {
+        case .private: "private"
+        case .shared: "shared"
+        case .public: "public"
+        @unknown default: "unknown"
+        }
+        return "\(Self.freshnessKeyPrefix)\(familyRecordName)_\(scopeString)_\(type.rawValue)"
+    }
+
     // MARK: - Private Helpers
-
-    /// Deletes every record matching `predicate` from the given context.
-    /// Internal so the `CacheService+Invalidation` extension can cascade-delete
-    /// from `purgeFamily(recordName:)`.
-    func deleteAll<T: PersistentModel>(
-        from context: ModelContext?,
-        where predicate: Predicate<T>
-    ) {
-        guard let context else { return }
-        do {
-            let items = try context.fetch(FetchDescriptor<T>(predicate: predicate))
-            for item in items {
-                context.delete(item)
-            }
-        } catch {
-            logger.error("Failed to fetch \(T.self, privacy: .public) for deleteAll: \(error, privacy: .private)")
-        }
-    }
-
-    func invalidateRecord(identity: ScopedRecordIdentity, type: CachedRecordType) {
-        guard let context else { return }
-        switch type {
-        case .profile:
-            deleteByIdentity(ProfileCache.self, identity: identity, in: context)
-        case .family:
-            deleteByIdentity(FamilyCache.self, identity: identity, in: context)
-        case .quest:
-            deleteByIdentity(QuestCache.self, identity: identity, in: context)
-        case .questTemplate:
-            deleteByIdentity(QuestTemplateCache.self, identity: identity, in: context)
-        case .questCompletion:
-            deleteByIdentity(QuestCompletionCache.self, identity: identity, in: context)
-        case .ledgerEntry:
-            deleteByIdentity(LedgerEntryCache.self, identity: identity, in: context)
-        case .allowancePeriod:
-            deleteByIdentity(AllowancePeriodCache.self, identity: identity, in: context)
-        case .achievement:
-            deleteByIdentity(AchievementCache.self, identity: identity, in: context)
-        case .profileAchievement:
-            deleteByIdentity(ProfileAchievementCache.self, identity: identity, in: context)
-        case .notificationPreference:
-            deleteByIdentity(NotificationPreferenceCache.self, identity: identity, in: context)
-        case .gemLedger:
-            deleteByIdentity(GemLedgerCache.self, identity: identity, in: context)
-        case .rewardEvent:
-            deleteByIdentity(RewardEventCache.self, identity: identity, in: context)
-        }
-        _ = saveContext()
-    }
-
-    private func deleteByIdentity(
-        _ type: (some CacheMergeable).Type,
-        identity: ScopedRecordIdentity,
-        in context: ModelContext
-    ) {
-        let recordName = identity.recordID.recordName
-        do {
-            guard let match = try context.fetch(type.fetchDescriptor(recordName: recordName)).first else {
-                return
-            }
-            if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
-                guard scoped.familyRecordName == expectedFamily else {
-                    logger
-                        .warning(
-                            "Cache deletion aborted for \(recordName, privacy: .private): expected family \(expectedFamily, privacy: .private), found \(scoped.familyRecordName, privacy: .private)"
-                        )
-                    return
-                }
-            }
-            if let scoped = match as? any FamilyScopedCache {
-                if let sourceZone = scoped.sourceZoneName,
-                   identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
-                   sourceZone != identity.zoneID.zoneName
-                {
-                    logger
-                        .warning(
-                            "Cache deletion aborted for \(recordName, privacy: .private): expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)"
-                        )
-                    return
-                }
-            }
-            context.delete(match)
-        } catch {
-            logger.warning("Failed to fetch \(recordName, privacy: .private) for identity deletion: \(error, privacy: .private)")
-        }
-    }
 
     private func logFamilyMismatch(
         action: String,
@@ -399,6 +377,9 @@ final class CacheService {
             )
             return
         }
+        // isServerSync:true advances lastSyncedXP baseline to prevent cumulative delta drift
+        // (Bug A: without advancing, clientDelta = clientXP - lastSyncedXP double-counts).
+        // ProfileCache.update handles lastSyncedXP = profile.xp when isServerSync is true.
         applyUpsert(profile, type: ProfileCache.self, recordName: profile.id.recordName,
                     familyRecordName: familyRecordName ?? profile.family.recordID.recordName,
                     isServerSync: isServerSync, entityName: "Profile")
@@ -521,6 +502,14 @@ final class CacheService {
                     isServerSync: isServerSync, entityName: "GemLedger")
     }
 
+    // MARK: - RewardEvent Atomic Gate
+
+    /// Persists a RewardEvent that has been atomically claimed on CloudKit.
+    /// Call only after `CloudKitService.claimRewardEvent` returns true; the
+    /// deterministic ID `reward-{completionID}` guarantees at-most-once minting
+    /// across concurrent devices. Persisting before the claim would leave a
+    /// phantom local row and a pending sync that later rehydrates `xpCredited`
+    /// via `BackgroundCacheActor.reconcileRewardEvents`.
     func upsertRewardEvent(_ event: RewardEvent, family familyRecordName: String? = nil, isServerSync: Bool = false) {
         if let explicit = familyRecordName, explicit != event.family.recordID.recordName {
             logFamilyMismatch(
@@ -537,6 +526,13 @@ final class CacheService {
                     isServerSync: isServerSync, entityName: "RewardEvent")
     }
 
+    /// Removes a phantom RewardEvent left locally when the atomic claim loses.
+    /// The loser must not retain the optimistic row or its pending sync, otherwise
+    /// a later fetch would hydrate `xpCredited` via `reconcileRewardEvents`.
+    func removePhantomRewardEvent(recordName: String, family: String) {
+        deleteByNameAndFamily(RewardEventCache.self, recordName: recordName, familyRecordName: family)
+    }
+
     /// Applies the server-accepted balance and its immutable debit in one
     /// cache save. The server operation is authoritative; this method only
     /// reconciles the local read store after that operation succeeds.
@@ -545,6 +541,61 @@ final class CacheService {
             upsertProfile(profile, isServerSync: true)
             upsertGemLedger(ledger, isServerSync: true)
         }
+    }
+
+    // MARK: - Atomic gem credit
+
+    /// Atomically inserts a gem ledger and updates the profile's gem total in a
+    /// single ModelContext save.
+    ///
+    /// Why this exists: the deterministic ledger `recordName` is the CloudKit
+    /// idempotency key. A check-then-insert spread across two saves allows two
+    /// concurrent credits for the same logical event (e.g. the same loot drop
+    /// re-delivered via `CKSyncEngine`) to both observe `nil` and both enqueue,
+    /// double-crediting the hero. This method performs the existence check and
+    /// the ledger+profile mutation in the same MainActor-isolated transaction
+    /// and derives the new balance from the in-memory rows plus the incoming
+    /// amount, so a save failure can never leave the ledger persisted while the
+    /// profile gems diverges.
+    ///
+    /// - Returns: `true` when the ledger was inserted and the profile updated;
+    ///   `false` when a row with the same deterministic ID already existed or
+    ///   the save failed.
+    func atomicallyApplyGemCredit(ledger: GemLedger, to profile: Profile) -> Bool {
+        guard let context else { return false }
+        let familyName = ledger.family.recordID.recordName
+        let recordName = ledger.id.recordName
+
+        // Idempotency check inside the same transaction as the insert.
+        if fetchGemLedger(recordName: recordName, family: familyName) != nil {
+            return false
+        }
+
+        // Compute the new balance from existing rows plus the incoming amount
+        // rather than re-fetching after insertion — the latter would see a
+        // stale context if the subsequent profile save failed.
+        let profileRecordName = ledger.profileRecordName
+        let predicate = #Predicate<GemLedgerCache> {
+            $0.profileRecordName == profileRecordName && $0.familyRecordName == familyName
+        }
+        let existing: [GemLedgerCache]
+        do {
+            existing = try context.fetch(FetchDescriptor<GemLedgerCache>(predicate: predicate))
+        } catch {
+            logger.error("Failed to fetch GemLedgerCache for balance: \(error, privacy: .private)")
+            return false
+        }
+        let newBalance = existing.reduce(0) { $0 + $1.amount } + ledger.amount
+        var updatedProfile = profile
+        updatedProfile.gems = newBalance
+
+        // Single transaction for both rows — either both persist or neither does,
+        // preventing ledger/profile divergence on a partial save failure.
+        isBatching = true
+        upsertGemLedger(ledger)
+        upsertProfile(updatedProfile)
+        isBatching = false
+        return saveContext()
     }
 
     func upsertProfileAchievement(_ pa: ProfileAchievement, family familyRecordName: String? = nil, isServerSync: Bool = false) {

@@ -115,7 +115,28 @@ final class FamilyService: FamilyProfileFetching {
     /// stays valid for the lifetime of the service. Serves the onboarding
     /// checks (`checkForExistingFamily`, `findOwnedFamily`) without repeated
     /// network round-trips to `CKContainer.fetchUserRecordID()`.
-    private var cachedUserRecordID: CKRecord.ID?
+    ///
+    /// Coalesced via `Task` caching: concurrent callers share the same
+    /// in-flight `currentUserRecordID()` fetch instead of issuing duplicate
+    /// network calls. Two concurrent `resolveCurrentUserRecordID()` invocations
+    /// that both observe `nil` coalesce onto the single stored
+    /// `Task<CKRecord.ID, Error>`; a flaky-network failure in one of two raced
+    /// fetches cannot spuriously throw `accountUnavailable` when the other
+    /// succeeded. On failure the cached task is cleared so a later retry can
+    /// re-resolve. Protected by a `Mutex` around the task reference so the
+    /// check-then-create is atomic. This cache is **private to onboarding
+    /// dedupe** — the security-relevant owner-anchor check (`isFamilyOwner`)
+    /// deliberately bypasses it and re-resolves `cloudKit.currentUserRecordID()`
+    /// fresh on every call so an OS-level iCloud account switch without an app
+    /// relaunch can never be masked by a stale pre-switch identity.
+    private final class CachedUserRecordIDTaskBox: @unchecked Sendable {
+        let task: Task<CKRecord.ID, any Error>
+        init(_ task: Task<CKRecord.ID, any Error>) {
+            self.task = task
+        }
+    }
+
+    private let cachedUserRecordIDTaskMutex = Mutex<CachedUserRecordIDTaskBox?>(nil)
 
     init(
         cloudKit: any CloudKitServiceProtocol,
@@ -616,18 +637,61 @@ final class FamilyService: FamilyProfileFetching {
     /// cached identity. Throws `FamilyServiceError.accountUnavailable` when
     /// CloudKit cannot resolve the identity so callers can surface the
     /// iCloud-account failure to the user.
+    ///
+    /// Concurrency: coalesced via `Task` caching. The stored
+    /// `Task<CKRecord.ID, Error>` is guarded by `cachedUserRecordIDTaskMutex`
+    /// so two concurrent onboarding callers cannot both create a fetch. The
+    /// second caller awaits the first caller's in-flight task rather than
+    /// issuing a second network request; a failure in one of two raced fetches
+    /// cannot spuriously throw `accountUnavailable` when the other succeeded.
+    /// A failed task is cleared so a later retry can re-resolve.
     private func resolveCurrentUserRecordID() async throws -> CKRecord.ID {
-        if let cachedUserRecordID {
-            return cachedUserRecordID
+        if let existingBox = cachedUserRecordIDTaskMutex.withLock({ $0 }) {
+            do {
+                return try await existingBox.task.value
+            } catch {
+                cachedUserRecordIDTaskMutex.withLock { current in
+                    if current === existingBox {
+                        current = nil
+                    }
+                }
+                throw FamilyServiceError.accountUnavailable
+            }
         }
-        let userRecordID: CKRecord.ID
+        let newTask = Task<CKRecord.ID, any Error> {
+            try await cloudKit.currentUserRecordID()
+        }
+        let newBox = CachedUserRecordIDTaskBox(newTask)
+        let boxToAwait: CachedUserRecordIDTaskBox = cachedUserRecordIDTaskMutex.withLock { current in
+            if let existing = current {
+                return existing
+            }
+            current = newBox
+            return newBox
+        }
+        if boxToAwait !== newBox {
+            newTask.cancel()
+            do {
+                return try await boxToAwait.task.value
+            } catch {
+                cachedUserRecordIDTaskMutex.withLock { current in
+                    if current === boxToAwait {
+                        current = nil
+                    }
+                }
+                throw FamilyServiceError.accountUnavailable
+            }
+        }
         do {
-            userRecordID = try await cloudKit.currentUserRecordID()
+            return try await boxToAwait.task.value
         } catch {
+            cachedUserRecordIDTaskMutex.withLock { current in
+                if current === boxToAwait {
+                    current = nil
+                }
+            }
             throw FamilyServiceError.accountUnavailable
         }
-        cachedUserRecordID = userRecordID
-        return userRecordID
     }
 
     /// Resolves the Family for a member profile (cache-first, then CloudKit) so
@@ -661,12 +725,10 @@ final class FamilyService: FamilyProfileFetching {
     /// exercise the in-flight dedupe.
     func refreshProfilesFromCloudKit(for family: Family) async {
         let key = "profiles|\(family.id.recordName)"
-        let alreadyInFlight = refreshInFlightKeys.withLock { keys -> Bool in
-            if keys.contains(key) {
+        let alreadyInFlight = refreshInFlightKeys.withLock {
+            if $0.contains(key) {
                 return true
-            }
-            keys.insert(key)
-            return false
+            }; $0.insert(key); return false
         }
         guard !alreadyInFlight else { return }
         defer { refreshInFlightKeys.withLock { _ = $0.remove(key) } }

@@ -267,6 +267,81 @@ actor BackgroundCacheActor {
         return success
     }
 
+    // MARK: - Atomic gem credit
+
+    /// Atomically inserts a gem ledger and reconciles the profile balance in a
+    /// single background save.
+    ///
+    /// Why this exists: the deterministic ledger `recordName` is the idempotency
+    /// key for cross-device gem credits. A check-then-insert split across two
+    /// saves allows concurrent `CKSyncEngine` deliveries of the same logical event
+    /// to double-credit. The existence check, balance derivation, and
+    /// ledger+profile mutation execute in the same actor-isolated
+    /// `ModelContext` transaction; the new balance is computed from in-memory
+    /// rows plus the incoming amount so a partial save can never diverge ledger
+    /// and profile.
+    ///
+    /// - Returns: `true` when the ledger was inserted and the profile reconciled;
+    ///   `false` when a row with the same deterministic ID already existed or
+    ///   the save failed.
+    @discardableResult
+    func atomicallyApplyGemCredit(ledger: GemLedger, profile: Profile) async -> Bool {
+        let familyName = ledger.family.recordID.recordName
+        let recordName = ledger.id.recordName
+        let profileRecordName = ledger.profileRecordName
+
+        // Idempotency check inside the same actor transaction.
+        do {
+            let existing = try modelContext.fetch(
+                FetchDescriptor<GemLedgerCache>(predicate: #Predicate {
+                    $0.recordName == recordName && $0.familyRecordName == familyName
+                })
+            )
+            if existing.first != nil {
+                return false
+            }
+        } catch {
+            logger.error("Failed to check existing GemLedger \(recordName, privacy: .private): \(error, privacy: .private)")
+            return false
+        }
+
+        // Derive new balance from existing rows plus incoming amount.
+        let existingRows: [GemLedgerCache]
+        do {
+            existingRows = try modelContext.fetch(
+                FetchDescriptor<GemLedgerCache>(predicate: #Predicate {
+                    $0.profileRecordName == profileRecordName && $0.familyRecordName == familyName
+                })
+            )
+        } catch {
+            logger.error("Failed to fetch GemLedgerCache for balance: \(error, privacy: .private)")
+            return false
+        }
+        let newBalance = existingRows.reduce(0) { $0 + $1.amount } + ledger.amount
+        var updatedProfile = profile
+        updatedProfile.gems = newBalance
+
+        // Single transaction for both rows.
+        let cache = GemLedgerCache(from: ledger)
+        modelContext.insert(cache)
+
+        do {
+            let profileDescriptor = FetchDescriptor<ProfileCache>(predicate: #Predicate {
+                $0.recordName == profileRecordName && $0.familyRecordName == familyName
+            })
+            if let existingProfile = try modelContext.fetch(profileDescriptor).first {
+                existingProfile.update(from: updatedProfile, isServerSync: true)
+            } else {
+                modelContext.insert(ProfileCache(from: updatedProfile))
+            }
+        } catch {
+            logger.error("Failed to fetch ProfileCache for gem credit: \(error, privacy: .private)")
+            return false
+        }
+
+        return saveContext()
+    }
+
     @discardableResult
     func batchUpsertRewardEvents(_ events: [RewardEvent], familyRecordName: String? = nil) async -> Bool {
         if let familyRecordName {
@@ -649,14 +724,39 @@ actor BackgroundCacheActor {
                    identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
                    sourceZone != identity.zoneID.zoneName
                 {
-                    logger
-                        .warning(
-                            """
-                            BackgroundCacheActor deletion aborted for \(recordName, privacy: .private): \
-                            expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)
-                            """
-                        )
-                    return
+                    // Zone-switch orphan: same family, identity zone is the active
+                    // family zone (owner recreated family with same recordName but
+                    // new zone). Delete the orphan; otherwise keep warning.
+                    let isFamilyMatch: Bool = {
+                        guard let expectedFamily = identity.familyRecordName else { return false }
+                        return scoped.familyRecordName == expectedFamily
+                    }()
+                    let activeZone: CKRecordZone.ID? = await MainActor.run {
+                        let defaults = UserDefaults.standard
+                        guard let zoneName = defaults.string(forKey: "session_familyZoneName"),
+                              let ownerName = defaults.string(forKey: "session_familyZoneOwnerName")
+                        else { return nil }
+                        return CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+                    }
+                    let isActiveZone = activeZone.map { $0 == identity.zoneID } ?? false
+                    if isFamilyMatch, isActiveZone {
+                        logger
+                            .info(
+                                """
+                                BackgroundCacheActor deleting orphan for \(recordName, privacy: .private): \
+                                old zone \(sourceZone, privacy: .private) → active zone \(identity.zoneID.zoneName, privacy: .private)
+                                """
+                            )
+                    } else {
+                        logger
+                            .warning(
+                                """
+                                BackgroundCacheActor deletion aborted for \(recordName, privacy: .private): \
+                                expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)
+                                """
+                            )
+                        return
+                    }
                 }
             }
             modelContext.delete(match)

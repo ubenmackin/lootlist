@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import Synchronization
 
 enum BonusObjectiveType: String, Sendable {
     case completeAllToday
@@ -59,6 +60,8 @@ final class BonusObjectiveService {
     var appState: AppState?
     var syncCoordinator: CKSyncEngineCoordinator?
 
+    private let inFlightClaims = Mutex<Set<String>>([])
+
     private static let templates: [ObjectiveTemplate] = [
         ObjectiveTemplate(type: .completeAllToday, title: "Complete All Quests", description: "Complete all of today's assigned quests", reward: 20),
         ObjectiveTemplate(type: .earlyBird, title: "Early Bird", description: "Complete your first quest before noon", reward: 15),
@@ -87,7 +90,7 @@ final class BonusObjectiveService {
     /// computed in `UInt64` before converting to `Int`, avoiding the
     /// `abs(Int.min)` runtime trap.
     func dailyObjective(for profile: Profile, date: Date = Date()) -> BonusObjective {
-        let calendar = Calendar.current
+        let calendar = Calendar.iso8601UTC
         let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
 
         // Deterministic hashing based on date and profile ID
@@ -203,6 +206,17 @@ final class BonusObjectiveService {
             throw BonusObjectiveServiceError.invalidObjective
         }
 
+        let claimKey = "\(current.id.recordName)-\(canonicalObjective.id)"
+        let alreadyInFlight = inFlightClaims.withLock { set -> Bool in
+            if set.contains(claimKey) {
+                return true
+            }
+            set.insert(claimKey)
+            return false
+        }
+        guard !alreadyInFlight else { return }
+        defer { inFlightClaims.withLock { _ = $0.remove(claimKey) } }
+
         // A synced claim is already settled even when this device has not yet
         // received the completion rows that justified it.
         guard !current.claimedBonusObjectives.contains(canonicalObjective.id) else {
@@ -267,8 +281,15 @@ final class BonusObjectiveService {
             detail: canonicalObjective.title
         )
 
+        // Re-resolve the authoritative profile from cache so the session
+        // reflects the freshly-credited gems. Assigning the stale
+        // `current` copy here would overwrite the `gems` updated inside
+        // `creditGems` (which upserted the profile with the new ledger
+        // sum) with the pre-credit value.
         if let active = appState.currentProfile, active.id == current.id {
-            appState.currentProfile = current
+            if let refreshed = cacheService.fetchProfile(recordName: current.id.recordName, family: current.family.recordID.recordName)?.toProfile(zoneID: current.id.zoneID) {
+                appState.currentProfile = refreshed
+            }
         }
 
         // Play sound

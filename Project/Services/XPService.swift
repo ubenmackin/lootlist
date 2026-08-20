@@ -123,9 +123,14 @@ final class XPService {
             cloudKit: cloudKit
         )
 
+        // Resolve authoritative hero from cache so sequential completions that
+        // both captured the same stale Profile snapshot do not lost-update XP.
+        // MainActor serializes the calls but not the read snapshot — the cache
+        // holds the post-first-upsert XP that the second call must base on.
+        let authoritative = resolveAuthoritativeHero(profile)
         let gained = max(amount, 0)
-        let oldLevel = profile.level
-        var updated = profile
+        let oldLevel = Self.level(forXP: authoritative.xp)
+        var updated = authoritative
         updated.xp += gained
         updated.level = Self.level(forXP: updated.xp)
 
@@ -266,5 +271,17 @@ final class XPService {
     /// permanently inflate every quest's XP.
     func calculatedXP(baseXP: Int, profile: Profile) -> (totalXP: Int, bonusXP: Int) {
         calculatedXP(baseXP: baseXP, streakDays: profile.dailyLoginStreakDays)
+    }
+
+    /// Resolves the authoritative hero profile from the local cache so
+    /// concurrent `addXP` calls that share the same stale snapshot do not
+    /// lost-update. Mirrors `QuestService.resolveAuthoritativeHero(_:)` so
+    /// both reward entry points read XP from the same cached source.
+    private func resolveAuthoritativeHero(_ hero: Profile) -> Profile {
+        let familyName = hero.family.recordID.recordName
+        if let cached = cacheService?.fetchProfile(recordName: hero.id.recordName, family: familyName) {
+            return cached.toProfile(zoneID: hero.id.zoneID)
+        }
+        return hero
     }
 }

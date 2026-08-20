@@ -185,6 +185,9 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         sourceZoneOwnerName = profile.id.zoneID.ownerName
         sourceDatabaseScope = inferDatabaseScope(from: profile.id.zoneID)
         if isServerSync {
+            // Advance baseline to prevent cumulative delta drift on next conflict.
+            // Without this, clientDelta = clientXP - lastSyncedXP double-counts
+            // prior deltas (Bug A). lastSyncedXP must track the last server-confirmed XP.
             lastSyncedXP = profile.xp
             if profile.encodedSystemFields != nil {
                 encodedSystemFields = profile.encodedSystemFields

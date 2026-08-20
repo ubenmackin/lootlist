@@ -71,6 +71,44 @@ final class TreasuryViewModel {
         self.appState = appState
     }
 
+    /// Async wallet refresh that fetches the authoritative `weeklyBreakdown` from
+    /// `TreasuryService`. `TreasuryService.weeklyBreakdown` **throws** on
+    /// `GoldCalculation.totalCredit` fetch failures (documented on that method)
+    /// rather than silently returning `0`. The wallet must never hang on a
+    /// `ProgressView` or crash from an uncaught throw — this is the UI-facing
+    /// `do/catch` boundary.
+    ///
+    /// On failure the last successful `weeklyBreakdown` is preserved, `errorMessage`
+    /// is set, a `ToastManager` warning is shown, and the view can retry by
+    /// calling this method again (pull-to-refresh wires directly here).
+    func refreshWeeklyBreakdown() async {
+        guard let profile = appState.currentProfile, let family = appState.family else { return }
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: profile.payoutDay ?? family.payoutDay)
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: weekOf)
+            weeklyBreakdown = breakdown
+            errorMessage = nil
+        } catch {
+            logger.warning("Failed to load weekly breakdown: \(error, privacy: .private)")
+            // Preserve last successful breakdown so the wallet does not flash empty.
+            errorMessage = "Could not load wallet totals. Pull to retry."
+            // Surface consistently with `TreasuryService.updateAllowance`'s toast
+            // so transient `totalCredit` failures are never silent.
+            if let toast = treasury.toastManager {
+                toast.show(message: errorMessage ?? "Could not load wallet totals. Pull to retry.", type: .warning)
+            }
+        }
+    }
+
+    /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
+    /// intentionally **does not throw** and does not call
+    /// `TreasuryService.weeklyBreakdown` / `GoldCalculation.totalCredit`.
+    /// It derives gold via `GoldCalculation.netWeeklyGold` (pure cache math)
+    /// so the wallet hydrates instantly offline and never hangs on a network
+    /// failure. Throwing CloudKit work belongs in `refreshWeeklyBreakdown()`
+    /// above, which callers invoke with `do/catch` + toast + retry.
     func rebuildLists(logs: [QuestCompletionCache], ledgers: [LedgerEntryCache], quests: [QuestCache], allowancePeriods: [AllowancePeriodCache], scope: CalendarScope) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName

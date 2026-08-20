@@ -48,6 +48,15 @@ final class FamilyDashboardViewModel {
     private let appState: AppState
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboard")
 
+    /// Mirrors `TreasuryService.toastManager` so async breakdown fetches can
+    /// surface `GoldCalculation.totalCredit` throw failures with a retry toast
+    /// rather than silently hanging the wallet. Wired by the view via
+    /// `AppDependencies` when available; nil in unit-test inits where the view
+    /// layer provides the toast.
+    var toastManager: ToastManager? {
+        treasury.toastManager
+    }
+
     /// Stable, non-PII row token cache. Each unique identity key is mapped to
     /// a deterministic SHA256 token on first encounter and reused on
     /// subsequent calls so SwiftUI row identity stays stable across refreshes.
@@ -497,6 +506,47 @@ final class FamilyDashboardViewModel {
         }
     }
 
+    /// Async week-summary refresh that exercises the throwing wallet path.
+    /// `TreasuryService.weeklyBreakdown` throws on `GoldCalculation.totalCredit`
+    /// fetch failures; this `do/catch` boundary surfaces the failure via
+    /// `loadError` + `ToastManager` + retry instead of hanging the dashboard.
+    /// The cache-first `rebuildLists` below intentionally stays `sync`/`non-throwing`
+    /// (see its doc); this async path is for callers that need authoritative
+    /// CloudKit-backed totals (e.g. pull-to-refresh, post-payout re-query).
+    func refreshWeekSummary() async {
+        guard let family = appState.family else { return }
+        let heroesForBreakdown = heroes
+        guard !heroesForBreakdown.isEmpty else { return }
+        isLoadingPayouts = true
+        defer { isLoadingPayouts = false }
+        for hero in heroesForBreakdown {
+            let profile = resolveProfile(for: hero, family: family)
+            do {
+                _ = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: Date())
+                if loadError != nil {
+                    loadError = nil
+                }
+            } catch {
+                logger.warning("Failed to load week summary for \(hero.recordName, privacy: .private): \(error, privacy: .private)")
+                loadError = "Could not load wallet totals. Pull to retry."
+                toastManager?.show(message: loadError ?? "Could not load wallet totals. Pull to retry.", type: .warning)
+                // Do not clear `weekSummary` — preserve last successful totals so UI doesn't hang empty.
+                break
+            }
+        }
+    }
+
+    private func resolveProfile(for cache: ProfileCache, family: Family) -> Profile {
+        cache.toProfile(zoneID: family.id.zoneID)
+    }
+
+    /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
+    /// intentionally **does not throw** and does not call
+    /// `TreasuryService.weeklyBreakdown` / `GoldCalculation.totalCredit`.
+    /// It derives gold via `GoldCalculation.netWeeklyGold` (pure cache math)
+    /// so the dashboard hydrates instantly offline and never hangs on a network
+    /// failure. Throwing CloudKit work belongs in `refreshWeekSummary()` above,
+    /// which callers invoke with `do/catch` + toast + retry.
     func rebuildLists(
         profiles: [ProfileCache],
         quests: [QuestCache],

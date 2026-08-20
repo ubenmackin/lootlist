@@ -74,6 +74,14 @@ enum AppConstants {
         static let totalDefaultAchievementsCount: Int = 12
         static let percentageBase: Double = 100.0
         static let previousWeekDayOffset: Int = -7
+        /// Legacy +6-day offset used before the half-open fix. Kept for
+        /// call sites that still compute `previousWeekStart` via
+        /// `date(byAdding: .day, value: previousWeekDayOffset, ...)` but
+        /// **deprecated for payout gating**: payout cutoff must use
+        /// `WeekMath.weekRange(starting: weekOf).upperBound` (exclusive
+        /// next-Monday 00:00) and gate on `now >= upperBound` to avoid
+        /// firing at Sunday 00:00 a full day early and to stay DST-safe.
+        /// See `AutoPayoutCoordinator` and `WeekMath.weekRange`.
         static let payoutCutoffDayOffset: Int = 6
     }
 

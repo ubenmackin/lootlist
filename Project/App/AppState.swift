@@ -111,7 +111,18 @@ final class AppState {
 
     var family: Family?
 
-    var familyZoneID: CKRecordZone.ID?
+    var familyZoneID: CKRecordZone.ID? {
+        didSet {
+            // Zone identity change invalidates any cached sync scope. A stale
+            // `lastSynchronizedScopeKey` would make a new family appear already
+            // synchronized and skip engine initialization even though the zone
+            // has never been hydrated on this device.
+            if oldValue != familyZoneID {
+                NotificationCenter.default.post(name: Notification.Name("didChangeFamilyZoneID"), object: nil)
+            }
+        }
+    }
+
     var isZoneOwner: Bool = false
     var cacheService: CacheService?
     var cacheInitError: AppStateError?
@@ -239,6 +250,12 @@ final class AppState {
         // Preserve `hasOnboardedKey` so the app knows this user has completed
         // onboarding before and should attempt recovery rather than showing
         // the brand-new Welcome screen on the next launch.
+
+        // Notify lifecycle coordinator that the cached scope key must be discarded.
+        // Without this, a sign-out that clears engines via `resetState` would
+        // leave `lastSynchronizedScopeKey` stale and a subsequent sign-in to a
+        // different family could incorrectly skip `initializeEngines`.
+        NotificationCenter.default.post(name: Notification.Name("didClearSession"), object: nil)
     }
 
     /// Extended session clearing that also resets CloudKit scope and engine state.

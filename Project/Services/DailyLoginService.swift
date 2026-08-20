@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 import os
 import SwiftUI
+import Synchronization
 
 enum DailyLoginStatus: Equatable, Sendable {
     case available
@@ -25,6 +26,8 @@ final class DailyLoginService {
     var cacheService: CacheService?
     var appState: AppState?
     var syncCoordinator: CKSyncEngineCoordinator?
+
+    private let inFlightClaims = Mutex<Set<String>>([])
 
     let maxCycleDay = 7
     let rewards: [Int: Int] = [
@@ -120,8 +123,10 @@ final class DailyLoginService {
         // Fail closed for a caller-supplied profile that is not the
         // authenticated active profile. Returning `.available` here would
         // make an invalid target appear claimable in a UI or shortcut.
-        guard appState?.currentProfile?.id.recordName == heroProfileRecordName,
-              let profile = resolvedActiveProfile()
+        // Single atomic read of resolvedActiveProfile avoids TOCTOU where
+        // currentProfile changes between the id check and profile resolution.
+        guard let profile = resolvedActiveProfile(),
+              profile.id.recordName == heroProfileRecordName
         else { return .claimedToday }
 
         let lastClaim = profile.dailyLoginLastClaimDay
@@ -134,7 +139,7 @@ final class DailyLoginService {
             return .available
         }
 
-        if let yesterday = yesterday(), Calendar.current.isDate(lastDate, inSameDayAs: yesterday) {
+        if let yesterday = yesterday(), Calendar.iso8601UTC.isDate(lastDate, inSameDayAs: yesterday) {
             return .available
         }
 
@@ -154,6 +159,18 @@ final class DailyLoginService {
             appState: appState,
             cloudKit: cloudKitService
         )
+
+        let today = todayString()
+        let claimKey = "daily-\(today)"
+        let alreadyInFlight = inFlightClaims.withLock { set -> Bool in
+            if set.contains(claimKey) {
+                return true
+            }
+            set.insert(claimKey)
+            return false
+        }
+        guard !alreadyInFlight else { return 0 }
+        defer { inFlightClaims.withLock { _ = $0.remove(claimKey) } }
 
         let status = checkDailyLoginStatus(heroProfileRecordName: profile.id.recordName)
         guard status != .claimedToday else { return 0 }
@@ -176,7 +193,6 @@ final class DailyLoginService {
         }
 
         let gemsToAward = rewards[cycle] ?? 5
-        let today = todayString()
 
         // Advance claim state on the Profile BEFORE crediting gems so the single
         // upsert inside `GemService.creditGems` carries both the gem increment
@@ -198,8 +214,16 @@ final class DailyLoginService {
         // the `reward-{completionID}` RewardEvent idempotency pattern.
         try await gemService.creditGems(amount: gemsToAward, to: current, source: "dailyLogin", eventKey: "daily-\(today)", detail: "Day \(cycle) reward")
 
+        // Re-resolve the authoritative profile from cache so the session
+        // reflects the freshly-credited gems. Assigning the stale
+        // `current` copy here would overwrite the `gems` updated inside
+        // `creditGems` with the pre-credit value.
         if let active = appState.currentProfile, active.id == current.id {
-            appState.currentProfile = current
+            if let refreshed = resolvedProfile(current) ?? cacheService?.fetchProfile(recordName: current.id.recordName, family: current.family.recordID.recordName)?
+                .toProfile(zoneID: current.id.zoneID)
+            {
+                appState.currentProfile = refreshed
+            }
         }
 
         soundManager.play(.dailyLogin)
@@ -212,18 +236,22 @@ final class DailyLoginService {
     private func todayString() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = .current
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.calendar = Calendar.iso8601UTC
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.string(from: Date())
     }
 
     private func dateFromString(_ str: String) -> Date? {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = .current
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.calendar = Calendar.iso8601UTC
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.date(from: str)
     }
 
     private func yesterday() -> Date? {
-        Calendar.current.date(byAdding: .day, value: -1, to: Date())
+        Calendar.iso8601UTC.date(byAdding: .day, value: -1, to: Date())
     }
 }
