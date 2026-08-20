@@ -5,12 +5,16 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
+import os
 import SwiftUI
 
 struct MascotBannerView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MascotBannerView")
+
     @Environment(BonusObjectiveService.self) private var bonusService
     @Environment(GemService.self) private var gemService
     @Environment(SoundManager.self) private var soundManager
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     let profile: Profile
     let quests: [QuestCache]
@@ -181,7 +185,17 @@ struct MascotBannerView: View {
                 // Let confetti play
                 try await Task.sleep(for: .seconds(2))
             } catch {
-                // handle error
+                Self.logger.error(
+                    """
+                    Failed to claim daily bonus objective '\(objective.title, privacy: .private)' \
+                    for hero '\(profile.displayName, privacy: .private)' \
+                    (profileID: \(profile.id.recordName, privacy: .private)): \(error, privacy: .private)
+                    """
+                )
+                toastManager?.show(
+                    message: "Could not claim bonus. Please try again.",
+                    type: .error
+                )
             }
             isClaiming = false
             showConfetti = false

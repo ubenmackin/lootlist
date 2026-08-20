@@ -528,8 +528,9 @@ final class FamilyDashboardViewModel {
                 }
             } catch {
                 logger.warning("Failed to load week summary for \(hero.recordName, privacy: .private): \(error, privacy: .private)")
+                // The view observes `loadError` and surfaces the toast, so no
+                // direct `toastManager` call here (would double-toast).
                 loadError = "Could not load wallet totals. Pull to retry."
-                toastManager?.show(message: loadError ?? "Could not load wallet totals. Pull to retry.", type: .warning)
                 // Do not clear `weekSummary` — preserve last successful totals so UI doesn't hang empty.
                 break
             }
@@ -593,11 +594,13 @@ final class FamilyDashboardViewModel {
             }
             let isPeriodPaid = heroPeriod?.statusEnum == .paid
 
-            let earned: Double
+            let questGold: Double
+            let bonusGold: Double
             if isPeriodPaid {
-                earned = 0.0
+                questGold = 0.0
+                bonusGold = 0.0
             } else {
-                let goldFromQuests = GoldCalculation.netWeeklyGold(
+                questGold = GoldCalculation.netWeeklyGold(
                     quests: quests,
                     logs: logs,
                     profileRecordName: hero.recordName,
@@ -608,11 +611,11 @@ final class FamilyDashboardViewModel {
                 let heroLedgers = ledgers.filter {
                     $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
                 }
-                let bonusGold = heroLedgers
+                bonusGold = heroLedgers
                     .filter { $0.amount > 0 && $0.source != "quest" }
                     .reduce(0.0) { $0 + $1.amount }
-                earned = goldFromQuests + bonusGold
             }
+            let earned = questGold + bonusGold
 
             let streakLogs = logs.filter { $0.completerRecordName == hero.recordName }
             let streak = StreakCalculator.computeStreak(from: streakLogs)
@@ -625,6 +628,7 @@ final class FamilyDashboardViewModel {
                 weeklyQuestsCompleted: fullyCompletedQuestsCount,
                 weeklyQuestsTotal: heroQuests.count,
                 weeklyGoldEarned: earned,
+                weeklyQuestGold: questGold,
                 currentStreak: streak,
                 trophiesEarned: trophies
             ))
@@ -704,13 +708,15 @@ struct WeekendSummary: Equatable {
 
     let totalEarned: Double
 
-    /// Amount pending payout for non-real-time heroes only.
+    /// Amount pending payout for non-real-time heroes only — quest gold
+    /// awaiting weekly settlement. Deposits/withdrawals (bonusGold) hit the
+    /// ledger immediately and must never be pending or require Process Payout.
     /// Real-time heroes' weekly gold is disbursed immediately on
     /// each quest completion, so it is never "pending" a weekly batch.
     var pendingPayoutAmount: Double {
         heroSummaries.reduce(into: 0.0) { acc, hero in
             if hero.profile.payoutPolicyEnum != .realTime {
-                acc += hero.weeklyGoldEarned
+                acc += hero.weeklyQuestGold
             }
         }
     }
@@ -737,13 +743,39 @@ struct HeroSummary: Equatable, Identifiable {
 
     let weeklyQuestsTotal: Int
 
+    /// Total earned this week for display (quest gold + immediate bonus like deposits).
     let weeklyGoldEarned: Double
+
+    /// Quest gold only — the portion that is pending payout for non-real-time heroes.
+    /// Deposits/withdrawals hit the ledger immediately and must not be pending.
+    let weeklyQuestGold: Double
 
     let currentStreak: Int
 
     let trophiesEarned: Int
 
     var avatarRenderSpec: AvatarRenderSpec?
+
+    init(
+        profile: ProfileCache,
+        weeklyQuestsCompleted: Int,
+        weeklyQuestsTotal: Int,
+        weeklyGoldEarned: Double,
+        weeklyQuestGold: Double? = nil,
+        currentStreak: Int,
+        trophiesEarned: Int,
+        avatarRenderSpec: AvatarRenderSpec? = nil
+    ) {
+        self.profile = profile
+        self.weeklyQuestsCompleted = weeklyQuestsCompleted
+        self.weeklyQuestsTotal = weeklyQuestsTotal
+        self.weeklyGoldEarned = weeklyGoldEarned
+        // Backwards compat: when called without quest-specific gold, treat total as quest gold (older tests).
+        self.weeklyQuestGold = weeklyQuestGold ?? weeklyGoldEarned
+        self.currentStreak = currentStreak
+        self.trophiesEarned = trophiesEarned
+        self.avatarRenderSpec = avatarRenderSpec
+    }
 }
 
 /// A `CKShare` participant (or participant-derived identity) shown in the Guild

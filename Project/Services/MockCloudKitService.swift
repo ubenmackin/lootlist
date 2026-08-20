@@ -72,6 +72,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
     /// matching role shares rather than returning after the first match.
     private(set) var revokedShareIDs: [CKRecord.ID] = []
     var fetchError: Error?
+    var queryError: Error?
     /// Optional per-test injection: when set, `save` throws this error after
     /// persisting the record's `CKRecord` form into the mock store. Mirrors
     /// `fetchError` so tests can drive a save-time conflict (e.g.
@@ -274,6 +275,9 @@ class MockCloudKitService: CloudKitServiceProtocol {
     func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?,
                                   using db: CKDatabase? = nil) async throws -> [T]
     {
+        if let queryError {
+            throw queryError
+        }
         let scope: CKDatabase.Scope? = db?.databaseScope
         let targetZone = zoneID ?? activeFamilyZoneID
         let records = try mockStore.query(T.self, predicate: predicate, in: targetZone, sortDescriptors: sortDescriptors, databaseScope: scope)

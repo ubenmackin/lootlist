@@ -126,6 +126,8 @@ final class FamilyService: FamilyProfileFetching {
     /// and duplicate server-derived writes.
     private let refreshInFlightKeys = Mutex<Set<String>>([])
 
+    // MARK: - Identity Caching
+
     /// The current user's CloudKit record ID, resolved lazily and cached so an
     /// onboarding flow resolves the identity exactly once. CloudKit identities
     /// are immutable for a signed-in user within a session, so the cached value

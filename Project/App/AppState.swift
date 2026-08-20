@@ -12,6 +12,7 @@ import os
 extension Notification.Name {
     static let didClearSession = Notification.Name("didClearSession")
     static let didChangeFamilyZoneID = Notification.Name("didChangeFamilyZoneID")
+    static let familyAccessRevoked = Notification.Name("familyAccessRevoked")
 }
 
 @MainActor
@@ -116,9 +117,15 @@ final class AppState {
 
     var family: Family?
 
+    // MARK: - Active Family Zone
+
     var familyZoneID: CKRecordZone.ID? {
         didSet {
-            guard oldValue != familyZoneID else { return }
+            // Only broadcast after the family is resolved and the zone actually
+            // changed — an early zoneID write before family is set would cause
+            // ActiveFamilyScopeGuard to see a spurious mismatch and block the
+            // offline cache fallback.
+            guard oldValue != familyZoneID, family != nil else { return }
             NotificationCenter.default.post(name: .didChangeFamilyZoneID, object: nil)
         }
     }
@@ -272,6 +279,8 @@ final class AppState {
         clearSession()
     }
 
+    // MARK: - Session Restoration
+
     func restoreSession(cloudKit: any CloudKitServiceProtocol) async {
         guard defaults.bool(forKey: Self.hasSessionKey),
               let profileRecordName = defaults.string(forKey: Self.profileIDKey),
@@ -311,6 +320,9 @@ final class AppState {
             async let fetchedProfile = cloudKit.fetch(Profile.self, id: profileID, using: db)
             async let fetchedFamily = cloudKit.fetch(Family.self, id: familyID, using: db)
             let (profile, familyResult) = try await (fetchedProfile, fetchedFamily)
+            // Re-resolve identity fresh from CloudKit (not a cached record name) so
+            // a stale iCloud identity after an account change cannot spuriously
+            // authorize or block the session. Deny only when the mismatch is proven.
             try await ActiveFamilyScopeGuard.requireServerAuthenticatedIdentity(
                 profile: profile,
                 family: familyResult,
@@ -319,19 +331,37 @@ final class AppState {
                 cloudKit: cloudKit
             )
 
-            familyZoneID = zoneID
-            isZoneOwner = isOwner
+            // Set family before zoneID so the zone change notification sees a
+            // consistent active family and does not trigger a spurious scope mismatch.
             family = familyResult
             currentProfile = profile
+            isZoneOwner = isOwner
+            familyZoneID = zoneID
 
             authStatus = .authenticated
         } catch {
             logger.error("Session restoration failed: \(error, privacy: .private)")
             if error is ScopeViolation {
-                // The CloudKit-fetched session could not be re-authenticated for
-                // this iCloud account. Try restoring from the local cache before
-                // wiping state and falling through to discovery — the cache may
-                // still have a viable offline session from a prior successful sync.
+                // Parent stale-zone fix: an offline restore with a placeholder
+                // owner (Owner1/__defaultOwner__/CKCurrentUserDefaultName) keeps
+                // the GM writing to a local-only zone (e.g. 644...:__defaultOwner__)
+                // that heroes never see (they look at 644...:_8ca3...), so
+                // unassign appears to revert and hero fetches stay empty.
+                // Force discovery to recover the correct private-zone owner
+                // instead of staying authenticated on the wrong zone.
+                let isPlaceholderOwner = zoneOwnerName == CKCurrentUserDefaultName
+                    || zoneOwnerName == "__defaultOwner__"
+                    || zoneOwnerName == "_defaultOwner_"
+                    || zoneOwnerName == "Owner1"
+                if isPlaceholderOwner || isOwner {
+                    logger.info("ScopeViolation with placeholder/stale owner \(zoneOwnerName, privacy: .private) — clearing stale session and rediscovering")
+                    clearSessionAndCloudKitScope(cloudKit: cloudKit)
+                    authStatus = .checkingCloudData
+                    await discoverExistingCloudState(cloudKit: cloudKit)
+                    return
+                }
+                // For non-placeholder hero cases, keep the offline cache
+                // fallback when the network/identity is transiently unavailable.
                 if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
                     return
                 }
@@ -370,6 +400,19 @@ final class AppState {
             }
 
             if isUnrecoverable {
+                if !isOwner,
+                   let cloudKitError = error as? CloudKitServiceError,
+                   case .zoneNotFound = cloudKitError
+                {
+                    // A revoked shared zone must not fall back to its cached
+                    // session; that would leave a removed hero looking active.
+                    logger.info("Shared family zone is unavailable — clearing revoked hero session")
+                    NotificationCenter.default.post(name: .familyAccessRevoked, object: nil)
+                    clearSessionAndCloudKitScope(cloudKit: cloudKit)
+                    authStatus = .checkingCloudData
+                    await discoverExistingCloudState(cloudKit: cloudKit)
+                    return
+                }
                 // Try cache fallback BEFORE wiping the session — on a cold
                 // launch the zone may be valid but simply hasn't synced to
                 // this device yet, so the reachability probe can legitimately
@@ -410,10 +453,12 @@ final class AppState {
             return false
         }
 
-        familyZoneID = zoneID
-        isZoneOwner = isOwner
+        // Assign family before zoneID for the same reason as in restoreSession — the
+        // zone notification must not fire before the family context exists.
         family = cachedFamily.toFamily(zoneID: zoneID)
         currentProfile = cachedProfile.toProfile(zoneID: zoneID)
+        isZoneOwner = isOwner
+        familyZoneID = zoneID
         authStatus = .authenticated
         logger.info("Session restored from local cache (offline mode)")
         // A cache hit implies a prior successful sync; stamp the
@@ -564,10 +609,35 @@ final class AppState {
                 }
 
                 if let foundFamily = family,
-                   let userRecordID,
-                   foundFamily.creatorUserRecordName == userRecordID.recordName
-                   || foundFamily.createdBy.recordName == userRecordID.recordName
+                   let userRecordID
                 {
+                    // Placeholder-tolerant owner check: legacy/mock families were
+                    // created with placeholder creators (owner/Owner1/__defaultOwner__)
+                    // and simulator zones show as __defaultOwner__. If the private
+                    // zone itself is owned by the current user, treat it as this
+                    // user's family even when the Family record's creator fields
+                    // are stale placeholders.
+                    let zoneOwner = zone.zoneID.ownerName
+                    let isZoneOwnedByUser = zoneOwner == userRecordID.recordName
+                        || zoneOwner == CKCurrentUserDefaultName
+                        || zoneOwner == "__defaultOwner__"
+                        || zoneOwner == "_defaultOwner_"
+                    let familyCreatorMatches = foundFamily.creatorUserRecordName == userRecordID.recordName
+                        || foundFamily.createdBy.recordName == userRecordID.recordName
+                    let isPlaceholderFamilyCreator = ["owner", "Owner1", "__defaultOwner__", "_defaultOwner_", CKCurrentUserDefaultName, ""]
+                        .contains(foundFamily.creatorUserRecordName ?? "")
+                        || ["owner", "Owner1", ""].contains(foundFamily.createdBy.recordName)
+                    let shouldConsiderFamily = familyCreatorMatches || isZoneOwnedByUser || (isPlaceholderFamilyCreator && isZoneOwnedByUser)
+                    guard shouldConsiderFamily else {
+                        logger.info(
+                            """
+                            Skipping family '\(foundFamily.name, privacy: .private)' — owner mismatch \
+                            (family creator \(foundFamily.creatorUserRecordName ?? "nil", privacy: .private), \
+                            zone owner \(zoneOwner, privacy: .private))
+                            """
+                        )
+                        continue
+                    }
                     do {
                         let familyRef = CKRecord.Reference(recordID: foundFamily.id, action: .none)
                         let profiles: [Profile] = try await cloudKit.query(
@@ -577,10 +647,13 @@ final class AppState {
                             using: db
                         )
                         let matchingProfiles = profiles.filter {
-                            $0.isActive
+                            let creatorOK = $0.creatorUserRecordName == userRecordID.recordName
+                                || $0.creatorUserRecordName == nil
+                                || ["owner", "Owner1", "__defaultOwner__", "_defaultOwner_", CKCurrentUserDefaultName, ""].contains($0.creatorUserRecordName ?? "")
+                            return $0.isActive
                                 && $0.role == .guildMaster
                                 && $0.family.recordID == foundFamily.id
-                                && $0.creatorUserRecordName == userRecordID.recordName
+                                && creatorOK
                                 && $0.iCloudUserID.recordName == userRecordID.recordName
                         }
                         guard matchingProfiles.count == 1, let activeProfile = matchingProfiles.first else {
@@ -787,10 +860,10 @@ final class AppState {
             return
         }
         saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: isOwner)
-        familyZoneID = zoneID
-        isZoneOwner = isOwner
         self.family = family
         currentProfile = profile
+        isZoneOwner = isOwner
+        familyZoneID = zoneID
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = isOwner
         authStatus = .authenticated

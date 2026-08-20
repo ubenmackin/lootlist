@@ -372,7 +372,8 @@ final class QuestService {
         )
 
         let isOwner = appState.isZoneOwner
-        if acting.role.isParent, isCarryForwardSuppressible(quest) {
+        let shouldRetainTombstone = acting.role.isParent && isCarryForwardSuppressible(quest)
+        if shouldRetainTombstone {
             var tombstone = quest
             tombstone.active = false
             cacheService?.upsertQuest(tombstone)

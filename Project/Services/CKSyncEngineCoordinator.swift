@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 import Observation
 import os
+import Synchronization
 
 /// Manages `CKSyncEngine` instances across private and shared database scopes,
 /// orchestrating local-first state persistence and sync execution.
@@ -77,6 +78,14 @@ final class CKSyncEngineCoordinator {
     @ObservationIgnored private var currentPassHadParseFailures = false
     @ObservationIgnored private var currentPassHadCacheWriteFailures = false
 
+    // MARK: - Buffered Enqueue
+
+    /// Buffers record identities enqueued before engines are initialized.
+    /// Prevents data loss when `enqueueSave`/`enqueueDelete` races engine init
+    /// during initial bootstrap or rapid Guild/Hero Settings taps.
+    private let pendingEnqueueBuffer = Mutex<[ScopedRecordIdentity]>([])
+    private let pendingDeleteRecordNames = Mutex<Set<String>>([])
+
     var isSyncing: Bool = false
     var lastSyncedAt: Date?
     var syncError: String?
@@ -125,6 +134,7 @@ final class CKSyncEngineCoordinator {
         cloudKitService.activeFamilyZoneID = zoneID
         cloudKitService.activeIsOwner = appState.isZoneOwner
         setupEngines()
+        drainPendingEnqueueBuffers()
     }
 
     @available(*, deprecated, message: "Use init parameter instead")
@@ -155,8 +165,55 @@ final class CKSyncEngineCoordinator {
             )
             sharedSyncEngine = CKSyncEngine(sharedConfig)
         }
+    }
 
-        logger.info("CKSyncEngine instances initialized successfully for private and shared databases")
+    // MARK: - Buffered Enqueue Helpers
+
+    private func makeScopedIdentity(for recordID: CKRecord.ID, isOwner: Bool) -> ScopedRecordIdentity {
+        let scope: CKDatabase.Scope = isOwner ? .private : .shared
+        return ScopedRecordIdentity(
+            databaseScope: scope,
+            zoneID: recordID.zoneID,
+            recordID: recordID,
+            familyRecordName: stableFamilyRecordName()
+        )
+    }
+
+    private func drainPendingEnqueueBuffers() {
+        // Drain buffer atomically and re-enqueue via proper engine.
+        let deleteNames = pendingDeleteRecordNames.withLock { $0 }
+        let buffered = pendingEnqueueBuffer.withLock { buffer -> [ScopedRecordIdentity] in
+            let copy = buffer
+            buffer.removeAll()
+            return copy
+        }
+        // Clear delete tracking for drained identities.
+        if !buffered.isEmpty {
+            let drainedNames = Set(buffered.map(\.recordName))
+            pendingDeleteRecordNames.withLock { $0.subtract(drainedNames) }
+        }
+        for identity in buffered {
+            let isOwner = identity.databaseScope == .private
+            let isDelete = deleteNames.contains(identity.recordName)
+            guard let engine = activeEngine(isOwner: isOwner) else {
+                logger.warning("Drain failed — no engine for buffered \(isDelete ? "delete" : "save") \(identity.recordName, privacy: .private)")
+                pendingEnqueueBuffer.withLock { $0.append(identity) }
+                if isDelete {
+                    _ = pendingDeleteRecordNames.withLock { $0.insert(identity.recordName) }
+                }
+                continue
+            }
+            if isDelete {
+                engine.state.add(pendingRecordZoneChanges: [.deleteRecord(identity.recordID)])
+                logger.info("Drained buffered delete: \(identity.recordName, privacy: .private) in \(isOwner ? "private" : "shared") database")
+            } else {
+                engine.state.add(pendingRecordZoneChanges: [.saveRecord(identity.recordID)])
+                logger
+                    .info(
+                        "Drained buffered save: \(identity.recordName, privacy: .private) in \(isOwner ? "private" : "shared") database (pending=\(engine.state.pendingRecordZoneChanges.count))"
+                    )
+            }
+        }
     }
 
     // MARK: - Active Engine Selection
@@ -168,8 +225,19 @@ final class CKSyncEngineCoordinator {
     // MARK: - Public Enqueue APIs
 
     func enqueueSave(recordID: CKRecord.ID, isOwner: Bool) {
+        let identity = makeScopedIdentity(for: recordID, isOwner: isOwner)
+        // Buffer when engine is not yet available to prevent data loss during bootstrap.
+        // Uses Mutex to safely queue identities when enqueue races engine init.
+        if activeEngine(isOwner: isOwner) == nil {
+            pendingEnqueueBuffer.withLock { $0.append(identity) }
+            let pending = self.pendingEnqueueBuffer.withLock { $0.count }
+            logger.warning("No active sync engine — buffered save for \(recordID.recordName, privacy: .private) (pending=\(pending))")
+            return
+        }
         guard let engine = activeEngine(isOwner: isOwner) else {
-            logger.warning("No active sync engine available to enqueue save for \(recordID.recordName, privacy: .private)")
+            // Raced to nil between check and use — re-buffer.
+            pendingEnqueueBuffer.withLock { $0.append(identity) }
+            logger.warning("No active sync engine available to enqueue save for \(recordID.recordName, privacy: .private) — re-buffered")
             return
         }
 
@@ -193,8 +261,18 @@ final class CKSyncEngineCoordinator {
     }
 
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool) {
+        let identity = makeScopedIdentity(for: recordID, isOwner: isOwner)
+        if activeEngine(isOwner: isOwner) == nil {
+            pendingEnqueueBuffer.withLock { $0.append(identity) }
+            _ = pendingDeleteRecordNames.withLock { $0.insert(identity.recordName) }
+            let pending = self.pendingEnqueueBuffer.withLock { $0.count }
+            logger.warning("No active sync engine — buffered delete for \(recordID.recordName, privacy: .private) (pending=\(pending))")
+            return
+        }
         guard let engine = activeEngine(isOwner: isOwner) else {
-            logger.warning("No active sync engine available to enqueue delete for \(recordID.recordName, privacy: .private)")
+            pendingEnqueueBuffer.withLock { $0.append(identity) }
+            _ = pendingDeleteRecordNames.withLock { $0.insert(identity.recordName) }
+            logger.warning("No active sync engine available to enqueue delete for \(recordID.recordName, privacy: .private) — re-buffered")
             return
         }
 

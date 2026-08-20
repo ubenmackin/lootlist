@@ -15,6 +15,7 @@ struct QuestManagerView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(QuestService.self) private var questService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(\.scenePhase) private var scenePhase
 
     @Query private var cachedTemplates: [QuestTemplateCache]
@@ -85,6 +86,7 @@ struct QuestManagerView: View {
             .navigationTitle("Manage")
             .navigationBarTitleDisplayMode(.large)
             .task {
+                await lifecycleCoordinator?.performManualSync()
                 if viewModel == nil {
                     viewModel = QuestManagerViewModel(
                         questService: questService,
@@ -95,6 +97,7 @@ struct QuestManagerView: View {
                 rebuildViewModel()
             }
             .refreshable {
+                await lifecycleCoordinator?.performManualSync()
                 rebuildViewModel()
             }
             .onChange(of: scenePhase) { _, newPhase in

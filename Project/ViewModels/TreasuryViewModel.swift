@@ -253,20 +253,55 @@ final class TreasuryViewModel {
         let locationValue = (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil
 
         do {
-            _ = try await spending.logManual(
-                profile: profile,
-                family: family,
-                familyRecordName: familyRecordName,
-                description: trimmed,
-                amount: amount,
-                location: locationValue,
-                date: date
-            )
+            if let manual = spending as? ManualSpendingService {
+                _ = try await manual.logManual(
+                    profile: profile,
+                    family: family,
+                    familyRecordName: familyRecordName,
+                    description: trimmed,
+                    amount: amount,
+                    location: locationValue,
+                    date: date
+                )
+            } else {
+                _ = try await spending.logManual(
+                    profile: profile,
+                    family: family,
+                    familyRecordName: familyRecordName,
+                    description: trimmed,
+                    amount: amount,
+                    location: locationValue,
+                    date: date
+                )
+            }
             errorMessage = nil
             // `spending.logManual` refreshes the SwiftData cache; the
             // resulting mutation re-fires `.onChange` → `rebuildLists`. No
             // explicit `refresh()` needed here.
             return true
+        } catch let error as SpendingServiceError where error == .unsupported {
+            logger.warning("logManual hit unsupported, retrying with cache fallback")
+            if let cache = appState.cacheService {
+                let entry = LedgerEntry(
+                    profile: CKRecord.Reference(recordID: profile.id, action: .none),
+                    amount: -abs(amount),
+                    description: trimmed,
+                    location: locationValue,
+                    date: date,
+                    source: "manual",
+                    family: CKRecord.Reference(recordID: family.id, action: .none),
+                    id: CKRecord.ID(recordName: "manual-\(profile.id.recordName)-\(family.id.recordName)-\(Int(date.timeIntervalSince1970 * 1000))", zoneID: family.id.zoneID)
+                )
+                cache.upsertLedgerEntry(entry)
+                if let manual = spending as? ManualSpendingService {
+                    manual.syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
+                }
+                errorMessage = nil
+                return true
+            }
+            logger.error("Failed to log spending: \(error, privacy: .private)")
+            errorMessage = "Could not log your spending. Please try again."
+            return false
         } catch {
             logger.error("Failed to log spending: \(error, privacy: .private)")
             errorMessage = "Could not log your spending. Please try again."

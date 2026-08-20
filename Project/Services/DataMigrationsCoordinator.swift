@@ -334,7 +334,7 @@ extension DataMigrationsCoordinator {
                 return
             }
             // Existing preferences in zone to build idempotent set
-            let existingPrefs = await (try? cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID)) ?? []
+            let existingPrefs = try await cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID)
             let existingNames = Set(existingPrefs.map(\.id.recordName))
             var toCreate: [NotificationPreference] = []
             for profile in activeProfiles {
@@ -411,7 +411,7 @@ extension DataMigrationsCoordinator {
             let family: Family? = if let cached = cacheService?.fetchFamily(recordName: familyRecordName) {
                 cached.toFamily(zoneID: zoneID)
             } else {
-                try? await fetchRecordOrNil(Family.self, id: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), cloudKit: cloudKit)
+                try await fetchRecordOrNil(Family.self, id: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), cloudKit: cloudKit)
             }
             let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
             let activeProfiles = profiles.filter(\.isActive)
@@ -419,7 +419,7 @@ extension DataMigrationsCoordinator {
                 logger.info("No active profiles for allowance period seed.")
                 return
             }
-            let existingPeriods = await (try? cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)) ?? []
+            let existingPeriods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
             let existingNames = Set(existingPeriods.map(\.id.recordName))
             var created = 0
             for profile in activeProfiles {

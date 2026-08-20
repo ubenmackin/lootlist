@@ -147,4 +147,50 @@ struct DataMigrationsCoordinatorTests {
         #expect(migrated.name == "First Steps")
         #expect(cloudKit.deletedRecordIDs.contains(legacyAchievement.id))
     }
+
+    @Test
+    func `heroNotificationPreferenceBackfillV1 throws when preferences query fails`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let profile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user1"),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        cloudKit.seedMockRecords([profile])
+        cloudKit.queryError = CloudKitServiceError.networkUnavailable
+
+        let step = DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(cloudKit: cloudKit, cacheService: nil)
+        await #expect(throws: Error.self) {
+            try await step.run()
+        }
+    }
+
+    @Test
+    func `allowancePeriodSeedV1 throws when periods query fails`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let profile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user1"),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        cloudKit.seedMockRecords([profile])
+        cloudKit.queryError = CloudKitServiceError.networkUnavailable
+
+        let step = DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: nil)
+        await #expect(throws: Error.self) {
+            try await step.run()
+        }
+    }
 }

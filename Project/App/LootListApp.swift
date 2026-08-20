@@ -121,7 +121,7 @@ final class AppDependencies {
         let bonusObjective = BonusObjectiveService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         let equipment = EquipmentService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
 
-        let migrations = Self.makeDataMigrations(cloudKit: ck, cache: cache, backgroundCache: sharedBgActor)
+        let migrations = Self.makeDataMigrations(cloudKit: ck, cache: cache, backgroundCache: sharedBgActor, syncCoordinator: syncCoord)
 
         if isTest {
             Self.seedTestData(app: app, cloudKit: ck, cache: cache, logger: logger)
@@ -184,7 +184,8 @@ final class AppDependencies {
     private static func makeDataMigrations(
         cloudKit: CloudKitService,
         cache: CacheService?,
-        backgroundCache: BackgroundCacheActor?
+        backgroundCache: BackgroundCacheActor?,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
     ) -> DataMigrationsCoordinator {
         let migrations = DataMigrationsCoordinator()
         migrations.register(DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit))
@@ -193,6 +194,8 @@ final class AppDependencies {
         if let backgroundCache {
             migrations.register(DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: backgroundCache))
         }
+        migrations.register(DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
+        migrations.register(DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
         return migrations
     }
 
@@ -362,6 +365,9 @@ struct LootListApp: App {
                 // onboarding, authenticated) so services can surface errors
                 // universally.
                 .toastOverlay()
+                .onReceive(NotificationCenter.default.publisher(for: .familyAccessRevoked)) { _ in
+                    toastManager.show(message: "You were removed from this Guild.", type: .warning)
+                }
                 // Celebration fullscreen overlay sits above the toast layer so
                 // trophy unlocks and streak milestones take visual priority.
                 .celebrationOverlay()
