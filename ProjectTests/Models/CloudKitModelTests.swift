@@ -173,4 +173,51 @@ struct CloudKitModelTests {
         )
         #expect(bonus.amount > 0)
     }
+
+    @Test
+    func `questCompletion decoding propagates missingField and typeMismatch errors`() {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let recordID = CKRecord.ID(recordName: "qc1", zoneID: zoneID)
+        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "q1", zoneID: zoneID), action: .none)
+        let heroRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "hero1", zoneID: zoneID), action: .none)
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+
+        // 1. Missing verificationStatus field throws missingField
+        let missingFieldRecord = CKRecord(recordType: QuestCompletion.recordType, recordID: recordID)
+        missingFieldRecord["quest"] = questRef
+        missingFieldRecord["completedBy"] = heroRef
+        missingFieldRecord["completedDate"] = Date()
+        missingFieldRecord["weekOf"] = Date()
+        missingFieldRecord["family"] = familyRef
+
+        #expect(throws: CKDecodingError.self) {
+            _ = try QuestCompletion(record: missingFieldRecord)
+        }
+
+        // 2. Wrong type for verificationStatus throws typeMismatch
+        let typeMismatchRecord = CKRecord(recordType: QuestCompletion.recordType, recordID: recordID)
+        typeMismatchRecord["quest"] = questRef
+        typeMismatchRecord["completedBy"] = heroRef
+        typeMismatchRecord["completedDate"] = Date()
+        typeMismatchRecord["weekOf"] = Date()
+        typeMismatchRecord["family"] = familyRef
+        typeMismatchRecord["verificationStatus"] = 12345 // Int instead of String
+
+        #expect(throws: CKDecodingError.self) {
+            _ = try QuestCompletion(record: typeMismatchRecord)
+        }
+
+        // 3. Valid record decodes successfully
+        let validRecord = CKRecord(recordType: QuestCompletion.recordType, recordID: recordID)
+        validRecord["quest"] = questRef
+        validRecord["completedBy"] = heroRef
+        validRecord["completedDate"] = Date()
+        validRecord["weekOf"] = Date()
+        validRecord["family"] = familyRef
+        validRecord["verificationStatus"] = "verified"
+
+        let decoded = try? QuestCompletion(record: validRecord)
+        #expect(decoded != nil)
+        #expect(decoded?.verificationStatus == .verified)
+    }
 }

@@ -116,6 +116,7 @@ struct QuestsView: View {
                 rebuildViewModel()
             }
             .task {
+                await lifecycleCoordinator?.performManualSync()
                 if viewModel == nil {
                     viewModel = HeroDashboardViewModel(appState: appState)
                 }

@@ -2,7 +2,7 @@
 //  QuestService+Rewards.swift
 //  LootList
 //
-//  Created by Ben Mackin on August 6, 2026.
+//  Created by Ben Mackin on 8/6/26.
 //
 
 import CloudKit
@@ -67,35 +67,24 @@ extension QuestService {
                 // Local persistence and sync enqueue must happen after this point to avoid
                 // leaving a phantom RewardEvent that would later rehydrate xpCredited via
                 // BackgroundCacheActor.reconcileRewardEvents and double-credit.
-                let didClaim = try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil)
-                guard didClaim else {
+                guard try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil) else {
                     // Lost the race — another device already claimed the deterministic event.
-                    // Ensure no phantom row survives locally; a prior optimistic insert or
-                    // a cached row from an earlier attempt must be removed so reconcile
-                    // cannot hydrate xpCredited on the loser.
-                    if let cacheService,
-                       cacheService.fetchRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName) != nil
-                    {
-                        cacheService.invalidateRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
-                    }
+                    // Remove any phantom local row so reconcile cannot hydrate xpCredited on the loser.
+                    cacheService?.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
                     return 0
                 }
-
-                // Winner path: persist the claimed event and enqueue for CKSyncEngine sync.
                 cacheService?.upsertRewardEvent(rewardEvent)
                 syncCoordinator?.enqueueRewardEvent(rewardEvent, isOwner: appState.isZoneOwner)
 
                 // Grant XP only after this device atomically claimed the event.
                 try await xpService.addXP(totalXP, to: hero)
 
-                // Advance xpBanked locally and enqueue for sync.
                 var updatedQuest = currentQuest
                 updatedQuest.xpBanked = currentQuest.xpBanked + remaining
                 cacheService?.upsertQuest(updatedQuest)
                 let isOwner = appState.isZoneOwner
                 syncCoordinator?.enqueueSave(recordID: updatedQuest.id, isOwner: isOwner)
 
-                // Stamp completion credit only after the claim and grant.
                 await stampCompletionCredit(completion, xpGain: remaining)
 
                 // Loot drop rolls only when the reward actually settles (winner only).
@@ -110,38 +99,31 @@ extension QuestService {
             }
         }
 
-        if hero.payoutPolicy == .realTime, creditedGold > 0, let treasuryService {
-            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
-            // Consistent with `TreasuryService.updateAllowance`'s tolerant catch:
-            // log + toast + retry affordance so the wallet never silently hangs.
-            // `processRealTimeSettlement` rethrows `GoldCalculation.totalCredit`
-            // fetch failures rather than `try?` → 0; this `Task` is the UI-facing
-            // `do/catch` boundary for that throw path.
-            Task { @MainActor [logger, self] in
-                do {
-                    let family: Family
-                    let familyRecordID = quest.family.recordID
-                    if let cached = self.cacheService?.fetchFamily(recordName: familyRecordID.recordName),
-                       self.cacheService?.isCacheFresh(familyRecordName: familyRecordID.recordName, type: .family) == true
-                    {
-                        family = cached.toFamily(zoneID: familyRecordID.zoneID)
-                    } else {
-                        family = try await self.cloudKit.fetch(Family.self, id: familyRecordID)
-                        self.cacheService?.upsertFamily(family)
-                    }
-                    _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: family)
-                } catch {
-                    logger.error("Failed to process real-time settlement for hero \(hero.id.recordName, privacy: .private): \(error, privacy: .private)")
-                    // Mirror `TreasuryService.updateAllowance`'s toast so a transient
-                    // `totalCredit` fetch failure is surfaced with a retry hint instead
-                    // of silently leaving the real-time ledger entry absent.
-                    // `QuestService.toastManager` and `TreasuryService.toastManager`
-                    // share the same `ToastManager` instance via `AppDependencies`.
-                    if let toast = treasuryService.toastManager ?? self.toastManager {
-                        toast.show(message: "Could not settle quest reward. Pull to retry.", type: .warning)
-                    } else {
-                        self.toastManager?.show(message: "Could not settle quest reward. Pull to retry.", type: .warning)
-                    }
+        // Resolve family for real-time settlement (cache-first).
+        let questFamilyID = quest.family.recordID
+        let resolvedFamily: Family?
+        if let cached = cacheService?.fetchFamily(recordName: questFamilyID.recordName) {
+            resolvedFamily = cached.toFamily(zoneID: questFamilyID.zoneID)
+        } else {
+            resolvedFamily = try? await cloudKit.fetch(Family.self, id: questFamilyID)
+            if let resolvedFamily {
+                cacheService?.upsertFamily(resolvedFamily)
+            }
+        }
+
+        let effectivePolicy = treasuryService?.effectivePayoutPolicy(for: hero, family: resolvedFamily)
+            ?? (hero.payoutPolicy != .perQuest ? hero.payoutPolicy : (resolvedFamily?.payoutPolicy ?? hero.payoutPolicy))
+
+        if effectivePolicy == .realTime, creditedGold > 0, let treasuryService, let resolvedFamily {
+            do {
+                _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: resolvedFamily)
+            } catch {
+                let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
+                logger.error("Failed to process real-time settlement for hero \(hero.id.recordName, privacy: .private): \(error, privacy: .private)")
+                if let toast = treasuryService.toastManager ?? self.toastManager {
+                    toast.show(message: "Could not settle quest reward. Pull to retry.", type: .warning)
+                } else {
+                    self.toastManager?.show(message: "Could not settle quest reward. Pull to retry.", type: .warning)
                 }
             }
         }
@@ -157,11 +139,6 @@ extension QuestService {
         return quest
     }
 
-    /// Resolves the authoritative hero profile from the local cache so the
-    /// streak multiplier is read from the CloudKit-backed
-    /// `Profile.dailyLoginStreakDays` field (never from a device-local
-    /// UserDefaults counter — see ARCHITECTURE.md §2). Falls back to the
-    /// passed profile when the cache is unavailable.
     private func resolveAuthoritativeHero(_ hero: Profile) -> Profile {
         let familyName = hero.family.recordID.recordName
         if let cached = cacheService?.fetchProfile(recordName: hero.id.recordName, family: familyName) {

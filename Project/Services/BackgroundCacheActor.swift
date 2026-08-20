@@ -14,11 +14,7 @@ import SwiftData
 actor BackgroundCacheActor {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
 
-    /// Custom initializer that disables SwiftData autosave on the backing
-    /// `modelContext`. Uses a parameter label (`container:`) distinct from the
-    /// `@ModelActor`-synthesized `init(modelContainer:)` to avoid an ambiguous
-    /// overload diagnostic. This is the single source of truth for autosave
-    /// disposition — method bodies no longer toggle `autosaveEnabled`.
+    /// Disables autosave; uses `container:` label to avoid overload ambiguity.
     init(container: ModelContainer) {
         modelContainer = container
         let modelContext = ModelContext(container)
@@ -30,10 +26,6 @@ actor BackgroundCacheActor {
 
     // changeTag is copied unconditionally — nil is a meaningful "no further tag" value that must propagate.
 
-    /// Generic upsert shared by every `batchUpsert*` wrapper. Fetches existing
-    /// rows via `T.fetchDescriptor`, keys them by `recordName`, then updates or
-    /// inserts each item. The field-for-field merge lives in each type's
-    /// `CacheMergeable.update(from:)` — explicit and type-safe, no reflection.
     @discardableResult
     private func batchUpsert<T: CacheMergeable>(
         _: T.Type,
@@ -80,10 +72,6 @@ actor BackgroundCacheActor {
         return saveContext()
     }
 
-    /// Generic purge shared by every `purgeMissing*` wrapper. Deletes cached rows
-    /// whose `recordName` is absent from `validRecordNames`. Snapshot-based: an
-    /// optimistically upserted row may be reported missing; the author's
-    /// post-save re-upsert reconciles it.
     private func purgeMissing<T: CacheMergeable>(
         _: T.Type,
         validRecordNames: Set<String>,
@@ -258,7 +246,10 @@ actor BackgroundCacheActor {
     }
 
     @discardableResult
-    func batchUpsertGemLedgers(_ entries: [GemLedger], familyRecordName _: String? = nil) async -> Bool {
+    func batchUpsertGemLedgers(_ entries: [GemLedger], familyRecordName: String? = nil) async -> Bool {
+        if let familyRecordName {
+            return await batchUpsert(GemLedgerCache.self, entries, familyRecordName: familyRecordName)
+        }
         let grouped = Dictionary(grouping: entries) { $0.family.recordID.recordName }
         var success = true
         for (family, familyEntries) in grouped {

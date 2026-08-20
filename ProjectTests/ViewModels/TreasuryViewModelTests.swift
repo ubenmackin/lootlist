@@ -600,4 +600,39 @@ struct TreasuryViewModelTests {
         #expect(spendingMock.transactions.count == 1)
         #expect(spendingMock.transactions.first?.location == "Home Depot")
     }
+
+    @Test
+    func `rebuildLists recognizes allowance period with hour offset or DST variance`() {
+        let state = makeAppState()
+        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
+        let treasury = TreasuryService(cloudKit: cloudKit)
+        let spendingMock = MockSpendingService()
+        let viewModel = TreasuryViewModel(
+            treasury: treasury, spending: spendingMock, appState: state.appState
+        )
+
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        // Simulate an allowance period created with an 8-hour offset (e.g. 08:00 UTC)
+        let periodWeekOfWithOffset = currentWeek.addingTimeInterval(8 * 3600)
+
+        let allowance = AllowancePeriodCache(
+            recordName: "period-1",
+            profileRecordName: state.profileName,
+            familyRecordName: "fam1",
+            weekOf: periodWeekOfWithOffset,
+            status: PayoutStatus.paid.rawValue,
+            totalEarned: 50.0,
+            questsCompleted: 2,
+            questsTotal: 2,
+            paidDate: Date(),
+            paidAmount: 50.0
+        )
+
+        viewModel.rebuildLists(logs: [], ledgers: [], quests: [], allowancePeriods: [allowance], scope: .thisWeek)
+
+        #expect(viewModel.allowancePeriod?.status == .paid)
+        #expect(viewModel.weeklyBreakdown?.payoutStatus == .paid)
+        #expect(viewModel.weeklyBreakdown?.paidAmount == 50.0)
+        #expect(viewModel.pendingQuestGold == 0.0)
+    }
 }

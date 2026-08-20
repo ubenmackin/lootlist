@@ -9,15 +9,27 @@ import Foundation
 import os
 import SwiftUI
 
-struct LootDrop: Sendable, Equatable {
-    let gemAmount: Int
-    let description: String
-    let rarity: QuestRarity
+public struct LootDrop: Sendable, Equatable {
+    public let gemAmount: Int
+    public let description: String
+    public let rarity: QuestRarity
+
+    public init(gemAmount: Int, description: String, rarity: QuestRarity) {
+        self.gemAmount = gemAmount
+        self.description = description
+        self.rarity = rarity
+    }
 }
 
+// MARK: - LootDropService
+
+/// Grants random gem bonuses on quest verification, with a streak-weighted
+/// roll table. Kept as an open class (not final) so tests can subclass with
+/// deterministic rolls — the test target is a separate module, which can only
+/// subclass `open` types and override `open` members.
 @MainActor
 @Observable
-final class LootDropService {
+open class LootDropService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LootDrop")
     let gemService: GemService
     let toastManager: ToastManager?
@@ -25,6 +37,9 @@ final class LootDropService {
 
     /// Most recent loot drop awaiting UI presentation. Cleared after overlay dismiss.
     private(set) var pendingPresentation: LootDrop?
+    var rollProvider: ((QuestRarity, Int) -> LootDrop?)?
+
+    // MARK: - Initialization
 
     init(gemService: GemService, toastManager: ToastManager? = nil, soundManager: SoundManager? = nil) {
         self.gemService = gemService
@@ -32,7 +47,18 @@ final class LootDropService {
         self.soundManager = soundManager
     }
 
-    func rollForLoot(questRarity: QuestRarity, streakDays: Int) -> LootDrop? {
+    // MARK: - Rolling
+
+    /// Rolls the loot table for the given rarity and streak. `open` so
+    /// `DeterministicLootDropService` / `NeverDropService` in tests can
+    /// provide fixed outcomes without touching production randomness.
+    /// - why: `rollProvider` is a lightweight injection seam for previews;
+    ///   subclassing covers the separate test-module boundary where a closure
+    ///   alone would not exercise the `rollAndCredit` -> `rollForLoot` path.
+    open func rollForLoot(questRarity: QuestRarity, streakDays: Int) -> LootDrop? {
+        if let rollProvider {
+            return rollProvider(questRarity, streakDays)
+        }
         let baseChance = switch questRarity {
         case .common: 0.15
         case .rare: 0.20
@@ -69,6 +95,8 @@ final class LootDropService {
         return LootDrop(gemAmount: gemAmount, description: description, rarity: questRarity)
     }
 
+    // MARK: - Credit & Presentation
+
     /// Rolls for a loot drop (quest rarity + streak bonus) and, on a successful
     /// roll, credits the gems to the hero's ledger. The dropped ``LootDrop``
     /// (if any) is published via ``pendingPresentation`` so the hero dashboard
@@ -102,7 +130,9 @@ final class LootDropService {
             }
         }
 
-        guard let loot = rollForLoot(questRarity: questRarity, streakDays: streakDays) else {
+        // Disambiguated: explicit `self.` avoids ambiguity with the
+        // `rollProvider` closure property and satisfies the `open` dispatch.
+        guard let loot = self.rollForLoot(questRarity: questRarity, streakDays: streakDays) else {
             return nil
         }
         do {

@@ -541,7 +541,7 @@ final class AchievementService {
         let streakDays = longestConsecutiveStreak(in: dailyCompletionDates, calendar: calendar)
         let bestWeekly = computeBestWeeklyCompletion(
             profile: profile,
-            weekCompletionCounts: weekCompletionCounts,
+            approvedCountByQuest: approvedCountByQuest,
             questCache: questCache
         )
 
@@ -564,20 +564,22 @@ final class AchievementService {
 
     private func computeBestWeeklyCompletion(
         profile: Profile,
-        weekCompletionCounts: [Date: Int],
+        approvedCountByQuest: [CKRecord.ID: Int],
         questCache: [CKRecord.ID: Quest]
     ) -> Double {
         var bestWeekly = 0.0
-        for (weekOf, completedCount) in weekCompletionCounts {
-            let weekRange = WeekMath.weekRange(starting: weekOf)
-            let assignedQuests = questCache.values.filter {
-                $0.assignee.recordID == profile.id && $0.active && weekRange.contains($0.weekOf)
-            }
-            let assignedCount = assignedQuests.count
-            if assignedCount > 0 {
-                let ratio = Double(completedCount) / Double(assignedCount)
-                bestWeekly = max(bestWeekly, min(ratio, 1.0))
-            }
+        let assignedQuests = questCache.values.filter {
+            $0.assignee.recordID == profile.id && $0.active
+        }
+        let questsByWeek = Dictionary(grouping: assignedQuests, by: \.weekOf)
+        for (_, weekQuests) in questsByWeek {
+            guard !weekQuests.isEmpty else { continue }
+            let fullyCompletedCount = weekQuests.filter { quest in
+                let approvedCount = approvedCountByQuest[quest.id] ?? 0
+                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
+            }.count
+            let ratio = Double(fullyCompletedCount) / Double(weekQuests.count)
+            bestWeekly = max(bestWeekly, min(ratio, 1.0))
         }
         return bestWeekly
     }

@@ -13,6 +13,7 @@ struct TreasuryView: View {
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
     @Environment(ToastManager.self) private var toastManager: ToastManager?
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     private let spending: any SpendingService
 
@@ -122,6 +123,7 @@ struct TreasuryView: View {
                 }
             }
             .task {
+                await lifecycleCoordinator?.performManualSync()
                 if viewModel == nil {
                     viewModel = TreasuryViewModel(
                         treasury: treasury,
@@ -137,6 +139,7 @@ struct TreasuryView: View {
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
             .onChange(of: scope) { _, _ in rebuild() }
             .refreshable {
+                await lifecycleCoordinator?.performManualSync()
                 rebuild()
             }
         }

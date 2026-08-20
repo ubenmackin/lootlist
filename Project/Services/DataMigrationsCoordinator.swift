@@ -174,7 +174,8 @@ extension DataMigrationsCoordinator {
             // totalEarned with no payout entry.
             let periods = try await cloudKit.query(
                 AllowancePeriod.self,
-                predicate: NSPredicate(value: true)
+                predicate: NSPredicate(value: true),
+                in: zoneID
             )
 
             let existingLedgers = try await cloudKit.query(
@@ -302,6 +303,158 @@ extension DataMigrationsCoordinator {
                     }
                     logger.info("Migrated legacy achievement \(achievement.id.recordName, privacy: .private) to canonical \(canonicalID.recordName, privacy: .private)")
                 }
+            }
+        }
+    }
+
+    // MARK: - Hero Bootstrap Backfills
+
+    /// Backfills missing notification preferences for existing heroes so every
+    /// profile has a row per event type. Scoped to the active family zone and
+    /// skipped when rows already exist, so the migration is idempotent across
+    /// re-runs and multi-tenant families.
+    static func heroNotificationPreferenceBackfillV1(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService?,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) -> MigrationStep {
+        MigrationStep(id: "heroNotificationPreferenceBackfillV1", version: 1) {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            guard let zoneID = cloudKit.activeFamilyZoneID else {
+                logger.info("No active family zone, skipping notification preference backfill.")
+                return
+            }
+            let familyRecordName = zoneID.zoneName
+            let isOwner = cloudKit.activeIsOwner
+            // Existing profiles in this family zone
+            let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
+            let activeProfiles = profiles.filter(\.isActive)
+            guard !activeProfiles.isEmpty else {
+                logger.info("No active profiles for notification preference backfill.")
+                return
+            }
+            // Existing preferences in zone to build idempotent set
+            let existingPrefs = try await cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID)
+            let existingNames = Set(existingPrefs.map(\.id.recordName))
+            var toCreate: [NotificationPreference] = []
+            for profile in activeProfiles {
+                let profileName = profile.id.recordName
+                let familyRef = profile.family
+                for event in NotificationEventType.allCases {
+                    let deterministicName = "\(familyRecordName)-\(profileName)-\(event.rawValue)"
+                    let altName = "pref-\(profileName)-\(familyRecordName)-\(event.rawValue)"
+                    if existingNames.contains(deterministicName) || existingNames.contains(altName) {
+                        continue
+                    }
+                    // Also check local cache to avoid re-minting a row that is
+                    // already cached but not yet synced.
+                    if let cacheService,
+                       cacheService.fetchNotificationPreference(
+                           profileRecordName: profileName,
+                           familyRecordName: familyRecordName,
+                           eventType: event.rawValue
+                       ) != nil
+                    {
+                        continue
+                    }
+                    let recordID = CKRecord.ID(recordName: deterministicName, zoneID: zoneID)
+                    let pref = NotificationPreference(
+                        profile: CKRecord.Reference(recordID: profile.id, action: .none),
+                        eventType: event,
+                        enabled: true,
+                        family: familyRef,
+                        id: recordID
+                    )
+                    toCreate.append(pref)
+                }
+            }
+            guard !toCreate.isEmpty else {
+                logger.info("No missing notification preferences to backfill.")
+                return
+            }
+            // Batch upsert via cache for local immediacy, mirroring the
+            // BackgroundCacheActor batch pattern for bulk preference hydration.
+            if let cacheService {
+                cacheService.upsertNotificationPreferences(toCreate, family: familyRecordName)
+            }
+            for pref in toCreate {
+                do {
+                    let saved = try await cloudKit.save(pref, in: zoneID, using: nil)
+                    cacheService?.upsertNotificationPreference(saved)
+                    syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
+                } catch {
+                    logger.warning("Failed to backfill notification preference \(pref.id.recordName, privacy: .private): \(error, privacy: .private)")
+                }
+            }
+            logger.info("Notification preference backfill created \(toCreate.count) rows.")
+        }
+    }
+
+    /// Seeds a current-week allowance period for heroes missing one so
+    /// treasury reads always have an active period. Week anchor respects the
+    /// payout-day chain (profile → family → Sunday) and uses the same
+    /// deterministic naming as the live join seeding.
+    static func allowancePeriodSeedV1(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService?,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) -> MigrationStep {
+        MigrationStep(id: "allowancePeriodSeedV1", version: 1) {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            guard let zoneID = cloudKit.activeFamilyZoneID else {
+                logger.info("No active family zone, skipping allowance period seed.")
+                return
+            }
+            let familyRecordName = zoneID.zoneName
+            let isOwner = cloudKit.activeIsOwner
+            // Resolve family to obtain payoutDay fallback when available
+            let family: Family? = if let cached = cacheService?.fetchFamily(recordName: familyRecordName) {
+                cached.toFamily(zoneID: zoneID)
+            } else {
+                try await fetchRecordOrNil(Family.self, id: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), cloudKit: cloudKit)
+            }
+            let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
+            let activeProfiles = profiles.filter(\.isActive)
+            guard !activeProfiles.isEmpty else {
+                logger.info("No active profiles for allowance period seed.")
+                return
+            }
+            let existingPeriods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
+            let existingNames = Set(existingPeriods.map(\.id.recordName))
+            var created = 0
+            for profile in activeProfiles {
+                let payoutDay = profile.payoutDay ?? family?.payoutDay ?? .sunday
+                let startOfWeek = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+                let weekInt = Int(startOfWeek.timeIntervalSince1970)
+                let recordName = "period-\(familyRecordName)-\(profile.id.recordName)-\(weekInt)"
+                if existingNames.contains(recordName) {
+                    continue
+                }
+                if let cacheService,
+                   cacheService.fetchAllowancePeriod(recordName: recordName, family: familyRecordName) != nil
+                {
+                    continue
+                }
+                let period = AllowancePeriod(
+                    weekOf: startOfWeek,
+                    profile: CKRecord.Reference(recordID: profile.id, action: .none),
+                    questsTotal: 0,
+                    family: profile.family,
+                    id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
+                )
+                do {
+                    let saved = try await cloudKit.save(period, in: zoneID, using: nil)
+                    cacheService?.upsertAllowancePeriod(saved)
+                    syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
+                    created += 1
+                } catch {
+                    logger.warning("Failed to seed allowance period \(recordName, privacy: .private): \(error, privacy: .private)")
+                }
+            }
+            if created > 0 {
+                logger.info("Allowance period seed created \(created) rows.")
+            } else {
+                logger.info("No missing allowance periods to seed.")
             }
         }
     }

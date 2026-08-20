@@ -72,6 +72,7 @@ extension QuestCache {
         // changeTag & encodedSystemFields rehydrated from cache row per toX(zoneID:).
         quest.changeTag = changeTag
         quest.encodedSystemFields = encodedSystemFields
+        quest.active = isActive
         return quest
     }
 }

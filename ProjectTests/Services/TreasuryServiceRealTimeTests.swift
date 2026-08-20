@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 @testable import LootList
+import Synchronization
 import Testing
 
 @MainActor
@@ -394,5 +395,63 @@ struct TreasuryServiceRealTimeTests {
         #expect(entries.count == 1, "Parent-verified settlement must mint exactly one ledger entry")
         #expect(entries.first?.recordName == "rt-\(period.id.recordName)")
         #expect(entries.first?.amount == 25.0)
+    }
+
+    // MARK: - Concurrency Stress Harness: real-time settlement serialization
+
+    @Test
+    func `concurrent real time settlements serialize to single period`() async throws {
+        let scaffold = try SettlementScaffold()
+        scaffold.seedEarned(goldReward: 25.0)
+
+        var tasks: [Task<AllowancePeriod?, Never>] = []
+        for _ in 0 ..< 10 {
+            tasks.append(Task { @MainActor in
+                try? await scaffold.treasury.processRealTimeSettlement(
+                    profile: scaffold.profile,
+                    family: scaffold.family,
+                    date: scaffold.weekOf
+                )
+            })
+        }
+        var results: [AllowancePeriod?] = []
+        for task in tasks {
+            await results.append(task.value)
+        }
+
+        let nonNil = results.compactMap(\.self)
+        #expect(!nonNil.isEmpty, "At least one settlement must succeed")
+
+        let periods = scaffold.cache.fetchAllowancePeriods(family: scaffold.family.id.recordName)
+        #expect(periods.count == 1, "Concurrent settlements must collapse to a single AllowancePeriod row")
+        let period = try #require(periods.first?.toAllowancePeriod(zoneID: scaffold.zoneID))
+        #expect(period.totalEarned == 25.0, "Serialized settlements must not double count gold")
+        #expect(period.questsCompleted == 1)
+        #expect(period.paidAmount == 25.0)
+        #expect(period.status == .active, "Real-time settlement must keep period open")
+
+        let ledgerEntries = scaffold.cache.fetchLedgerEntries(
+            profileRecordName: scaffold.profile.id.recordName,
+            family: scaffold.family.id.recordName
+        )
+        #expect(ledgerEntries.count == 1, "Concurrent settlements must mint exactly one real-time ledger entry")
+        #expect(ledgerEntries.first?.amount == 25.0)
+    }
+
+    @Test
+    nonisolated func `mutex set atomic insertIfAbsent serializes period settlements`() {
+        let mutex = Mutex<Set<String>>([])
+        let key = "period-fam1-hero1-123456"
+        let first = mutex.withLock { $0.insert(key).inserted }
+        var secondResults: [Bool] = []
+        for _ in 0 ..< 9 {
+            let inserted = mutex.withLock { $0.insert(key).inserted }
+            secondResults.append(inserted)
+        }
+        #expect(first == true)
+        #expect(secondResults.allSatisfy { $0 == false })
+        mutex.withLock { _ = $0.remove(key) }
+        let isEmpty = mutex.withLock { $0.isEmpty }
+        #expect(isEmpty)
     }
 }

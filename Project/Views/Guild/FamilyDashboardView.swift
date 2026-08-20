@@ -105,6 +105,10 @@ struct FamilyDashboardView: View {
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
                 await viewModel?.refresh()
+                // Probe the throwing wallet path so a failed CloudKit re-query
+                // surfaces "Could not load wallet totals" via `loadError` → toast
+                // instead of silently serving stale cached totals.
+                await viewModel?.refreshWeekSummary()
             }
             .task {
                 if viewModel == nil {
@@ -418,7 +422,7 @@ struct FamilyDashboardView: View {
         HStack(spacing: 12) {
             statBlock(
                 icon: isPending ? "hourglass" : "banknote",
-                value: CurrencyFormatter.string(summary.totalEarned),
+                value: CurrencyFormatter.string(isPending ? summary.pendingPayoutAmount : summary.totalEarned),
                 label: isPending ? "Pending" : "Earned",
                 tint: isPending ? .orange : .gold
             )
@@ -607,7 +611,7 @@ private struct ProcessPayoutButtonView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            let amountStr = CurrencyFormatter.string(summary.totalEarned)
+            let amountStr = CurrencyFormatter.string(summary.pendingPayoutAmount)
             let text = "Process payout of \(amountStr) across all heroes with completed quests? This will settle earnings for quests completed so far this week."
             Text(text)
         }

@@ -129,7 +129,7 @@ struct HeroSettingsView: View {
                             selectedDayOverride = newDay
                         }
                         actionError = nil
-                        saveDayTask = Task { @MainActor in
+                        saveDayTask = Task {
                             do {
                                 try await Task.sleep(nanoseconds: 350_000_000)
                                 try Task.checkCancellation()
@@ -196,7 +196,7 @@ struct HeroSettingsView: View {
                 }
                 actionError = nil
 
-                saveTask = Task { @MainActor in
+                saveTask = Task {
                     do {
                         try await Task.sleep(nanoseconds: 350_000_000)
                         try Task.checkCancellation()

@@ -102,7 +102,7 @@ struct GuildPayoutDefaultsSectionView: View {
                 withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
                     selectedPolicy = policy
                 }
-                saveTask = Task { @MainActor in
+                saveTask = Task {
                     do {
                         try await Task.sleep(nanoseconds: 350_000_000)
                         try Task.checkCancellation()
@@ -161,7 +161,7 @@ struct GuildPayoutDefaultsSectionView: View {
             set: { newDay in
                 if let family = appState.family {
                     saveTaskDay?.cancel()
-                    saveTaskDay = Task { @MainActor in
+                    saveTaskDay = Task {
                         do {
                             try await Task.sleep(nanoseconds: 350_000_000)
                             try Task.checkCancellation()

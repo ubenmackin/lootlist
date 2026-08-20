@@ -9,6 +9,8 @@ import CloudKit
 import Foundation
 
 extension FamilyService {
+    // MARK: - Family Settings
+
     @discardableResult
     func updateFamilyName(family: Family, newName: String) async throws -> Family {
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -67,7 +69,9 @@ extension FamilyService {
         cacheService?.upsertFamily(updated)
         appState.family = updated
 
-        let isOwner = appState.isZoneOwner
+        // Re-resolve owner from authoritative CloudKit scope after AppState sync;
+        // avoids using a pre-debounce stale owner when the zone switched.
+        let isOwner = cloudKit.activeIsOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -126,7 +130,8 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        let isOwner = appState.isZoneOwner
+        // Re-resolve owner from authoritative CloudKit scope after AppState sync.
+        let isOwner = cloudKit.activeIsOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }

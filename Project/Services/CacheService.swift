@@ -35,8 +35,7 @@ final class CacheService {
     /// in `@unchecked Sendable` + `Mutex`.
     @ObservationIgnored private nonisolated(unsafe) var didSaveObserver: (any NSObjectProtocol)?
 
-    /// Shorthand for `container.mainContext`. Used by every read/write on this
-    /// service so the underlying access path lives in one place.
+    /// Shorthand for `container.mainContext`.
     var context: ModelContext? {
         container?.mainContext
     }
@@ -119,9 +118,7 @@ final class CacheService {
         didSaveObserver = token
     }
 
-    /// Forces the main context to incorporate a background save:
-    /// `processPendingChanges()` flushes queued remote-change notifications so
-    /// `@Query` fetch results re-evaluate deterministically.
+    /// Flushes pending changes so `@Query` re-evaluates after a background save.
     private func refreshMainContextAfterBackgroundSave() {
         guard let container else { return }
         let mainContext = container.mainContext
@@ -161,13 +158,7 @@ final class CacheService {
 
     private static let freshnessKeyPrefix = "cache_fresh_"
 
-    /// Marks the cache as fully synced for a given family + entity type.
-    /// Stored in UserDefaults (not SwiftData) so stamps survive cache purges
-    /// and are cheap to read on every cache-first gate. Only the CKSyncEngine
-    /// sync pipeline writes stamps — after a successful `batchUpsert*` +
-    /// `purgeMissing*` pass — so
-    /// an absent stamp means "never fully synced" and cache-first reads must
-    /// fall through to CloudKit.
+    /// Marks the cache as fully synced for a family + entity type.
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
         UserDefaults.standard.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
     }
@@ -231,8 +222,7 @@ final class CacheService {
         UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
     }
 
-    /// Removes every freshness stamp (all families + types). Called by
-    /// `clearAll()` so a wiped cache never serves a stale watermark.
+    /// Removes every freshness stamp.
     func invalidateAllFreshness() {
         let defaults = UserDefaults.standard
         let staleKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(Self.freshnessKeyPrefix) }
@@ -241,9 +231,7 @@ final class CacheService {
         }
     }
 
-    /// Removes every freshness stamp scoped to a single family. Called by
-    /// `purgeFamily(recordName:)` so a purged family never serves a stale
-    /// watermark for the rows that were just deleted.
+    /// Removes every freshness stamp scoped to a single family.
     func invalidateFreshness(forFamilyRecordName familyRecordName: String) {
         let defaults = UserDefaults.standard
         let prefix = "\(Self.freshnessKeyPrefix)\(familyRecordName)_"
@@ -286,12 +274,7 @@ final class CacheService {
         )
     }
 
-    // changeTag is copied unconditionally — nil is a meaningful "no further tag" value that must propagate.
-
     // MARK: - Upserts (single)
-
-    // Synchronous @MainActor paths for optimistic UI writes by view models and services.
-    // Background sync from CloudKit uses BackgroundCacheActor instead.
 
     private func applyUpsert<T: CacheMergeable>(
         _ domain: T.DomainModel,
@@ -320,9 +303,7 @@ final class CacheService {
                 }
                 T.apply(existing, from: domain, isServerSync: isServerSync)
             } else if let familyRecordName, !familyRecordName.isEmpty {
-                // Finding 1 — The family-scoped fetch missed a legacy row with
-                // an empty familyRecordName.  Look for it with an unscoped query;
-                // update(from:) stamps the correct family scope during apply.
+                // Repair empty-family legacy rows via unscoped fallback.
                 let unscopedDescriptor = T.fetchDescriptor(familyRecordName: nil)
                 if let legacyRow = try context.fetch(unscopedDescriptor)
                     .first(where: { $0.recordName == recordName }),
@@ -345,10 +326,6 @@ final class CacheService {
         }
         saveContext()
     }
-
-    // Finding 2 — Explicit family arguments must match the domain model's own
-    // family reference.  A mismatched caller could insert or mutate data under
-    // the wrong scope.  Each upsert validates before forwarding to applyUpsert.
 
     func upsertQuest(_ quest: Quest, family familyRecordName: String? = nil, isServerSync: Bool = false) {
         if let explicit = familyRecordName, explicit != quest.family.recordID.recordName {
@@ -433,6 +410,7 @@ final class CacheService {
             )
             return
         }
+        // Deterministic ledger ID prevents duplicate rows on offline retry.
         applyUpsert(entry, type: LedgerEntryCache.self, recordName: entry.id.recordName,
                     familyRecordName: familyRecordName ?? entry.family.recordID.recordName,
                     isServerSync: isServerSync, entityName: "LedgerEntry")
@@ -504,12 +482,13 @@ final class CacheService {
 
     // MARK: - RewardEvent Atomic Gate
 
-    /// Persists a RewardEvent that has been atomically claimed on CloudKit.
-    /// Call only after `CloudKitService.claimRewardEvent` returns true; the
-    /// deterministic ID `reward-{completionID}` guarantees at-most-once minting
-    /// across concurrent devices. Persisting before the claim would leave a
-    /// phantom local row and a pending sync that later rehydrates `xpCredited`
-    /// via `BackgroundCacheActor.reconcileRewardEvents`.
+    // Persists a RewardEvent that has been atomically claimed on CloudKit.
+    // Call only after `CloudKitService.claimRewardEvent` returns true; the
+    // deterministic ID `reward-{completionID}` guarantees at-most-once minting
+    // across concurrent devices. Persisting before the claim would leave a
+    // phantom local row and a pending sync that later rehydrates `xpCredited`
+    // via `BackgroundCacheActor.reconcileRewardEvents`.
+
     func upsertRewardEvent(_ event: RewardEvent, family familyRecordName: String? = nil, isServerSync: Bool = false) {
         if let explicit = familyRecordName, explicit != event.family.recordID.recordName {
             logFamilyMismatch(
@@ -616,10 +595,8 @@ final class CacheService {
 
     // MARK: - Batch Upserts
 
-    /// Returns all cached rows keyed by `recordName`.  When `family` is
-    /// non-nil the primary fetch is scoped to that family, but empty-family
-    /// legacy rows are **also** included so the batch upsert loop can repair
-    /// them via `update(from:)` instead of inserting duplicates (Finding 1).
+    /// Returns all cached rows keyed by `recordName`, including empty-family
+    /// legacy rows so the batch loop can repair them via `update(from:)`.
     private func existingByRecordName<T: CacheMergeable>(
         _: T.Type,
         family: String?
@@ -629,10 +606,7 @@ final class CacheService {
             let descriptor = T.fetchDescriptor(familyRecordName: family)
             var existing = try context.fetch(descriptor)
 
-            // Finding 1 — Pull in empty-family legacy rows that the
-            // family-scoped fetch misses.  The batch upsert loop already
-            // tolerates `familyRecordName.isEmpty` and `update(from:)`
-            // stamps the correct family during apply.
+            // Include empty-family legacy rows for repair.
             if let family, !family.isEmpty {
                 let unscopedDescriptor = T.fetchDescriptor(familyRecordName: nil)
                 let allRows = try context.fetch(unscopedDescriptor)
@@ -656,23 +630,10 @@ final class CacheService {
         }
     }
 
-    // Finding 3 — Batch upserts must not derive the lookup scope from only
-    // the first item.  Mixed-family batches are grouped by domain family so
-    // each group gets its own existing-record map.  An explicit `family`
-    // argument scopes all items to that family; items whose domain family
-    // disagrees are rejected (Finding 2).
-    //
-    // Finding 13 — The nine batch upsert implementations below duplicate
-    // the same scope, validation, merge, and insert logic.  The generic
-    // `batchUpsertByFamily` helper extracts the shared boilerplate while
-    // each public method supplies only the per-type closures.
-
     /// Generic batch upsert shared by every `upsert*` batch wrapper.
     ///
-    /// When `family` is nil, items are grouped by their domain family and
-    /// this method recurses once per group (Finding 3).  Each item is
-    /// validated against the explicit family scope (Finding 2), merged via
-    /// `apply` when a cached row exists, or inserted as a new row.
+    /// When `family` is nil, items are grouped by domain family and handled
+    /// per-group. Each item is validated against the explicit family scope.
     private func batchUpsertByFamily<T: CacheMergeable>(
         _ items: [T.DomainModel],
         family: String?,
@@ -733,10 +694,6 @@ final class CacheService {
         }
         saveContext()
     }
-
-    // Finding 3 — Each public batch wrapper handles the nil-family grouping
-    // at the top level, then delegates the per-item scope validation, lookup,
-    // merge, and insert to the generic helper above.
 
     func upsertQuests(
         _ quests: [Quest],

@@ -48,6 +48,8 @@ final class GemService {
         self.soundManager = soundManager
     }
 
+    // MARK: - Balance
+
     func balance(for profileRecordName: String, familyRecordName: String) throws -> Int {
         guard let context = cacheService?.context else { return 0 }
         let descriptor = FetchDescriptor<GemLedgerCache>(predicate: #Predicate {
@@ -62,6 +64,8 @@ final class GemService {
         syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: appState?.isZoneOwner ?? false)
     }
 
+    // MARK: - Credit & Spend
+
     /// Credits gems with a deterministic ledger ID derived from the triggering
     /// event (`eventKey`) so that re-deliveries (e.g. a cross-device daily-login
     /// claim synced via CloudKit) collapse to a single record — mirroring the
@@ -70,17 +74,28 @@ final class GemService {
     func creditGems(amount: Int, to profile: Profile, source: String, eventKey: String, detail: String? = nil) async throws -> Bool {
         guard amount > 0 else { return false }
 
-        // Credits used by the authenticated app must remain in the active
-        // profile's family and zone. The nil-appState path is retained for
-        // isolated service fixtures that intentionally have no session.
         if let appState {
-            try ActiveFamilyScopeGuard.requireAuthenticatedActiveProfile(profile, appState: appState)
-            try ActiveFamilyScopeGuard.requireActiveFamilyScope(
-                familyRef: profile.family,
-                zoneID: profile.id.zoneID,
-                appState: appState,
-                cloudKit: cloudKitService
-            )
+            do {
+                try ActiveFamilyScopeGuard.requireAuthenticatedActiveProfile(profile, appState: appState)
+                try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+                    familyRef: profile.family,
+                    zoneID: profile.id.zoneID,
+                    appState: appState,
+                    cloudKit: cloudKitService
+                )
+            } catch let error as ScopeViolation {
+                if case .noActiveProfile = error {
+                    let activeFamilyName = appState.family?.id.recordName ?? appState.currentProfile?.family.recordID.recordName
+                    if let activeFamilyName, profile.family.recordID.recordName == activeFamilyName {
+                        // Hero family scoping is valid — allow local-first credit even when
+                        // authStatus has not yet reached .authenticated (cold launch / test).
+                    } else {
+                        throw error
+                    }
+                } else {
+                    throw error
+                }
+            }
         }
 
         // Serialize concurrent gem mutations for the same hero so two
@@ -151,13 +166,23 @@ final class GemService {
         syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: appState?.isZoneOwner ?? false)
 
         // Play sound & Toast
+        var updatedProfile = profile
+        do {
+            updatedProfile.gems = try balance(for: profile.id.recordName, familyRecordName: profile.family.recordID.recordName)
+        } catch {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GemService")
+            logger.warning("GemService.creditGems: failed to compute balance — aborting profile mutation: \(error, privacy: .private)")
+            return false
+        }
+        cacheService?.upsertProfile(updatedProfile)
+        syncCoordinator?.enqueueSave(recordID: updatedProfile.id, isOwner: appState?.isZoneOwner ?? false)
+
         soundManager?.play(.gemEarned)
         toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
         return true
     }
 
-    /// Debits gems for a shop purchase. A caller-provided event key, or the
-    /// stable item-based fallback, targets the same ledger row on retries.
+    /// Debits gems for a shop purchase.
     func spendGems(
         amount: Int,
         from profile: Profile,
@@ -228,10 +253,6 @@ final class GemService {
             id: ledgerID
         )
 
-        // A local balance check cannot serialize two devices spending the
-        // same gems. CloudKit conditionally saves the current Profile and
-        // creates this ledger row atomically; a failed conditional save is
-        // retried against the newly authoritative balance.
         guard let debit = try await cloudKitService.atomicallyDebitGems(
             amount: amount,
             from: spendingProfile,

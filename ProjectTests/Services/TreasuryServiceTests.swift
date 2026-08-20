@@ -283,4 +283,90 @@ struct TreasuryServiceTests {
         #expect(breakdown.goldFromQuests == 65.0)
         #expect(breakdown.questsCount == 2)
     }
+
+    @Test
+    func `weekly breakdown respects family level allOrNothing payout policy fallback`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
+
+        let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
+
+        // Family configured with .allOrNothing
+        let family = Family(
+            name: "AON Family",
+            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            payoutPolicy: .allOrNothing,
+            id: familyID
+        )
+        // Profile has default .perQuest policy
+        let profile = Profile(
+            displayName: "Hero",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .hero,
+            iCloudUserID: profileID,
+            family: familyRef,
+            payoutPolicy: .perQuest,
+            id: profileID
+        )
+
+        let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let templateRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
+        )
+        let quest1 = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: profileID, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Quest 1",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        )
+        let quest2 = Quest(
+            template: templateRef,
+            assignee: CKRecord.Reference(recordID: profileID, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Quest 2",
+            id: CKRecord.ID(recordName: "quest2", zoneID: zoneID)
+        )
+        // Only quest1 is completed
+        let completion1 = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest1.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: profileID, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            family: familyRef
+        )
+
+        cache.upsertQuest(quest1)
+        cache.upsertQuest(quest2)
+        cache.upsertQuestCompletions([completion1])
+        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+
+        let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
+
+        // 1 out of 2 quests completed under family .allOrNothing policy must yield 0 gold
+        #expect(breakdown.goldFromQuests == 0.0)
+        #expect(breakdown.questsCount == 1)
+    }
 }

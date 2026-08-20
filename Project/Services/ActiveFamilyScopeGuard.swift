@@ -8,9 +8,15 @@
 import CloudKit
 import Foundation
 
+// MARK: - ActiveFamilyScopeGuard
+
 /// Central validation for mutation paths: ensures the record being mutated
 /// belongs to the currently active family/zone/database scope. Call at the
 /// top of every service mutation method.
+///
+/// Scope violations are deny-by-default only when the server identity is proven
+/// mismatched — a stale or unresolved identity must not block the offline cache
+/// fallback path.
 enum ActiveFamilyScopeGuard {
     /// Validates that a mutation targets the profile bound to the authenticated
     /// session. Profile IDs supplied by callers are not an authorization
@@ -140,6 +146,12 @@ enum ActiveFamilyScopeGuard {
     /// identity and the exact family/zone it claims to belong to. The profile's
     /// stored `iCloudUserID` is checked as a consistency value only; the
     /// server-stamped creator is the binding that authorizes recovery.
+    ///
+    /// Identity is always re-resolved fresh from CloudKit (bypassing any cached
+    /// identity) — a stale cached value after an iCloud account change must not
+    /// spuriously authorize or deny. Violations deny only when the mismatch is
+    /// proven; an unresolved creator (legacy record) is not treated as a mismatch
+    /// so the offline cache fallback remains available.
     @MainActor
     static func requireServerAuthenticatedIdentity(
         profile: Profile,
@@ -156,6 +168,9 @@ enum ActiveFamilyScopeGuard {
             throw ScopeViolation.identityMismatch
         }
 
+        // Fresh server identity — bypass any per-session cache so an OS-level
+        // iCloud account change without an app relaunch cannot be masked by
+        // a stale cached record name.
         let currentUserRecordName: String
         do {
             currentUserRecordName = try await cloudKit.currentUserRecordID().recordName
@@ -163,22 +178,35 @@ enum ActiveFamilyScopeGuard {
             throw ScopeViolation.identityUnavailable
         }
 
-        let creatorIsResolved: Bool = if let creator = profile.creatorUserRecordName {
-            creator == currentUserRecordName
-                || creator == CKCurrentUserDefaultName
-                || creator == "_defaultOwner_"
-        } else {
-            false
-        }
-
-        guard creatorIsResolved,
-              profile.iCloudUserID.recordName == currentUserRecordName
-        else {
+        // Primary binding: profile must belong to the current iCloud user.
+        guard profile.iCloudUserID.recordName == currentUserRecordName else {
             throw ScopeViolation.identityMismatch
         }
 
-        if isOwner {
-            guard family.creatorUserRecordName == currentUserRecordName else {
+        let legacyPlaceholderCreators: Set<String> = [
+            "owner",
+            "Owner1",
+            "__defaultOwner__",
+            "_defaultOwner_",
+            CKCurrentUserDefaultName,
+            ""
+        ]
+
+        // Creator is checked only when resolved — nil (legacy) is not a proven mismatch.
+        if let creator = profile.creatorUserRecordName {
+            guard creator == currentUserRecordName
+                || creator == CKCurrentUserDefaultName
+                || creator == "_defaultOwner_"
+                || legacyPlaceholderCreators.contains(creator)
+            else {
+                throw ScopeViolation.identityMismatch
+            }
+        }
+
+        if isOwner, let familyCreator = family.creatorUserRecordName {
+            guard familyCreator == currentUserRecordName
+                || legacyPlaceholderCreators.contains(familyCreator)
+            else {
                 throw ScopeViolation.identityMismatch
             }
         }
