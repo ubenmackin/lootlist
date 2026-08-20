@@ -345,12 +345,11 @@ final class AchievementService {
                         body: "You unlocked '\(achievement.name)'!"
                     )
                 } catch {
+                    let achievementName = achievement.id.recordName
+                    let profileName = profile.id.recordName
                     logger
                         .error(
-                            "Failed to send trophyEarned notification for achievement "
-                                + "\(achievement.id.recordName, privacy: .private) to profile "
-                                + "\(profile.id.recordName, privacy: .private): "
-                                + "\(String(describing: error), privacy: .private)"
+                            "Failed to send trophyEarned notification for achievement \(achievementName, privacy: .private) to profile \(profileName, privacy: .private): \(error, privacy: .private)"
                         )
                 }
             }
@@ -380,13 +379,9 @@ final class AchievementService {
                         body: "You've hit a \(streakDays)-day streak!"
                     )
                 } catch {
+                    let profileName = profile.id.recordName
                     logger
-                        .error(
-                            "Failed to send streakMilestone notification for "
-                                + "\(streakDays)-day streak to profile "
-                                + "\(profile.id.recordName, privacy: .private): "
-                                + "\(String(describing: error), privacy: .private)"
-                        )
+                        .error("Failed to send streakMilestone notification for \(streakDays)-day streak to profile \(profileName, privacy: .private): \(error, privacy: .private)")
                 }
             }
         }
