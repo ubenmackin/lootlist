@@ -207,6 +207,7 @@
 		C1918099647CCE0351E916E4 /* NotificationEventType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11F43417D2F508F010B5411F /* NotificationEventType.swift */; };
 		C23FC8F96ADB7F292EA634CF /* ShopItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87237129AEF89A3DE55E38BC /* ShopItem.swift */; };
 		C25E70413F77721C19BF9E71 /* GemLedgerCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB97BF352BC5ED47F52E775 /* GemLedgerCache.swift */; };
+		C28BC73EBCD90A21590A2AAA /* SendableZoneID.swift in Sources */ = {isa = PBXBuildFile; fileRef = 786104F945D32A079BC50B0D /* SendableZoneID.swift */; };
 		C304E6251241F303791BC7FB /* CKRecord+SystemFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4649822E975931113E419558 /* CKRecord+SystemFields.swift */; };
 		C33DCB3037CB75202C0E828F /* ScenarioMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */; };
 		C39438EBF30DFF55FA75FA3B /* TemplateAssignmentFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67743B73E7E943939ADDB3E /* TemplateAssignmentFormView.swift */; };
@@ -414,6 +415,7 @@
 		7532FFBC8B1222F10FB45792 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		76AF24E70BF63F8C3E4B014D /* QuestLogViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestLogViewModelTests.swift; sourceTree = "<group>"; };
 		77ED22F2224016018806795B /* CKSyncEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CKSyncEngineTests.swift; sourceTree = "<group>"; };
+		786104F945D32A079BC50B0D /* SendableZoneID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SendableZoneID.swift; sourceTree = "<group>"; };
 		793AE042C54685940F7C3EF1 /* QuestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestService.swift; sourceTree = "<group>"; };
 		79DDEB46A227911AA2752C76 /* HeroAvatarSprites+Mage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Mage.swift"; sourceTree = "<group>"; };
 		7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToastManager.swift; sourceTree = "<group>"; };
@@ -1024,6 +1026,7 @@
 				EF2DC12FFCE65FB67EBD3F1A /* FlavorTextProvider.swift */,
 				A85B9291C88BFC4D0535CE6E /* GoldCalculation.swift */,
 				BEA32A99EF7AD83493CB7E19 /* SampleData.swift */,
+				786104F945D32A079BC50B0D /* SendableZoneID.swift */,
 				DC4C7A00E79EFCE482A921A6 /* StreakCalculator.swift */,
 				CF9C9A669EA50B98696C391D /* TestEnvironment.swift */,
 				4504DC10FC68A4EC79A6C529 /* VerificationStatus+UI.swift */,
@@ -1344,6 +1347,7 @@
 				C8CD8FF93EA85F62F2D74717 /* SampleData.swift in Sources */,
 				4B2DDC650ED6CBC2A211C075 /* SceneDelegate.swift in Sources */,
 				E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */,
+				C28BC73EBCD90A21590A2AAA /* SendableZoneID.swift in Sources */,
 				C9755D15F13609830FD24E6E /* SettingsView.swift in Sources */,
 				20B709BE101F5846C617809D /* ShareSheet.swift in Sources */,
 				C23FC8F96ADB7F292EA634CF /* ShopItem.swift in Sources */,

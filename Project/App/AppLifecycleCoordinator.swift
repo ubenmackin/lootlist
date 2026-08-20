@@ -63,12 +63,17 @@ final class AppLifecycleCoordinator {
     /// `isManualSyncing` is tracked separately from `phase == .syncing` so a
     /// user-initiated manual sync is not starved while a foreground sync holds
     /// the syncing phase — the two sync paths use independent flags.
+    /// Zone identity is stored via the shared `SendableZoneID` wrapper because
+    /// `CKRecordZone.ID` is not `Sendable` under Swift 6 strict concurrency.
+    /// `SendableZoneID` preserves zone comparison semantics while keeping
+    /// `LifecycleFlags` `Sendable`. See `Project/Utilities/SendableZoneID.swift`
+    /// for the canonical definition shared across lifecycle and scope code.
     private struct LifecycleFlags: Sendable {
         var phase: Phase = .idle
         var isManualSyncing = false
         var hasCompletedInitialBootstrap = false
         var lastSynchronizedScopeKey: String?
-        var lastObservedZoneID: CKRecordZone.ID?
+        var lastObservedZoneID: SendableZoneID?
     }
 
     private let state = Mutex<LifecycleFlags>(LifecycleFlags())
@@ -150,7 +155,7 @@ final class AppLifecycleCoordinator {
         // `lastSynchronizedScopeKey` a subsequent sign-in to a different family
         // whose scope string collides could skip `initializeEngines`.
         sessionClearObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("didClearSession"),
+            forName: .didClearSession,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -163,7 +168,7 @@ final class AppLifecycleCoordinator {
         // stale `lastSynchronizedScopeKey` does not make a new zone appear
         // already synchronized.
         zoneChangeObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("didChangeFamilyZoneID"),
+            forName: .didChangeFamilyZoneID,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -204,8 +209,6 @@ final class AppLifecycleCoordinator {
 
     // MARK: - Scope Invalidation
 
-    // MARK: - Scope Invalidation
-
     /// Clears the cached scope key and resets bootstrap completion so a
     /// post-sign-out sign-in cannot reuse a stale scope and skip engine init.
     private func invalidateScopeStateForSessionClear() {
@@ -223,13 +226,14 @@ final class AppLifecycleCoordinator {
     /// scope key must be discarded, otherwise a zone switch could appear already
     /// synchronized and skip `initializeEngines`.
     private func handleZoneChangeIfNeeded(currentZoneID: CKRecordZone.ID?) {
+        let currentWrapped = currentZoneID.map(SendableZoneID.init)
         state.withLock { flags in
-            if flags.lastObservedZoneID != currentZoneID {
+            if flags.lastObservedZoneID != currentWrapped {
                 if flags.lastSynchronizedScopeKey != nil {
                     logger.info("Family zone changed — invalidating cached scope key")
                     flags.lastSynchronizedScopeKey = nil
                 }
-                flags.lastObservedZoneID = currentZoneID
+                flags.lastObservedZoneID = currentWrapped
             }
         }
     }
@@ -238,6 +242,7 @@ final class AppLifecycleCoordinator {
     /// through `initializeAndSyncActiveScope`, ensuring the scope cache is
     /// cleared even when the zone switches while engines remain initialized.
     private func invalidateScopeForZoneChange() {
+        let wrapped = appState?.familyZoneID.map(SendableZoneID.init)
         state.withLock { flags in
             if flags.lastSynchronizedScopeKey != nil {
                 logger.info("Family zone changed (notification) — invalidating cached scope key")
@@ -245,7 +250,7 @@ final class AppLifecycleCoordinator {
             }
             // Keep `lastObservedZoneID` in sync so the next
             // `handleZoneChangeIfNeeded` comparison does not double-clear.
-            flags.lastObservedZoneID = appState?.familyZoneID
+            flags.lastObservedZoneID = wrapped
         }
     }
 
@@ -433,16 +438,17 @@ final class AppLifecycleCoordinator {
         await syncCoordinator.fetchChanges()
         await syncCoordinator.sendPendingChanges()
 
+        let wrappedZoneID = SendableZoneID(zoneID)
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator, concrete.syncError == nil {
             state.withLock { flags in
                 flags.lastSynchronizedScopeKey = scopeKey
-                flags.lastObservedZoneID = zoneID
+                flags.lastObservedZoneID = wrappedZoneID
             }
         } else if syncCoordinator is CKSyncEngineCoordinator == false {
             // Test doubles have no syncError — stamp on success.
             state.withLock { flags in
                 flags.lastSynchronizedScopeKey = scopeKey
-                flags.lastObservedZoneID = zoneID
+                flags.lastObservedZoneID = wrappedZoneID
             }
         }
         return true

@@ -284,7 +284,11 @@ final class FamilyService: FamilyProfileFetching {
     /// deterministic recordName `<familyRecordName>-<requirementRawValue>`.
     private func seedDefaultAchievements(for family: Family) async {
         if let achievementService {
-            try? await achievementService.seedDefaultAchievements(family: family)
+            do {
+                try await achievementService.seedDefaultAchievements(family: family)
+            } catch {
+                logger.warning("Failed to seed default achievements for family \(family.id.recordName, privacy: .private): \(String(describing: error), privacy: .private)")
+            }
             return
         }
         // Ephemeral seeder when not injected (tests / legacy init).
@@ -294,7 +298,14 @@ final class FamilyService: FamilyProfileFetching {
             appState: appState,
             syncCoordinator: syncCoordinator
         )
-        try? await seeder.seedDefaultAchievements(family: family)
+        do {
+            try await seeder.seedDefaultAchievements(family: family)
+        } catch {
+            logger
+                .warning(
+                    "Failed to seed default achievements via ephemeral seeder for family \(family.id.recordName, privacy: .private): \(String(describing: error), privacy: .private)"
+                )
+        }
     }
 
     // MARK: - Join Family (Joiner Flow via CKShare Link)
@@ -801,7 +812,18 @@ final class FamilyService: FamilyProfileFetching {
 
         if let treasuryService {
             // Treasury path already handles cache and enqueue with its own mutex.
-            _ = try? await treasuryService.getOrCreateAllowancePeriod(profile: profile, weekOf: startOfWeek, family: family)
+            // Throw contract: `TreasuryService.getOrCreateAllowancePeriod` re-throws
+            // transient failures (never `try?` → stale `totalEarned`); surface the
+            // failure via logger + toast with retry affordance.
+            do {
+                _ = try await treasuryService.getOrCreateAllowancePeriod(profile: profile, weekOf: startOfWeek, family: family)
+            } catch {
+                logger
+                    .warning(
+                        "Failed to seed allowance period for hero \(profile.id.recordName, privacy: .private) in family \(family.id.recordName, privacy: .private): \(error, privacy: .private)"
+                    )
+                toastManager?.show(message: "Could not create allowance period. Pull to retry.", type: .warning)
+            }
             return
         }
 

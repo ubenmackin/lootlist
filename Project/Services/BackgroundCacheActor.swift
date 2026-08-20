@@ -491,7 +491,18 @@ actor BackgroundCacheActor {
     }
 
     private func applyRewardEvent(_ event: RewardEvent, to completion: QuestCompletionCache) {
-        guard completion.xpCredited == nil || (completion.xpCredited ?? 0) < event.xpAmount else { return }
+        // Hydrate idempotency marker monotonically — nil is always set, non-nil only advances
+        // when the incoming RewardEvent carries a larger amount. Preserves the non-nil
+        // credited value and prevents duplicate XP minting, matching CKSyncConflictResolver.
+        guard let credited = completion.xpCredited else {
+            completion.xpCredited = event.xpAmount
+            logger
+                .info(
+                    "Hydrated xpCredited (\(event.xpAmount)) on completion \(completion.recordName, privacy: .private) from RewardEvent \(event.id.recordName, privacy: .private)"
+                )
+            return
+        }
+        guard credited < event.xpAmount else { return }
         completion.xpCredited = event.xpAmount
         logger.info("Hydrated xpCredited (\(event.xpAmount)) on completion \(completion.recordName, privacy: .private) from RewardEvent \(event.id.recordName, privacy: .private)")
     }
