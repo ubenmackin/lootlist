@@ -186,11 +186,6 @@ struct QuestManagerView: View {
 
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
-
-        // The `@Query` declarations above already filter by
-        // `familyRecordName` (and the active flag where appropriate) at the
-        // SwiftData/SQLite layer, so we no longer post-filter the cached
-        // rows in Swift. Pass them straight through.
         vm.rebuildLists(templates: cachedTemplates, assignments: cachedAssignments)
         vm.rebuildHeroes(profiles: cachedProfiles)
     }

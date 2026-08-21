@@ -24,7 +24,7 @@ final class AppDependencies {
     let achievementService: AchievementService
     let avatarService: AvatarService
     let notificationService: NotificationService
-    let spendingService: any SpendingService
+    let spendingService: SpendingService
     let appSyncCoordinator: AppSyncCoordinator
     let dataMigrationsCoordinator: DataMigrationsCoordinator
     let autoPayoutCoordinator: AutoPayoutCoordinator
@@ -106,7 +106,7 @@ final class AppDependencies {
         achievement.notificationService = notification
         quest.achievementService = achievement
         let avatar = AvatarService(xp: xp)
-        let manualSpending = ManualSpendingService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let manualSpending = SpendingService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         manualSpending.toastManager = toast
         spendingService = manualSpending
 
@@ -188,9 +188,6 @@ final class AppDependencies {
         syncCoordinator: CKSyncEngineCoordinator? = nil
     ) -> DataMigrationsCoordinator {
         let migrations = DataMigrationsCoordinator()
-        migrations.register(DataMigrationsCoordinator.questNameBackfillV1(cloudKit: cloudKit))
-        migrations.register(DataMigrationsCoordinator.questLedgerBackfillV1(cloudKit: cloudKit, cacheService: cache))
-        migrations.register(DataMigrationsCoordinator.achievementMigrationV1(cloudKit: cloudKit, cacheService: cache))
         if let backgroundCache {
             migrations.register(DataMigrationsCoordinator.questTargetCountBackfillV2(backgroundCache: backgroundCache))
         }
@@ -457,7 +454,7 @@ private struct RootView: View {
     @Environment(ToastManager.self) private var toastManager
 
     @State private var onboardingVM: OnboardingViewModel?
-    @State private var spendingService: (any SpendingService)?
+    @State private var spendingService: SpendingService?
 
     var body: some View {
         Group {
@@ -527,7 +524,7 @@ private struct RootView: View {
                 spendingService = nil
             case .authenticated:
                 onboardingVM = nil
-                let spending = ManualSpendingService(cloudKit: cloudKitService, cacheService: cacheService, appState: appState, syncCoordinator: syncCoordinator)
+                let spending = SpendingService(cloudKit: cloudKitService, cacheService: cacheService, appState: appState, syncCoordinator: syncCoordinator)
                 spending.toastManager = toastManager
                 spendingService = spending
             case .restoringSession, .checkingCloudData, .detectedPreviousFamily, .offlineEmptyCache:

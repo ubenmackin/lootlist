@@ -25,12 +25,10 @@ final class TreasuryService {
     // MARK: - Period Creation Serialization
 
     /// Serializes concurrent `getOrCreateAllowancePeriod` calls for the same
-    /// deterministic `period-<family>-<profile>-<week>` record name. Two
-    /// quest completions in the same week would otherwise both observe nil
-    /// and create competing rows with identical record names, leaving
-    /// `totalEarned` / `questsCompleted` indeterminate after the race
-    /// through cache upsert and `enqueueSave`.
-    private let periodCreationLocks = PeriodMutex()
+    /// deterministic `period-<family>-<profile>-<week>` record name via
+    /// `GemLock`. Two quest completions in the same week would otherwise
+    /// both observe nil and create competing rows with identical record names.
+    private let periodLock = GemLock()
 
     /// The active session's app state, used to resolve the acting profile for
     /// privileged payout finalization. Wired by `AppDependencies`; optional so
@@ -81,21 +79,15 @@ final class TreasuryService {
 
     /// Wallet-week gold breakdown for a single hero. Cache-first for
     /// quest logs / assigned quests / ledger entries; falls through to
-    /// CloudKit when `CacheService.isCacheFresh` is false. Gold proration
-    /// delegates to `GoldCalculation.totalCredit` via `sumGold`.
+    /// CloudKit when `CacheService.isCacheFresh` is false. Gold proration is
+    /// pure `GoldCalculation` math over already-fetched quests.
     ///
-    /// - Throws: `CloudKitServiceError` / `CKError` when `sumGold`'s batched
-    ///   quest fetch fails, or when `fetchQuestLogs` / `fetchAssignedQuests` /
-    ///   `fetchLedgerEntries` requires a CloudKit round trip that fails.
-    ///   Transient failures are **re-thrown** (never `try?` → `0`) so callers
+    /// - Throws: `CloudKitServiceError` / `CKError` when `fetchQuestLogs` /
+    ///   `fetchAssignedQuests` / `fetchLedgerEntries` requires a CloudKit
+    ///   round trip that fails. Transient failures are re-thrown so callers
     ///   surface the failure instead of silently under-crediting the wallet.
-    ///   UI callers (ViewModels / Views) must invoke with `do { _ = try await
-    ///   treasury.weeklyBreakdown(...) } catch { toast + retry }` — a hanging
-    ///   `ProgressView` or an uncaught throw that crashes the view hierarchy
-    ///   is a contract violation. `TreasuryViewModel.refreshWeeklyBreakdown`,
-    ///   `FamilyDashboardViewModel.refreshWeekSummary`, and
-    ///   `QuestService.earnedThisWeek` document the view-model side of this
-    ///   contract.
+    ///   UI callers must invoke with `do { _ = try await
+    ///   treasury.weeklyBreakdown(...) } catch { toast + retry }`.
     func weeklyBreakdown(profile: Profile,
                          family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown
@@ -105,7 +97,8 @@ final class TreasuryService {
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: startOfWeek,
                                             weekEnding: weekRange.upperBound)
-        var goldFromQuests = try await sumGold(for: logs, family: family)
+        let quests = try await fetchQuestsForGold(family: family, logs: logs)
+        var goldFromQuests = sumGold(for: logs, quests: quests)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         let effectivePolicy = effectivePayoutPolicy(for: profile, family: family)
@@ -173,29 +166,24 @@ final class TreasuryService {
         let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
         let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(startOfWeek.timeIntervalSince1970))"
 
-        // Serialize the fetch-or-create critical section per deterministic
-        // period record name. Without this, two concurrent settlements for
-        // the same hero/week can both observe nil and create duplicate
-        // AllowancePeriod rows with identical record names.
-        try await periodCreationLocks.lock(key: periodRecordName)
-        defer { periodCreationLocks.unlock(key: periodRecordName) }
+        return try await periodLock.withLock(key: periodRecordName) {
+            // Fast cache existence check that bypasses the `isCacheFresh` gate.
+            // The cache upsert from the first holder is visible immediately even
+            // when the freshness watermark is stale; `fetchAllowancePeriod` would
+            // otherwise discard the cached row and re-query CloudKit, missing the
+            // just-created local row and creating a duplicate.
+            if let cache = cacheService,
+               let cached = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName)
+            {
+                return cached.toAllowancePeriod(zoneID: family.id.zoneID)
+            }
 
-        // Fast cache existence check that bypasses the `isCacheFresh` gate.
-        // The cache upsert from the first holder is visible immediately even
-        // when the freshness watermark is stale; `fetchAllowancePeriod` would
-        // otherwise discard the cached row and re-query CloudKit, missing the
-        // just-created local row and creating a duplicate.
-        if let cache = cacheService,
-           let cached = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName)
-        {
-            return cached.toAllowancePeriod(zoneID: family.id.zoneID)
+            if let existing = try await fetchAllowancePeriod(profile: profile, weekOf: startOfWeek) {
+                return existing
+            }
+
+            return try await createPeriod(profile: profile, family: family, weekOf: startOfWeek)
         }
-
-        if let existing = try await fetchAllowancePeriod(profile: profile, weekOf: startOfWeek) {
-            return existing
-        }
-
-        return try await createPeriod(profile: profile, family: family, weekOf: startOfWeek)
     }
 
     private func createPeriod(profile: Profile, family: Family, weekOf: Date) async throws -> AllowancePeriod {
@@ -259,16 +247,7 @@ final class TreasuryService {
 
         var updated = period
 
-        // Cache-first profile/family resolution mirrors QuestService's
-        // settlement hot path: serve the family's cached records when fresh
-        // (no CloudKit round-trip), else fall through to a single fetch.
-        // Throw contract: `weeklyBreakdown` rethrows on `GoldCalculation.totalCredit`
-        // fetch failures rather than silently under-crediting. This helper is
-        // intentionally tolerant — a transient breakdown failure falls back to the
-        // caller-supplied `totalEarned` / `questsCompleted` so an in-flight
-        // settlement never hangs the wallet — but the failure is still surfaced
-        // via `logger` + `ToastManager` with a retry affordance, consistent with
-        // `processRealTimeSettlement`'s `do/catch` in `QuestService.applyReward`.
+        // Resolve profile/family cache-first and compute breakdown.
         do {
             let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
             let family = try await resolveFamily(recordID: period.family.recordID)
@@ -398,14 +377,12 @@ final class TreasuryService {
     /// Auth / scope guards return `nil` (not `throw`) so a benign
     /// unauthorized or out-of-scope call is a no-op rather than a wallet
     /// error. All CloudKit-backed work — `getOrCreateAllowancePeriod`,
-    /// `fetchQuestLogs`, `sumGold` — **throws** on transient failure
-    /// (see `GoldCalculation.totalCredit`'s documented throw contract) and
-    /// callers must handle with `do/catch` + toast + retry rather than letting
-    /// the throw hang the UI. The canonical caller is
-    /// `QuestService.applyReward`, which wraps this in a detached `Task` with
-    /// `logger.error` + `toastManager.show` so the wallet never appears to hang
-    /// and the error is consistently surfaced (mirroring `updateAllowance`'s
-    /// tolerant `do/catch` + toast fallback).
+    /// `fetchQuestLogs` — throws on transient failure and callers must
+    /// handle with `do/catch` + toast + retry rather than letting the throw
+    /// hang the UI. The canonical caller is `QuestService.applyReward`,
+    /// which wraps this in a detached `Task` with `logger.error` +
+    /// `toastManager.show` so the wallet never appears to hang.
+    /// Gold proration itself is pure `GoldCalculation` math over already-fetched quests.
     @discardableResult
     func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
         guard let appState, let acting = appState.currentProfile,
@@ -450,7 +427,8 @@ final class TreasuryService {
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: weekOf,
                                             weekEnding: TreasuryService.weekRange(starting: weekOf).upperBound)
-        let questGold = try await sumGold(for: logs, family: family)
+        let quests = try await fetchQuestsForGold(family: family, logs: logs)
+        let questGold = sumGold(for: logs, quests: quests)
         let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         var updated = period
@@ -548,110 +526,5 @@ final class TreasuryService {
         cacheService?.upsertLedgerEntry(entry)
         let isOwner = appState?.isZoneOwner ?? false
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
-    }
-}
-
-// MARK: - PeriodMutex
-
-// MARK: - helpers
-
-/// Per-key async mutex that serializes callers contending on the same
-/// deterministic period record name while allowing different periods to
-/// proceed in parallel. The locked-key set is protected by
-/// `Synchronization.Mutex` so `unlock` stays synchronous for `defer` in
-/// `getOrCreateAllowancePeriod`; waiters suspend in an actor-isolated
-/// queue via `CheckedContinuation` rather than `Task.yield()` polling.
-/// This preserves FIFO fairness, avoids unbounded wake-ups while the
-/// holder awaits `fetchAllowancePeriod`/`fetchQuestLogs` (100s+ ms), and
-/// prevents starvation on `@MainActor` — continuations are never stored
-/// in `Mutex`-protected `Sendable` state, satisfying Swift 6 concurrency.
-private final class PeriodMutex: Sendable {
-    private struct State: Sendable {
-        var locked = Set<String>()
-    }
-
-    private let state = Mutex<State>(State())
-
-    private struct WaiterEntry {
-        let id: UUID
-        let continuation: CheckedContinuation<Void, Error>
-    }
-
-    /// Actor-isolated FIFO waiter queue — holds `CheckedContinuation`
-    /// outside `Mutex` state so `State` remains `Sendable` without
-    /// `@unchecked` suppressants.
-    private actor WaiterQueue {
-        var queues: [String: [WaiterEntry]] = [:]
-
-        func wait(for key: String, id: UUID) async throws {
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                queues[key, default: []].append(WaiterEntry(id: id, continuation: cont))
-            }
-        }
-
-        func signal(for key: String) {
-            guard var queue = queues[key], !queue.isEmpty else { return }
-            let entry = queue.removeFirst()
-            if queue.isEmpty {
-                queues.removeValue(forKey: key)
-            } else {
-                queues[key] = queue
-            }
-            entry.continuation.resume()
-        }
-
-        func cancel(for key: String, id: UUID) {
-            guard var queue = queues[key],
-                  let idx = queue.firstIndex(where: { $0.id == id })
-            else { return }
-            let entry = queue.remove(at: idx)
-            if queue.isEmpty {
-                queues.removeValue(forKey: key)
-            } else {
-                queues[key] = queue
-            }
-            entry.continuation.resume(throwing: CancellationError())
-        }
-    }
-
-    private let waiters = WaiterQueue()
-
-    /// Acquires the lock for `key`. The check-and-insert is atomic inside
-    /// `withLock`; contending callers suspend in the actor queue instead of
-    /// spinning. Cancellation is cooperative — a cancelled waiter is removed
-    /// from the queue without consuming the holder's wake-up.
-    func lock(key: String) async throws {
-        while true {
-            let acquired = state.withLock { state -> Bool in
-                if state.locked.contains(key) {
-                    return false
-                }
-                state.locked.insert(key)
-                return true
-            }
-            if acquired {
-                return
-            }
-            try Task.checkCancellation()
-            let id = UUID()
-            do {
-                try await withTaskCancellationHandler(
-                    operation: { try await waiters.wait(for: key, id: id) },
-                    onCancel: { Task { await self.waiters.cancel(for: key, id: id) } }
-                )
-            } catch is CancellationError {
-                throw CancellationError()
-            }
-        }
-    }
-
-    /// Releases the lock for `key` and wakes the next FIFO waiter, if any.
-    /// Synchronous `withLock` allows `defer { unlock }` without `await`.
-    func unlock(key: String) {
-        let wasLocked = state.withLock { state -> Bool in
-            state.locked.remove(key) != nil
-        }
-        guard wasLocked else { return }
-        Task { await waiters.signal(for: key) }
     }
 }

@@ -28,12 +28,6 @@ enum SampleData {
     static let parentID = CKRecord.ID(recordName: "parent_arthur", zoneID: zoneID)
     static let parentRef = CKRecord.Reference(recordID: parentID, action: .none)
 
-    static func startOfWeek(for date: Date) -> Date {
-        let calendar = Calendar.iso8601UTC
-        let components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
-        return calendar.date(from: components) ?? date
-    }
-
     // MARK: - Family & Profiles
 
     static var family: Family {
@@ -87,7 +81,7 @@ enum SampleData {
         )
     }
 
-    // MARK: - Templates & Quests
+    // MARK: - Templates & Quests (minimal 3-item fixture)
 
     struct SampleQuestData {
         let templates: [QuestTemplate]
@@ -105,28 +99,12 @@ enum SampleData {
     }
 
     static func createTemplatesAndQuests() -> SampleQuestData {
-        let currentWeek = startOfWeek(for: Date())
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
 
         let templatesData: [TemplateSeed] = [
-            TemplateSeed(
-                name: "Complete the Homework Beast",
-                desc: "30 minutes of math and spellcraft reading",
-                gold: 7.50,
-                xp: 75,
-                sched: .weeklyFlexible,
-                approval: .autoApprove
-            ),
-            TemplateSeed(name: "Clean the Dragon's Lair", desc: "Tidy bedroom floor and organize chest", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Empty the Treasure Chest", desc: "Take out recycling and trash", gold: 3.50, xp: 35, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Polishing the Armor", desc: "Fold and put away clean laundry", gold: 6.00, xp: 60, sched: .weeklyFlexible, approval: .parentVerify),
-            TemplateSeed(name: "Feed the Royal Hound", desc: "Feed and give fresh water to pet", gold: 3.00, xp: 30, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Clear the Feast Table", desc: "Load and unload the dishwasher", gold: 4.50, xp: 45, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Water the Elven Gardens", desc: "Water household and patio plants", gold: 4.00, xp: 40, sched: .specificDays, approval: .autoApprove),
-            TemplateSeed(name: "Organize the Armory", desc: "Tidy entryway shoes, coats, and backpacks", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Wash the Guild Carriage", desc: "Help wash and vacuum family vehicle", gold: 12.50, xp: 125, sched: .weeklyFlexible, approval: .parentVerify),
-            TemplateSeed(name: "Make the Royal Bed", desc: "Make bed neatly before morning questing", gold: 2.50, xp: 25, sched: .weeklyFlexible, approval: .autoApprove),
-            TemplateSeed(name: "Sort the Supply Crate", desc: "Unpack and organize weekly groceries", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .parentVerify),
-            TemplateSeed(name: "Read the Ancient Grimoire", desc: "Read 1 chapter of an adventure book", gold: 8.00, xp: 80, sched: .weeklyFlexible, approval: .autoApprove)
+            TemplateSeed(name: "Tidy Room", desc: "Tidy bedroom floor", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Do Homework", desc: "30 minutes of homework", gold: 7.50, xp: 75, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Help with Dishes", desc: "Load and unload dishwasher", gold: 4.50, xp: 45, sched: .weeklyFlexible, approval: .parentVerify)
         ]
 
         var templates: [QuestTemplate] = []
@@ -143,7 +121,7 @@ enum SampleData {
                 defaultGold: item.gold,
                 xpReward: item.xp,
                 scheduleType: item.sched,
-                specificDays: item.sched == .specificDays ? ["monday", "wednesday", "friday"] : [],
+                specificDays: [],
                 isAllOrNothing: false,
                 approvalMode: item.approval,
                 createdBy: parentRef,
@@ -172,7 +150,7 @@ enum SampleData {
             )
             quests.append(quest)
 
-            if index < 5 {
+            if index < 2 {
                 let cID = CKRecord.ID(recordName: "completion_\(index + 1)", zoneID: zoneID)
                 let comp = QuestCompletion(
                     quest: questRef,
@@ -204,122 +182,19 @@ enum SampleData {
         )
     }
 
-    // MARK: - Ledger Entries
+    // MARK: - Ledger Entries (pruned — empty for previews; real data comes from user actions)
 
     static func createLedgerEntries() -> [LedgerEntry] {
-        [
-            LedgerEntry(
-                profile: hero1Ref,
-                amount: -15.00,
-                description: "Wooden Training Sword & Shield",
-                date: Date().addingTimeInterval(-86400 * 2),
-                source: "manual",
-                family: familyRef,
-                id: CKRecord.ID(recordName: "ledger_1", zoneID: zoneID)
-            ),
-            LedgerEntry(
-                profile: hero1Ref,
-                amount: 10.00,
-                description: "Loot Drop: 10-Day Combo Streak Bonus! 🔥",
-                date: Date().addingTimeInterval(-86400 * 3),
-                source: "bonus",
-                family: familyRef,
-                id: CKRecord.ID(recordName: "ledger_2", zoneID: zoneID)
-            ),
-            LedgerEntry(
-                profile: hero1Ref,
-                amount: -4.50,
-                description: "Frost Elixir (Ice Cream treat)",
-                date: Date().addingTimeInterval(-86400 * 4),
-                source: "manual",
-                family: familyRef,
-                id: CKRecord.ID(recordName: "ledger_3", zoneID: zoneID)
-            ),
-            LedgerEntry(
-                profile: hero1Ref,
-                amount: 5.00,
-                description: "Loot Drop: 10 Quests Completed Milestone! ⚔️",
-                date: Date().addingTimeInterval(-86400 * 5),
-                source: "bonus",
-                family: familyRef,
-                id: CKRecord.ID(recordName: "ledger_4", zoneID: zoneID)
-            ),
-            LedgerEntry(
-                profile: hero1Ref,
-                amount: -12.00,
-                description: "Board Game Expansion Pack",
-                date: Date().addingTimeInterval(-86400 * 6),
-                source: "manual",
-                family: familyRef,
-                id: CKRecord.ID(recordName: "ledger_5", zoneID: zoneID)
-            )
-        ]
+        []
     }
 
-    // MARK: - Allowance Periods
+    // MARK: - Allowance Periods (pruned — seeded on demand via DataMigrationsCoordinator)
 
     static func createAllowancePeriods() -> [AllowancePeriod] {
-        let calendar = Calendar.iso8601UTC
-        let currentWeek = startOfWeek(for: Date())
-
-        let week1 = calendar.date(byAdding: .day, value: -7, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 7)
-        let week2 = calendar.date(byAdding: .day, value: -14, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 14)
-        let week3 = calendar.date(byAdding: .day, value: -21, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 21)
-
-        var p0 = AllowancePeriod(
-            weekOf: currentWeek,
-            profile: hero1Ref,
-            questsTotal: 12,
-            family: familyRef,
-            id: CKRecord.ID(recordName: "period_0", zoneID: zoneID)
-        )
-        p0.status = .active
-        p0.totalEarned = 38.50
-        p0.questsCompleted = 7
-
-        var p1 = AllowancePeriod(
-            weekOf: week1,
-            profile: hero1Ref,
-            questsTotal: 10,
-            family: familyRef,
-            id: CKRecord.ID(recordName: "period_1", zoneID: zoneID)
-        )
-        p1.status = .paid
-        p1.totalEarned = 45.00
-        p1.questsCompleted = 10
-        p1.paidDate = week1.addingTimeInterval(86400 * 6)
-        p1.paidAmount = 45.00
-
-        var p2 = AllowancePeriod(
-            weekOf: week2,
-            profile: hero1Ref,
-            questsTotal: 10,
-            family: familyRef,
-            id: CKRecord.ID(recordName: "period_2", zoneID: zoneID)
-        )
-        p2.status = .paid
-        p2.totalEarned = 36.50
-        p2.questsCompleted = 9
-        p2.paidDate = week2.addingTimeInterval(86400 * 6)
-        p2.paidAmount = 36.50
-
-        var p3 = AllowancePeriod(
-            weekOf: week3,
-            profile: hero1Ref,
-            questsTotal: 10,
-            family: familyRef,
-            id: CKRecord.ID(recordName: "period_3", zoneID: zoneID)
-        )
-        p3.status = .paid
-        p3.totalEarned = 40.00
-        p3.questsCompleted = 10
-        p3.paidDate = week3.addingTimeInterval(86400 * 6)
-        p3.paidAmount = 40.00
-
-        return [p0, p1, p2, p3]
+        []
     }
 
-    // MARK: - Achievements
+    // MARK: - Achievements (minimal)
 
     static func createAchievements() -> ([Achievement], [ProfileAchievement]) {
         let defaultAchs = [
@@ -352,26 +227,6 @@ enum SampleData {
                 requirementValue: 7,
                 family: familyRef,
                 id: CKRecord.ID(recordName: "ach_3", zoneID: zoneID)
-            ),
-            Achievement(
-                name: "Treasure Hoarder",
-                description: "Earn \(CurrencyFormatter.string(100)) lifetime",
-                iconSystemName: "banknote",
-                category: .gold,
-                requirementType: .gold100,
-                requirementValue: 100,
-                family: familyRef,
-                id: CKRecord.ID(recordName: "ach_4", zoneID: zoneID)
-            ),
-            Achievement(
-                name: "Quest Knight",
-                description: "Complete 50 quests",
-                iconSystemName: "figure.fencing",
-                category: .quest,
-                requirementType: .questCount50,
-                requirementValue: 50,
-                family: familyRef,
-                id: CKRecord.ID(recordName: "ach_5", zoneID: zoneID)
             )
         ]
 
@@ -379,23 +234,9 @@ enum SampleData {
             ProfileAchievement(
                 achievement: CKRecord.Reference(recordID: CKRecord.ID(recordName: "ach_1", zoneID: zoneID), action: .none),
                 profile: hero1Ref,
-                earnedDate: Date().addingTimeInterval(-86400 * 20),
-                family: familyRef,
-                id: CKRecord.ID(recordName: "pach_1", zoneID: zoneID)
-            ),
-            ProfileAchievement(
-                achievement: CKRecord.Reference(recordID: CKRecord.ID(recordName: "ach_2", zoneID: zoneID), action: .none),
-                profile: hero1Ref,
-                earnedDate: Date().addingTimeInterval(-86400 * 10),
-                family: familyRef,
-                id: CKRecord.ID(recordName: "pach_2", zoneID: zoneID)
-            ),
-            ProfileAchievement(
-                achievement: CKRecord.Reference(recordID: CKRecord.ID(recordName: "ach_3", zoneID: zoneID), action: .none),
-                profile: hero1Ref,
                 earnedDate: Date().addingTimeInterval(-86400 * 5),
                 family: familyRef,
-                id: CKRecord.ID(recordName: "pach_3", zoneID: zoneID)
+                id: CKRecord.ID(recordName: "pach_1", zoneID: zoneID)
             )
         ]
 
@@ -429,8 +270,12 @@ enum SampleData {
             cache.upsertQuestTemplates(questData.templates)
             cache.upsertQuests(questData.quests)
             cache.upsertQuestCompletions(questData.completions)
-            cache.upsertLedgerEntries(ledger)
-            cache.upsertAllowancePeriods(periods)
+            if !ledger.isEmpty {
+                cache.upsertLedgerEntries(ledger)
+            }
+            if !periods.isEmpty {
+                cache.upsertAllowancePeriods(periods)
+            }
             cache.upsertAchievements(achs)
             cache.upsertProfileAchievements(profileAchs)
         }

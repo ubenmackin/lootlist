@@ -19,10 +19,7 @@ struct iCloudStatusView: View {
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
-    // iCloudStatusView intentionally omits familyRecordName filters on all @Query
-    // declarations. This view is the diagnostic panel that surfaces ALL cached
-    // rows across every family — including abandoned ones — for iCloud
-    // troubleshooting. DO NOT add family predicates here.
+    // Intentionally omits familyRecordName filters to surface diagnostic data across all families.
 
     @Query(sort: \ProfileCache.displayName) private var allProfiles: [ProfileCache]
     @Query(sort: \QuestCache.weekOf) private var allQuests: [QuestCache]

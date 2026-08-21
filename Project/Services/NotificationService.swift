@@ -218,12 +218,7 @@ final class NotificationService {
         let familyRecordName = appState.family?.id.recordName ?? currentProfile.family.recordID.recordName
         guard isNotificationEnabled(for: eventType, profileRecordName: currentProfile.id.recordName, familyRecordName: familyRecordName) else { return }
 
-        // The deep-link payload carries the authoring peer (creator/completer/
-        // spender/verifier), NOT the viewer. `NotificationRouter` reads
-        // userInfo["profileID"] and forwards the peer wherever the peer's own
-        // data is the destination — the completer on a review banner, the
-        // spender on a spending banner — while quest-lifecycle banners land on
-        // the viewer's own quest surface.
+        // Deep-link payload carries authoring profileID for routing to relevant review/event screens.
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body

@@ -13,13 +13,7 @@ import Testing
 
 @MainActor
 struct TreasuryServiceRealTimeTests {
-    /// Shared fixtures for `processRealTimeSettlement` tests.
-    ///
-    /// A `.realTime` hero in a Sunday-cycle family, with the payout week
-    /// normalized to Monday. The hero is seeded into the CloudKit mock store
-    /// so the mock path is active AND `updateAllowance`'s profile re-fetch
-    /// resolves; quest/completion reads ride the cache-first path when
-    /// `seedEarned` is used.
+    /// Test scaffold for `processRealTimeSettlement` unit tests.
     @MainActor
     struct SettlementScaffold {
         let zoneID: CKRecordZone.ID
@@ -189,14 +183,7 @@ struct TreasuryServiceRealTimeTests {
         #expect(period.status == .active)
     }
 
-    /// Shared fixtures for the real-time → week-end payout regression.
-    ///
-    /// A hero (policy parameterizable; `.realTime` by default) in a
-    /// Sunday-cycle family, plus a Guild Master who finalizes the week with
-    /// `runPayout`. Both tiers are seeded — the CloudKit mock store for the
-    /// fetch paths and the in-memory cache with freshness stamps for the
-    /// read-first gates — so the settlement and payout paths run
-    /// deterministically off the cache.
+    /// Test scaffold for weekly payout regression tests.
     @MainActor
     struct PayoutScaffold {
         let zoneID: CKRecordZone.ID
@@ -366,10 +353,7 @@ struct TreasuryServiceRealTimeTests {
         let scaffold = try PayoutScaffold(policy: .realTime)
         scaffold.seedEarned()
 
-        // A parent verifying the hero's quest settles on the hero's behalf:
-        // the acting profile is the Guild Master, not the hero. Before the
-        // self-or-parent guard this returned nil and the hero's wallet never
-        // saw the gold.
+        // Parent verifying quest settles on hero's behalf using Guild Master profile.
         scaffold.appState.currentProfile = scaffold.guildMaster
         let settled = try await scaffold.treasury.processRealTimeSettlement(
             profile: scaffold.hero,

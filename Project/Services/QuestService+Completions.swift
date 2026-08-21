@@ -205,12 +205,7 @@ extension QuestService {
                 throw QuestServiceError.staleData("quest was updated on another device")
             }
         }
-        // Strictly-local double-submit guard: `validateCanCompleteQuest` must
-        // not issue an ad-hoc CloudKit query. Cross-device reconciliation is
-        // handled exclusively by `CKSyncEngine` (single writer) and the
-        // server-side `xpBanked` cap, so a fresh local cache miss simply
-        // proceeds — the reward step caps any over-completion to zero XP and
-        // the inFlightCompletions Mutex guards the process-local double tap.
+        // Local validation against cached completions to prevent double completion.
         let logs = cachedQuestLogs(forQuest: quest)
         let nonRejectedCount = logs.filter(\.verificationStatus.countsTowardCompletion).count
         if GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejectedCount) {

@@ -16,19 +16,25 @@ final class MockSpendingService: SpendingService {
     var isAvailableValue: Bool = true
     var shouldFail: Bool = false
 
-    func isAvailable() -> Bool {
+    init() {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService(zoneID: zoneID)
+        super.init(cloudKit: ck)
+    }
+
+    override func isAvailable() -> Bool {
         isAvailableValue
     }
 
-    func fetchTransactions(for _: Profile, in _: DateInterval) async throws -> [LedgerEntry] {
+    override func fetchTransactions(for _: Profile, in _: DateInterval) async throws -> [LedgerEntry] {
         if shouldFail {
             throw SpendingServiceError.underlying("Mock error")
         }
         return transactions
     }
 
-    func logManual(profile: Profile, family: Family, familyRecordName _: String, description: String, amount: Double, location: String? = nil,
-                   date: Date = Date()) async throws -> LedgerEntry
+    override func logManual(profile: Profile, family: Family, familyRecordName _: String, description: String, amount: Double, location: String? = nil,
+                            date: Date = Date()) async throws -> LedgerEntry
     {
         if shouldFail {
             throw SpendingServiceError.underlying("Mock error")
@@ -93,10 +99,6 @@ struct TreasuryViewModelTests {
         makeAppState(familyPayoutDay: .sunday, profilePayoutDay: nil)
     }
 
-    /// Builds an authenticated hero state with the given effective payout-day
-    /// configuration. The profile's `payoutDay` (when non-nil) overrides the
-    /// family's `payoutDay`, mirroring the resolution the view model uses
-    /// (`profile.payoutDay ?? appState.family?.payoutDay ?? .sunday`).
     private func makeAppState(familyPayoutDay: PayoutDay, profilePayoutDay: PayoutDay? = nil) -> TestAppState {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let familyRef = CKRecord.Reference(
@@ -308,8 +310,6 @@ struct TreasuryViewModelTests {
         #expect(expectedRecordNames.count == 5)
     }
 
-    // MARK: - CalendarScope payout-day threading
-
     @Test
     func `thisWeek contains friday-anchored cycle but sunday drops gap entries`() {
         let day: TimeInterval = 24 * 3600
@@ -322,13 +322,10 @@ struct TreasuryViewModelTests {
         #expect(CalendarScope.thisWeek.contains(gapDay, payoutDay: .friday))
         #expect(!CalendarScope.thisWeek.contains(gapDay, payoutDay: .sunday))
 
-        // A few days inside the friday-anchored week.
         #expect(CalendarScope.thisWeek.contains(fridayStart.addingTimeInterval(day), payoutDay: .friday))
         #expect(CalendarScope.thisWeek.contains(fridayStart.addingTimeInterval(3 * day), payoutDay: .friday))
-        // The payout day itself is the inclusive upper bound of the cycle.
         #expect(CalendarScope.thisWeek.contains(fridayStart.addingTimeInterval(6 * day), payoutDay: .friday))
 
-        // Entire 1-week / 1-month / 1-quarter / 1-year spans are excluded.
         #expect(!CalendarScope.thisWeek.contains(fridayStart.addingTimeInterval(-day), payoutDay: .friday))
         #expect(!CalendarScope.thisWeek.contains(fridayStart.addingTimeInterval(-7 * day), payoutDay: .friday))
         #expect(!CalendarScope.thisWeek.contains(fridayStart.addingTimeInterval(-30 * day), payoutDay: .friday))
@@ -354,11 +351,8 @@ struct TreasuryViewModelTests {
                 == "\(formatter.string(from: fridayRange.lowerBound)) – \(formatter.string(from: fridayRange.upperBound))"
         )
 
-        // The remaining scopes are calendar-based and ignore the payout day.
         #expect(CalendarScope.thisMonth.dateRange(payoutDay: .friday) == CalendarScope.thisMonth.dateRange(payoutDay: .sunday))
         #expect(CalendarScope.thisQuarter.dateRange(payoutDay: .friday) == CalendarScope.thisQuarter.dateRange(payoutDay: .sunday))
-        // `allTime` spans distantPast → now regardless of payout day; compare
-        // the unbounded lower bound and membership instead of the live upper bound.
         let now = Date()
         let allTimeFriday = CalendarScope.allTime.dateRange(payoutDay: .friday)
         let allTimeSunday = CalendarScope.allTime.dateRange(payoutDay: .sunday)
@@ -388,7 +382,6 @@ struct TreasuryViewModelTests {
             date: Date(), source: "manual"
         )
 
-        // A friday-payout family keeps the early-cycle entry in `.thisWeek`.
         let fridayState = makeAppState(familyPayoutDay: .friday)
         let fridayVM = makeTreasuryViewModel(fridayState)
         fridayVM.rebuildLists(
@@ -397,7 +390,6 @@ struct TreasuryViewModelTests {
         )
         #expect(fridayVM.spendingLog.map(\.id).contains("l_gap"))
 
-        // The default sunday payout drops the gap entry.
         let sundayState = makeAppState(familyPayoutDay: .sunday)
         let sundayVM = makeTreasuryViewModel(sundayState)
         sundayVM.rebuildLists(
@@ -424,8 +416,6 @@ struct TreasuryViewModelTests {
             date: Date(), source: "manual"
         )
 
-        // Family defaults sunday but the per-profile override is friday:
-        // the override wins and the early-cycle entry stays in `.thisWeek`.
         let overrideState = makeAppState(familyPayoutDay: .sunday, profilePayoutDay: .friday)
         let overrideVM = makeTreasuryViewModel(overrideState)
         overrideVM.rebuildLists(
@@ -463,8 +453,6 @@ struct TreasuryViewModelTests {
         #expect(!sundayVM.spendingLog.map(\.id).contains("l_gap"))
     }
 
-    // MARK: - CalendarScope fixtures
-
     private func makeTreasuryViewModel(_ state: TestAppState) -> TreasuryViewModel {
         let cloudKit = MockCloudKitService(zoneID: state.zoneID)
         let treasury = TreasuryService(cloudKit: cloudKit)
@@ -474,8 +462,6 @@ struct TreasuryViewModelTests {
         )
     }
 
-    /// Ledgers spanning 1 day, 1 week, 1 month, 1 quarter, and 1 year back
-    /// from the current date, used to exercise every `CalendarScope` case.
     private func scopedLedgerFixtures() -> [LedgerEntryCache] {
         let day: TimeInterval = 24 * 3600
         let now = Date()
@@ -507,9 +493,6 @@ struct TreasuryViewModelTests {
         ]
     }
 
-    /// A current-week quest and approved completion log so the scope tests run
-    /// the full `rebuildLists` pipeline (logs/ledgers/quests) rather than only
-    /// the ledger-filtering path.
     private func questAndLogFixtures(state: TestAppState) -> (quest: QuestCache, log: QuestCompletionCache) {
         let currentWeek = WeekMath.weekOf(date: Date())
         let quest = QuestCache(
@@ -612,7 +595,6 @@ struct TreasuryViewModelTests {
         )
 
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
-        // Simulate an allowance period created with an 8-hour offset (e.g. 08:00 UTC)
         let periodWeekOfWithOffset = currentWeek.addingTimeInterval(8 * 3600)
 
         let allowance = AllowancePeriodCache(

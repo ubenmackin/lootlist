@@ -299,11 +299,6 @@ struct QuestsView: View {
                         defer { submittingQuestIDs.remove(qID) }
                         guard let profile = appState.currentProfile else { return }
                         do {
-                            // Loot-drop roll + gem credit happen inside
-                            // QuestService.applyReward (fires only on
-                            // .autoApproved/.verified, never on a .pending
-                            // submission); the overlay is surfaced via
-                            // lootDropService.pendingPresentation.
                             _ = try await questService.markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile)
                         } catch {
                             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)

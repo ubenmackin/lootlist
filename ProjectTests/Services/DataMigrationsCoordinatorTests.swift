@@ -163,7 +163,7 @@ struct DataMigrationsCoordinatorTests {
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([profile])
-        cloudKit.queryError = CloudKitServiceError.networkUnavailable
+        cloudKit.fetchError = CloudKitServiceError.networkUnavailable
 
         let step = DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(cloudKit: cloudKit, cacheService: nil)
         await #expect(throws: Error.self) {
@@ -186,7 +186,7 @@ struct DataMigrationsCoordinatorTests {
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
         cloudKit.seedMockRecords([profile])
-        cloudKit.queryError = CloudKitServiceError.networkUnavailable
+        cloudKit.fetchError = CloudKitServiceError.networkUnavailable
 
         let step = DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: nil)
         await #expect(throws: Error.self) {

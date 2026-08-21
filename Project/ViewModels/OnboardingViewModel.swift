@@ -74,12 +74,7 @@ final class OnboardingViewModel {
 
     var pendingShareMetadata: CKShare.Metadata?
 
-    /// Set when the hero onboarding path discovers exactly one active `Profile`
-    /// bound to the current iCloud user across the shared zones, before Avatar
-    /// Selection. Defense-in-depth UX surface: lets a returning hero reconnect
-    /// to their existing guild instead of minting a duplicate profile. The
-    /// service layer already refuses to mint a duplicate; this is the nicer
-    /// prompt on top.
+    /// Populated when hero discovery identifies an existing active profile in shared zones.
     var detectedHero: DetectedHero?
 
     private let familyService: FamilyService
@@ -90,12 +85,7 @@ final class OnboardingViewModel {
 
     private(set) var builtProfile: Profile?
 
-    /// True when `joinFamilyViaAcceptedShare` reused an existing ACTIVE profile
-    /// as-is (service-layer dedupe Branch 1). Active profiles are reused with
-    /// their identity untouched, so `completeJoinedProfile()` skips the
-    /// onboarding displayName/avatar writes on this branch and finalizes with
-    /// the existing identity preserved. Fresh-mint and reactivation joins
-    /// (flag false) keep the writes.
+    /// Indicates whether `joinFamilyViaAcceptedShare` reused an existing active profile without modification.
     private(set) var didReuseActiveProfile = false
 
     init(familyService: FamilyService, appState: AppState) {
@@ -110,10 +100,6 @@ final class OnboardingViewModel {
         case .joinFamily:
             checkForExistingHero()
             push(.familyJoin)
-            // The share invitation may already be resolved (e.g. the app
-            // launched from a share URL before the user reached the join path);
-            // accept it immediately instead of stranding the user on the
-            // waiting screen. A nil metadata is a no-op.
             Task { [weak self] in
                 await self?.joinFamilyViaAcceptedShare()
             }
@@ -122,14 +108,7 @@ final class OnboardingViewModel {
         }
     }
 
-    /// Probing helper for the joining path. Kicks off a fire-and-forget scan of
-    /// the user's shared zones looking for an existing, active `Profile` bound
-    /// to the current iCloud user. If exactly one match is found while the user
-    /// is still on the join path, `detectedHero` is populated so the FamilyJoin
-    /// screen can offer a "Reconnect to Guild" prompt before Avatar Selection.
-    /// This is defense-in-depth only — the service layer already refuses to
-    /// mint a duplicate profile, so this scan merely surfaces the reconnect
-    /// option earlier in the flow.
+    /// Initiates a background scan of shared zones for an existing active profile matching current user.
     func checkForExistingHero() {
         guard userIntent == .joinFamily else { return }
         Task { [weak self] in
@@ -341,13 +320,7 @@ final class OnboardingViewModel {
         }
     }
 
-    /// Completes the joiner flow after the share was accepted: persists the
-    /// display name and avatar picked on Avatar Selection onto the joined
-    /// Profile, then finishes onboarding. When the join reused an existing
-    /// ACTIVE profile as-is (`didReuseActiveProfile`), the profile's identity
-    /// is preserved and the name/avatar writes are skipped — the flow still
-    /// finalizes. The session profile is registered on `appState` first so the
-    /// profile-update service calls can authorize the user's own profile.
+    /// Completes joiner setup, updating profile name/avatar unless reusing an active profile.
     func completeJoinedProfile() async {
         guard !isLoading else { return }
         isLoading = true
@@ -368,9 +341,6 @@ final class OnboardingViewModel {
         appState.currentProfile = profile
 
         guard !didReuseActiveProfile else {
-            // The join reused an existing ACTIVE profile as-is; its identity
-            // (display name, avatar) is preserved, so the onboarding picks are
-            // NOT written over it — finalize with the profile untouched.
             builtProfile = profile
             push(.done)
             return
@@ -388,12 +358,7 @@ final class OnboardingViewModel {
                 customAvatarImageData: customAvatarImageData
             )
 
-            // Directly persist the completed profile to CloudKit so the server
-            // has the correct displayName *before* the sync engine can pull a
-            // stale version. `updateProfileDisplayName` / `updateProfileAvatar`
-            // only enqueue an async push; this synchronous save closes the race
-            // window where `refreshProfilesFromCloudKit` or the sync engine's
-            // pull overwrites the cache with the initial empty-name record.
+            // Persist completed profile synchronously to CloudKit before background sync pull.
             let zoneID = saved.id.zoneID
             let sharedDB = familyService.cloudKit.sharedDatabase
             do {

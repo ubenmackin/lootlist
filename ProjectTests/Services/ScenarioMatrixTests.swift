@@ -582,7 +582,7 @@ struct ScenarioMatrixTests {
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
-        let spendingService = ManualSpendingService(cloudKit: sut.cloudKit, cacheService: sut.cache, appState: sut.appState)
+        let spendingService = SpendingService(cloudKit: sut.cloudKit, cacheService: sut.cache, appState: sut.appState)
         sut.appState.family = family
         sut.appState.familyZoneID = zoneID
         sut.appState.isZoneOwner = true

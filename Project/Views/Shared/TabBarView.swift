@@ -15,14 +15,14 @@ struct TabBarView: View {
     @Environment(XPService.self) private var xpService
     @Environment(NotificationService.self) private var notificationService
 
-    private let spending: any SpendingService
+    private let spending: SpendingService
     private let familyRecordName: String?
 
     @Query private var cachedCompletions: [QuestCompletionCache]
 
     @State private var selectedTab: RootTab = .family
 
-    init(spending: any SpendingService, familyRecordName: String? = nil) {
+    init(spending: SpendingService, familyRecordName: String? = nil) {
         self.spending = spending
         self.familyRecordName = familyRecordName
 

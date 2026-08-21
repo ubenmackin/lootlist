@@ -594,11 +594,7 @@ final class ProfileViewModel {
         let heroCompletions = completions.filter { $0.completerRecordName == profileName }
         streak = StreakCalculator.computeStreak(from: heroCompletions)
 
-        // Wallet balance is sourced exclusively from the ledger: quest earnings
-        // are minted as `source == "quest"` ledger entries by
-        // `TreasuryService.mintPayoutLedgerEntry` / `mintRealTimeLedgerEntry`,
-        // so summing them again from completion logs would double-count.
-        // Mirrors `TreasuryViewModel.rebuildLists` (ledger-sum-only pattern).
+        // Balance is derived directly from ledger entry sum.
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
         goldBalance = profileLedgers.reduce(0.0) { $0 + $1.amount }
 

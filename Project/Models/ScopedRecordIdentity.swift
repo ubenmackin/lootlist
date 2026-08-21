@@ -11,7 +11,12 @@ import Foundation
 /// Composite identity for a CloudKit record scoped to a specific database, zone,
 /// and family. Prevents cross-family/cross-zone record collisions in local cache
 /// operations and during sync conflict resolution.
-struct ScopedRecordIdentity: Hashable, Sendable {
+/// @unchecked Sendable audit: CKRecordZone.ID and CKRecord.ID are not Sendable
+/// under Swift 6 but are immutable value types with no shared mutable state.
+/// ScopedRecordIdentity stores only `let` properties and is safe to share across
+/// concurrency domains; Mutex<[ScopedRecordIdentity]> buffering in
+/// CKSyncEngineCoordinator remains valid.
+struct ScopedRecordIdentity: Hashable, @unchecked Sendable {
     let databaseScope: CKDatabase.Scope
     let zoneID: CKRecordZone.ID
     let recordID: CKRecord.ID

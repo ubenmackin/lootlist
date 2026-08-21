@@ -25,31 +25,137 @@ enum RecordBridge {
         }
         let name = identity.recordName
         let zoneID = identity.zoneID
-
-        let expectedScope = identity.databaseScope
-        let bridges: [() -> CKRecord?] = [
-            { bridgeQuest(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeQuestCompletion(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeQuestTemplate(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeProfile(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeFamily(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeLedger(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeAllowance(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeAchievement(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeProfileAchievement(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeNotificationPref(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeGemLedger(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) },
-            { bridgeRewardEvent(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: expectedScope) }
-        ]
-
-        for bridge in bridges {
-            if let ckRecord = bridge() {
-                return prepareRecord(ckRecord, in: zoneID)
+        let scope = identity.databaseScope
+        for type in CachedRecordType.allCases {
+            if let ck = resolvedRecord(for: type, name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: familyRecordName, expectedDatabase: scope) {
+                return prepareRecord(ck, in: zoneID)
             }
         }
-
         logger.warning("RecordBridge could not find cached entity for recordID=\(name, privacy: .private)")
         return nil
+    }
+
+    private static func resolvedRecord(
+        for type: CachedRecordType,
+        name: String,
+        zoneID: CKRecordZone.ID,
+        cacheService: CacheService,
+        expectedFamily: String,
+        expectedDatabase: CKDatabase.Scope
+    ) -> CKRecord? {
+        switch type {
+        case .quest: bridge(
+                QuestCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "quest",
+                fetch: { cacheService.fetchQuest(recordName: $0, family: $1) },
+                toRecord: { $0.toQuest(zoneID: $1).toRecord() }
+            )
+        case .questCompletion: bridge(
+                QuestCompletionCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "completion",
+                fetch: { cacheService.fetchQuestCompletion(recordName: $0, family: $1) },
+                toRecord: { $0.toQuestCompletion(zoneID: $1).toRecord() }
+            )
+        case .questTemplate: bridge(
+                QuestTemplateCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "template",
+                fetch: { cacheService.fetchQuestTemplate(recordName: $0, family: $1) },
+                toRecord: { $0.toQuestTemplate(zoneID: $1).toRecord() }
+            )
+        case .profile: bridge(
+                ProfileCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "profile",
+                fetch: { cacheService.fetchProfile(recordName: $0, family: $1) },
+                toRecord: { $0.toProfile(zoneID: $1).toRecord() }
+            )
+        case .family: bridgeFamily(name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: expectedFamily, expectedDatabase: expectedDatabase)
+        case .ledgerEntry: bridge(
+                LedgerEntryCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "ledger",
+                fetch: { cacheService.fetchLedgerEntry(recordName: $0, family: $1) },
+                toRecord: { $0.toLedgerEntry(zoneID: $1).toRecord() }
+            )
+        case .allowancePeriod: bridge(
+                AllowancePeriodCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "allowance",
+                fetch: { cacheService.fetchAllowancePeriod(recordName: $0, family: $1) },
+                toRecord: { $0.toAllowancePeriod(zoneID: $1).toRecord() }
+            )
+        case .achievement: bridge(
+                AchievementCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "achievement",
+                fetch: { cacheService.fetchAchievement(recordName: $0, family: $1) },
+                toRecord: { $0.toAchievement(zoneID: $1).toRecord() }
+            )
+        case .profileAchievement: bridge(
+                ProfileAchievementCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "profile achievement",
+                fetch: { cacheService.fetchProfileAchievement(recordName: $0, family: $1) },
+                toRecord: { $0.toProfileAchievement(zoneID: $1).toRecord() }
+            )
+        case .notificationPreference: bridge(
+                NotificationPreferenceCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "notification pref",
+                fetch: { cacheService.fetchNotificationPreference(recordName: $0, family: $1) },
+                toRecord: { $0.toNotificationPreference(zoneID: $1).toRecord() }
+            )
+        case .gemLedger: bridge(
+                GemLedgerCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "gem ledger",
+                fetch: { cacheService.fetchGemLedger(recordName: $0, family: $1) },
+                toRecord: { $0.toGemLedger(zoneID: $1).toRecord() }
+            )
+        case .rewardEvent: bridge(
+                RewardEventCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "reward event",
+                fetch: { cacheService.fetchRewardEvent(recordName: $0, family: $1) },
+                toRecord: { $0.toRewardEvent(zoneID: $1).toRecord() }
+            )
+        }
     }
 
     private static func validateScopedRecord(
@@ -83,32 +189,19 @@ enum RecordBridge {
         return true
     }
 
-    private static func bridgeQuest(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
-        guard let cache = cacheService.fetchQuest(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "quest", name: name) else { return nil }
-        return cache.toQuest(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeQuestCompletion(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                              expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchQuestCompletion(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "completion", name: name) else { return nil }
-        return cache.toQuestCompletion(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeQuestTemplate(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                            expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchQuestTemplate(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "template", name: name) else { return nil }
-        return cache.toQuestTemplate(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeProfile(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
-        guard let cache = cacheService.fetchProfile(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "profile", name: name) else { return nil }
-        return cache.toProfile(zoneID: zoneID).toRecord()
+    private static func bridge<T: FamilyScopedCache & CacheMergeable>(
+        _: T.Type,
+        name: String,
+        zoneID: CKRecordZone.ID,
+        expectedFamily: String,
+        expectedDatabase: CKDatabase.Scope,
+        entity: String,
+        fetch: (String, String) -> T?,
+        toRecord: (T, CKRecordZone.ID) -> CKRecord
+    ) -> CKRecord? {
+        guard let cache = fetch(name, expectedFamily) else { return nil }
+        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: entity, name: name) else { return nil }
+        return toRecord(cache, zoneID)
     }
 
     private static func bridgeFamily(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
@@ -132,60 +225,6 @@ enum RecordBridge {
             return nil
         }
         return cache.toFamily(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeLedger(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
-        guard let cache = cacheService.fetchLedgerEntry(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "ledger", name: name) else { return nil }
-        return cache.toLedgerEntry(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeAllowance(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                        expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchAllowancePeriod(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "allowance", name: name) else { return nil }
-        return cache.toAllowancePeriod(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeAchievement(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                          expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchAchievement(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "achievement", name: name) else { return nil }
-        return cache.toAchievement(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeProfileAchievement(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                                 expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchProfileAchievement(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "profile achievement", name: name) else { return nil }
-        return cache.toProfileAchievement(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeNotificationPref(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                               expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchNotificationPreference(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "notification pref", name: name) else { return nil }
-        return cache.toNotificationPreference(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeGemLedger(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                        expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchGemLedger(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "gem ledger", name: name) else { return nil }
-        return cache.toGemLedger(zoneID: zoneID).toRecord()
-    }
-
-    private static func bridgeRewardEvent(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String,
-                                          expectedDatabase: CKDatabase.Scope) -> CKRecord?
-    {
-        guard let cache = cacheService.fetchRewardEvent(recordName: name, family: expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: "reward event", name: name) else { return nil }
-        return cache.toRewardEvent(zoneID: zoneID).toRecord()
     }
 
     private static let managedFieldKeysByType: [String: Set<String>] = [

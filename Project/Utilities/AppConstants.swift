@@ -26,26 +26,17 @@ enum AppConstants {
     }
 
     enum Session {
-        /// Wall-clock budget for the `restoreSession` zone-reachability probe.
         static let zoneCheckTimeoutSeconds: Double = 5.0
-        /// Retry attempts for the zone-reachability probe before escalating to
-        /// the unrecoverable-session branch.
         static let restoreRetryBudget: Int = 2
     }
 
     static let weekdayCodes = ["sunday", "monday", "tuesday", "wednesday",
                                "thursday", "friday", "saturday"]
-    static let weekdayDisplay = ["Sunday", "Monday", "Tuesday", "Wednesday",
-                                 "Thursday", "Friday", "Saturday"]
     static let weekdayAbbreviated = ["Su", "M", "Tu", "W", "Th", "F", "Sa"]
     static let weekdayShort = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     enum Time {
-        static let daysInWeek: Int = 7
-        static let hoursInDay: Int = 24
-        static let minutesInHour: Int = 60
-        static let secondsInMinute: Int = 60
-        static let secondsInWeek: Int = daysInWeek * hoursInDay * minutesInHour * secondsInMinute
+        static let secondsInWeek: Int = 604_800
     }
 
     enum Accessories {
@@ -74,14 +65,6 @@ enum AppConstants {
         static let totalDefaultAchievementsCount: Int = 12
         static let percentageBase: Double = 100.0
         static let previousWeekDayOffset: Int = -7
-        /// Legacy +6-day offset used before the half-open fix. Kept for
-        /// call sites that still compute `previousWeekStart` via
-        /// `date(byAdding: .day, value: previousWeekDayOffset, ...)` but
-        /// **deprecated for payout gating**: payout cutoff must use
-        /// `WeekMath.weekRange(starting: weekOf).upperBound` (exclusive
-        /// next-Monday 00:00) and gate on `now >= upperBound` to avoid
-        /// firing at Sunday 00:00 a full day early and to stay DST-safe.
-        /// See `AutoPayoutCoordinator` and `WeekMath.weekRange`.
         static let payoutCutoffDayOffset: Int = 6
     }
 
@@ -93,12 +76,7 @@ enum AppConstants {
     }
 
     enum DailyLogin {
-        /// Pairs with `lastLoginDayKey` so a shared device treats each hero
-        /// as an independent reward cycle rather than pre-claiming a child's
-        /// reward when a parent claimed earlier in the day.
         static let lastHeroProfileRecordNameKey: String = "dailyLoginLastHeroProfileRecordName"
-        /// Hours since the previous hero's claim after which a new active
-        /// hero begins a fresh day 1 cycle rather than resuming the run.
         static let resetWindowHours: Int = 24
     }
 }

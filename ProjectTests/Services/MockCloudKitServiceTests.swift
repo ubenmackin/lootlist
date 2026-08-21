@@ -54,7 +54,7 @@ struct MockCloudKitServiceTests {
         let heroShare = try await mock.simulateParticipation(key: "record:memberKid", rootRecordID: rootID, role: .hero)
         let rangerShare = try await mock.simulateParticipation(key: "record:memberKid", rootRecordID: rootID, role: .ranger)
         // An unrelated member on the Ranger share must survive the revocation.
-        try await mock.simulateParticipation(key: "record:otherParent", rootRecordID: rootID, role: .ranger)
+        _ = try await mock.simulateParticipation(key: "record:otherParent", rootRecordID: rootID, role: .ranger)
 
         let heroShareID = heroShare.recordID
         let rangerShareID = rangerShare.recordID
@@ -122,14 +122,5 @@ struct MockCloudKitServiceTests {
         #expect(MockPredicateEvaluator.recordMatches(record, predicate: nonMatchingPredicate) == false)
     }
 
-    // No-match revocations must never be silent no-ops: `MockCloudKitService`
-    // throws `shareFailed` on both overloads when no role share contains the
-    // passed identity. The object overload's unmatchable path cannot be driven
-    // from a unit test (`CKShareParticipant` and `CKUserIdentity` have no
-    // usable public initializer — `init NS_UNAVAILABLE` in the CloudKit
-    // headers; participants are server-minted via the share's `participants`
-    // property), so that throw is verified by code review. The record-name
-    // overload's no-match throw is what the Invitations-panel revocation test
-    // relies on: it reproduces the propagation race that the security fix
-    // reports through `FamilyDashboardViewModel.loadError`.
+    // No-match revocations throw shareFailed when no matching role share contains the identity.
 }

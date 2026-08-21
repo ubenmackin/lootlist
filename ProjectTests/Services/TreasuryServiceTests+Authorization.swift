@@ -277,10 +277,7 @@ extension TreasuryServiceTests {
         )
         cloudKit.seedMockRecords([targetHero, family, quest, completion])
 
-        // Parent-verified quests settle on the hero's behalf: the acting
-        // profile is the parent, not the hero, and the settlement must
-        // proceed — the identity-only guard previously dropped it, leaving
-        // the hero's wallet un-credited.
+        // Parent-verified quests settle on the hero's behalf with parent acting profile.
         let result = try await treasury.processRealTimeSettlement(
             profile: targetHero,
             family: family,
@@ -676,12 +673,7 @@ extension TreasuryServiceTests {
             "updateAllowance must resolve profile + family from cache when fresh; no CloudKit fetch"
         )
 
-        // Hoisted straight from cache-sourced weeklyBreakdown: 25.0 (quest
-        // gold) + 5.0 (bonus ledger) = 30.0. On the pre-fix path the
-        // Profile/Family CK fetch throws networkUnavailable, weeklyBreakdown
-        // is skipped (try? swallows), and totalEarned stays at the period's
-        // creation-time 0 — so this asserts the cache-sourced profile
-        // actually flowed through the breakdown.
+        // Sourced from cache: 25.0 (quest gold) + 5.0 (bonus ledger) = 30.0.
         #expect(updated.totalEarned == 30.0)
         #expect(updated.questsCompleted == 1)
     }
@@ -758,11 +750,7 @@ extension TreasuryServiceTests {
             family: familyRef
         )
 
-        // Seed the cache (NOT CloudKit) with every record weeklyBreakdown
-        // touches — quests (assigned-quests lookup in the allOrNothing
-        // branch + the gold-proration quest lookup), completions, and the
-        // bonus ledger entry — and stamp each type fresh. A completed sync
-        // pass would have produced exactly this state.
+        // Seed cache and freshness stamps for local read path.
         cache.upsertProfile(hero)
         cache.upsertFamily(family)
         cache.upsertQuest(quest)
@@ -778,12 +766,7 @@ extension TreasuryServiceTests {
                                                            family: family,
                                                            weekOf: monday)
 
-        // No CloudKit read issued for the breakdown path: assignedQuests in
-        // the allOrNothing branch, quest logs, gold proration, and ledger
-        // entries were all served from cache. If fetchAssignedQuests (or any
-        // sibling read) fell through to CloudKit, the networkUnavailable
-        // throw would rethrow out of weeklyBreakdown AND readCallCount would
-        // be non-zero.
+        // Verify breakdown path was served entirely from cache without CloudKit reads.
         #expect(
             cloudKit.readCallCount == 0,
             "weeklyBreakdown must serve assignedQuests (and every read) from cache when fresh; no CloudKit fetch/query"

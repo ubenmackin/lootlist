@@ -104,8 +104,16 @@ struct QuestCompletionEffectView: View {
         // Play sound & haptic
         soundManager.play(.questComplete)
 
-        // Setup flavor text
-        flavorText = FlavorTextProvider.questCompletion(rarity: rarity)
+        // Setup flavor text — inlined (was FlavorTextProvider, single call site)
+        flavorText = {
+            let options: [String] = switch rarity {
+            case .common: ["Another task vanquished!", "The kingdom thanks you.", "Well done, adventurer."]
+            case .rare: ["A worthy challenge, conquered!", "Your skills grow stronger."]
+            case .epic: ["A legendary feat of bravery!", "Tales will be told of this deed!"]
+            case .legendary: ["THE REALM TREMBLES AT YOUR POWER!", "You have achieved the impossible!"]
+            }
+            return options.randomElement() ?? options[0]
+        }()
 
         // Generate particles
         let particleCount = switch rarity {

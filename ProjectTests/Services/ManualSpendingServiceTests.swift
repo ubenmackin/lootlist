@@ -11,7 +11,7 @@ import Foundation
 import Testing
 
 @MainActor
-struct ManualSpendingServiceTests {
+struct SpendingServiceTests {
     // MARK: - Mock Infrastructure
 
     private enum MockError: Error, Equatable {
@@ -99,7 +99,7 @@ struct ManualSpendingServiceTests {
         let cloudKit = FailingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID)
         let family = makeFamily(zoneID)
@@ -119,7 +119,7 @@ struct ManualSpendingServiceTests {
         let cloudKit = FailingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID)
         let family = makeFamily(zoneID)
@@ -165,7 +165,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let actor = makeHero(zoneID)
         let victimID = CKRecord.ID(recordName: "hero2", zoneID: zoneID)
@@ -205,7 +205,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let actor = makeHero(zoneID)
         let family = makeFamily(zoneID)
@@ -240,7 +240,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID)
         let family = makeFamily(zoneID)
@@ -268,7 +268,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let parent = makeParent(zoneID)
         let family = makeFamily(zoneID)
@@ -297,7 +297,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID)
         let family = makeFamily(zoneID)
@@ -332,7 +332,7 @@ struct ManualSpendingServiceTests {
         let cloudKit = FailingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let familyA = Family(
             name: "Family A",
@@ -399,7 +399,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let parent = makeParent(zoneID)
         let hero = makeHero(zoneID)
@@ -431,7 +431,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let parent = makeParent(zoneID)
         let hero = makeHero(zoneID)
@@ -463,7 +463,7 @@ struct ManualSpendingServiceTests {
         cloudKit.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let service = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID)
         let family = makeFamily(zoneID)

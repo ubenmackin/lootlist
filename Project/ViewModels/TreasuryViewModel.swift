@@ -44,7 +44,7 @@ final class TreasuryViewModel {
 
     private let treasury: TreasuryService
 
-    private let spending: any SpendingService
+    private let spending: SpendingService
 
     private let appState: AppState
 
@@ -63,7 +63,7 @@ final class TreasuryViewModel {
     private(set) var errorMessage: String?
 
     init(treasury: TreasuryService,
-         spending: any SpendingService,
+         spending: SpendingService,
          appState: AppState)
     {
         self.treasury = treasury
@@ -71,16 +71,6 @@ final class TreasuryViewModel {
         self.appState = appState
     }
 
-    /// Async wallet refresh that fetches the authoritative `weeklyBreakdown` from
-    /// `TreasuryService`. `TreasuryService.weeklyBreakdown` **throws** on
-    /// `GoldCalculation.totalCredit` fetch failures (documented on that method)
-    /// rather than silently returning `0`. The wallet must never hang on a
-    /// `ProgressView` or crash from an uncaught throw — this is the UI-facing
-    /// `do/catch` boundary.
-    ///
-    /// On failure the last successful `weeklyBreakdown` is preserved, `errorMessage`
-    /// is set, a `ToastManager` warning is shown, and the view can retry by
-    /// calling this method again (pull-to-refresh wires directly here).
     func refreshWeeklyBreakdown() async {
         guard let profile = appState.currentProfile, let family = appState.family else { return }
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: profile.payoutDay ?? family.payoutDay)
@@ -92,23 +82,13 @@ final class TreasuryViewModel {
             errorMessage = nil
         } catch {
             logger.warning("Failed to load weekly breakdown: \(error, privacy: .private)")
-            // Preserve last successful breakdown so the wallet does not flash empty.
             errorMessage = "Could not load wallet totals. Pull to retry."
-            // Surface consistently with `TreasuryService.updateAllowance`'s toast
-            // so transient `totalCredit` failures are never silent.
             if let toast = treasury.toastManager {
                 toast.show(message: errorMessage ?? "Could not load wallet totals. Pull to retry.", type: .warning)
             }
         }
     }
 
-    /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
-    /// intentionally **does not throw** and does not call
-    /// `TreasuryService.weeklyBreakdown` / `GoldCalculation.totalCredit`.
-    /// It derives gold via `GoldCalculation.netWeeklyGold` (pure cache math)
-    /// so the wallet hydrates instantly offline and never hangs on a network
-    /// failure. Throwing CloudKit work belongs in `refreshWeeklyBreakdown()`
-    /// above, which callers invoke with `do/catch` + toast + retry.
     func rebuildLists(logs: [QuestCompletionCache], ledgers: [LedgerEntryCache], quests: [QuestCache], allowancePeriods: [AllowancePeriodCache], scope: CalendarScope) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
@@ -253,55 +233,17 @@ final class TreasuryViewModel {
         let locationValue = (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil
 
         do {
-            if let manual = spending as? ManualSpendingService {
-                _ = try await manual.logManual(
-                    profile: profile,
-                    family: family,
-                    familyRecordName: familyRecordName,
-                    description: trimmed,
-                    amount: amount,
-                    location: locationValue,
-                    date: date
-                )
-            } else {
-                _ = try await spending.logManual(
-                    profile: profile,
-                    family: family,
-                    familyRecordName: familyRecordName,
-                    description: trimmed,
-                    amount: amount,
-                    location: locationValue,
-                    date: date
-                )
-            }
+            _ = try await spending.logManual(
+                profile: profile,
+                family: family,
+                familyRecordName: familyRecordName,
+                description: trimmed,
+                amount: amount,
+                location: locationValue,
+                date: date
+            )
             errorMessage = nil
-            // `spending.logManual` refreshes the SwiftData cache; the
-            // resulting mutation re-fires `.onChange` → `rebuildLists`. No
-            // explicit `refresh()` needed here.
             return true
-        } catch let error as SpendingServiceError where error == .unsupported {
-            logger.warning("logManual hit unsupported, retrying with cache fallback")
-            if let cache = appState.cacheService {
-                let entry = LedgerEntry(
-                    profile: CKRecord.Reference(recordID: profile.id, action: .none),
-                    amount: -abs(amount),
-                    description: trimmed,
-                    location: locationValue,
-                    date: date,
-                    source: "manual",
-                    family: CKRecord.Reference(recordID: family.id, action: .none),
-                    id: CKRecord.ID(recordName: "manual-\(profile.id.recordName)-\(family.id.recordName)-\(Int(date.timeIntervalSince1970 * 1000))", zoneID: family.id.zoneID)
-                )
-                cache.upsertLedgerEntry(entry)
-                if let manual = spending as? ManualSpendingService {
-                    manual.syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
-                }
-                errorMessage = nil
-                return true
-            }
-            logger.error("Failed to log spending: \(error, privacy: .private)")
-            errorMessage = "Could not log your spending. Please try again."
-            return false
         } catch {
             logger.error("Failed to log spending: \(error, privacy: .private)")
             errorMessage = "Could not log your spending. Please try again."

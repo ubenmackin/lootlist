@@ -194,10 +194,7 @@ struct NotificationServiceTests {
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
 
-        // Pre-mutation cached preference — the snapshot the pre-fix failure
-        // path would restore. Record name hits the existing-row branch in
-        // `updatePreference` (snapshot.recordName), so the save targets THIS
-        // record rather than minting a fresh UUID.
+        // Seed existing cached preference record name for in-place update.
         let existingID = CKRecord.ID(recordName: "pref-hero1-fam1-questAssigned", zoneID: zoneID)
         let snapshotPref = NotificationPreference(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),

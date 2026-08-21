@@ -63,17 +63,12 @@ final class AppLifecycleCoordinator {
     /// `isManualSyncing` is tracked separately from `phase == .syncing` so a
     /// user-initiated manual sync is not starved while a foreground sync holds
     /// the syncing phase — the two sync paths use independent flags.
-    /// Zone identity is stored via the shared `SendableZoneID` wrapper because
-    /// `CKRecordZone.ID` is not `Sendable` under Swift 6 strict concurrency.
-    /// `SendableZoneID` preserves zone comparison semantics while keeping
-    /// `LifecycleFlags` `Sendable`. See `Project/Utilities/SendableZoneID.swift`
-    /// for the canonical definition shared across lifecycle and scope code.
     private struct LifecycleFlags: Sendable {
         var phase: Phase = .idle
         var isManualSyncing = false
         var hasCompletedInitialBootstrap = false
         var lastSynchronizedScopeKey: String?
-        var lastObservedZoneID: SendableZoneID?
+        var lastObservedZoneID: (zoneName: String, ownerName: String)?
     }
 
     private let state = Mutex<LifecycleFlags>(LifecycleFlags())
@@ -123,10 +118,8 @@ final class AppLifecycleCoordinator {
     /// Injected scheduler so tests can simulate a failing `scheduleWeeklyPayoutRefresh`.
     private let payoutScheduler: (PayoutDay) -> Bool
 
-    // Observer handles must be accessible from nonisolated deinit; MainActor-isolated
-    // storage would be unreachable during deallocation on Swift 6's strict isolation.
-    @ObservationIgnored private nonisolated(unsafe) var sessionClearObserver: NSObjectProtocol?
-    @ObservationIgnored private nonisolated(unsafe) var zoneChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private var sessionClearObserver: NSObjectProtocol?
+    @ObservationIgnored private var zoneChangeObserver: NSObjectProtocol?
 
     // MARK: - Initialization
 
@@ -199,11 +192,13 @@ final class AppLifecycleCoordinator {
     }
 
     deinit {
-        if let observer = sessionClearObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = zoneChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
+        MainActor.assumeIsolated {
+            if let observer = self.sessionClearObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = self.zoneChangeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 
@@ -226,9 +221,13 @@ final class AppLifecycleCoordinator {
     /// scope key must be discarded, otherwise a zone switch could appear already
     /// synchronized and skip `initializeEngines`.
     private func handleZoneChangeIfNeeded(currentZoneID: CKRecordZone.ID?) {
-        let currentWrapped = currentZoneID.map(SendableZoneID.init)
+        let currentWrapped = currentZoneID.map {
+            (zoneName: $0.zoneName, ownerName: $0.ownerName)
+        }
         state.withLock { flags in
-            if flags.lastObservedZoneID != currentWrapped {
+            let isSameZone = flags.lastObservedZoneID?.zoneName == currentWrapped?.zoneName
+                && flags.lastObservedZoneID?.ownerName == currentWrapped?.ownerName
+            if !isSameZone {
                 if flags.lastSynchronizedScopeKey != nil {
                     logger.info("Family zone changed — invalidating cached scope key")
                     flags.lastSynchronizedScopeKey = nil
@@ -242,7 +241,9 @@ final class AppLifecycleCoordinator {
     /// through `initializeAndSyncActiveScope`, ensuring the scope cache is
     /// cleared even when the zone switches while engines remain initialized.
     private func invalidateScopeForZoneChange() {
-        let wrapped = appState?.familyZoneID.map(SendableZoneID.init)
+        let wrapped = appState?.familyZoneID.map {
+            (zoneName: $0.zoneName, ownerName: $0.ownerName)
+        }
         state.withLock { flags in
             if flags.lastSynchronizedScopeKey != nil {
                 logger.info("Family zone changed (notification) — invalidating cached scope key")
@@ -438,7 +439,7 @@ final class AppLifecycleCoordinator {
         await syncCoordinator.fetchChanges()
         await syncCoordinator.sendPendingChanges()
 
-        let wrappedZoneID = SendableZoneID(zoneID)
+        let wrappedZoneID = (zoneName: zoneID.zoneName, ownerName: zoneID.ownerName)
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator, concrete.syncError == nil {
             state.withLock { flags in
                 flags.lastSynchronizedScopeKey = scopeKey
@@ -514,17 +515,18 @@ final class AppLifecycleCoordinator {
             cacheService.upsertQuestCompletions(completions, family: family.id.recordName)
             cacheService.upsertAllowancePeriods(periods, family: family.id.recordName)
             for staleQuest in staleQuests {
-                cacheService.invalidateQuest(
+                cacheService.invalidate(
                     identity: ScopedRecordIdentity(
                         databaseScope: .shared,
                         zoneID: zoneID,
                         recordID: CKRecord.ID(recordName: staleQuest.recordName, zoneID: zoneID),
                         familyRecordName: family.id.recordName
-                    )
+                    ),
+                    type: .quest
                 )
             }
             for staleEntry in staleEntries {
-                cacheService.invalidateRecord(
+                cacheService.invalidate(
                     identity: ScopedRecordIdentity(
                         databaseScope: .shared,
                         zoneID: zoneID,
@@ -535,7 +537,7 @@ final class AppLifecycleCoordinator {
                 )
             }
             for staleCompletion in staleCompletions {
-                cacheService.invalidateRecord(
+                cacheService.invalidate(
                     identity: ScopedRecordIdentity(
                         databaseScope: .shared,
                         zoneID: zoneID,
@@ -546,7 +548,7 @@ final class AppLifecycleCoordinator {
                 )
             }
             for stalePeriod in stalePeriods {
-                cacheService.invalidateRecord(
+                cacheService.invalidate(
                     identity: ScopedRecordIdentity(
                         databaseScope: .shared,
                         zoneID: zoneID,

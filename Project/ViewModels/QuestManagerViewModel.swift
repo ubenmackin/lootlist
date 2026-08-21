@@ -252,14 +252,7 @@ final class QuestManagerViewModel {
             completionsByQuest[completion.quest.recordID.recordName, default: []].append(completion)
         }
 
-        // Preserve the original "all pending logs" semantic: the per-quest path
-        // returned every log for the quest (sorted by completedDate desc) and the
-        // caller-wide filter kept only pending ones. Taking just `.first` here
-        // would silently drop an earlier pending log when a newer log for the same
-        // quest is verified/rejected/autoApproved, so iterate all logs and keep
-        // every pending entry. `completionsByQuest` preserves the descending
-        // completedDate order from `fetchQuestCompletionsForFamily`, so appended
-        // pending logs remain newest-first within each quest.
+        // Collect all pending completions across quests in descending date order.
         var pending: [QuestCompletion] = []
         for quest in all where quest.approvalMode == .parentVerify {
             let logs = completionsByQuest[quest.id.recordName] ?? []

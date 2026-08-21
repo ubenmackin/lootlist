@@ -15,13 +15,7 @@ extension QuestServiceTests {
 
     @Test
     func `markComplete performs no ad-hoc post-save CloudKit query`() async throws {
-        // Services must not issue ad-hoc CloudKit refreshes; SyncEngine is
-        // the single writer of server-derived state. The pre-remediation code
-        // spawned `Task { fetchQuestLogs(useCache: false) }` after the save — a
-        // background CloudKit query. That path is removed; `markComplete` must
-        // not query CloudKit post-save. To make this deterministic against a
-        // fire-and-forget spawned Task, `query` parks the caller until released;
-        // if any post-save query were issued, `waitForQueryHit` would resolve.
+        // Verify that markComplete performs no ad-hoc background CloudKit queries post-save.
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = QueryParkingCloudKitService(zoneID: zoneID)
         let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)

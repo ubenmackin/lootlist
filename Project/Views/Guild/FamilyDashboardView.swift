@@ -35,10 +35,10 @@ struct FamilyDashboardView: View {
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
-    private let spending: any SpendingService
+    private let spending: SpendingService
     private let familyRecordName: String?
 
-    init(spending: any SpendingService, familyRecordName: String? = nil) {
+    init(spending: SpendingService, familyRecordName: String? = nil) {
         self.spending = spending
         self.familyRecordName = familyRecordName
 
@@ -122,11 +122,6 @@ struct FamilyDashboardView: View {
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 rebuild()
-                // Re-fetch the share participant list once the view model is
-                // wired so the Invitations panel is populated on first paint
-                // (the CKShare participant list is the source for that panel,
-                // not the SwiftData cache, so the initial `rebuild` cannot
-                // populate it on its own).
                 await viewModel?.refreshInvitations()
             }
             .onChange(of: cachedProfiles) { _, _ in
@@ -518,10 +513,6 @@ struct FamilyDashboardView: View {
             VStack(spacing: 6) {
                 Text("Recruit Your Party!")
                     .font(.title3.weight(.heavy))
-                // Keep this copy in lockstep with the Invite Members button
-                // gate above: only the Guild Master can mint a share, so a
-                // non-GM is pointed at the Guild Master, not at a button
-                // they cannot see.
                 Text(appState.currentProfile?.role == .guildMaster
                     ? "Your guild needs heroes to embark on quests. Tap **Invite Members** above to invite a Hero to your guild."
                     : "Your guild needs heroes to embark on quests. Ask the Guild Master to invite a Hero to your guild.")
@@ -562,10 +553,7 @@ struct FamilyDashboardView: View {
         isProcessingPayout = true
         defer { isProcessingPayout = false }
         guard appState.family != nil else { return }
-        // User-confirmed early payout: closes each open period (marks it .paid)
-        // but does not retire the week's quests. Quest retirement is the
-        // expired-quest sweep's job, and it only touches past weeks — never the
-        // current week — so heroes keep their remaining quests mid-week.
+        // Early payout marks open periods as paid without retiring active quests.
         let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
         let matchingPeriods = cachedAllowancePeriods.filter { period in
             let status = period.statusEnum

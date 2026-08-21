@@ -99,21 +99,7 @@ final class AutoPayoutCoordinator {
                 ]
 
                 for weekOf in candidateWeeks {
-                    // Half-open payout gate: the week owns [weekOf, weekOf+7d).
-                    // payoutDate is the exclusive upper bound (next Monday 00:00 UTC
-                    // for the effective per-hero payout-day-anchored week) via
-                    // WeekMath.weekRange(starting:).upperBound. Gating on
-                    // now >= upperBound fires at the instant the week closes, not
-                    // at Sunday 00:00 a full day early (prior: weekOf + 6 days then
-                    // startOfDay(payoutDate)). Reusing the canonical half-open
-                    // range also avoids DST 23h/25h midnight drift — UTC has no
-                    // DST, but the +6d + startOfDay path double-normalizes and
-                    // could fire early on spring-forward 23h days if the calendar
-                    // were ever non-UTC. Documented choice: strict >= upperBound
-                    // (end-of-day Sunday Loot Day) keeps the range half-open and
-                    // consistent with WeekMath/TreasuryService/QuestService; callers
-                    // needing inclusive end-of-day should use upperBound - 1 second
-                    // with a calendar-aware check explicitly.
+                    // Payout fires once now reaches the exclusive upper bound of the week.
                     let payoutDate = WeekMath.weekRange(starting: weekOf).upperBound
                     guard now >= payoutDate else {
                         continue
@@ -147,19 +133,7 @@ final class AutoPayoutCoordinator {
                 }
             }
 
-            // Retire quests from past weeks whose payouts have been finalized. The sweep
-            // excludes the current week, so an early payout never deactivates this
-            // week's still-active quests; they retire on the next week rollover.
-            // Sweep must respect per-hero effective payout day — each hero's week is
-            // anchored on hero.payoutDay ?? family.payoutDay. A single family-anchored
-            // weekStart would retire quests up to 6 days early or late for heroes
-            // with overrides (e.g. Sunday family with Friday hero: Friday hero's
-            // quest from previous Friday week must not be swept until his Saturday
-            // rollover). Derive the distinct effective weekStarts among heroes and
-            // sweep once per distinct anchor so every hero's cycle is respected.
-            // sweepExpiredQuests re-anchors per-quest internally, but the passed
-            // currentWeekOf must already be hero-anchored to avoid a double-shift
-            // when a family-anchored date is re-snapped to the hero's payout day.
+            // Retire quests from past weeks, sweeping per distinct effective hero payout day.
             let heroesByWeekStart = Dictionary(grouping: heroes) { hero in
                 WeekMath.startOfWeek(for: now, payoutDay: hero.payoutDay ?? family.payoutDay)
             }
@@ -245,11 +219,7 @@ final class AutoPayoutCoordinator {
         let activeTemplateByRecordName = Dictionary(activeTemplates.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
         let activeTemplateNames = Set(activeTemplates.map(\.recordName))
 
-        // Group heroes by their effective per-assignee current-week start so
-        // heroes sharing a payout day share one (source, gate, write) tuple.
-        // Heroes with no per-profile override collapse back onto the family
-        // payday, so the default configuration behaves identically to the
-        // pre-fix family-anchored implementation.
+        // Group heroes by effective week start based on per-profile or family payout day.
         let heroesByWeekStart = Dictionary(grouping: heroes) { hero in
             WeekMath.startOfWeek(for: now, payoutDay: hero.payoutDay ?? family.payoutDay)
         }
@@ -258,13 +228,7 @@ final class AutoPayoutCoordinator {
         var totalCarriedPerAssignee: [String: Int] = [:]
 
         for (currentWeekStart, weekHeroes) in heroesByWeekStart {
-            // Reuse the same ISO8601-UTC shift used elsewhere in this function
-            // for deriving the previous week's start. This is the group's
-            // per-hero previousWeekStart, NOT familyWeekStart — using the
-            // family-anchored week would bucket override heroes (e.g. Friday
-            // hero in Sunday family) 6 days off and either duplicate or miss
-            // carry-forward tuples. Assertion: previousWeekStart must derive
-            // from currentWeekStart for this payout-day group.
+            // Derive previous week start for this payout-day group.
             let previousWeekStart = Calendar.iso8601UTC.date(byAdding: .day, value: AppConstants.Economy.previousWeekDayOffset, to: currentWeekStart) ?? currentWeekStart
             guard previousWeekStart < currentWeekStart else {
                 logger
@@ -294,18 +258,7 @@ final class AutoPayoutCoordinator {
             )
             guard !pendingTuples.isEmpty else { continue }
 
-            // Idempotency: skip tuples that already have a quest in the
-            // current week so re-runs of the coordinator never duplicate
-            // assignments. The gate deliberately spans ALL current-week rows,
-            // active or not: a parent's mid-week unassign of a carried-forward
-            // quest leaves a suppression tombstone
-            // (`QuestService.unassignQuest` retains the row with
-            // `active == false`), and that tombstone occupies the pair so the
-            // engine never resurrects a quest the parent explicitly removed
-            // for this week. Only pairs with no current-week row at all —
-            // never created this week — fall through to assignment. The gate
-            // window is anchored on the same per-assignee payout day as the
-            // stored `weekOf`, so the tombstone is always visible to it.
+            // Skip tuples with existing current-week quests (including inactive tombstones) to prevent duplicate assignments.
             let existingPairs = Set(
                 cache.fetchQuests(family: familyName, weekInRange: WeekMath.weekRange(starting: currentWeekStart))
                     .map { TemplateAssigneePair(template: $0.templateRecordName, assignee: $0.assigneeRecordName) }
@@ -372,12 +325,7 @@ final class AutoPayoutCoordinator {
         var carriedCount = 0
         var carriedPerAssignee: [String: Int] = [:]
         let zoneID = family.id.zoneID
-        // Guard: every carry-forward assignment must land in the family's
-        // zoneID consistently. activeTemplateByRecordName lookup is keyed on
-        // templateRecordName only, but the resulting template is rehydrated
-        // via toQuestTemplate(zoneID: zoneID) with family.id.zoneID so the
-        // minted Quest recordName/zoneID matches the family's zone. A mismatch
-        // would place the quest in the wrong zone and break fetch scoping.
+        // Ensure assignments consistently target the family zoneID.
         guard zoneID == family.id.zoneID else {
             logger.error("Carry-forward zoneID mismatch for family \(family.name, privacy: .private). Aborting carry-forward assignments for this group.")
             return (0, [:])

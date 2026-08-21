@@ -253,33 +253,10 @@ extension TreasuryService {
                               weekOf: Date) async throws -> AllowancePeriod?
     {
         let familyName = profile.family.recordID.recordName
-        // WHY direct `==` and not day-equality (`isDate(inSameDayAs:)` /
-        // `startOfDay(for:) ==`): `AllowancePeriod.weekOf` is always
-        // payout-day-normalized at write time via `WeekMath.startOfWeek(for:payoutDay:)`
-        // (midnight UTC on the payout-anchored cycle start — Monday 00:00 UTC
-        // for `.sunday`, Sunday 00:00 UTC for `.saturday`, etc.). Both the
-        // stored row and `normalizedWeekStart` are therefore already at
-        // `Calendar.iso8601UTC.startOfDay` granularity. Collapsing the stored
-        // side with `startOfDay(for: $0.weekOf)` would alias a legacy
-        // pre-migration row that carries a time-of-day component (e.g. 13:00)
-        // to the same calendar day as the correctly-normalized midnight row,
-        // potentially matching the wrong week. The correct invariant is strict
-        // identity ` $0.weekOf == normalizedWeekStart` — both already
-        // normalized. If DST normalization is ever needed, it must be applied
-        // once at write time via `WeekMath.startOfWeek` / `startOfDay`, not
-        // at comparison time. On `iso8601UTC` there is no DST 23h/25h drift
-        // (UTC is DST-free), but this preserves the invariant for legacy rows
-        // — e.g. a DST spring-forward legacy `weekOf` at 02:30 local that was
-        // persisted as 13:00 UTC must NOT alias to the midnight row for that
-        // day; only an exact midnight match is valid.
+        // Strict equality on normalized UTC week start matches stored AllowancePeriod.weekOf exactly.
         let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: weekOf)
         if let cache = cacheService {
             let profileName = profile.id.recordName
-            // Strict identity preserves week identity; do NOT use
-            // `Calendar.iso8601UTC.isDate(_:inSameDayAs:)` or
-            // `Calendar.iso8601UTC.startOfDay(for: $0.weekOf) ==` on the
-            // stored side — that would mask the `weekOf` time component and
-            // alias legacy 13:00 rows to midnight rows on the same day.
             let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
                 .first { $0.weekOf == normalizedWeekStart }
             if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
@@ -357,14 +334,59 @@ extension TreasuryService {
 
     // MARK: - Gold Aggregation
 
-    // Zone-aware gold summation: delegates to `GoldCalculation.totalCredit` which
-    // keys quests by `recordName` (zone-independent) and surfaces transient
-    // CloudKit fetch failures instead of silently under-crediting.
-    //
-    // - Throws: Re-throws any `GoldCalculation.totalCredit` fetch failure.
-    //   Callers (notably `weeklyBreakdown` and `processRealTimeSettlement`)
-    //   must handle with `do/catch` + `ToastManager.show` + retry; do not
-    //   `try?` to `0` or leave the wallet hanging.
+    func fetchQuestsForGold(family: Family, logs: [QuestCompletion]) async throws -> [Quest] {
+        guard !logs.isEmpty else { return [] }
+        let needed = Set(logs.map(\.quest.recordID.recordName))
+        if let cache = cacheService {
+            let familyName = family.id.recordName
+            let isFresh = await MainActor.run {
+                cache.isCacheFresh(familyRecordName: familyName, type: .quest)
+            }
+            if isFresh {
+                let zoneID = family.id.zoneID
+                let cached = await MainActor.run {
+                    cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
+                }
+                var map = Dictionary(uniqueKeysWithValues: cached.map { ($0.id.recordName, $0) })
+                let missing = needed.filter { map[$0] == nil }
+                if missing.isEmpty {
+                    return cached.filter { needed.contains($0.id.recordName) }
+                }
+                let fetched = try await fetchMissingQuestsForGold(
+                    missingNames: Array(missing),
+                    family: family,
+                    logs: logs
+                )
+                for quest in fetched {
+                    map[quest.id.recordName] = quest
+                }
+                return Array(map.values).filter { needed.contains($0.id.recordName) }
+            }
+        }
+        return try await fetchMissingQuestsForGold(
+            missingNames: Array(needed),
+            family: family,
+            logs: logs
+        )
+    }
+
+    private func fetchMissingQuestsForGold(
+        missingNames: [String],
+        family: Family,
+        logs _: [QuestCompletion]
+    ) async throws -> [Quest] {
+        try await BatchQuestFetcher.fetchMissingQuests(
+            names: missingNames,
+            family: family,
+            cloudKit: cloudKit
+        )
+    }
+
+    /// Pure gold summation over already-fetched quests. No CloudKit access —
+    /// callers must supply the quest records that correspond to `logs`.
+    func sumGold(for logs: [QuestCompletion], quests: [Quest]) -> Double {
+        GoldCalculation.totalCredit(for: quests, logs: logs)
+    }
 
     // MARK: - Helpers
 
@@ -373,15 +395,6 @@ extension TreasuryService {
             return profile.payoutPolicy
         }
         return family?.payoutPolicy ?? profile.payoutPolicy
-    }
-
-    func sumGold(for logs: [QuestCompletion], family: Family? = nil) async throws -> Double {
-        try await GoldCalculation.totalCredit(
-            logs: logs,
-            cacheService: cacheService,
-            cloudKit: cloudKit,
-            family: family
-        )
     }
 
     static func isCompleted(_ log: QuestCompletion) -> Bool {

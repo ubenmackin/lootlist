@@ -11,7 +11,7 @@ import SwiftUI
 struct HeroLedgerView: View {
     let hero: ProfileCache
     let familyRecordName: String?
-    private let spending: any SpendingService
+    private let spending: SpendingService
 
     @Environment(AppState.self) private var appState
     @Environment(ToastManager.self) private var toastManager: ToastManager?
@@ -27,7 +27,7 @@ struct HeroLedgerView: View {
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
 
-    init(hero: ProfileCache, familyRecordName: String?, spending: any SpendingService) {
+    init(hero: ProfileCache, familyRecordName: String?, spending: SpendingService) {
         self.hero = hero
         self.familyRecordName = familyRecordName
         self.spending = spending

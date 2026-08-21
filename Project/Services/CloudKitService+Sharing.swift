@@ -454,12 +454,7 @@ extension CloudKitService {
         let targetID = resolveShareTargetID(for: rootRecordID)
         let shares = try await allShares(in: targetID.zoneID, using: pvtDB)
 
-        // The participant's stable identity key. A participant with no iCloud
-        // record name, email, phone, or server-assigned participant ID (e.g. a
-        // not-yet-claimed one-time-URL invite) cannot be located inside a
-        // freshly-fetched participant list — object identity is meaningless
-        // across fetches — so surface the failure rather than pretending a
-        // revocation happened.
+        // Require a stable participant identity key (record name, email, phone, or participant ID).
         guard let key = ShareParticipantKey.key(for: participant) else {
             throw CloudKitServiceError.shareFailed(
                 "Cannot revoke a share participant with no CloudKit identity (no user record name, email, phone, or participant ID)"

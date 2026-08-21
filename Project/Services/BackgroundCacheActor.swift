@@ -14,7 +14,6 @@ import SwiftData
 actor BackgroundCacheActor {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
 
-    /// Disables autosave; uses `container:` label to avoid overload ambiguity.
     init(container: ModelContainer) {
         modelContainer = container
         let modelContext = ModelContext(container)
@@ -24,52 +23,76 @@ actor BackgroundCacheActor {
 
     // MARK: - Generic batch helpers
 
-    // changeTag is copied unconditionally — nil is a meaningful "no further tag" value that must propagate.
-
     @discardableResult
-    private func batchUpsert<T: CacheMergeable>(
-        _: T.Type,
-        _ items: [T.DomainModel],
-        familyRecordName: String?
-    ) async -> Bool {
-        let existing: [T]
-        do {
-            existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
-        } catch {
-            logger.error("Failed to fetch existing \(T.self, privacy: .private) for batchUpsert: \(error, privacy: .private)")
-            return false
-        }
-        let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-        for item in items {
-            let name = item.id.recordName
-            if let target = byName[name] {
-                if let familyRecordName, target.familyRecordName != familyRecordName {
-                    logger
-                        .warning(
-                            """
-                            BackgroundCacheActor batchUpsert target family mismatch for \(name, privacy: .private): \
-                            expected \(familyRecordName, privacy: .private), found \(target.familyRecordName, privacy: .private)
-                            """
-                        )
-                    continue
-                }
-                target.update(from: item, isServerSync: true)
-            } else {
-                let newRow = T(from: item)
-                if let familyRecordName, newRow.familyRecordName != familyRecordName {
-                    logger
-                        .warning(
-                            """
-                            BackgroundCacheActor batchUpsert new row family mismatch for \(name, privacy: .private): \
-                            expected \(familyRecordName, privacy: .private), found \(newRow.familyRecordName, privacy: .private)
-                            """
-                        )
-                    continue
-                }
-                modelContext.insert(newRow)
+    private func batchUpsert<T: CacheMergeable>(_: T.Type, _ items: [T.DomainModel], familyRecordName: String?) async -> Bool {
+        if let familyRecordName {
+            let existing: [T]
+            do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName)) } catch {
+                logger.error("Failed to fetch existing \(T.self, privacy: .private) for batchUpsert: \(error, privacy: .private)")
+                return false
             }
+            let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
+            for item in items {
+                let name = item.id.recordName
+                if let target = byName[name] {
+                    if target.familyRecordName != familyRecordName,
+                       !target.familyRecordName.isEmpty
+                    {
+                        logger.warning(
+                            """
+                            BackgroundCacheActor batchUpsert target mismatch for \
+                            \(name, privacy: .private): expected \
+                            \(familyRecordName, privacy: .private), found \
+                            \(target.familyRecordName, privacy: .private)
+                            """
+                        )
+                        continue
+                    }
+                    target.update(from: item, isServerSync: true)
+                } else {
+                    let newRow = T(from: item)
+                    if newRow.familyRecordName != familyRecordName,
+                       !newRow.familyRecordName.isEmpty
+                    {
+                        logger.warning(
+                            """
+                            BackgroundCacheActor batchUpsert new row mismatch for \
+                            \(name, privacy: .private): expected \
+                            \(familyRecordName, privacy: .private), found \
+                            \(newRow.familyRecordName, privacy: .private)
+                            """
+                        )
+                        continue
+                    }
+                    modelContext.insert(newRow)
+                }
+            }
+            return saveContext()
         }
-        return saveContext()
+        // Nil family — group to keep per-family saves isolated; families themselves are unscoped.
+        if T.self == FamilyCache.self {
+            let existing: [T]
+            do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: nil)) } catch {
+                logger.error("Failed to fetch existing \(T.self, privacy: .private) for batchUpsert: \(error, privacy: .private)")
+                return false
+            }
+            let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
+            for item in items {
+                let name = item.id.recordName
+                if let target = byName[name] {
+                    target.update(from: item, isServerSync: true)
+                } else {
+                    modelContext.insert(T(from: item))
+                }
+            }
+            return saveContext()
+        }
+        let grouped = Dictionary(grouping: items) { T(from: $0).familyRecordName }
+        var success = true
+        for (family, group) in grouped {
+            success = await batchUpsert(T.self, group, familyRecordName: family.isEmpty ? nil : family) && success
+        }
+        return success
     }
 
     private func purgeMissing<T: CacheMergeable>(
@@ -77,15 +100,16 @@ actor BackgroundCacheActor {
         validRecordNames: Set<String>,
         familyRecordName: String?
     ) async {
-        // Guard against an empty validRecordNames set: if the upstream query
-        // threw or was cancelled, the caller passes an empty set. Purging on an
-        // empty validRecordNames destroys valid local cached data.
         guard !validRecordNames.isEmpty else { return }
-
+        let family: String?
+        if T.self == FamilyCache.self {
+            family = nil
+        } else {
+            guard let validated = validatedFamilyScope(familyRecordName) else { return }
+            family = validated
+        }
         let existing: [T]
-        do {
-            existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
-        } catch {
+        do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: family)) } catch {
             logger.error("Failed to fetch existing \(T.self, privacy: .private) for purgeMissing: \(error, privacy: .private)")
             existing = []
         }
@@ -99,32 +123,16 @@ actor BackgroundCacheActor {
 
     @discardableResult
     func batchUpsertQuests(_ quests: [Quest], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(QuestCache.self, quests, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: quests, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyQuests) in grouped {
-            success = await batchUpsert(QuestCache.self, familyQuests, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(QuestCache.self, quests, familyRecordName: familyRecordName)
     }
 
-    /// Backfills `name` on any Quest in `quests` whose `name` is nil by
-    /// reading the authoritative template record from CloudKit. Runs in the
-    /// background actor so the per-template await does not contend with the
-    /// cache-hit read path. Returns a new array with stamped names where
-    /// available; callers must use the returned array for subsequent upsert.
     func backfillQuestNames(_ quests: [Quest], cloudKit: any CloudKitServiceProtocol) async -> [Quest] {
         let nameless = quests.filter { $0.name == nil }
         guard !nameless.isEmpty else { return quests }
         let recordNames = Set(nameless.map(\.template.recordID))
         var templatesByID: [CKRecord.ID: QuestTemplate] = [:]
         for recordID in recordNames {
-            do {
-                let template = try await cloudKit.fetch(QuestTemplate.self, id: recordID)
-                templatesByID[recordID] = template
-            } catch {
+            do { templatesByID[recordID] = try await cloudKit.fetch(QuestTemplate.self, id: recordID) } catch {
                 logger.debug("Failed to fetch template for backfill \(recordID.recordName, privacy: .private): \(error, privacy: .private)")
             }
         }
@@ -138,93 +146,37 @@ actor BackgroundCacheActor {
 
     @discardableResult
     func batchUpsertProfiles(_ profiles: [Profile], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(ProfileCache.self, profiles, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: profiles, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyProfiles) in grouped {
-            success = await batchUpsert(ProfileCache.self, familyProfiles, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(ProfileCache.self, profiles, familyRecordName: familyRecordName)
     }
 
     @discardableResult
     func batchUpsertQuestCompletions(_ completions: [QuestCompletion], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(QuestCompletionCache.self, completions, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: completions, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyCompletions) in grouped {
-            success = await batchUpsert(QuestCompletionCache.self, familyCompletions, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(QuestCompletionCache.self, completions, familyRecordName: familyRecordName)
     }
 
     @discardableResult
     func batchUpsertQuestTemplates(_ templates: [QuestTemplate], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(QuestTemplateCache.self, templates, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: templates, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyTemplates) in grouped {
-            success = await batchUpsert(QuestTemplateCache.self, familyTemplates, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(QuestTemplateCache.self, templates, familyRecordName: familyRecordName)
     }
 
     @discardableResult
     func batchUpsertLedgerEntries(_ entries: [LedgerEntry], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(LedgerEntryCache.self, entries, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: entries, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyEntries) in grouped {
-            success = await batchUpsert(LedgerEntryCache.self, familyEntries, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(LedgerEntryCache.self, entries, familyRecordName: familyRecordName)
     }
 
     @discardableResult
     func batchUpsertAllowancePeriods(_ periods: [AllowancePeriod], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(AllowancePeriodCache.self, periods, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: periods, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyPeriods) in grouped {
-            success = await batchUpsert(AllowancePeriodCache.self, familyPeriods, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(AllowancePeriodCache.self, periods, familyRecordName: familyRecordName)
     }
 
     @discardableResult
     func batchUpsertAchievements(_ achievements: [Achievement], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(AchievementCache.self, achievements, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: achievements, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyAchievements) in grouped {
-            success = await batchUpsert(AchievementCache.self, familyAchievements, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(AchievementCache.self, achievements, familyRecordName: familyRecordName)
     }
 
     @discardableResult
     func batchUpsertProfileAchievements(_ pas: [ProfileAchievement], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(ProfileAchievementCache.self, pas, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: pas, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyPAs) in grouped {
-            success = await batchUpsert(ProfileAchievementCache.self, familyPAs, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(ProfileAchievementCache.self, pas, familyRecordName: familyRecordName)
     }
 
     @discardableResult
@@ -234,116 +186,31 @@ actor BackgroundCacheActor {
 
     @discardableResult
     func batchUpsertNotificationPreferences(_ prefs: [NotificationPreference], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(NotificationPreferenceCache.self, prefs, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: prefs, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyPrefs) in grouped {
-            success = await batchUpsert(NotificationPreferenceCache.self, familyPrefs, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(NotificationPreferenceCache.self, prefs, familyRecordName: familyRecordName)
     }
 
     @discardableResult
     func batchUpsertGemLedgers(_ entries: [GemLedger], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(GemLedgerCache.self, entries, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: entries) { $0.family.recordID.recordName }
-        var success = true
-        for (family, familyEntries) in grouped {
-            success = await batchUpsert(GemLedgerCache.self, familyEntries, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(GemLedgerCache.self, entries, familyRecordName: familyRecordName)
     }
 
     // MARK: - Atomic gem credit
 
-    /// Atomically inserts a gem ledger and reconciles the profile balance in a
-    /// single background save.
-    ///
-    /// Why this exists: the deterministic ledger `recordName` is the idempotency
-    /// key for cross-device gem credits. A check-then-insert split across two
-    /// saves allows concurrent `CKSyncEngine` deliveries of the same logical event
-    /// to double-credit. The existence check, balance derivation, and
-    /// ledger+profile mutation execute in the same actor-isolated
-    /// `ModelContext` transaction; the new balance is computed from in-memory
-    /// rows plus the incoming amount so a partial save can never diverge ledger
-    /// and profile.
-    ///
-    /// - Returns: `true` when the ledger was inserted and the profile reconciled;
-    ///   `false` when a row with the same deterministic ID already existed or
-    ///   the save failed.
+    /// Delegates to shared helper so ledger/profile stay in one transaction
+    /// and idempotency via deterministic ledger ID is enforced once.
     @discardableResult
     func atomicallyApplyGemCredit(ledger: GemLedger, profile: Profile) async -> Bool {
-        let familyName = ledger.family.recordID.recordName
-        let recordName = ledger.id.recordName
-        let profileRecordName = ledger.profileRecordName
-
-        // Idempotency check inside the same actor transaction.
-        do {
-            let existing = try modelContext.fetch(
-                FetchDescriptor<GemLedgerCache>(predicate: #Predicate {
-                    $0.recordName == recordName && $0.familyRecordName == familyName
-                })
-            )
-            if existing.first != nil {
-                return false
-            }
-        } catch {
-            logger.error("Failed to check existing GemLedger \(recordName, privacy: .private): \(error, privacy: .private)")
-            return false
-        }
-
-        // Derive new balance from existing rows plus incoming amount.
-        let existingRows: [GemLedgerCache]
-        do {
-            existingRows = try modelContext.fetch(
-                FetchDescriptor<GemLedgerCache>(predicate: #Predicate {
-                    $0.profileRecordName == profileRecordName && $0.familyRecordName == familyName
-                })
-            )
-        } catch {
-            logger.error("Failed to fetch GemLedgerCache for balance: \(error, privacy: .private)")
-            return false
-        }
-        let newBalance = existingRows.reduce(0) { $0 + $1.amount } + ledger.amount
-        var updatedProfile = profile
-        updatedProfile.gems = newBalance
-
-        // Single transaction for both rows.
-        let cache = GemLedgerCache(from: ledger)
-        modelContext.insert(cache)
-
-        do {
-            let profileDescriptor = FetchDescriptor<ProfileCache>(predicate: #Predicate {
-                $0.recordName == profileRecordName && $0.familyRecordName == familyName
-            })
-            if let existingProfile = try modelContext.fetch(profileDescriptor).first {
-                existingProfile.update(from: updatedProfile, isServerSync: true)
-            } else {
-                modelContext.insert(ProfileCache(from: updatedProfile))
-            }
-        } catch {
-            logger.error("Failed to fetch ProfileCache for gem credit: \(error, privacy: .private)")
-            return false
-        }
-
+        guard sharedGemCreditPrepare(
+            context: modelContext,
+            ledger: ledger,
+            profile: profile
+        ) else { return false }
         return saveContext()
     }
 
     @discardableResult
     func batchUpsertRewardEvents(_ events: [RewardEvent], familyRecordName: String? = nil) async -> Bool {
-        if let familyRecordName {
-            return await batchUpsert(RewardEventCache.self, events, familyRecordName: familyRecordName)
-        }
-        let grouped = Dictionary(grouping: events, by: { $0.family.recordID.recordName })
-        var success = true
-        for (family, familyEvents) in grouped {
-            success = await batchUpsert(RewardEventCache.self, familyEvents, familyRecordName: family) && success
-        }
-        return success
+        await batchUpsert(RewardEventCache.self, events, familyRecordName: familyRecordName)
     }
 
     private struct ParsedBatch {
@@ -447,9 +314,7 @@ actor BackgroundCacheActor {
             let completionName = event.questCompletion.recordID.recordName
             let familyName = event.family.recordID.recordName
             do {
-                let descriptor = FetchDescriptor<QuestCompletionCache>(
-                    predicate: #Predicate { $0.recordName == completionName && $0.familyRecordName == familyName }
-                )
+                let descriptor = FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == completionName && $0.familyRecordName == familyName })
                 if let match = try modelContext.fetch(descriptor).first {
                     applyRewardEvent(event, to: match)
                 }
@@ -465,18 +330,12 @@ actor BackgroundCacheActor {
         for completion in completions {
             let familyName = completion.family.recordID.recordName
             let completionRecordName = completion.id.recordName
-            let eventDescriptor = FetchDescriptor<RewardEventCache>(
-                predicate: #Predicate {
-                    $0.familyRecordName == familyName && $0.questCompletionRecordName == completionRecordName
-                }
-            )
+            let eventDescriptor =
+                FetchDescriptor<RewardEventCache>(predicate: #Predicate { $0.familyRecordName == familyName && $0.questCompletionRecordName == completionRecordName })
             do {
                 let events = try modelContext.fetch(eventDescriptor)
-                let completionDescriptor = FetchDescriptor<QuestCompletionCache>(
-                    predicate: #Predicate {
-                        $0.recordName == completionRecordName && $0.familyRecordName == familyName
-                    }
-                )
+                let completionDescriptor =
+                    FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.recordName == completionRecordName && $0.familyRecordName == familyName })
                 if let cachedCompletion = try modelContext.fetch(completionDescriptor).first {
                     for event in events {
                         applyRewardEvent(event.toRewardEvent(zoneID: completion.id.zoneID), to: cachedCompletion)
@@ -491,9 +350,6 @@ actor BackgroundCacheActor {
     }
 
     private func applyRewardEvent(_ event: RewardEvent, to completion: QuestCompletionCache) {
-        // Hydrate idempotency marker monotonically — nil is always set, non-nil only advances
-        // when the incoming RewardEvent carries a larger amount. Preserves the non-nil
-        // credited value and prevents duplicate XP minting, matching CKSyncConflictResolver.
         guard let credited = completion.xpCredited else {
             completion.xpCredited = event.xpAmount
             logger
@@ -509,11 +365,6 @@ actor BackgroundCacheActor {
 
     // MARK: - Purges (public API preserved as thin wrappers)
 
-    /// Guards the purge path against a nil or empty `familyRecordName`.
-    /// A purge without a concrete family scope could delete another family's
-    /// cached rows — a cross-family data-loss hazard. `FamilyCache` is exempt:
-    /// it is the root record, never family-scoped, and is always purged globally.
-    /// Returns the validated non-empty scope, or nil to short-circuit the purge.
     private func validatedFamilyScope(_ familyRecordName: String?) -> String? {
         guard let familyRecordName, !familyRecordName.isEmpty else {
             logger.warning("Purge skipped: familyRecordName is required, got nil/empty scope")
@@ -523,42 +374,34 @@ actor BackgroundCacheActor {
     }
 
     func purgeMissingQuests(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(QuestCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingProfiles(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(ProfileCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingQuestCompletions(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(QuestCompletionCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingQuestTemplates(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(QuestTemplateCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingLedgerEntries(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(LedgerEntryCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingAllowancePeriods(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(AllowancePeriodCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingAchievements(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(AchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingProfileAchievements(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(ProfileAchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
@@ -567,32 +410,23 @@ actor BackgroundCacheActor {
     }
 
     func purgeMissingNotificationPreferences(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(NotificationPreferenceCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingGemLedgers(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(GemLedgerCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
     func purgeMissingRewardEvents(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        guard let familyRecordName = validatedFamilyScope(familyRecordName) else { return }
         await purgeMissing(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
-    /// Deletes the `FamilyCache` matching `recordName` and all child caches
-    /// scoped to that family, mirroring `CacheService.purgeFamily` on the
-    /// background context. Used when `CKSyncEngine` reports a whole zone
-    /// (family) deleted server-side, so stale rows cannot survive the sync.
     func purgeFamily(recordName: String) async {
         do {
             if let match = try modelContext.fetch(FamilyCache.fetchDescriptor(recordName: recordName)).first {
                 modelContext.delete(match)
             }
-        } catch {
-            logger.error("Failed to purge family cache \(recordName, privacy: .private): \(error, privacy: .private)")
-        }
+        } catch { logger.error("Failed to purge family cache \(recordName, privacy: .private): \(error, privacy: .private)") }
         await purgeFamilyRows(ProfileCache.self, familyRecordName: recordName)
         await purgeFamilyRows(QuestCache.self, familyRecordName: recordName)
         await purgeFamilyRows(QuestTemplateCache.self, familyRecordName: recordName)
@@ -607,12 +441,9 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    /// Deletes every cached row of `T` whose `familyRecordName` matches.
     private func purgeFamilyRows<T: CacheMergeable>(_: T.Type, familyRecordName: String) async {
         let existing: [T]
-        do {
-            existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName))
-        } catch {
+        do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName)) } catch {
             logger.error("Failed to fetch \(T.self, privacy: .private) for family purge: \(error, privacy: .private)")
             existing = []
         }
@@ -621,53 +452,34 @@ actor BackgroundCacheActor {
         }
     }
 
-    /// One-time migration: backfills `targetCount = 1` for legacy rows where
-    /// the value is nil/zero/unset. Idempotent — positive values are untouched.
     func backfillTargetCountGlobally() {
-        // QuestCache — iterate by recordName (global, not per-family).
         let quests: [QuestCache]
-        do {
-            quests = try modelContext.fetch(FetchDescriptor<QuestCache>())
-        } catch {
+        do { quests = try modelContext.fetch(FetchDescriptor<QuestCache>()) } catch {
             logger.error("Failed to fetch QuestCache for backfill: \(error, privacy: .private)")
             quests = []
         }
         for quest in quests where quest.targetCount <= 0 {
             quest.targetCount = 1
         }
-
-        // QuestTemplateCache — same global-by-recordName iteration.
         let templates: [QuestTemplateCache]
-        do {
-            templates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>())
-        } catch {
+        do { templates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>()) } catch {
             logger.error("Failed to fetch QuestTemplateCache for backfill: \(error, privacy: .private)")
             templates = []
         }
         for template in templates where template.targetCount <= 0 {
             template.targetCount = 1
         }
-
         saveContext()
-
-        // Defense-in-depth: surface any rows that still carry a non-positive targetCount
-        // after the backfill sweep. The runtime GoldCalculation.isFullyCompleted guard
-        // tolerates a residual zero, but surfacing it here narrows the diagnostic window.
         let zeroQuests: [QuestCache]
-        do {
-            zeroQuests = try modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.targetCount <= 0 }))
-        } catch {
+        do { zeroQuests = try modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.targetCount <= 0 })) } catch {
             logger.error("Failed to fetch zero-target QuestCache post-backfill: \(error, privacy: .private)")
             zeroQuests = []
         }
         for quest in zeroQuests {
             logger.warning("QuestCache targetCount stuck at zero post-backfill: \(quest.recordName, privacy: .private)")
         }
-
         let zeroTemplates: [QuestTemplateCache]
-        do {
-            zeroTemplates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.targetCount <= 0 }))
-        } catch {
+        do { zeroTemplates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.targetCount <= 0 })) } catch {
             logger.error("Failed to fetch zero-target QuestTemplateCache post-backfill: \(error, privacy: .private)")
             zeroTemplates = []
         }
@@ -696,69 +508,62 @@ actor BackgroundCacheActor {
         saveContext()
     }
 
-    private func deleteRecordByIdentity<T: CacheMergeable>(
-        _: T.Type,
-        identity: ScopedRecordIdentity
-    ) async {
+    private func deleteRecordByIdentity<T: CacheMergeable>(_: T.Type, identity: ScopedRecordIdentity) async {
         let recordName = identity.recordID.recordName
         let match: T?
-        do {
-            match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first
-        } catch {
+        do { match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first } catch {
             logger.error("Failed to fetch \(T.self, privacy: .private) for record deletion (\(recordName, privacy: .private)): \(error, privacy: .private)")
             match = nil
         }
         if let match {
-            if let expectedFamily = identity.familyRecordName, let scoped = match as? any FamilyScopedCache {
+            if let expectedFamily = identity.familyRecordName,
+               let scoped = match as? any FamilyScopedCache
+            {
                 guard scoped.familyRecordName == expectedFamily else {
-                    logger
-                        .warning(
-                            """
-                            BackgroundCacheActor deletion aborted for \(recordName, privacy: .private): \
-                            expected family \(expectedFamily, privacy: .private), found \(scoped.familyRecordName, privacy: .private)
-                            """
-                        )
+                    logger.warning(
+                        """
+                        BackgroundCacheActor deletion aborted for \
+                        \(recordName, privacy: .private): expected family \
+                        \(expectedFamily, privacy: .private), found \
+                        \(scoped.familyRecordName, privacy: .private)
+                        """
+                    )
                     return
                 }
             }
-            if let scoped = match as? any FamilyScopedCache {
-                if let sourceZone = scoped.sourceZoneName,
-                   identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName,
-                   sourceZone != identity.zoneID.zoneName
-                {
-                    // Zone-switch orphan: same family, identity zone is the active
-                    // family zone (owner recreated family with same recordName but
-                    // new zone). Delete the orphan; otherwise keep warning.
-                    let isFamilyMatch: Bool = {
-                        guard let expectedFamily = identity.familyRecordName else { return false }
-                        return scoped.familyRecordName == expectedFamily
-                    }()
-                    let activeZone: CKRecordZone.ID? = await MainActor.run {
-                        let defaults = UserDefaults.standard
-                        guard let zoneName = defaults.string(forKey: "session_familyZoneName"),
-                              let ownerName = defaults.string(forKey: "session_familyZoneOwnerName")
-                        else { return nil }
-                        return CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
-                    }
-                    let isActiveZone = activeZone.map { $0 == identity.zoneID } ?? false
-                    if isFamilyMatch, isActiveZone {
-                        logger
-                            .info(
-                                """
-                                BackgroundCacheActor deleting orphan for \(recordName, privacy: .private): \
-                                old zone \(sourceZone, privacy: .private) → active zone \(identity.zoneID.zoneName, privacy: .private)
-                                """
-                            )
-                    } else {
-                        logger
-                            .warning(
-                                """
-                                BackgroundCacheActor deletion aborted for \(recordName, privacy: .private): \
-                                expected zone \(identity.zoneID.zoneName, privacy: .private), found \(sourceZone, privacy: .private)
-                                """
-                            )
-                        return
-                    }
+            if let scoped = match as? any FamilyScopedCache, let sourceZone = scoped.sourceZoneName,
+               identity.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName, sourceZone != identity.zoneID.zoneName
+            {
+                let isFamilyMatch: Bool = {
+                    guard let expectedFamily = identity.familyRecordName else { return false }
+                    return scoped.familyRecordName == expectedFamily
+                }()
+                let activeZone: CKRecordZone.ID? = await MainActor.run {
+                    let defaults = UserDefaults.standard
+                    guard let zoneName = defaults.string(forKey: "session_familyZoneName"),
+                          let ownerName = defaults.string(forKey: "session_familyZoneOwnerName") else { return nil }
+                    return CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+                }
+                let isActiveZone = activeZone.map { $0 == identity.zoneID } ?? false
+                if isFamilyMatch, isActiveZone {
+                    logger.info(
+                        """
+                        BackgroundCacheActor deleting orphan for \
+                        \(recordName, privacy: .private): old zone \
+                        \(sourceZone, privacy: .private) → active zone \
+                        \(identity.zoneID.zoneName, privacy: .private)
+                        """
+                    )
+                } else {
+                    logger.warning(
+                        """
+                        BackgroundCacheActor deletion aborted for \
+                        \(recordName, privacy: .private): expected zone \
+                        \(identity.zoneID.zoneName, privacy: .private), found \
+                        \(sourceZone, privacy: .private)
+                        """
+                    )
+                    return
                 }
             }
             modelContext.delete(match)
@@ -767,10 +572,7 @@ actor BackgroundCacheActor {
 
     @discardableResult
     private func saveContext() -> Bool {
-        do {
-            try modelContext.save()
-            return true
-        } catch {
+        do { try modelContext.save(); return true } catch {
             logger.error("Failed to save background context: \(error, privacy: .private)")
             return false
         }

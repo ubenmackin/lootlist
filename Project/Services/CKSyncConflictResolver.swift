@@ -402,7 +402,7 @@ final class CKSyncConflictResolver {
             )
         if let cachedType = CachedRecordType.recordType(for: recordType) {
             if let cacheService {
-                cacheService.invalidateRecord(
+                cacheService.invalidate(
                     identity: identity,
                     type: cachedType
                 )

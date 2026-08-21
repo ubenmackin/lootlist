@@ -603,12 +603,7 @@ struct FamilyServiceTests {
         // (b) The hero's active quest was unassigned (deleted) from local cache.
         #expect(cache.fetchQuest(recordName: quest.id.recordName, family: "fam1") == nil)
 
-        // (c) A self-leave is not a raw share revocation: a non-owner cannot
-        // mutate the family share's participant list (and the family zone does
-        // not live in the leaver's private database), so the leave must not be
-        // treated as having revoked CloudKit access — the owner-side reconciler
-        // and Invitations panel own that. The mock's share membership is
-        // untouched by the leave.
+        // (c) Self-leave does not mutate share participant list directly.
         #expect(cloudKit.revokedShareIDs.isEmpty)
     }
 

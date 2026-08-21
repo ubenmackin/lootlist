@@ -46,20 +46,6 @@ final class CKSyncEngineCoordinator {
             : "ck_sync_engine_state.\(familyRecordName).shared"
     }
 
-    /// Legacy profile-keyed state location used before the family-stable migration.
-    /// Retained only to source a one-time copy into the new family-keyed key.
-    private func legacyProfileStateKey(for scope: CKDatabase.Scope) -> String? {
-        guard let profileRecordName = appState?.currentProfile?.id.recordName,
-              let familyRecordName = stableFamilyRecordName(),
-              profileRecordName != familyRecordName
-        else {
-            return nil
-        }
-        return (scope == .private)
-            ? "ck_sync_engine_state.\(profileRecordName).private"
-            : "ck_sync_engine_state.\(profileRecordName).shared"
-    }
-
     let cloudKitService: any CloudKitServiceProtocol
     let delegateHandler: CKSyncEngineDelegateHandler
     let defaults: UserDefaults
@@ -77,14 +63,8 @@ final class CKSyncEngineCoordinator {
     @ObservationIgnored private var completedFetchPassScopes: Set<CKDatabase.Scope> = []
     @ObservationIgnored private var currentPassHadParseFailures = false
     @ObservationIgnored private var currentPassHadCacheWriteFailures = false
-
-    // MARK: - Buffered Enqueue
-
-    /// Buffers record identities enqueued before engines are initialized.
-    /// Prevents data loss when `enqueueSave`/`enqueueDelete` races engine init
-    /// during initial bootstrap or rapid Guild/Hero Settings taps.
-    private let pendingEnqueueBuffer = Mutex<[ScopedRecordIdentity]>([])
-    private let pendingDeleteRecordNames = Mutex<Set<String>>([])
+    @ObservationIgnored private let pendingEnqueueBuffer = Mutex<[ScopedRecordIdentity]>([])
+    @ObservationIgnored private let pendingDeleteBuffer = Mutex<[ScopedRecordIdentity]>([])
 
     var isSyncing: Bool = false
     var lastSyncedAt: Date?
@@ -118,6 +98,13 @@ final class CKSyncEngineCoordinator {
     // MARK: - Engine Setup
 
     func initializeEngines() {
+        // Tests run without entitlements — never instantiate real CKSyncEngine
+        // with a live container in unit tests, even if authStatus is
+        // authenticated (e.g. via a seeded Mock AppState).
+        guard !TestEnvironment.isRunningUnitOrUITests else {
+            logger.info("CKSyncEngine initialization skipped: unit test environment")
+            return
+        }
         guard let appState,
               appState.authStatus == .authenticated,
               let family = appState.family,
@@ -134,7 +121,6 @@ final class CKSyncEngineCoordinator {
         cloudKitService.activeFamilyZoneID = zoneID
         cloudKitService.activeIsOwner = appState.isZoneOwner
         setupEngines()
-        drainPendingEnqueueBuffers()
     }
 
     @available(*, deprecated, message: "Use init parameter instead")
@@ -143,6 +129,10 @@ final class CKSyncEngineCoordinator {
     }
 
     private func setupEngines() {
+        guard !TestEnvironment.isRunningUnitOrUITests else {
+            logger.info("CKSyncEngine setup skipped: unit test environment")
+            return
+        }
         guard let ckConcrete = cloudKitService as? CloudKitService else { return }
         let container = ckConcrete.container
 
@@ -165,53 +155,36 @@ final class CKSyncEngineCoordinator {
             )
             sharedSyncEngine = CKSyncEngine(sharedConfig)
         }
-    }
-
-    // MARK: - Buffered Enqueue Helpers
-
-    private func makeScopedIdentity(for recordID: CKRecord.ID, isOwner: Bool) -> ScopedRecordIdentity {
-        let scope: CKDatabase.Scope = isOwner ? .private : .shared
-        return ScopedRecordIdentity(
-            databaseScope: scope,
-            zoneID: recordID.zoneID,
-            recordID: recordID,
-            familyRecordName: stableFamilyRecordName()
-        )
+        drainPendingEnqueueBuffers()
     }
 
     private func drainPendingEnqueueBuffers() {
-        // Drain buffer atomically and re-enqueue via proper engine.
-        let deleteNames = pendingDeleteRecordNames.withLock { $0 }
-        let buffered = pendingEnqueueBuffer.withLock { buffer -> [ScopedRecordIdentity] in
+        let saves = pendingEnqueueBuffer.withLock { buffer -> [ScopedRecordIdentity] in
             let copy = buffer
             buffer.removeAll()
             return copy
         }
-        // Clear delete tracking for drained identities.
-        if !buffered.isEmpty {
-            let drainedNames = Set(buffered.map(\.recordName))
-            pendingDeleteRecordNames.withLock { $0.subtract(drainedNames) }
-        }
-        for identity in buffered {
+        for identity in saves {
             let isOwner = identity.databaseScope == .private
-            let isDelete = deleteNames.contains(identity.recordName)
-            guard let engine = activeEngine(isOwner: isOwner) else {
-                logger.warning("Drain failed — no engine for buffered \(isDelete ? "delete" : "save") \(identity.recordName, privacy: .private)")
-                pendingEnqueueBuffer.withLock { $0.append(identity) }
-                if isDelete {
-                    _ = pendingDeleteRecordNames.withLock { $0.insert(identity.recordName) }
-                }
-                continue
-            }
-            if isDelete {
-                engine.state.add(pendingRecordZoneChanges: [.deleteRecord(identity.recordID)])
-                logger.info("Drained buffered delete: \(identity.recordName, privacy: .private) in \(isOwner ? "private" : "shared") database")
-            } else {
+            if let engine = activeEngine(isOwner: isOwner) {
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(identity.recordID)])
-                logger
-                    .info(
-                        "Drained buffered save: \(identity.recordName, privacy: .private) in \(isOwner ? "private" : "shared") database (pending=\(engine.state.pendingRecordZoneChanges.count))"
-                    )
+                logger.info("Drained buffered save: \(identity.recordID.recordName, privacy: .private)")
+            } else {
+                pendingEnqueueBuffer.withLock { $0.append(identity) }
+            }
+        }
+        let deletes = pendingDeleteBuffer.withLock { buffer -> [ScopedRecordIdentity] in
+            let copy = buffer
+            buffer.removeAll()
+            return copy
+        }
+        for identity in deletes {
+            let isOwner = identity.databaseScope == .private
+            if let engine = activeEngine(isOwner: isOwner) {
+                engine.state.add(pendingRecordZoneChanges: [.deleteRecord(identity.recordID)])
+                logger.info("Drained buffered delete: \(identity.recordID.recordName, privacy: .private)")
+            } else {
+                pendingDeleteBuffer.withLock { $0.append(identity) }
             }
         }
     }
@@ -225,22 +198,17 @@ final class CKSyncEngineCoordinator {
     // MARK: - Public Enqueue APIs
 
     func enqueueSave(recordID: CKRecord.ID, isOwner: Bool) {
-        let identity = makeScopedIdentity(for: recordID, isOwner: isOwner)
-        // Buffer when engine is not yet available to prevent data loss during bootstrap.
-        // Uses Mutex to safely queue identities when enqueue races engine init.
-        if activeEngine(isOwner: isOwner) == nil {
-            pendingEnqueueBuffer.withLock { $0.append(identity) }
-            let pending = self.pendingEnqueueBuffer.withLock { $0.count }
-            logger.warning("No active sync engine — buffered save for \(recordID.recordName, privacy: .private) (pending=\(pending))")
-            return
-        }
         guard let engine = activeEngine(isOwner: isOwner) else {
-            // Raced to nil between check and use — re-buffer.
+            let identity = ScopedRecordIdentity(
+                databaseScope: isOwner ? .private : .shared,
+                zoneID: recordID.zoneID,
+                recordID: recordID,
+                familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName
+            )
             pendingEnqueueBuffer.withLock { $0.append(identity) }
-            logger.warning("No active sync engine available to enqueue save for \(recordID.recordName, privacy: .private) — re-buffered")
+            logger.warning("No active sync engine — buffering save for \(recordID.recordName, privacy: .private)")
             return
         }
-
         engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
         logger
             .info(
@@ -261,21 +229,17 @@ final class CKSyncEngineCoordinator {
     }
 
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool) {
-        let identity = makeScopedIdentity(for: recordID, isOwner: isOwner)
-        if activeEngine(isOwner: isOwner) == nil {
-            pendingEnqueueBuffer.withLock { $0.append(identity) }
-            _ = pendingDeleteRecordNames.withLock { $0.insert(identity.recordName) }
-            let pending = self.pendingEnqueueBuffer.withLock { $0.count }
-            logger.warning("No active sync engine — buffered delete for \(recordID.recordName, privacy: .private) (pending=\(pending))")
-            return
-        }
         guard let engine = activeEngine(isOwner: isOwner) else {
-            pendingEnqueueBuffer.withLock { $0.append(identity) }
-            _ = pendingDeleteRecordNames.withLock { $0.insert(identity.recordName) }
-            logger.warning("No active sync engine available to enqueue delete for \(recordID.recordName, privacy: .private) — re-buffered")
+            let identity = ScopedRecordIdentity(
+                databaseScope: isOwner ? .private : .shared,
+                zoneID: recordID.zoneID,
+                recordID: recordID,
+                familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName
+            )
+            pendingDeleteBuffer.withLock { $0.append(identity) }
+            logger.warning("No active sync engine — buffering delete for \(recordID.recordName, privacy: .private)")
             return
         }
-
         engine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
         logger.info("Enqueued pending delete: \(recordID.recordName, privacy: .private) in \(isOwner ? "private" : "shared") database")
     }
@@ -367,25 +331,14 @@ final class CKSyncEngineCoordinator {
         currentPassHadCacheWriteFailures = true
     }
 
-    /// Finalizes a sync pass over active engines: stamps the
-    /// cache-freshness watermark for the active family if all active scopes
-    /// hydrated successfully without errors, then posts `.syncDidComplete`.
-    /// Freshness is stamped per-database-scope so a private-only pass never
-    /// marks shared data as fresh. When the active family is participant-owned
-    /// (`isZoneOwner == false`) the shared scope must have completed; a
-    /// private-only success therefore does not stamp shared types, preventing
-    /// a subsequent `fetchProfiles` for a shared-DB hero from seeing
-    /// `isCacheFresh == true` and returning an empty authoritative result.
+    /// Finalizes a sync pass: stamps freshness only when all active scopes
+    /// succeed — §2 gating prevents private-only success stamping shared types.
     private func completeSyncPass() {
-        let isFetchPass = !activeFetchPassScopes.isEmpty
-        let allEnginesHydrated = isFetchPass && activeFetchPassScopes.isSubset(of: completedFetchPassScopes)
-        let zeroErrors = !currentPassHadParseFailures && !currentPassHadCacheWriteFailures
-
-        if allEnginesHydrated, zeroErrors {
-            // Participant-owned families must have fetched the shared scope for
-            // any type that is shared-fetchable to be considered fresh. If both
-            // engines exist but only private completed, stamping is still gated:
-            // we stamp only the scopes that actually completed.
+        // §2 freshness gating: private-only must not stamp shared types.
+        // Prevents empty hero list when shared scope never completed.
+        if activeFetchPassScopes.isSubset(of: completedFetchPassScopes),
+           !currentPassHadParseFailures, !currentPassHadCacheWriteFailures
+        {
             if let appState, !appState.isZoneOwner, sharedSyncEngine != nil, !completedFetchPassScopes.contains(.shared) {
                 logger.warning(
                     """
@@ -397,7 +350,7 @@ final class CKSyncEngineCoordinator {
             } else {
                 stampCacheFreshness(scopes: completedFetchPassScopes)
             }
-        } else if isFetchPass {
+        } else if !activeFetchPassScopes.isEmpty {
             logger.warning(
                 """
                 Cache freshness stamping skipped: \
@@ -433,41 +386,23 @@ final class CKSyncEngineCoordinator {
 
     /// Stamps the cache-freshness watermark across every cached entity type for
     /// the active family, marking the local store as fully hydrated after a
-    /// successful `CKSyncEngine` full-sync pass. This is a device-local
-    /// freshness watermark (not a `CKServerChangeToken` cursor): it only asserts
-    /// that a full pass completed so `CacheService.isCacheFresh` can gate
-    /// cache-first reads.
-    /// - Parameter scopes: The database scopes that successfully completed in
-    ///   this pass. Only types whose `fetchScopes` intersect `scopes` are
-    ///   stamped, so a private-only pass never marks shared data fresh. When
-    ///   `scopes` is empty the legacy unscoped stamp is used for backward
-    ///   compatibility (tests and single-engine passes).
+    /// successful `CKSyncEngine` full-sync pass.
     private func stampCacheFreshness(scopes: Set<CKDatabase.Scope> = []) {
-        // Require an explicit family record to avoid stamping freshness under a zoneName
-        // that cache reads do not gate on, which would mark the wrong family as fresh.
         guard let appState,
               let familyRecordName = appState.family?.id.recordName,
               let cacheService = appState.cacheService
         else { return }
         let effectiveScopes = scopes.isEmpty ? completedFetchPassScopes : scopes
-        if effectiveScopes.isEmpty {
-            // Fallback for non-fetch passes or legacy callers: stamp unscoped keys.
+        guard !effectiveScopes.isEmpty else {
             for type in CachedRecordType.allCases {
                 cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
             }
             return
         }
-        for type in CachedRecordType.allCases {
-            // Only stamp types whose fetch scopes intersect the completed scopes.
-            // All current family-zone types have fetchScopes == [.private, .shared],
-            // so this effectively stamps every type for each completed scope, but
-            // future scope-specific types will be filtered correctly.
-            let shouldStamp = !type.fetchScopes.isDisjoint(with: effectiveScopes)
-            guard shouldStamp else { continue }
+        for type in CachedRecordType.allCases where !type.fetchScopes.isDisjoint(with: effectiveScopes) {
             for scope in effectiveScopes where type.fetchScopes.contains(scope) {
                 cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
             }
-            // Also maintain legacy unscoped stamp for backward-compatible readers.
             cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
         }
     }
@@ -496,45 +431,55 @@ final class CKSyncEngineCoordinator {
     }
 
     func loadState(for scope: CKDatabase.Scope) -> CKSyncEngine.State.Serialization? {
-        // Priority: new family-keyed > legacy profile-keyed (migrated) > unscoped legacy.
-        // Each legacy hit is copied forward to the new key so subsequent loads are stable
-        // across profile switches and future writes remain discoverable.
         if let key = stateKey(for: scope), let data = defaults.data(forKey: key) {
             do {
-                return try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
+                return try PropertyListDecoder().decode(
+                    CKSyncEngine.State.Serialization.self,
+                    from: data
+                )
             } catch {
-                logger.error("Failed to decode CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
-                return nil
+                logger.error(
+                    "Failed to decode CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)"
+                )
             }
         }
-
-        if let legacyProfileKey = legacyProfileStateKey(for: scope), let data = defaults.data(forKey: legacyProfileKey) {
-            do {
-                let serialization = try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
-                // Migrate orphaned profile-keyed state to the stable family key.
-                if let newKey = stateKey(for: scope) {
-                    defaults.set(data, forKey: newKey)
+        if let profileName = appState?.currentProfile?.id.recordName {
+            let legacyKey = "ck_sync_engine_state.\(profileName).\(scope == .private ? "private" : "shared")"
+            if let data = defaults.data(forKey: legacyKey) {
+                do {
+                    let decoded = try PropertyListDecoder().decode(
+                        CKSyncEngine.State.Serialization.self,
+                        from: data
+                    )
+                    if let stableKey = stateKey(for: scope) {
+                        defaults.set(data, forKey: stableKey)
+                    }
+                    return decoded
+                } catch {
+                    logger.error(
+                        "Failed to decode legacy profile CKSyncEngine state for \(String(describing: scope)): \(error, privacy: .private)"
+                    )
                 }
-                return serialization
+            }
+        }
+        let unscopedKey = scope == .private ? "ck_sync_engine_state_private" : "ck_sync_engine_state_shared"
+        if let data = defaults.data(forKey: unscopedKey) {
+            do {
+                let decoded = try PropertyListDecoder().decode(
+                    CKSyncEngine.State.Serialization.self,
+                    from: data
+                )
+                if let stableKey = stateKey(for: scope) {
+                    defaults.set(data, forKey: stableKey)
+                }
+                return decoded
             } catch {
-                logger.error("Failed to decode legacy profile CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
-                return nil
+                logger.error(
+                    "Failed to decode unscoped CKSyncEngine state for \(String(describing: scope)): \(error, privacy: .private)"
+                )
             }
         }
-
-        let legacyKey = (scope == .private) ? "ck_sync_engine_state_private" : "ck_sync_engine_state_shared"
-        guard let data = defaults.data(forKey: legacyKey) else { return nil }
-        do {
-            let serialization = try PropertyListDecoder().decode(CKSyncEngine.State.Serialization.self, from: data)
-            // Migrate unscoped legacy state to the stable family key when possible.
-            if let newKey = stateKey(for: scope) {
-                defaults.set(data, forKey: newKey)
-            }
-            return serialization
-        } catch {
-            logger.error("Failed to decode legacy unscoped CKSyncEngine.State.Serialization for \(String(describing: scope)): \(error, privacy: .private)")
-            return nil
-        }
+        return nil
     }
 
     func resetState(forAccountID explicitAccountID: String? = nil) {
@@ -551,36 +496,21 @@ final class CKSyncEngineCoordinator {
             return
         }
 
-        let stableName = stableFamilyRecordName()
-        let profileName = appState?.currentProfile?.id.recordName
-
-        if let stableName {
+        if let stableName = stableFamilyRecordName() {
             defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).private")
             defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).shared")
         }
-        if let profileName, profileName != stableName {
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(profileName).private")
-            defaults.removeObject(forKey: "ck_sync_engine_state.\(profileName).shared")
-        }
         defaults.removeObject(forKey: "ck_sync_engine_state_private")
         defaults.removeObject(forKey: "ck_sync_engine_state_shared")
-
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_sync_engine_state.") {
-            if key == "ck_sync_engine_state_private" || key == "ck_sync_engine_state_shared" {
-                continue
-            }
-            let isStable = stableName.map { key == "ck_sync_engine_state.\($0).private" || key == "ck_sync_engine_state.\($0).shared" } ?? false
-            let isProfile = profileName.map { key == "ck_sync_engine_state.\($0).private" || key == "ck_sync_engine_state.\($0).shared" } ?? false
-            if !isStable, !isProfile {
-                defaults.removeObject(forKey: key)
-            }
+            defaults.removeObject(forKey: key)
         }
 
         privateSyncEngine = nil
         sharedSyncEngine = nil
         lastSyncedAt = nil
         syncError = nil
-        let logID = explicitAccountID ?? stableName ?? profileName ?? "none"
+        let logID = stableFamilyRecordName() ?? appState?.currentProfile?.id.recordName ?? "none"
         logger.info("CKSyncEngine state reset for both private and shared databases (account: \(logID, privacy: .private))")
     }
 }
