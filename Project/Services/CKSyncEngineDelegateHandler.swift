@@ -200,81 +200,94 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         coordinator?.noteChangesProcessed()
     }
 
-    /// Inbound sync is off-main: parses on MainActor then hands Sendable
-    /// ParsedRecords to BackgroundCacheActor for batched, single-save
-    /// persistence. The actor's DefaultSerialModelExecutor + autosaveEnabled=false
-    /// ensures the save triggers ModelContext.didSave → CacheService
-    /// processPendingChanges exactly once per batch for atomic @Query visibility.
-    /// Dual-scope is derived via databaseScope ?? (isZoneOwner ? .private : .shared)
-    /// and validated via identity.matchesActiveScope; shared and private engines
-    /// share this identical pipeline.
+    /// Thin adapter so the CKSyncEngine delegate event path keeps its legacy
+    /// optional-parameter surface while all ingestion flows through the
+    /// shared pipeline below.
     func handleIncomingRecordsDirectly(
         _ records: [CKRecord],
         databaseScope: CKDatabase.Scope? = nil,
         zoneID: CKRecordZone.ID? = nil
     ) async {
-        var validRecords: [ParsedRecord] = []
-        var parseFailureCount = 0
-        let activeZone = appState?.familyZoneID
-        let activeFamily = appState?.family?.id.recordName
+        guard !records.isEmpty else { return }
+        // Dual-scope is derived via databaseScope ?? (isZoneOwner ? .private : .shared).
         let scope: CKDatabase.Scope = databaseScope ?? ((appState?.isZoneOwner == true) ? .private : .shared)
-        let expectedDbScope: CKDatabase.Scope? = (appState?.isZoneOwner == true) ? .private : .shared
+        guard let resolvedZoneID = zoneID ?? records.first?.recordID.zoneID else { return }
+        await ingest(records: records, databaseScope: scope, zoneID: resolvedZoneID)
+    }
 
-        for record in records {
-            let recordZone = zoneID ?? record.recordID.zoneID
-            let identity = ScopedRecordIdentity(
-                databaseScope: scope,
-                zoneID: recordZone,
-                recordID: record.recordID,
-                familyRecordName: activeFamily
-            )
+    /// Single shared ingestion pipeline for inbound CKRecords. Internal —
+    /// non-delegate callers (e.g. AppLifecycleCoordinator hydration passes)
+    /// must reuse this exact path rather than duplicating validation or
+    /// persistence, keeping one merge/save semantics across all entry points.
+    ///
+    /// Inbound sync is off-main: scope values resolve here on MainActor, then
+    /// a single actor call hands the batch to BackgroundCacheActor inside a
+    /// Sendable box for parsing, validation, and batched single-save
+    /// persistence. The actor's DefaultSerialModelExecutor +
+    /// autosaveEnabled=false ensures the save triggers ModelContext.didSave →
+    /// CacheService processPendingChanges exactly once per batch for atomic
+    /// @Query visibility. Shared and private engines share this identical
+    /// pipeline.
+    ///
+    /// - Parameter notifiesOnCompletion: Hydration/backfill passes reconcile
+    ///   local state with what the server already holds; they are not
+    ///   user-actionable events, so they opt out of sync notifications while
+    ///   still receiving the identical parse/accounting/cache-write treatment.
+    func ingest(
+        records: [CKRecord],
+        databaseScope: CKDatabase.Scope,
+        zoneID: CKRecordZone.ID,
+        notifiesOnCompletion: Bool = true
+    ) async {
+        // Fail closed until the active family and zone resolve: engine state persists server-side change tokens, so records dropped here re-deliver on the next delta fetch after
+        // bootstrap completes.
+        guard let activeFamily = appState?.family?.id.recordName,
+              let activeZone = appState?.familyZoneID
+        else {
+            logger.warning("Ingestion deferred without an active family zone: \(records.count, privacy: .public) record(s) dropped")
+            return
+        }
 
-            // Validate scope using identity.matchesActiveScope
-            if let activeZone, let activeFamily {
-                guard identity.matchesActiveScope(
-                    expectedFamily: activeFamily,
-                    expectedZone: activeZone,
-                    expectedDatabase: expectedDbScope
-                ) else {
-                    logger.debug("Skipping incoming record outside active scope: \(record.recordID.recordName)")
-                    continue
-                }
-            } else if let activeZone, recordZone != activeZone {
-                logger.debug("Skipping incoming record from foreign zone: \(recordZone.zoneName)")
-                continue
-            }
+        // The caller-declared zone must agree with the session's own active
+        // zone; they resolve from independent sources, so disagreement means
+        // the batch belongs to a family context other than the live session
+        // and writing it would poison the active scope.
+        guard zoneID == activeZone else {
+            logger.warning("Ingestion deferred: caller zone does not match the active family zone: \(records.count, privacy: .public) record(s) dropped")
+            return
+        }
 
-            let parsed = ParsedRecord.parse(record: record)
-            switch parsed {
-            case .parseFailure:
-                parseFailureCount += 1
+        guard let backgroundCache else {
+            coordinator?.noteCacheWriteFailure()
+            logger.error("Cache write failure during incoming zone changes")
+            return
+        }
+
+        let outcome = await backgroundCache.parseAndUpsert(
+            records: IncomingRecordBatch(records: records),
+            expectedScope: databaseScope,
+            familyRecordName: activeFamily,
+            activeZone: activeZone,
+            isZoneOwner: appState?.isZoneOwner == true
+        )
+
+        if outcome.parseFailures > 0 {
+            logger.warning("\(outcome.parseFailures) record(s) failed to parse during incoming zone changes")
+            for _ in 0 ..< outcome.parseFailures {
                 coordinator?.noteParseFailure()
-                logger.error("Parse failure for incoming record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
-            case .ignoredSystemRecord:
-                logger.debug("Ignored system record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
-            default:
-                validRecords.append(parsed)
             }
         }
 
-        if parseFailureCount > 0 {
-            logger.warning("\(parseFailureCount) record(s) failed to parse during incoming zone changes")
+        guard outcome.writeSucceeded else {
+            coordinator?.noteCacheWriteFailure()
+            logger.error("Cache write failure during incoming zone changes")
+            return
         }
 
-        if !validRecords.isEmpty {
-            // Concurrent batch commits (e.g. private + shared engines racing)
-            // are linearized by SerialMutationQueue.shared inside
-            // batchUpsertParsedRecords, and each commit lands the entire
-            // ParsedBatch in one ModelContext.save for atomic visibility — no
-            // intermediate saves between families/profiles and secondary
-            // entities (LedgerEntry/AllowancePeriod/RewardEvent hydration).
-            let writeSuccess = await backgroundCache?.batchUpsertParsedRecords(validRecords) ?? false
-            if writeSuccess {
-                coordinator?.noteChangesProcessed()
-                await triggerSyncNotifications(for: validRecords)
-            } else {
-                coordinator?.noteCacheWriteFailure()
-                logger.error("Cache write failure during incoming zone changes")
+        if !outcome.acceptedRecords.isEmpty {
+            coordinator?.noteChangesProcessed()
+            if notifiesOnCompletion {
+                await triggerSyncNotifications(for: outcome.acceptedRecords)
             }
         }
     }
@@ -381,7 +394,12 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         let eventZoneID = records.first?.recordID.zoneID ?? changes.deletions.first?.recordID.zoneID
         await handleIncomingRecordsDirectly(records, databaseScope: databaseScope, zoneID: eventZoneID)
 
-        if let activeFamily = appState?.family?.id.recordName {
+        // Deletion invalidation is gated on the same fail-closed session check
+        // as ingestion: applying deletions during a signed-out window would
+        // purge rows against a stale family scope.
+        if let activeFamily = appState?.family?.id.recordName,
+           appState?.familyZoneID != nil
+        {
             let dbScope = databaseScope ?? ((appState?.isZoneOwner == true) ? .private : .shared)
             for deletion in changes.deletions {
                 await conflictResolver.handleDeletedRecord(
@@ -390,6 +408,26 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     databaseScope: dbScope,
                     familyRecordName: activeFamily
                 )
+                // Server-side zone-change deletions can arrive with a
+                // recordType the local schema doesn't map yet (e.g. a record
+                // written by a newer app version). The precise invalidation
+                // above silently no-ops there, which would strand stale rows
+                // until the next full sync — so fall back to the same
+                // all-types sweep the confirmed-delete path uses. Deletes are
+                // low-frequency user actions, so sweeping the cache tables
+                // imposes negligible overhead while guaranteeing no stale row
+                // survives an unmapped-type deletion.
+                guard CachedRecordType.recordType(for: deletion.recordType) == nil else { continue }
+                let identity = ScopedRecordIdentity(
+                    databaseScope: dbScope,
+                    zoneID: deletion.recordID.zoneID,
+                    recordID: deletion.recordID,
+                    familyRecordName: activeFamily
+                )
+                for type in CachedRecordType.allCases {
+                    await backgroundCache?.deleteRecord(identity: identity, type: type)
+                    cacheService?.invalidate(identity: identity, type: type)
+                }
             }
         }
         if !changes.deletions.isEmpty {
@@ -401,33 +439,36 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
         syncEngine: CKSyncEngine
     ) async {
-        var validRecords: [ParsedRecord] = []
-        var parseFailureCount = 0
-        for savedRecord in sentEvent.savedRecords {
-            let parsed = ParsedRecord.parse(record: savedRecord)
-            switch parsed {
-            case .parseFailure:
-                parseFailureCount += 1
-                coordinator?.noteParseFailure()
-                logger.error("Parse failure for sent saved record: type=\(savedRecord.recordType, privacy: .public), id=\(savedRecord.recordID.recordName, privacy: .private)")
-            case .ignoredSystemRecord:
-                logger.debug("Ignored sent system record: type=\(savedRecord.recordType, privacy: .public), id=\(savedRecord.recordID.recordName, privacy: .private)")
-            default:
-                validRecords.append(parsed)
+        if let activeFamily = appState?.family?.id.recordName {
+            // Refresh ONLY the server-stamped system fields on rows we already
+            // own locally; full-record merges stay on the fetch path so local
+            // optimistic edits made during the save round-trip are preserved.
+            let refreshes = sentEvent.savedRecords.compactMap { savedRecord -> SystemFieldRefresh? in
+                guard let type = CachedRecordType.recordType(for: savedRecord.recordType) else {
+                    logger.debug("Skipping sent saved record with unmappable type: \(savedRecord.recordType, privacy: .public)")
+                    return nil
+                }
+                return SystemFieldRefresh(
+                    recordName: savedRecord.recordID.recordName,
+                    type: type,
+                    changeTag: savedRecord.recordChangeTag,
+                    encodedSystemFields: savedRecord.encodedSystemFields
+                )
             }
-        }
-
-        if parseFailureCount > 0 {
-            logger.warning("\(parseFailureCount) record(s) failed to parse during sent zone changes")
-        }
-
-        if !validRecords.isEmpty {
-            let writeSuccess = await backgroundCache?.batchUpsertParsedRecords(validRecords) ?? false
-            if writeSuccess {
+            // Completion accounting must reflect actual cache writes only: a
+            // pass that saved nothing (or whose rows all vanished mid-flight)
+            // has no local state change to acknowledge. A failed context save,
+            // however, is a real write failure and must surface as one —
+            // collapsing it into the no-op case would silently strand the
+            // refreshed rows with stale system fields.
+            switch await backgroundCache?.updateSystemFields(refreshes, familyRecordName: activeFamily) ?? .noMatches {
+            case .updated:
                 coordinator?.noteChangesProcessed()
-            } else {
+            case .noMatches:
+                break
+            case .saveFailed:
+                logger.error("Post-send system-field refresh failed to commit for \(refreshes.count, privacy: .private) record(s)")
                 coordinator?.noteCacheWriteFailure()
-                logger.error("Cache write failure during sent zone changes")
             }
         }
 

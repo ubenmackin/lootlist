@@ -202,6 +202,22 @@ final class QuestService {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// Cache-first single-template read for presentation paths. On a cache
+    /// miss it fetches the record from CloudKit and hydrates the local row as
+    /// a server-sourced snapshot (`isServerSync: true`, persisting changeTag
+    /// and encodedSystemFields) so subsequent reads stay fully local. The
+    /// hydrated row is never re-enqueued for save: it originated from the
+    /// server, and echoing it back would create a redundant write cycle.
+    func fetchTemplateCached(id: CKRecord.ID, familyRecordName: String) async throws -> QuestTemplate? {
+        if let cached = cacheService?.fetchQuestTemplate(recordName: id.recordName, family: familyRecordName) {
+            return cached.toQuestTemplate(zoneID: id.zoneID)
+        }
+
+        let template = try await cloudKit.fetch(QuestTemplate.self, id: id)
+        cacheService?.upsertQuestTemplate(template, isServerSync: true)
+        return template
+    }
+
     @discardableResult
     func assignQuest(template: QuestTemplate,
                      assignee: Profile,
