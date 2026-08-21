@@ -9,16 +9,12 @@ import SwiftUI
 
 @MainActor
 struct MascotSpriteRenderer {
-    // MARK: - Sprite Provider
-
     static let canvasSize: Int = 64
 
-    /// Generates a composite `PixelSpriteData` for a given mascot companion, state, and frame index.
     static func sprite(for companion: MascotCompanion, state: MascotState, frameIndex: Int) -> PixelSpriteData {
         let matrix = frame(for: companion, state: state, frameIndex: frameIndex)
         let pal = palette(for: companion)
         let layerID = "mascot_\(companion.rawValue)_\(stateKey(state))_\(frameIndex)"
-
         return PixelSpriteData(
             width: canvasSize,
             height: canvasSize,
@@ -28,44 +24,40 @@ struct MascotSpriteRenderer {
         )
     }
 
-    // MARK: - Internal Providers
-
     static func frame(for companion: MascotCompanion, state: MascotState, frameIndex: Int) -> [String] {
-        let isHappy = (state == .celebrating || state == .bonusClaimed)
-        let isAltFrame = (frameIndex % 2 == 1)
+        placeholderFrame(for: companion, state: state, frameIndex: frameIndex)
+    }
 
-        switch companion {
-        case .owl:
-            if isHappy {
-                return isAltFrame ? owlHappyAlt : owlHappy
+    private static func placeholderFrame(for companion: MascotCompanion, state: MascotState, frameIndex: Int) -> [String] {
+        let isAlt = frameIndex % 2 == 1
+        let isHappy = (state == .celebrating || state == .bonusClaimed)
+        var rows: [String] = []
+        for rowIndex in 0 ..< canvasSize {
+            if rowIndex < 8 || rowIndex >= 56 {
+                rows.append(String(repeating: ".", count: canvasSize))
             } else {
-                return isAltFrame ? owlIdleAlt : owlIdle
-            }
-        case .dragon:
-            if isHappy {
-                return isAltFrame ? dragonHappyAlt : dragonHappy
-            } else {
-                return isAltFrame ? dragonIdleAlt : dragonIdle
-            }
-        case .fairy:
-            if isHappy {
-                return isAltFrame ? fairyHappyAlt : fairyHappy
-            } else {
-                return isAltFrame ? fairyIdleAlt : fairyIdle
-            }
-        case .fox:
-            if isHappy {
-                return isAltFrame ? foxHappyAlt : foxHappy
-            } else {
-                return isAltFrame ? foxIdleAlt : foxIdle
-            }
-        case .cat:
-            if isHappy {
-                return isAltFrame ? catHappyAlt : catHappy
-            } else {
-                return isAltFrame ? catIdleAlt : catIdle
+                var chars = Array(String(repeating: ".", count: canvasSize))
+                let fill: Character = isHappy ? "W" : "D"
+                for colIndex in 12 ..< 52 {
+                    chars[colIndex] = fill
+                }
+                if isAlt, rowIndex % 2 == 0 {
+                    for colIndex in stride(from: 14, to: 50, by: 4) {
+                        chars[colIndex] = "W"
+                    }
+                }
+                let centerChar: Character = switch companion {
+                case .owl: "H"
+                case .dragon: "R"
+                case .fairy: "P"
+                case .fox: "O"
+                case .cat: "G"
+                }
+                chars[32] = centerChar
+                rows.append(String(chars))
             }
         }
+        return rows
     }
 
     static func palette(for companion: MascotCompanion) -> [Character: Color] {
@@ -138,8 +130,6 @@ struct MascotSpriteRenderer {
             ]
         }
     }
-
-    // MARK: - Private Helpers
 
     private static func color(hex: UInt32, alpha: Double = 1.0) -> Color {
         let red = Double((hex >> 16) & 0xFF) / 255.0

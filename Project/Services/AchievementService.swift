@@ -355,13 +355,7 @@ final class AchievementService {
             }
         }
 
-        // Fire streak milestone notifications only when the matching
-        // milestone achievement (.streak7 / .streak30) was newly awarded
-        // in this pass. longestStreakDays is a lifetime best, so gating on
-        // it directly would re-notify a hero whose best streak has plateaued
-        // on every TrophyRoom open or verification.
-        // Never `try?` — log failures explicitly; best-effort delivery continues
-        // to the next threshold on error.
+        // Send streak milestone notifications only for newly awarded streak achievements.
         if let notificationService {
             let newlyAwardedStreakThresholds = awarded.compactMap { achievement -> Int? in
                 switch achievement.requirementType {

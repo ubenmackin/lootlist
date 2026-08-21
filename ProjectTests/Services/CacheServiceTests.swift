@@ -160,7 +160,7 @@ struct CacheServiceTests {
         service.upsertQuest(quest)
         #expect(service.fetchQuests(family: "fam").count == 1)
 
-        service.invalidateQuest(recordName: "quest1", family: "fam")
+        service.invalidate(recordName: "quest1", family: "fam", type: .quest)
 
         #expect(service.fetchQuests(family: "fam").count == 0)
     }

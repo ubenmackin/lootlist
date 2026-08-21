@@ -239,67 +239,95 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
 
     private func triggerSyncNotifications(for records: [ParsedRecord]) async {
         guard let notificationService, let currentProfile = appState?.currentProfile else { return }
-
         for parsed in records {
             switch parsed {
             case let .quest(quest):
-                if quest.assignee.recordID.recordName == currentProfile.id.recordName, quest.active {
-                    let title = "⚔️ New Quest Assigned"
-                    let body = "\(quest.name ?? "A quest") has been assigned to you!"
-                    try? await notificationService.deliverSyncNotification(
-                        eventType: .questAssigned,
-                        title: title,
-                        body: body,
-                        profileID: quest.createdBy.recordID.recordName
-                    )
-                }
-
+                await handleQuestNotification(quest, currentProfile: currentProfile, notificationService: notificationService)
             case let .questCompletion(completion):
-                let completerName = completion.completedBy.recordID.recordName
-                if completion.verificationStatus == .pending, currentProfile.role.isParent {
-                    let title = "⚔️ Quest Needs Review"
-                    let body = "A hero has completed a quest — tap to review."
-                    try? await notificationService.deliverSyncNotification(
-                        eventType: .questNeedsReview,
-                        title: title,
-                        body: body,
-                        profileID: completerName
-                    )
-                } else if completion.verificationStatus == .verified, completerName == currentProfile.id.recordName {
-                    let title = "🎉 Quest Approved!"
-                    let body = "Your quest submission was verified and approved!"
-                    try? await notificationService.deliverSyncNotification(
-                        eventType: .questCompleted,
-                        title: title,
-                        body: body,
-                        profileID: completion.verifiedBy?.recordID.recordName ?? completerName
-                    )
-                } else if completion.verificationStatus == .rejected, completerName == currentProfile.id.recordName {
-                    let title = "❌ Quest Rejected"
-                    let body = "Your quest submission was not approved — check feedback and try again."
-                    try? await notificationService.deliverSyncNotification(
-                        eventType: .questRejected,
-                        title: title,
-                        body: body,
-                        profileID: completion.verifiedBy?.recordID.recordName ?? completerName
-                    )
-                }
-
+                await handleQuestCompletionNotification(completion, currentProfile: currentProfile, notificationService: notificationService)
             case let .ledgerEntry(entry):
-                if entry.source == "manual_spend", currentProfile.role.isParent, entry.profile.recordID.recordName != currentProfile.id.recordName {
-                    let title = "🪙 Spending Logged"
-                    let body = "A hero logged spending: \(entry.description)"
-                    try? await notificationService.deliverSyncNotification(
-                        eventType: .spendingLogged,
-                        title: title,
-                        body: body,
-                        profileID: entry.profile.recordID.recordName
-                    )
-                }
-
+                await handleLedgerEntryNotification(entry, currentProfile: currentProfile, notificationService: notificationService)
             default:
                 break
             }
+        }
+    }
+
+    private func handleQuestNotification(_ quest: Quest, currentProfile: Profile, notificationService: NotificationService) async {
+        guard quest.assignee.recordID.recordName == currentProfile.id.recordName, quest.active else { return }
+        do {
+            try await notificationService.deliverSyncNotification(
+                eventType: .questAssigned,
+                title: "⚔️ New Quest Assigned",
+                body: "\(quest.name ?? "A quest") has been assigned to you!",
+                profileID: quest.createdBy.recordID.recordName
+            )
+        } catch {
+            logger.error("Failed to send questAssigned notification: \(error, privacy: .private)")
+        }
+    }
+
+    private func handleQuestCompletionNotification(_ completion: QuestCompletion, currentProfile: Profile, notificationService: NotificationService) async {
+        let completerName = completion.completedBy.recordID.recordName
+        if completion.verificationStatus == .pending, currentProfile.role.isParent {
+            await deliverQuestNeedsReview(completerName: completerName, notificationService: notificationService)
+        } else if completion.verificationStatus == .verified, completerName == currentProfile.id.recordName {
+            await deliverQuestApproved(completion: completion, completerName: completerName, notificationService: notificationService)
+        } else if completion.verificationStatus == .rejected, completerName == currentProfile.id.recordName {
+            await deliverQuestRejected(completion: completion, completerName: completerName, notificationService: notificationService)
+        }
+    }
+
+    private func deliverQuestNeedsReview(completerName: String, notificationService: NotificationService) async {
+        do {
+            try await notificationService.deliverSyncNotification(
+                eventType: .questNeedsReview,
+                title: "⚔️ Quest Needs Review",
+                body: "A hero has completed a quest — tap to review.",
+                profileID: completerName
+            )
+        } catch {
+            logger.error("Failed to send questNeedsReview notification: \(error, privacy: .private)")
+        }
+    }
+
+    private func deliverQuestApproved(completion: QuestCompletion, completerName: String, notificationService: NotificationService) async {
+        do {
+            try await notificationService.deliverSyncNotification(
+                eventType: .questCompleted,
+                title: "🎉 Quest Approved!",
+                body: "Your quest submission was verified and approved!",
+                profileID: completion.verifiedBy?.recordID.recordName ?? completerName
+            )
+        } catch {
+            logger.error("Failed to send questCompleted notification: \(error, privacy: .private)")
+        }
+    }
+
+    private func deliverQuestRejected(completion: QuestCompletion, completerName: String, notificationService: NotificationService) async {
+        do {
+            try await notificationService.deliverSyncNotification(
+                eventType: .questRejected,
+                title: "❌ Quest Rejected",
+                body: "Your quest submission was not approved — check feedback and try again.",
+                profileID: completion.verifiedBy?.recordID.recordName ?? completerName
+            )
+        } catch {
+            logger.error("Failed to send questRejected notification: \(error, privacy: .private)")
+        }
+    }
+
+    private func handleLedgerEntryNotification(_ entry: LedgerEntry, currentProfile: Profile, notificationService: NotificationService) async {
+        guard entry.source == "manual_spend", currentProfile.role.isParent, entry.profile.recordID.recordName != currentProfile.id.recordName else { return }
+        do {
+            try await notificationService.deliverSyncNotification(
+                eventType: .spendingLogged,
+                title: "🪙 Spending Logged",
+                body: "A hero logged spending: \(entry.description)",
+                profileID: entry.profile.recordID.recordName
+            )
+        } catch {
+            logger.error("Failed to send spendingLogged notification: \(error, privacy: .private)")
         }
     }
 
@@ -389,7 +417,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 )
                 for type in CachedRecordType.allCases {
                     await backgroundCache?.deleteRecord(identity: identity, type: type)
-                    cacheService?.invalidateRecord(identity: identity, type: type)
+                    cacheService?.invalidate(identity: identity, type: type)
                 }
                 coordinator?.noteChangesProcessed()
             }

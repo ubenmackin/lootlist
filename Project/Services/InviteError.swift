@@ -8,31 +8,10 @@
 import CloudKit
 import Foundation
 
-/// Static generic fallback shown when the joiner's accept/join path fails with
-/// an error that does NOT indicate an invalid or expired invitation (any
-/// CloudKit code outside `.unknownItem` / `.zoneNotFound` / `.invalidArguments`,
-/// e.g. `.networkUnavailable`, `.serverRejectedRequest`, or `.requestRateLimited`).
-/// Surfaced verbatim to the user — the underlying CloudKit error text is never
-/// interpolated into it. Referenced by `OnboardingViewModel` (and its tests) as
-/// the single source of the user-facing join-failure string.
+/// Generic error message displayed when family join fails due to transient or system errors.
 let genericJoinerErrorFallback = "Could not join the family. Please try again."
 
-/// Maps an error raised while resolving or accepting a CloudKit share
-/// invitation to a user-facing message describing an invalid or expired
-/// invitation, or nil when the error does not indicate that condition so
-/// callers fall back to their own generic wording.
-///
-/// CloudKit surfaces "this share no longer resolves" in a few closely-related
-/// forms depending on where it is raised, all matched symbolically here (never
-/// by numeric literals or localized/domain text):
-///   - resolving a share URL (`CKContainer.shareMetadata(for:)`) throws an
-///     `NSError` in `CKErrorDomain`; and
-///   - accepting a share (`CloudKitService.acceptShare`) throws
-///     `CloudKitServiceError.shareAcceptFailed(code:message:)` with the
-///     underlying `CKError.Code` preserved through the service layer.
-/// The mapped codes — `.unknownItem` (the share was deleted or never existed),
-/// `.zoneNotFound`, and `.invalidArguments` — all mean the invite can no longer
-/// be honored, so the joiner is told the link is invalid or expired.
+/// Maps share resolution/acceptance errors to a user-friendly invalid/expired invitation message.
 func friendlyInviteAcceptError(_ error: Error) -> String? {
     let invalidInvitation = "This invitation link is invalid or has expired. Please ask the Guild Master for a new invite link."
 

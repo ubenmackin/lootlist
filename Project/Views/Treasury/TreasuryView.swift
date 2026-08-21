@@ -15,7 +15,7 @@ struct TreasuryView: View {
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
-    private let spending: any SpendingService
+    private let spending: SpendingService
 
     @State private var viewModel: TreasuryViewModel?
 
@@ -36,7 +36,7 @@ struct TreasuryView: View {
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
 
-    init(spending: any SpendingService, familyRecordName: String? = nil) {
+    init(spending: SpendingService, familyRecordName: String? = nil) {
         self.spending = spending
         self.familyRecordName = familyRecordName
 

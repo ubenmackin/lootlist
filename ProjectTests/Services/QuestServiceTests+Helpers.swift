@@ -122,14 +122,7 @@ final class SaveGate: Sendable {
     }
 }
 
-/// A CloudKitService double that records every `query` call synchronously
-/// (incrementing a counter before doing anything else) and parks the caller
-/// until released, without touching the network. Used to prove `markComplete`
-/// does NOT spawn a fire-and-forget `Task { fetchQuestLogs(useCache: false) }`
-/// after the save — services must not issue ad-hoc CloudKit refreshes.
-/// The count is bumped on entry so a test can yield the runloop and assert it
-/// stays 0; `releaseQueries` releases any (none, post-remediation) parked
-/// caller so the test tears down cleanly.
+/// CloudKitService test double that records `query` calls and parks callers for testing background behavior.
 final class QueryParkingCloudKitService: MockCloudKitService {
     override init(zoneID: CKRecordZone.ID? = nil) {
         super.init()
@@ -281,11 +274,6 @@ extension QuestServiceTests {
             )
             questService.appState = appState
             questService.xpService.appState = appState
-            // One hero record shared by every scaffold: `hero.id` must be the
-            // deterministic "hero1" record — the same one `quest.assignee`
-            // references below — NOT a fresh UUID per scaffold. Cross-device
-            // tests seed a single shared mock and expect fetches of the hero
-            // from every device's scaffold to resolve to that one record.
             let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
             hero = Profile(
                 displayName: "Hero",
@@ -296,13 +284,6 @@ extension QuestServiceTests {
                 family: familyRef,
                 id: heroID
             )
-            // markComplete mints rewards to the caller-supplied `by` profile,
-            // guarded by identity against the authenticated session, so the
-            // scaffold's acting session defaults to the hero (the only
-            // identity allowed to complete the scaffold's quest in tests that
-            // exercise markComplete directly). Tests that exercise verify or
-            // reject (parent-only) override `appState.currentProfile` to the
-            // parent (or ranger) profile before calling those methods.
             appState.currentProfile = hero
 
             let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)

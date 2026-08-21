@@ -74,7 +74,7 @@ final class QueryGate: Sendable {
     }
 }
 
-final class GatedQueryCloudKitService: MockCloudKitService, @unchecked Sendable {
+@MainActor final class GatedQueryCloudKitService: MockCloudKitService {
     override init(zoneID: CKRecordZone.ID? = nil) {
         super.init()
         self.activeFamilyZoneID = zoneID

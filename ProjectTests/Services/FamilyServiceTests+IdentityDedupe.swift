@@ -10,34 +10,13 @@ import Foundation
 @testable import LootList
 import Testing
 
-/// Joiner dedupe branches exercised through `joinFamilyViaAcceptedShare`:
-///   1. an ACTIVE profile already in the joined zone → reuse, no save;
-///   2. an INACTIVE profile already in the joined zone → reactivate + resave;
-///   3. no profile yet             → brand-new profile save;
-///   4. duplicate `displayName`  → must NOT mint a duplicate (dedupe keyed on
-///      `iCloudUserID + family`, never `displayName`) — the regression that
-///      originally orphaned profiles;
-///   5. `findExistingProfileForCurrentUser` against an empty zone → nil.
-/// Parent-side dedupe is covered in this file's sibling sections below.
+/// Unit tests for joiner and owner profile deduplication in `FamilyService`.
 @MainActor
 struct FamilyServiceIdentityDedupeTests {
-    /// The mock's fixed server-authenticated iCloud user — the identity every
-    /// seeded hero must carry for the dedupe lookup to match it.
+    /// The mock's fixed server-authenticated iCloud user.
     private static let mockUserRecordName = MockCloudKitService.mockUserRecordName
 
-    /// A `MockCloudKitService` double tailored to the joiner-join flow:
-    ///  - reports a configurable set of shared zones so `fetchSharedZones()`
-    ///    returns the just-accepted fixture zone;
-    ///  - counts + captures Profile saves so the reactivate / create branches
-    ///    can assert exactly one save of the right shape;
-    ///  - emulates real CloudKit's typed field matching for the
-    ///    `findExistingProfileForCurrentUser` predicate. The mock stores `iCloudUserID`
-    ///    as a record-name String (`Profile.toRecord()`) and the predicate
-    ///    compares it to a plain String constant of the same shape, so the
-    ///    shim matches the stored String directly — no reference coercion.
-    ///    The stock mock's `NSPredicate.evaluate(with:)` is bypassed for this
-    ///    shape because it applies Foundation key-path semantics rather than
-    ///    CloudKit's per-field comparison.
+    /// CloudKit test double configured for joiner deduplication scenarios.
     private final class JoinDedupeCloudKitService: MockCloudKitService {
         var sharedZones: [CKRecordZone] = []
         private(set) var profileSaveCount = 0
@@ -573,12 +552,7 @@ struct FamilyServiceIdentityDedupeTests {
 
     @Test
     func `createFamily is fail-closed when per-zone Family fetch errors transiently`() async throws {
-        // An existing owner family is seeded, but the per-zone Family
-        // point-lookup fails transiently (e.g. flaky network). The dedupe must
-        // NOT swallow that error (unlike the old `try?`) and fall through to
-        // the brand-new-family branch — that would mint a duplicate Family +
-        // Guild Master profile for the same iCloud account on re-onboarding.
-        // Instead it rethrows so `createFamily` surfaces `creationFailed`.
+        // Transient error on existing family fetch surfaces creationFailed without minting duplicate family.
         let fixture = makeOwnerDedupeFixture(creatorUserRecordName: Self.mockUserRecordName)
         // The per-zone Family fetch returns a transient error, not `notFound`.
         fixture.cloudKit.fetchError = CloudKitServiceError.networkUnavailable
@@ -602,13 +576,7 @@ struct FamilyServiceIdentityDedupeTests {
 
     @Test
     func `createFamily reactivates inactive Guild Master profile instead of failing`() async throws {
-        // The seeded family is owned by the acting iCloud user, but the Guild
-        // Master profile is inactive (e.g. the parent previously left their own
-        // family and is now re-onboarding). Mirrors the joiner reactivation
-        // branch (joiner Branch 2): the family is reused, the GM profile is
-        // reactivated (no rename, no role overwrite — the parent-dedupe
-        // contract preserves the existing identity), and no new Family is
-        // minted.
+        // Reactivates existing inactive GM profile and reuses family without minting duplicates.
         let fixture = makeOwnerDedupeFixture(
             creatorUserRecordName: Self.mockUserRecordName,
             gmSeed: .inactive
@@ -641,12 +609,7 @@ struct FamilyServiceIdentityDedupeTests {
 
     @Test
     func `createFamily mints fresh Guild Master in existing family zone when none is found`() async throws {
-        // The seeded family is owned by the acting iCloud user but has NO Guild
-        // Master profile at all (e.g. the profile was hard-deleted from the
-        // private database). The reuse path mints a fresh GM inside the
-        // EXISTING family's zone from the onboarding profile values — never as
-        // a duplicate Family, preserving one-identity-per-family at the
-        // family-record level.
+        // Mints fresh GM in existing family zone when owner profile is missing, avoiding duplicate family.
         let fixture = makeOwnerDedupeFixture(
             creatorUserRecordName: Self.mockUserRecordName,
             gmSeed: .absent
@@ -679,12 +642,7 @@ struct FamilyServiceIdentityDedupeTests {
 
     @Test
     func `createFamily translates raw resolve-profile query error to creationFailed`() async throws {
-        // The dedupe succeeds (the family is reused), but the resolver's query
-        // fallback throws a raw `CloudKitServiceError.networkUnavailable` — a
-        // transport error must NOT escape `createFamily` raw. The resolver
-        // wraps it as `FamilyServiceError.creationFailed`; the caller surfaces
-        // the same. No duplicate Family is minted and no orphaned zone is
-        // ensured.
+        // Raw CloudKit error during profile resolution translates to creationFailed.
         let fixture = makeOwnerDedupeFixture(
             creatorUserRecordName: Self.mockUserRecordName,
             gmSeed: .absent

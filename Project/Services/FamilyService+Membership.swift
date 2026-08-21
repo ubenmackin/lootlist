@@ -43,14 +43,7 @@ extension FamilyService {
         try await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile)
 
-        // Revoke the kicked member's share access so a deactivated profile
-        // cannot keep reading the shared zone. Best-effort: the deactivation
-        // above is the authoritative kick and already succeeded, so a failed
-        // revocation here must NOT throw (that would imply the kick itself
-        // rolled back). Surface the partial outcome to the caller via
-        // `FamilyKickResult.partialRevocationFailed` so the Guild Master is
-        // told their share access persists and can revoke it from the
-        // Invitations panel.
+        // Best-effort participant removal; returns partial status if share revocation fails.
         let rootRecordID = family.id
         do {
             try await cloudKit.removeParticipant(iCloudUserRecordName: profile.iCloudUserID.recordName, from: rootRecordID)

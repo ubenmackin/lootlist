@@ -74,13 +74,7 @@ final class AppSyncCoordinator {
             logger.debug("Could not inspect CloudKit subscription \(subscriptionID, privacy: .private): \(error, privacy: .private)")
         }
 
-        // Dual-path subscription strategy:
-        // - Owner (private) database: use a zone-scoped CKRecordZoneSubscription so
-        //   change notifications only fire for this family's zone, avoiding spurious
-        //   incrementalSync calls triggered by unrelated zones in the same database.
-        // - Participant (shared) database: keep using CKDatabaseSubscription because
-        //   CKRecordZoneSubscription may not work with shared zones; participants
-        //   observe the shared zone through a database-level subscription instead.
+        // Zone subscription for private database; database subscription for shared database.
         let subscription: CKSubscription = if database.databaseScope == .shared {
             CKDatabaseSubscription(subscriptionID: subscriptionID)
         } else {
@@ -117,16 +111,7 @@ final class AppSyncCoordinator {
     }
 
     func handleNotification(_ notification: CKNotification) {
-        // Route by notification type rather than concrete class, because the two
-        // subscription strategies emit different notification families:
-        // - Owner (private-database) path: CKRecordZoneSubscription generates
-        //   CKRecordZoneNotification events (a CKQueryNotification subclass) with
-        //   notificationType == .recordZone — NOT CKDatabaseNotification.
-        // - Participant (shared-database) path: CKDatabaseSubscription generates
-        //   CKDatabaseNotification events with notificationType == .database.
-        // Both must reach handleDatabaseChange so push-driven incrementalSync
-        // fires for either role; only genuinely unexpected substrate changes
-        // (e.g. .readNotification) should be dropped.
+        // Route by notificationType (.recordZone for private DB, .database for shared DB).
         let subscriptionID: String
         switch notification.notificationType {
         case .database:

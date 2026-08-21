@@ -330,20 +330,9 @@ struct GemServiceTests {
 
         let gemService = GemService(cloudKitService: cloudKit, cacheService: cache, appState: appState)
 
-        final class DeterministicLootDropService: LootDropService {
-            private let fixedDrop: LootDrop
-            init(gemService: GemService, drop: LootDrop) {
-                self.fixedDrop = drop
-                super.init(gemService: gemService)
-            }
-
-            override func rollForLoot(questRarity _: QuestRarity, streakDays _: Int) -> LootDrop? {
-                fixedDrop
-            }
-        }
-
         let drop = LootDrop(gemAmount: 25, description: "Small Gem Pouch", rarity: .common)
-        let lootService = DeterministicLootDropService(gemService: gemService, drop: drop)
+        let lootService = LootDropService(gemService: gemService)
+        lootService.rollProvider = { _, _ in drop }
 
         let eventKey = "completion-loot-123"
         let first = await lootService.rollAndCredit(questRarity: .common, streakDays: 0, to: hero, eventKey: eventKey)
@@ -379,12 +368,8 @@ struct GemServiceTests {
 
         let gemService = GemService(cloudKitService: cloudKit, cacheService: cache, appState: appState)
 
-        final class NeverDropService: LootDropService {
-            override func rollForLoot(questRarity _: QuestRarity, streakDays _: Int) -> LootDrop? {
-                nil
-            }
-        }
-        let lootService = NeverDropService(gemService: gemService)
+        let lootService = LootDropService(gemService: gemService)
+        lootService.rollProvider = { _, _ in nil }
 
         let result = await lootService.rollAndCredit(questRarity: .common, streakDays: 0, to: hero, eventKey: "miss-key")
         #expect(result == nil)

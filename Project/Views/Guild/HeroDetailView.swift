@@ -10,7 +10,7 @@ import SwiftUI
 struct HeroDetailView: View {
     let hero: ProfileCache
     let familyRecordName: String?
-    let spending: any SpendingService
+    let spending: SpendingService
 
     @State private var selectedSegment: HeroDetailSegment = .quests
 

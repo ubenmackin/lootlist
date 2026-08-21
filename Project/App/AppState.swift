@@ -342,13 +342,7 @@ final class AppState {
         } catch {
             logger.error("Session restoration failed: \(error, privacy: .private)")
             if error is ScopeViolation {
-                // Parent stale-zone fix: an offline restore with a placeholder
-                // owner (Owner1/__defaultOwner__/CKCurrentUserDefaultName) keeps
-                // the GM writing to a local-only zone (e.g. 644...:__defaultOwner__)
-                // that heroes never see (they look at 644...:_8ca3...), so
-                // unassign appears to revert and hero fetches stay empty.
-                // Force discovery to recover the correct private-zone owner
-                // instead of staying authenticated on the wrong zone.
+                // Clear stale placeholder session and rediscover cloud state.
                 let isPlaceholderOwner = zoneOwnerName == CKCurrentUserDefaultName
                     || zoneOwnerName == "__defaultOwner__"
                     || zoneOwnerName == "_defaultOwner_"
@@ -611,12 +605,7 @@ final class AppState {
                 if let foundFamily = family,
                    let userRecordID
                 {
-                    // Placeholder-tolerant owner check: legacy/mock families were
-                    // created with placeholder creators (owner/Owner1/__defaultOwner__)
-                    // and simulator zones show as __defaultOwner__. If the private
-                    // zone itself is owned by the current user, treat it as this
-                    // user's family even when the Family record's creator fields
-                    // are stale placeholders.
+                    // Accept families where the private zone is owned by current user despite placeholder creators.
                     let zoneOwner = zone.zoneID.ownerName
                     let isZoneOwnedByUser = zoneOwner == userRecordID.recordName
                         || zoneOwner == CKCurrentUserDefaultName
@@ -704,13 +693,6 @@ final class AppState {
             {
                 candidates.append(DiscoveredFamilyCandidate(family: family, profile: activeHeroProfile, zoneID: zone.zoneID))
             }
-            // Heroes have no private-zone proof of individual membership.
-            // A kicked-out hero could still see the shared zone during
-            // share-revocation propagation and would otherwise incorrectly
-            // adopt another active hero's profile if we fell back to an
-            // identity-free scan here. Respect the strict filter's 0-match
-            // result and fall through to onboarding so the user must
-            // re-accept a fresh share from the GM.
         }
         return candidates
     }
@@ -925,25 +907,13 @@ final class AppState {
     /// is hidden by the root view's existing `ProgressView` rendering.
     func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
         if isDiscoveryInFlight {
-            // Do not resume discoveryWaiters early — those continuations are
-            // joiners expecting to observe the completed discovery result.
-            // Waking them before the original scan finishes would let them
-            // return with a stale authStatus that is about to be overwritten,
-            // and a re-entered discoverExistingCloudState would itself join
-            // the still-in-flight pass and never produce a fresh post-clear
-            // result, leaving the pre-clear scan as the final state.
-            // Instead, clear the local session and CloudKit scope immediately
-            // so sign-out wins, then join the original discovery and guarantee
-            // a fresh scan once it finishes.
+            // Clear local session immediately, then await in-flight discovery completion before fresh scan.
             clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
             authStatus = .checkingCloudData
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 discoveryWaiters.append(continuation)
             }
-            // Original discovery has now completed and its defer has resumed
-            // all joiners, overwriting authStatus with the stale pre-clear
-            // result. Force back to checkingCloudData and run a fresh scan
-            // so the final state reflects the cleared session.
+            // Run fresh discovery scan reflecting the cleared session.
             authStatus = .checkingCloudData
             await discoverExistingCloudState(cloudKit: cloudKit)
             return

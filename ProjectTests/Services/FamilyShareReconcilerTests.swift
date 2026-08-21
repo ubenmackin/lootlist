@@ -118,7 +118,7 @@ struct FamilyShareReconcilerTests {
 
         // Membership propagates late (fresh join): pass 2 sees the identity
         // present and must clear the accumulated absence mark.
-        try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
+        _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
         await ctx.reconciler.reconcileIfOwner()
         #expect(ctx.cache.fetchProfiles(family: "fam1").first { $0.recordName == ctx.hero.id.recordName }?.isActive == true)
 
@@ -139,7 +139,7 @@ struct FamilyShareReconcilerTests {
         // Owner-side revoke leaves the identity visible with `.removed` status
         // while CloudKit propagates; this is an authoritative revoke, so a
         // single observation is enough.
-        try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
+        _ = try await ctx.cloudKit.simulateParticipation(key: "record:u1", rootRecordID: ctx.family.id, role: .hero)
         ctx.cloudKit.mockRemovedMemberships.insert("record:u1")
         await ctx.reconciler.reconcileIfOwner()
 

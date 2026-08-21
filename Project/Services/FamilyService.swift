@@ -142,20 +142,14 @@ final class FamilyService: FamilyProfileFetching {
     /// `Task<CKRecord.ID, Error>`; a flaky-network failure in one of two raced
     /// fetches cannot spuriously throw `accountUnavailable` when the other
     /// succeeded. On failure the cached task is cleared so a later retry can
-    /// re-resolve. Protected by a `Mutex` around the task reference so the
-    /// check-then-create is atomic. This cache is **private to onboarding
+    /// re-resolve. Stored as MainActor-isolated state — no extra lock
+    /// needed because `FamilyService` itself is `@MainActor` and all access is
+    /// serialized. This cache is **private to onboarding
     /// dedupe** — the security-relevant owner-anchor check (`isFamilyOwner`)
     /// deliberately bypasses it and re-resolves `cloudKit.currentUserRecordID()`
     /// fresh on every call so an OS-level iCloud account switch without an app
     /// relaunch can never be masked by a stale pre-switch identity.
-    private final class CachedUserRecordIDTaskBox: @unchecked Sendable {
-        let task: Task<CKRecord.ID, any Error>
-        init(_ task: Task<CKRecord.ID, any Error>) {
-            self.task = task
-        }
-    }
-
-    private let cachedUserRecordIDTaskMutex = Mutex<CachedUserRecordIDTaskBox?>(nil)
+    private var cachedUserRecordIDTask: Task<CKRecord.ID, any Error>?
 
     init(
         cloudKit: any CloudKitServiceProtocol,
@@ -196,12 +190,7 @@ final class FamilyService: FamilyProfileFetching {
         let zoneID = CKRecordZone.ID(zoneName: familyID.recordName,
                                      ownerName: CKCurrentUserDefaultName)
 
-        // Step 1: Parent-side dedupe BEFORE ensuring the candidate zone — if
-        // this iCloud user already owns a family, reuse it rather than minting a
-        // duplicate. Run before `ensureZoneExists` because the reuse path already
-        // has a zone; an early ensure would orphan an empty custom zone on every
-        // re-onboarding. Fail-closed: a transient lookup failure throws rather
-        // than falling through and minting a duplicate.
+        // Deduplicate parent family before zone creation to prevent orphan zones on re-onboarding.
         let currentUserRecordName = try await resolveCurrentUserRecordID().recordName
         let existingOwner: (family: Family, zoneID: CKRecordZone.ID)?
         do {
@@ -467,13 +456,7 @@ final class FamilyService: FamilyProfileFetching {
         // their own profile. Routine updates stay push-driven via CKSyncEngine.
         await refreshProfilesFromCloudKit(for: family)
 
-        // Defense-in-depth: re-apply the locally saved profile after the
-        // refresh. The CloudKit query may return a stale copy (e.g. the
-        // profile was just minted with a placeholder displayName that the
-        // server hasn't yet overwritten with the real name). Ensuring the
-        // locally-known-correct profile is never evicted from the cache
-        // during the join flow prevents a later `updateCurrentProfileFromCache`
-        // from merging an empty displayName into `appState.currentProfile`.
+        // Re-upsert locally saved profile to ensure fresh joiner metadata is not overwritten by stale sync query.
         cacheService?.upsertProfile(savedProfile)
 
         // Hero bootstrap: seed per-hero defaults so the new member has a
@@ -601,12 +584,7 @@ final class FamilyService: FamilyProfileFetching {
            anchor != "__defaultOwner__",
            anchor != "_defaultOwner_"
         {
-            // Owner-anchor authorization is security-relevant, so the identity
-            // is re-resolved FRESH on every call instead of consulting the
-            // per-session cache: an OS-level iCloud account change without an
-            // app relaunch must never be masked by a stale cached identity
-            // (which would authorize the pre-switch user's owner-gated
-            // operations). Deny-by-default when resolution fails.
+            // Re-resolve current user freshly to avoid stale cached identity across account changes.
             do {
                 let userRecordID = try await cloudKit.currentUserRecordID()
                 return userRecordID.recordName == anchor
@@ -633,58 +611,39 @@ final class FamilyService: FamilyProfileFetching {
     /// CloudKit cannot resolve the identity so callers can surface the
     /// iCloud-account failure to the user.
     ///
-    /// Concurrency: coalesced via `Task` caching. The stored
-    /// `Task<CKRecord.ID, Error>` is guarded by `cachedUserRecordIDTaskMutex`
-    /// so two concurrent onboarding callers cannot both create a fetch. The
-    /// second caller awaits the first caller's in-flight task rather than
-    /// issuing a second network request; a failure in one of two raced fetches
-    /// cannot spuriously throw `accountUnavailable` when the other succeeded.
-    /// A failed task is cleared so a later retry can re-resolve.
+    /// Concurrency: coalesced via `Task` caching. Stored as MainActor-isolated
+    /// state so two concurrent onboarding callers cannot both create a fetch —
+    /// the second caller awaits the first caller's in-flight task. A failed
+    /// task is cleared so a later retry can re-resolve.
     private func resolveCurrentUserRecordID() async throws -> CKRecord.ID {
-        if let existingBox = cachedUserRecordIDTaskMutex.withLock({ $0 }) {
+        if let existingTask = cachedUserRecordIDTask {
             do {
-                return try await existingBox.task.value
+                return try await existingTask.value
             } catch {
-                cachedUserRecordIDTaskMutex.withLock { current in
-                    if current === existingBox {
-                        current = nil
-                    }
-                }
+                cachedUserRecordIDTask = nil
                 throw FamilyServiceError.accountUnavailable
             }
         }
         let newTask = Task<CKRecord.ID, any Error> {
             try await cloudKit.currentUserRecordID()
         }
-        let newBox = CachedUserRecordIDTaskBox(newTask)
-        let boxToAwait: CachedUserRecordIDTaskBox = cachedUserRecordIDTaskMutex.withLock { current in
-            if let existing = current {
-                return existing
-            }
-            current = newBox
-            return newBox
-        }
-        if boxToAwait !== newBox {
+        // Coalesce: if another caller stored a task between our check and creation,
+        // await the existing one instead. On MainActor this window is empty (no
+        // await between check and store), but keep the guard for explicitness.
+        if let existingTask = cachedUserRecordIDTask {
             newTask.cancel()
             do {
-                return try await boxToAwait.task.value
+                return try await existingTask.value
             } catch {
-                cachedUserRecordIDTaskMutex.withLock { current in
-                    if current === boxToAwait {
-                        current = nil
-                    }
-                }
+                cachedUserRecordIDTask = nil
                 throw FamilyServiceError.accountUnavailable
             }
         }
+        cachedUserRecordIDTask = newTask
         do {
-            return try await boxToAwait.task.value
+            return try await newTask.value
         } catch {
-            cachedUserRecordIDTaskMutex.withLock { current in
-                if current === boxToAwait {
-                    current = nil
-                }
-            }
+            cachedUserRecordIDTask = nil
             throw FamilyServiceError.accountUnavailable
         }
     }

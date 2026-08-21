@@ -71,15 +71,7 @@ final class FamilyDashboardViewModel {
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
 
-    /// Long-lived observer for `FamilyShareReconciler`'s roster-changed
-    /// notification. The reconciler posts it after a successful reconcile pass
-    /// that mutated the membership layer; the view model responds by re-running
-    /// `refreshInvitations()` so the parent's Invitations panel drops the
-    /// matching row the moment the local cache and the share-side participant
-    /// list converge. The task is held for the lifetime of the view model;
-    /// it terminates naturally via the `[weak self]` guard when the view
-    /// model is deallocated (the next notification after deallocation
-    /// unwinds the `for await` loop).
+    /// Observer for roster changes to refresh invitations when membership updates.
     private var rosterObserverTask: Task<Void, Never>?
 
     init(questService: QuestService,
@@ -94,14 +86,7 @@ final class FamilyDashboardViewModel {
         self.familyService = familyService
         self.appState = appState
 
-        // Re-trigger invitation classification on roster mutations: SwiftData
-        // writes the new `ProfileCache` to the cache (which fires the view's
-        // `.onChange(of: cachedProfiles)` → `rebuildLists`), but the Invitations
-        // panel is sourced from the CKShare participant list, not the cache.
-        // Without this hook the panel would only refresh on a manual pull or
-        // the next `.syncDidComplete` cycle. The reconciler's post is the
-        // canonical signal that the share-side participant list has converged
-        // with the local cache.
+        // Refresh invitations when the family roster changes.
         rosterObserverTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
                 guard let self else { return }
@@ -147,21 +132,7 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    /// Reloads the Invitations panel from the family's `CKShare` participant
-    /// records. Classification is driven by `fetchShareParticipantStatuses`
-    /// (identity + acceptance status, testable without fabricated
-    /// `CKShare.Participant` objects) and the participant objects provide
-    /// revocation handles. Rows are classified
-    /// three ways: active member Profiles are skipped (shown in `heroes` /
-    /// `parents`); deactivated member Profiles whose identity is still an
-    /// accepted participant are flagged as departed members so the Guild Master
-    /// can revoke their lingering share access; recently revoked (`.removed`)
-    /// identities surface read-only while CloudKit propagates the removal.
-    /// Pending invites that have not yet established an iCloud identity
-    /// (email/phone only) have no status entry and are rendered from the
-    /// participant objects directly. Their display labels are always redacted.
-    /// The share owner's own participant entry —
-    /// the signed-in user's identity — is never rendered as a revocable row.
+    /// Reloads and classifies invitation statuses from the family's `CKShare` participants.
     func refreshInvitations() async {
         guard appState.isZoneOwner, let family = appState.family else {
             invitations = []
@@ -170,12 +141,7 @@ final class FamilyDashboardViewModel {
         let cloudKit = questService.cloudKitReference
         var currentUserRecordName: String
         do {
-            // Resolve the signed-in user's identity before classifying rows:
-            // the share owner's participant entry is that identity, and it must
-            // never surface as a revocable row (revoking it would strip the
-            // current user's own zone access). Resolution failure is
-            // fail-closed — the panel loads nothing rather than risk offering a
-            // revoke button on the user's own access.
+            // Resolve signed-in user identity to prevent rendering self as revocable row.
             let currentUserRecordID = try await cloudKit.currentUserRecordID()
             currentUserRecordName = currentUserRecordID.recordName
         } catch {
@@ -392,21 +358,11 @@ final class FamilyDashboardViewModel {
         return Self.redactedIdentityLabel(for: identityKey, counter: identityLabelCounter)
     }
 
-    /// Revokes a pending invitation or a departed member's lingering share access
-    /// by removing the participant from the family shares (owner-side access
-    /// layer only — pending invites have no `Profile` to deactivate, and
-    /// departed members' `Profile`s are already inactive). Uses the matched
-    /// participant object when present (covers pending invites without an
-    /// iCloud record name), else falls back to revocation by record name.
+    /// Revokes a pending invitation or departed member's share access.
     func revokeInvitation(_ invitation: FamilyInvitation) async {
         guard appState.isZoneOwner, let family = appState.family else { return }
         let cloudKit = questService.cloudKitReference
-        // Defense in depth: classification never yields a revocable row for the
-        // share owner or the signed-in user, but refuse anyway if a stale row
-        // slips through — revoking either would strip the current user's own
-        // zone access. `.removed` identities are read-only by construction:
-        // CloudKit keeps the identity visible only while propagation finishes,
-        // so there is nothing left to revoke.
+        // Guard against revoking owner, self, or already-removed identities.
         if invitation.kind == .removedIdentity {
             return
         }
@@ -438,35 +394,20 @@ final class FamilyDashboardViewModel {
             invitations.removeAll { $0.id == invitation.id }
         } catch {
             logger.error("Failed to revoke invitation: \(error, privacy: .private)")
-            // The revocation must never be a silent no-op: when the service
-            // cannot match the participant in any role share it throws, and
-            // that failure is surfaced to the Invitations panel so the caller
-            // knows access was not actually revoked.
+            // Revocation failures are surfaced to the UI.
             loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
     private static func invitationID(for participant: CKShare.Participant) -> String {
-        // Row identifiers must never embed the raw identity (iCloud record
-        // name, email, or phone number): they surface in accessibility
-        // identifiers and UI-test queries. Hash the identity key instead so
-        // the token stays stable across refreshes while leaking nothing.
-        // Fallback ordering mirrors `ShareParticipantKey`: record name → email
-        // → phone → server-assigned `participantID`, then the
-        // `ObjectIdentifier` key as a last resort.
+        // Hash identity key to create stable, non-PII row tokens.
         if let key = ShareParticipantKey.key(for: participant) {
             return opaqueIdentityToken(key)
         }
         return opaqueIdentityToken("object:\(ObjectIdentifier(participant))")
     }
 
-    /// Stable, non-PII row token for the Invitations panel. The raw CloudKit
-    /// identity (iCloud record name, email, or phone number) must never appear
-    /// in a `FamilyInvitation` identifier — those identifiers back SwiftUI row
-    /// identity and surface in accessibility identifiers / UI-test queries.
-    /// SHA256 produces a deterministic, collision-resistant token without an
-    /// embedded secret, preserving stable row identity across refreshes while
-    /// preventing raw identity leakage.
+    /// Generates a stable, non-PII SHA256 token for row identification.
     private static func opaqueIdentityToken(_ value: String) -> String {
         if let cached = identityTokenCache[value] {
             return cached

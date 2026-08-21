@@ -56,12 +56,17 @@ enum CalendarScope: String, CaseIterable, Identifiable, Codable {
     /// instead of a hard-coded calendar week, so custom-payday families keep
     /// the current cycle's early entries in scope. `.month`, `.quarter`, and
     /// `.allTime` remain strictly calendar-based and ignore the payout day.
+    ///
+    /// Week boundaries are routed through `WeekMath.weekRange(starting:)` (half-open
+    /// `[start, end)` with `end == start + secondsInWeek`). Display needs a
+    /// closed range so the sublabel upper bound is the last included instant;
+    /// the closed bound is derived as `halfOpen.upperBound - 1s`.
     func dateRange(payoutDay: PayoutDay) -> ClosedRange<Date> {
         switch self {
         case .thisWeek:
             let start = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
-            let end = start.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek - 1))
-            return start ... end
+            let halfOpen = WeekMath.weekRange(starting: start)
+            return halfOpen.lowerBound ... halfOpen.upperBound.addingTimeInterval(-1)
         case .thisMonth:
             return monthOrQuarterRange(.month)
         case .thisQuarter:
@@ -112,23 +117,40 @@ enum CalendarScope: String, CaseIterable, Identifiable, Codable {
     /// custom-payday family's early-cycle entries are not dropped. `.month`,
     /// `.quarter`, and `.allTime` ignore the payout day. `allTime` always
     /// returns `true`.
+    ///
+    /// Membership uses half-open intervals (`[start, end)`) so a `Date` equal
+    /// to the exclusive upper bound belongs to the following period — matching
+    /// `WeekMath.weekRange` and `Calendar.dateInterval` semantics.
     func contains(_ date: Date, payoutDay: PayoutDay) -> Bool {
         switch self {
         case .allTime:
-            true
-        case .thisWeek, .thisMonth, .thisQuarter:
-            dateRange(payoutDay: payoutDay).contains(date)
+            return true
+        case .thisWeek:
+            let start = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+            return WeekMath.weekRange(starting: start).contains(date)
+        case .thisMonth:
+            return halfOpenMonthOrQuarterRange(.month).contains(date)
+        case .thisQuarter:
+            return halfOpenMonthOrQuarterRange(.quarter).contains(date)
         }
     }
 
-    /// Shared helper for the `.month` and `.quarter` calendar intervals.
-    private func monthOrQuarterRange(_ component: Calendar.Component) -> ClosedRange<Date> {
+    /// Half-open interval for `.month` / `.quarter` derived directly from
+    /// `Calendar.dateInterval` (`interval.end` is exclusive).
+    private func halfOpenMonthOrQuarterRange(_ component: Calendar.Component) -> Range<Date> {
         let cal = Calendar.iso8601UTC
         guard let interval = cal.dateInterval(of: component, for: Date()) else {
             let now = Date()
-            return now ... now
+            return now ..< now.addingTimeInterval(1)
         }
-        let end = interval.end.addingTimeInterval(-1)
-        return interval.start ... end
+        return interval.start ..< interval.end
+    }
+
+    /// Closed display range for `.month` / `.quarter`. The half-open `interval.end`
+    /// is exclusive, but sublabels need an inclusive upper bound for formatting, so
+    /// the closed bound is `halfOpen.upperBound - 1s` and documented here intentionally.
+    private func monthOrQuarterRange(_ component: Calendar.Component) -> ClosedRange<Date> {
+        let halfOpen = halfOpenMonthOrQuarterRange(component)
+        return halfOpen.lowerBound ... halfOpen.upperBound.addingTimeInterval(-1)
     }
 }

@@ -8,26 +8,6 @@
 import CloudKit
 import Foundation
 
-/// Composite key combining database scope and full `CKRecord.ID` for isolated mock storage.
-struct MockRecordKey: Hashable, Sendable {
-    let databaseScope: CKDatabase.Scope
-    let recordID: CKRecord.ID
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(databaseScope.rawValue)
-        hasher.combine(recordID.recordName)
-        hasher.combine(recordID.zoneID.zoneName)
-        hasher.combine(recordID.zoneID.ownerName)
-    }
-
-    static func == (lhs: MockRecordKey, rhs: MockRecordKey) -> Bool {
-        lhs.databaseScope == rhs.databaseScope
-            && lhs.recordID.recordName == rhs.recordID.recordName
-            && lhs.recordID.zoneID == rhs.recordID.zoneID
-    }
-}
-
-/// Unified predicate evaluator for in-memory CloudKit mock records.
 enum MockPredicateEvaluator {
     static func recordMatches(_ record: CKRecord, predicate: NSPredicate) -> Bool {
         let fmt = predicate.predicateFormat
@@ -37,14 +17,12 @@ enum MockPredicateEvaluator {
         if fmt == "FALSEPRED" || fmt == "0 == 1" || predicate == NSPredicate(value: false) {
             return false
         }
-
         if let compound = predicate as? NSCompoundPredicate {
             return recordMatchesCompound(record, compound: compound)
         }
         if let comp = predicate as? NSComparisonPredicate {
             return recordMatchesComparison(record, comparison: comp)
         }
-
         return evaluateRecordDictionary(record, predicate: predicate)
     }
 
@@ -69,7 +47,6 @@ enum MockPredicateEvaluator {
     private static func recordMatchesComparison(_ record: CKRecord, comparison comp: NSComparisonPredicate) -> Bool {
         let leftKey = comp.leftExpression.expressionType == .keyPath ? comp.leftExpression.keyPath : comp.leftExpression.description
         let rightVal = comp.rightExpression.expressionType == .constantValue ? comp.rightExpression.constantValue : comp.rightExpression.expressionValue(with: nil, context: nil)
-
         let recordVal: Any? = if leftKey == "recordID" {
             record.recordID
         } else if leftKey == "recordName" {
@@ -77,7 +54,6 @@ enum MockPredicateEvaluator {
         } else {
             record[leftKey]
         }
-
         switch comp.predicateOperatorType {
         case .equalTo:
             return evalEquals(recordVal: recordVal, rightVal: rightVal)
@@ -120,7 +96,6 @@ enum MockPredicateEvaluator {
             return true
         }
         guard let recordVal, let rightVal else { return false }
-
         if let s1 = stringOrRecordName(from: recordVal), let s2 = stringOrRecordName(from: rightVal) {
             return s1 == s2
         }
@@ -153,7 +128,6 @@ enum MockPredicateEvaluator {
         } else {
             recordID.recordName
         }
-
         if let idList = rightVal as? [CKRecord.ID] {
             return idList.contains { $0.recordName == recordName }
         }
@@ -203,10 +177,7 @@ enum MockPredicateEvaluator {
     }
 
     private static func evaluateRecordDictionary(_ record: CKRecord, predicate: NSPredicate) -> Bool {
-        var dict: [String: Any] = [
-            "recordID": record.recordID,
-            "recordName": record.recordID.recordName
-        ]
+        var dict: [String: Any] = ["recordID": record.recordID, "recordName": record.recordID.recordName]
         for key in record.allKeys() {
             dict[key] = record[key]
         }
@@ -223,11 +194,10 @@ enum MockPredicateEvaluator {
     }
 }
 
-/// Unified, isolated in-memory storage for CloudKit records.
 @MainActor
 final class MockRecordStore {
-    private var storage: [MockRecordKey: CKRecord] = [:]
-    private(set) var deletedKeys: [MockRecordKey] = []
+    private var storage: [CKRecord.ID: CKRecord] = [:]
+    private(set) var deletedKeys: [CKRecord.ID] = []
     private(set) var savedRecords: [CKRecord] = []
 
     var isEmpty: Bool {
@@ -242,7 +212,7 @@ final class MockRecordStore {
         Array(storage.values)
     }
 
-    var allKeys: [MockRecordKey] {
+    var allKeys: [CKRecord.ID] {
         Array(storage.keys)
     }
 
@@ -252,47 +222,22 @@ final class MockRecordStore {
         savedRecords.removeAll()
     }
 
-    func seed(_ models: [any CloudKitRecord], databaseScope: CKDatabase.Scope? = nil) {
+    func seed(_ models: [any CloudKitRecord], databaseScope _: CKDatabase.Scope? = nil) {
         for model in models {
             let record = model.toRecord()
-            let scope: CKDatabase.Scope = databaseScope ?? {
-                if record.recordID.zoneID.ownerName != CKCurrentUserDefaultName, record.recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
-                    return .shared
-                }
-                return .private
-            }()
-            let key = MockRecordKey(databaseScope: scope, recordID: record.recordID)
-            storage[key] = record
+            storage[record.recordID] = record
         }
     }
 
-    func setRecord(_ record: CKRecord, databaseScope: CKDatabase.Scope) {
-        let key = MockRecordKey(databaseScope: databaseScope, recordID: record.recordID)
-        storage[key] = record
+    func setRecord(_ record: CKRecord, databaseScope _: CKDatabase.Scope) {
+        storage[record.recordID] = record
     }
 
-    func getRecord(recordID: CKRecord.ID, databaseScope: CKDatabase.Scope? = nil) -> CKRecord? {
-        if let databaseScope {
-            let key = MockRecordKey(databaseScope: databaseScope, recordID: recordID)
-            if let rec = storage[key] {
-                return rec
-            }
-            return nil
-        }
-        let privateKey = MockRecordKey(databaseScope: .private, recordID: recordID)
-        if let rec = storage[privateKey] {
-            return rec
-        }
-        let sharedKey = MockRecordKey(databaseScope: .shared, recordID: recordID)
-        return storage[sharedKey]
+    func getRecord(recordID: CKRecord.ID, databaseScope _: CKDatabase.Scope? = nil) -> CKRecord? {
+        storage[recordID]
     }
 
-    func save<T: CloudKitRecord>(
-        _ model: T,
-        in zoneID: CKRecordZone.ID? = nil,
-        activeZoneID: CKRecordZone.ID? = nil,
-        databaseScope: CKDatabase.Scope
-    ) throws -> T {
+    func save<T: CloudKitRecord>(_ model: T, in zoneID: CKRecordZone.ID? = nil, activeZoneID: CKRecordZone.ID? = nil, databaseScope _: CKDatabase.Scope) throws -> T {
         let source = model.toRecord()
         let zone = zoneID ?? activeZoneID ?? CKRecordZone.default().zoneID
         let targetID: CKRecord.ID = {
@@ -301,30 +246,21 @@ final class MockRecordStore {
             }
             return CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone)
         }()
-
-        let key = MockRecordKey(databaseScope: databaseScope, recordID: targetID)
-        let recordToSave = storage[key] ?? CKRecord(recordType: T.recordType, recordID: targetID)
-
-        for field in source.allKeys() {
-            recordToSave[field] = source[field]
+        let record: CKRecord
+        if source.recordID == targetID {
+            record = source
+        } else {
+            record = CKRecord(recordType: T.recordType, recordID: targetID)
+            for key in source.allKeys() {
+                record[key] = source[key]
+            }
         }
-
-        let sourceKeys = Set(source.allKeys())
-        for field in T.managedFieldKeys where !sourceKeys.contains(field) {
-            recordToSave[field] = nil
-        }
-
-        storage[key] = recordToSave
-        savedRecords.append(recordToSave)
-        return try T(record: recordToSave)
+        storage[targetID] = record
+        savedRecords.append(record)
+        return try T(record: record)
     }
 
-    func fetch<T: CloudKitRecord>(
-        _: T.Type,
-        id: CKRecord.ID,
-        activeZoneID: CKRecordZone.ID? = nil,
-        databaseScope: CKDatabase.Scope? = nil
-    ) throws -> T {
+    func fetch<T: CloudKitRecord>(_: T.Type, id: CKRecord.ID, activeZoneID: CKRecordZone.ID? = nil, databaseScope _: CKDatabase.Scope? = nil) throws -> T {
         let targetID: CKRecord.ID = {
             if id.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
                 return id
@@ -334,44 +270,28 @@ final class MockRecordStore {
             }
             return id
         }()
-
-        guard let record = getRecord(recordID: targetID, databaseScope: databaseScope) else {
+        guard let record = storage[targetID] else {
             throw CloudKitServiceError.notFound(id.recordName)
         }
         return try T(record: record)
     }
 
-    func query<T: CloudKitRecord>(
-        _: T.Type,
-        predicate: NSPredicate,
-        in zoneID: CKRecordZone.ID?,
-        sortDescriptors: [NSSortDescriptor]?,
-        databaseScope: CKDatabase.Scope? = nil
-    ) throws -> [T] {
-        let matching = storage.compactMap { key, record -> CKRecord? in
-            if let databaseScope, key.databaseScope != databaseScope {
-                return nil
-            }
-            guard record.recordType == T.recordType else { return nil }
-
+    func query<T: CloudKitRecord>(_: T.Type, predicate: NSPredicate, in zoneID: CKRecordZone.ID?, sortDescriptors: [NSSortDescriptor]?,
+                                  databaseScope _: CKDatabase.Scope? = nil) throws -> [T]
+    {
+        let matching = storage.values.filter { record in
+            guard record.recordType == T.recordType else { return false }
             if let zoneID {
-                guard record.recordID.zoneID == zoneID else { return nil }
+                guard record.recordID.zoneID == zoneID else { return false }
             }
-
-            guard MockPredicateEvaluator.recordMatches(record, predicate: predicate) else { return nil }
-            return record
+            guard MockPredicateEvaluator.recordMatches(record, predicate: predicate) else { return false }
+            return true
         }
-
-        let sorted = MockPredicateEvaluator.sortRecords(matching, sortDescriptors: sortDescriptors)
+        let sorted = MockPredicateEvaluator.sortRecords(Array(matching), sortDescriptors: sortDescriptors)
         return try sorted.map { try T(record: $0) }
     }
 
-    func delete(
-        _ recordID: CKRecord.ID,
-        in zoneID: CKRecordZone.ID? = nil,
-        activeZoneID: CKRecordZone.ID? = nil,
-        databaseScope: CKDatabase.Scope
-    ) {
+    func delete(_ recordID: CKRecord.ID, in zoneID: CKRecordZone.ID? = nil, activeZoneID: CKRecordZone.ID? = nil, databaseScope _: CKDatabase.Scope) {
         let zone = zoneID ?? activeZoneID ?? CKRecordZone.default().zoneID
         let targetID: CKRecord.ID = {
             if recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
@@ -379,9 +299,7 @@ final class MockRecordStore {
             }
             return CKRecord.ID(recordName: recordID.recordName, zoneID: zone)
         }()
-
-        let key = MockRecordKey(databaseScope: databaseScope, recordID: targetID)
-        storage.removeValue(forKey: key)
-        deletedKeys.append(key)
+        storage.removeValue(forKey: targetID)
+        deletedKeys.append(targetID)
     }
 }

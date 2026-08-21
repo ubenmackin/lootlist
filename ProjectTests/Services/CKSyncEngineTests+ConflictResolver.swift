@@ -203,7 +203,7 @@ extension CKSyncEngineTests {
         let period = try await treasuryService.getOrCreateAllowancePeriod(profile: hero, weekOf: WeekMath.mondayOfWeek(for: Date()), family: family)
         #expect(period.id.zoneID == zoneID)
 
-        let spendingService = ManualSpendingService(cloudKit: ck, cacheService: cache, appState: appState)
+        let spendingService = SpendingService(cloudKit: ck, cacheService: cache, appState: appState)
         let ledgerManual = try await spendingService.logManual(profile: hero, family: family, familyRecordName: familyID.recordName, description: "Test", amount: 5)
         #expect(ledgerManual.id.zoneID == zoneID)
 

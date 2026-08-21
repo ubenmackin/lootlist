@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import CryptoKit
 import Foundation
 import Synchronization
 
@@ -80,24 +81,13 @@ final class BonusObjectiveService {
         self.syncCoordinator = syncCoordinator
     }
 
-    /// Selects the daily objective for a profile+date using a **stable,
-    /// deterministic** hash. `String.hashValue` is randomized per-process
-    /// (SipHash seed since Swift 4.2), so the same profile+date yielded a
-    /// different objective on every launch and on every device — which minted
-    /// a fresh claim key each relapse, allowing a multi-claim per day.
-    /// `djb2` is a classic non-cryptographic hash with no per-process seed,
-    /// so the selection is stable across launches and devices. The modulo is
-    /// computed in `UInt64` before converting to `Int`, avoiding the
-    /// `abs(Int.min)` runtime trap.
     func dailyObjective(for profile: Profile, date: Date = Date()) -> BonusObjective {
         let calendar = Calendar.iso8601UTC
         let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
-
-        // Deterministic hashing based on date and profile ID
         let dateString = "\(dateComponents.year ?? 0)-\(dateComponents.month ?? 0)-\(dateComponents.day ?? 0)"
         let hashString = "\(profile.id.recordName)-\(dateString)"
-        let hash = Self.djb2Hash(hashString)
-
+        let digest = SHA256.hash(data: Data(hashString.utf8))
+        let hash = digest.prefix(8).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
         let templates = Self.templates
         let index = Int(hash % UInt64(templates.count))
         let selection = templates[index]
@@ -125,7 +115,7 @@ final class BonusObjectiveService {
         case .completeAllToday:
             let total = todayQuests.count
             if total == 0 {
-                return (false, "0/0") // No quests today
+                return (false, "0/0")
             }
             let completionsByQuest = Dictionary(grouping: approvedCompletions, by: \.questRecordName)
             let completedCount = todayQuests.reduce(into: 0) { count, quest in
@@ -217,8 +207,6 @@ final class BonusObjectiveService {
         guard !alreadyInFlight else { return }
         defer { inFlightClaims.withLock { _ = $0.remove(claimKey) } }
 
-        // A synced claim is already settled even when this device has not yet
-        // received the completion rows that justified it.
         guard !current.claimedBonusObjectives.contains(canonicalObjective.id) else {
             return
         }
@@ -262,17 +250,8 @@ final class BonusObjectiveService {
             throw BonusObjectiveServiceError.objectiveNotComplete
         }
 
-        // Stamp the claim on the Profile BEFORE crediting gems so the single
-        // upsert inside `GemService.creditGems` carries both the gem increment
-        // and the new claim marker (avoids a follow-up upsert overwriting the
-        // freshly-credited gemsTotal).
         current.claimedBonusObjectives.append(canonicalObjective.id)
 
-        // Award gems — upserts the profile (with the claimed marker) + enqueues
-        // the Profile record for CloudKit sync. The deterministic `eventKey`
-        // (`bonus-{objective.id}`) derives an idempotent ledger ID so a
-        // cross-device re-claim collapsed by sync can never credit the reward
-        // twice — mirroring the `reward-{completionID}` RewardEvent pattern.
         try await gemService.creditGems(
             amount: canonicalObjective.gemReward,
             to: current,
@@ -281,18 +260,12 @@ final class BonusObjectiveService {
             detail: canonicalObjective.title
         )
 
-        // Re-resolve the authoritative profile from cache so the session
-        // reflects the freshly-credited gems. Assigning the stale
-        // `current` copy here would overwrite the `gems` updated inside
-        // `creditGems` (which upserted the profile with the new ledger
-        // sum) with the pre-credit value.
         if let active = appState.currentProfile, active.id == current.id {
             if let refreshed = cacheService.fetchProfile(recordName: current.id.recordName, family: current.family.recordID.recordName)?.toProfile(zoneID: current.id.zoneID) {
                 appState.currentProfile = refreshed
             }
         }
 
-        // Play sound
         soundManager.play(.gemEarned)
     }
 
@@ -301,22 +274,10 @@ final class BonusObjectiveService {
         return current.claimedBonusObjectives.contains(objective.id)
     }
 
-    // MARK: - Profile resolution
-
     private func resolvedProfile(_ profile: Profile) -> Profile? {
         guard let cacheService else { return nil }
         let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
         guard let cached = cacheService.fetchProfile(recordName: profile.id.recordName, family: familyRecordName) else { return nil }
         return cached.toProfile(zoneID: profile.id.zoneID)
-    }
-
-    /// Stable, non-cryptographic djb2 hash (Bernstein). Deterministic across
-    /// process launches and devices — no SipHash per-process seed.
-    private static func djb2Hash(_ string: String) -> UInt64 {
-        var hash: UInt64 = 5381
-        for byte in string.utf8 {
-            hash = (hash &<< 5) &+ hash &+ UInt64(byte)
-        }
-        return hash
     }
 }

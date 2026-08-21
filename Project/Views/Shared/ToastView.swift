@@ -7,10 +7,6 @@
 
 import SwiftUI
 
-/// Top-anchored overlay banner stack rendered above all other content by the
-/// app root. Reads ``ToastManager`` from the environment and stacks each pending
-/// toast newest-first. Tap the body to invoke the toast's optional
-/// `dismissAction`; tap the X button to dismiss without invoking the action.
 struct ToastView: View {
     let toastManager: ToastManager
 
@@ -82,7 +78,6 @@ struct ToastView: View {
 }
 
 private extension ToastType {
-    /// VoiceOver-friendly severity label, prefixed to the toast's accessibility label.
     var localizedDescription: String {
         switch self {
         case .error: "Error"
@@ -94,17 +89,12 @@ private extension ToastType {
 }
 
 extension View {
-    /// Attaches the top-anchored ToastView overlay to any view or modal sheet navigation stack.
     func toastOverlay() -> some View {
         modifier(ToastOverlayModifier())
     }
 
-    /// Attaches the fullscreen achievement celebration overlay above the
-    /// toast overlay so trophy unlocks and streak milestones take visual
-    /// priority. Apply after `.toastOverlay()` so the celebration layer sits
-    /// above the toast banner layer.
     func celebrationOverlay() -> some View {
-        modifier(CelebrationOverlayModifier())
+        self
     }
 }
 
@@ -118,39 +108,5 @@ struct ToastOverlayModifier: ViewModifier {
                     ToastView(toastManager: toastManager)
                 }
             }
-    }
-}
-
-struct CelebrationOverlayModifier: ViewModifier {
-    @Environment(CelebrationManager.self) private var celebrationManager: CelebrationManager?
-    @Environment(AppState.self) private var appState: AppState?
-
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                celebrationOverlay
-                    .animation(
-                        .easeInOut(duration: 0.4),
-                        value: celebrationManager?.currentFullscreenItem
-                    )
-            }
-    }
-
-    /// The currently presented fullscreen celebration, or nothing while idle.
-    /// The `.transition(.opacity)` on the overlay is driven by the enclosing
-    /// `.animation(_:value:)` keyed to `currentFullscreenItem`, mirroring how
-    /// ``ToastView`` animates toast rows via `.animation(.snappy, value: toasts)`.
-    @ViewBuilder
-    private var celebrationOverlay: some View {
-        if let celebrationManager,
-           let item = celebrationManager.currentFullscreenItem
-        {
-            CelebrationOverlayView(
-                item: item,
-                familyRecordName: appState?.family?.id.recordName,
-                onDismiss: { celebrationManager.dismissCurrent() }
-            )
-            .transition(.opacity)
-        }
     }
 }

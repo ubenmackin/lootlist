@@ -16,7 +16,7 @@ final class HeroLedgerViewModel {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroLedger")
 
     let heroProfile: ProfileCache
-    private let spending: any SpendingService
+    private let spending: SpendingService
     private let appState: AppState
 
     private(set) var balance: Double?
@@ -25,13 +25,11 @@ final class HeroLedgerViewModel {
     private(set) var errorMessage: String?
     private(set) var isLoading: Bool = false
 
-    init(heroProfile: ProfileCache, spending: any SpendingService, appState: AppState) {
+    init(heroProfile: ProfileCache, spending: SpendingService, appState: AppState) {
         self.heroProfile = heroProfile
         self.spending = spending
         self.appState = appState
     }
-
-    // MARK: - Ledger
 
     func rebuildLedger(
         ledgers: [LedgerEntryCache],
@@ -73,14 +71,11 @@ final class HeroLedgerViewModel {
         }.sorted { $0.date > $1.date }
     }
 
-    // MARK: - Mutations
-
     func deposit(description: String, amount: Double, date: Date) async -> Bool {
         guard let family = appState.family else {
             errorMessage = "No family loaded."
             return false
         }
-        // Fallback to family's zone when `familyZoneID` has not yet propagated for a new hero.
         let zoneID = appState.familyZoneID ?? family.id.zoneID
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
@@ -88,56 +83,17 @@ final class HeroLedgerViewModel {
         defer { isLoading = false }
 
         do {
-            // Direct dispatch to concrete ManualSpendingService when possible avoids
-            // existential witness fallback that surfaces as `unsupported` for a
-            // brand-new hero with no ledger history.
-            if let manual = spending as? ManualSpendingService {
-                _ = try await manual.deposit(
-                    profile: profile,
-                    family: family,
-                    familyRecordName: family.id.recordName,
-                    description: description,
-                    amount: amount,
-                    location: nil,
-                    date: date
-                )
-            } else {
-                _ = try await spending.deposit(
-                    profile: profile,
-                    family: family,
-                    familyRecordName: family.id.recordName,
-                    description: description,
-                    amount: amount,
-                    date: date
-                )
-            }
+            _ = try await spending.deposit(
+                profile: profile,
+                family: family,
+                familyRecordName: family.id.recordName,
+                description: description,
+                amount: amount,
+                location: nil,
+                date: date
+            )
             errorMessage = nil
             return true
-        } catch let error as SpendingServiceError where error == .unsupported {
-            logger.warning("Deposit hit unsupported via existential, retrying with cache fallback for new hero")
-            // Fallback for read-only providers or witness mis-dispatch: write
-            // directly to the local cache and enqueue, preserving offline-first
-            // success for seeding deposits.
-            if let cache = appState.cacheService {
-                let entry = LedgerEntry(
-                    profile: CKRecord.Reference(recordID: profile.id, action: .none),
-                    amount: abs(amount),
-                    description: description,
-                    date: date,
-                    source: "deposit",
-                    family: CKRecord.Reference(recordID: family.id, action: .none),
-                    id: CKRecord.ID(recordName: "deposit-\(profile.id.recordName)-\(family.id.recordName)-\(Int(date.timeIntervalSince1970 * 1000))", zoneID: family.id.zoneID)
-                )
-                cache.upsertLedgerEntry(entry)
-                if let manual = spending as? ManualSpendingService {
-                    manual.syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
-                }
-                errorMessage = nil
-                return true
-            }
-            logger.error("Failed to deposit: \(error, privacy: .private)")
-            errorMessage = "Could not deposit. Please try again."
-            return false
         } catch {
             logger.error("Failed to deposit: \(error, privacy: .private)")
             errorMessage = "Could not deposit. Please try again."
@@ -150,7 +106,6 @@ final class HeroLedgerViewModel {
             errorMessage = "No family loaded."
             return false
         }
-        // Fallback to family's zone when `familyZoneID` has not yet propagated for a new hero.
         let zoneID = appState.familyZoneID ?? family.id.zoneID
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
@@ -158,50 +113,17 @@ final class HeroLedgerViewModel {
         defer { isLoading = false }
 
         do {
-            if let manual = spending as? ManualSpendingService {
-                _ = try await manual.withdraw(
-                    profile: profile,
-                    family: family,
-                    familyRecordName: family.id.recordName,
-                    description: description,
-                    amount: amount,
-                    location: nil,
-                    date: date
-                )
-            } else {
-                _ = try await spending.withdraw(
-                    profile: profile,
-                    family: family,
-                    familyRecordName: family.id.recordName,
-                    description: description,
-                    amount: amount,
-                    date: date
-                )
-            }
+            _ = try await spending.withdraw(
+                profile: profile,
+                family: family,
+                familyRecordName: family.id.recordName,
+                description: description,
+                amount: amount,
+                location: nil,
+                date: date
+            )
             errorMessage = nil
             return true
-        } catch let error as SpendingServiceError where error == .unsupported {
-            logger.warning("Withdraw hit unsupported via existential, retrying with cache fallback for new hero")
-            if let cache = appState.cacheService {
-                let entry = LedgerEntry(
-                    profile: CKRecord.Reference(recordID: profile.id, action: .none),
-                    amount: -abs(amount),
-                    description: description,
-                    date: date,
-                    source: "withdrawal",
-                    family: CKRecord.Reference(recordID: family.id, action: .none),
-                    id: CKRecord.ID(recordName: "withdrawal-\(profile.id.recordName)-\(family.id.recordName)-\(Int(date.timeIntervalSince1970 * 1000))", zoneID: family.id.zoneID)
-                )
-                cache.upsertLedgerEntry(entry)
-                if let manual = spending as? ManualSpendingService {
-                    manual.syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
-                }
-                errorMessage = nil
-                return true
-            }
-            logger.error("Failed to withdraw: \(error, privacy: .private)")
-            errorMessage = "Could not withdraw. Please try again."
-            return false
         } catch {
             logger.error("Failed to withdraw: \(error, privacy: .private)")
             errorMessage = "Could not withdraw. Please try again."

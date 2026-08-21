@@ -27,7 +27,12 @@ final class OptimisticRollbackTests: XCTestCase {
         cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         cacheService = try CacheService(inMemory: true)
-        appState = AppState()
+        // Isolated defaults prevent a previous test's `saveSession` (which
+        // writes `hasSession` to `UserDefaults.standard`) from flipping the
+        // next test's `authStatus` to `restoringSession` and triggering real
+        // CloudKit discovery that crashes without entitlements.
+        let isolatedDefaults = UserDefaults(suiteName: "test-\(UUID().uuidString)") ?? .standard
+        appState = AppState(defaults: isolatedDefaults)
         appState.cacheService = cacheService
 
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
@@ -411,7 +416,8 @@ final class OptimisticRollbackTests: XCTestCase {
         let mock = MockCloudKitService()
         mock.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
-        let state = AppState()
+        let isolatedDefaults = UserDefaults(suiteName: "test-\(UUID().uuidString)") ?? .standard
+        let state = AppState(defaults: isolatedDefaults)
         state.cacheService = cache
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
@@ -495,7 +501,8 @@ final class OptimisticRollbackTests: XCTestCase {
         let mock = MockCloudKitService()
         mock.activeFamilyZoneID = lootZone
         let cache = try CacheService(inMemory: true)
-        let state = AppState()
+        let isolatedLootDefaults = UserDefaults(suiteName: "test-\(UUID().uuidString)") ?? .standard
+        let state = AppState(defaults: isolatedLootDefaults)
         state.cacheService = cache
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: lootZone), action: .none)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: lootZone)
@@ -538,9 +545,9 @@ final class OptimisticRollbackTests: XCTestCase {
         let mock = MockCloudKitService()
         mock.activeFamilyZoneID = phantomZone
         let cache = try CacheService(inMemory: true)
-        let state = AppState()
+        let isolatedPhantomDefaults = UserDefaults(suiteName: "test-\(UUID().uuidString)") ?? .standard
+        let state = AppState(defaults: isolatedPhantomDefaults)
         state.cacheService = cache
-
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: phantomZone), action: .none)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: phantomZone)
         let hero = Profile(
@@ -580,7 +587,12 @@ final class OptimisticRollbackTests: XCTestCase {
         let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: cache, appState: state)
         let coordinator = CKSyncEngineCoordinator(cloudKitService: mock, delegateHandler: delegate, appState: state)
         qSvc.syncCoordinator = coordinator
-        coordinator.privateSyncEngine = CKSyncEngine(CKSyncEngine.Configuration(database: mock.container.privateCloudDatabase, stateSerialization: nil, delegate: delegate))
+        // Live CKSyncEngine requires a signed iCloud container. In unit tests
+        // (XCTest) the container is unentitled and would spam account-change
+        // logs and xpcActivity errors. Only instantiate when not in tests.
+        if !TestEnvironment.isRunningUnitOrUITests, !TestEnvironment.shouldSkipLiveCloudKitEngineTests {
+            coordinator.privateSyncEngine = CKSyncEngine(CKSyncEngine.Configuration(database: mock.container.privateCloudDatabase, stateSerialization: nil, delegate: delegate))
+        }
 
         let quest = Quest(
             template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: phantomZone), action: .none),
@@ -625,7 +637,8 @@ final class OptimisticRollbackTests: XCTestCase {
         let mock = MockCloudKitService()
         mock.activeFamilyZoneID = zoneID
         let cache = try CacheService(inMemory: true)
-        let state = AppState()
+        let isolatedNoEnqueueDefaults = UserDefaults(suiteName: "test-\(UUID().uuidString)") ?? .standard
+        let state = AppState(defaults: isolatedNoEnqueueDefaults)
         state.cacheService = cache
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)

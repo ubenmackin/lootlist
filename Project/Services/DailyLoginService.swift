@@ -206,12 +206,7 @@ final class DailyLoginService {
         current.dailyLoginCycleDay = (cycle % maxCycleDay) + 1
         current.dailyLoginLastClaimDay = today
 
-        // Credits gems AND upserts the profile (with all claim-state fields) +
-        // enqueues the Profile record for CloudKit sync. The deterministic
-        // `eventKey` (`daily-{date}`) derives an idempotent ledger ID
-        // (`gem-{profile}-daily-{date}-dailyLogin`) so a cross-device re-claim
-        // collapsed by sync can never credit the day's gems twice — mirroring
-        // the `reward-{completionID}` RewardEvent idempotency pattern.
+        // Credit gems and persist claim state using deterministic idempotent eventKey.
         try await gemService.creditGems(amount: gemsToAward, to: current, source: "dailyLogin", eventKey: "daily-\(today)", detail: "Day \(cycle) reward")
 
         // Re-resolve the authoritative profile from cache so the session

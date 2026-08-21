@@ -95,14 +95,8 @@ final class FamilyShareReconciler {
         observerTask = nil
     }
 
-    /// Owner-only reconciliation of active non-owner profiles against the
-    /// family's current `CKShare` participant list. Internal so tests can drive
-    /// the pass directly; production invokes it from the `.syncDidComplete`
-    /// observer in `start()`. Posts `.familyRosterChanged` at the end of any
-    /// pass that mutated the membership layer (deactivated a profile, cleared
-    /// a previously-accumulated absence mark for a freshly-observed
-    /// identity, or revoked a still-accepted one) so subscribed view models
-    /// re-run their invitation classification against the updated roster.
+    /// Reconciles active non-owner profiles against the family's `CKShare` participant list.
+    /// Posts `.familyRosterChanged` if membership changes occurred.
     func reconcileIfOwner() async {
         let appState = familyService.appState
         guard appState.isZoneOwner,

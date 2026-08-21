@@ -19,13 +19,7 @@ extension QuestService {
         else {
             throw FamilyServiceError.unauthorized
         }
-        // Single source for the approved count: mirror Treasury's
-        // GoldCalculation.totalCredit filtered set (verified || autoApproved).
-        // Dedupe by recordName so an optimistic cache upsert that already
-        // contains the current completion does not double-count (+1 only
-        // when the current log is not already in the approved set). The XP
-        // grant then flows exclusively through GoldCalculation.marginalXPCredit
-        // (capped by xpBanked), keeping UI preview and wallet in sync.
+        // Calculate approved logs count avoiding double-counting if current completion is already cached.
         let logs = try await fetchQuestLogs(forQuest: quest, useCache: true)
         let approvedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
         let priorApproved = approvedLogs.count
@@ -99,32 +93,13 @@ extension QuestService {
             }
         }
 
-        // Resolve family for real-time settlement (cache-first).
-        // Never `try?` — a transient CloudKit failure must not silently fall
-        // through as nil without logging. Log the failure and handle explicitly
-        // by falling back to hero policy (nil family) so the XP grant still
-        // completes; real-time settlement is best-effort and will be retried
-        // via wallet refresh. This mirrors GoldCalculation.totalCredit's
-        // logging contract but handles explicitly because settlement is not
-        // critical to the reward grant itself.
+        // Resolve family for real-time settlement from cache only — tests and
+        // offline paths must not trigger a live CloudKit fetch that requires
+        // entitlements or network. A missing cached family falls back to the
+        // hero's own payoutPolicy below.
         let questFamilyID = quest.family.recordID
-        let resolvedFamily: Family?
-        if let cached = cacheService?.fetchFamily(recordName: questFamilyID.recordName) {
-            resolvedFamily = cached.toFamily(zoneID: questFamilyID.zoneID)
-        } else {
-            do {
-                let fetched = try await cloudKit.fetch(Family.self, id: questFamilyID)
-                resolvedFamily = fetched
-                cacheService?.upsertFamily(fetched)
-            } catch {
-                let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
-                logger
-                    .error(
-                        "Failed to fetch family \(questFamilyID.recordName, privacy: .private) for real-time settlement, falling back to hero payout policy: \(error, privacy: .private)"
-                    )
-                resolvedFamily = nil
-            }
-        }
+        let resolvedFamily: Family? = cacheService?.fetchFamily(recordName: questFamilyID.recordName)?
+            .toFamily(zoneID: questFamilyID.zoneID)
 
         let effectivePolicy = treasuryService?.effectivePayoutPolicy(for: hero, family: resolvedFamily)
             ?? (hero.payoutPolicy != .perQuest ? hero.payoutPolicy : (resolvedFamily?.payoutPolicy ?? hero.payoutPolicy))

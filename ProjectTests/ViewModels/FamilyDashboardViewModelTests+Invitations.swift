@@ -109,9 +109,9 @@ extension FamilyDashboardViewModelTests {
 
         // Departed member: deactivated Profile whose identity is still an
         // accepted participant — surfaced so the GM can revoke share access.
-        try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
         // Revoked identity: `.removed` status surfaces read-only.
-        try await cloudKit.simulateParticipation(key: "record:u2", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "record:u2", rootRecordID: family.id, role: .hero)
         cloudKit.mockRemovedMemberships.insert("record:u2")
 
         await vm.refreshInvitations()
@@ -142,7 +142,7 @@ extension FamilyDashboardViewModelTests {
         // Email-only invite marked as removed. The panel classifies the row
         // from the status list; its display label is redacted, so the lookup
         // keys off the classification rather than the raw email address.
-        try await cloudKit.simulateParticipation(key: "email:hero@test.com", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "email:hero@test.com", rootRecordID: family.id, role: .hero)
         cloudKit.mockRemovedMemberships.insert("email:hero@test.com")
 
         await vm.refreshInvitations()
@@ -175,7 +175,7 @@ extension FamilyDashboardViewModelTests {
 
         let fetcher = StubFamilyProfileFetcher(profiles: [departedHero])
         let (vm, cloudKit) = makeInvitationSUT(fetcher: fetcher, family: family)
-        try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
 
         await vm.refreshInvitations()
         let departed = try #require(vm.invitations.first { $0.kind == .departedMember })
@@ -211,16 +211,13 @@ extension FamilyDashboardViewModelTests {
 
         let fetcher = StubFamilyProfileFetcher(profiles: [departedHero])
         let (vm, cloudKit) = makeInvitationSUT(fetcher: fetcher, family: family)
-        try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
 
         await vm.refreshInvitations()
         let departed = try #require(vm.invitations.first { $0.kind == .departedMember })
         vm.loadError = nil
 
-        // Simulate the propagation race the finding describes: the identity is
-        // no longer a member of any role share, so the service throws. The
-        // revocation must surface an error (via `loadError`) rather than fail
-        // silently while the GM believes access was revoked.
+        // Removing participant before revocation surfaces error via loadError.
         try await cloudKit.removeParticipant(iCloudUserRecordName: "u1", from: family.id)
         await vm.revokeInvitation(departed)
 
@@ -251,7 +248,7 @@ extension FamilyDashboardViewModelTests {
         // The hero accepted the invite: their identity still holds a share
         // participant row, but the roster already contains their active
         // Profile, so the panel must not classify them as a revocable invite.
-        try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
         vm.rebuildLists(
             profiles: [makeHeroCache(recordName: "hero1", iCloudUserRecordName: "u1")],
             quests: [],
@@ -286,7 +283,7 @@ extension FamilyDashboardViewModelTests {
         )
         let fetcher = MutableStubFamilyProfileFetcher(profiles: [hero])
         let (vm, cloudKit) = makeInvitationSUT(fetcher: fetcher, family: family)
-        try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
 
         // Cold-start window: the roster has not caught up yet, so the
         // participant row is (correctly, at this instant) a revocable pending
@@ -342,7 +339,7 @@ extension FamilyDashboardViewModelTests {
         // Without the self-exclusion it would be misclassified as a revocable
         // "Accepted" invite during the empty-cache window.
         let ownerRecordName = try await cloudKit.currentUserRecordID().recordName
-        try await cloudKit.simulateParticipation(key: "record:\(ownerRecordName)", rootRecordID: family.id, role: .hero)
+        _ = try await cloudKit.simulateParticipation(key: "record:\(ownerRecordName)", rootRecordID: family.id, role: .hero)
 
         await vm.refreshInvitations()
 

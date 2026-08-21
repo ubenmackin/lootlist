@@ -104,22 +104,16 @@ extension DataMigrationsCoordinator {
     static func questNameBackfillV1(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
         MigrationStep(id: "QuestNameBackfillV1", version: 1) {
             let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
-            // Guard: Must have an active family zone to backfill quests from
             guard let activeZone = cloudKit.activeFamilyZoneID else {
                 logger.info("No active family zone, skipping quest name backfill.")
                 return
             }
-
-            // Query all Quests
             let allQuests = try await cloudKit.query(Quest.self, predicate: NSPredicate(value: true), in: activeZone)
-
-            // Filter to those with nil name and non-nil template
             let needsBackfill = allQuests.filter { $0.name == nil }
             guard !needsBackfill.isEmpty else {
                 logger.info("No quests need name backfill.")
                 return
             }
-
             var hadFailures = false
             for quest in needsBackfill {
                 do {
@@ -140,7 +134,6 @@ extension DataMigrationsCoordinator {
                     hadFailures = true
                 }
             }
-
             if hadFailures {
                 throw MigrationError.incompleteBackfill("Quest name backfill had save errors; migration marked incomplete for retry")
             }
@@ -149,11 +142,6 @@ extension DataMigrationsCoordinator {
 
     static func questTargetCountBackfillV2(backgroundCache: BackgroundCacheActor) -> MigrationStep {
         MigrationStep(id: "QuestTargetCountBackfillV2", version: 2) {
-            // Backfill `targetCount` to 1 for any QuestCache or QuestTemplateCache
-            // rows persisted before the field existed. Iterates globally across all
-            // cached rows (not per-family) so pre-feature installs across every
-            // family zone are repaired in one pass. The backfill is idempotent —
-            // rows already carrying a positive value are never clobbered. Safe to run on BackgroundCacheActor.
             await backgroundCache.backfillTargetCountGlobally()
         }
     }
@@ -165,38 +153,24 @@ extension DataMigrationsCoordinator {
                 logger.info("No active family zone, skipping ledger backfill.")
                 return
             }
-
-            // Backfill every allowance period — paid and open. The ledger is
-            // the single source of truth for wallet balances, so pre-update
-            // quest earnings must survive the migration even when the period
-            // was never closed: real-time heroes accumulate paidAmount while
-            // the period stays open, and unpaid perQuest histories carry
-            // totalEarned with no payout entry.
             let periods = try await cloudKit.query(
                 AllowancePeriod.self,
                 predicate: NSPredicate(value: true),
                 in: zoneID
             )
-
             let existingLedgers = try await cloudKit.query(
                 LedgerEntry.self,
                 predicate: NSPredicate(value: true),
                 in: zoneID
             )
-
             for period in periods {
                 var paidAmount = period.paidAmount ?? period.totalEarned
                 guard paidAmount > 0 else { continue }
-
                 let entryRecordName: String
                 let descriptionPrefix: String
                 if period.status == .paid {
                     entryRecordName = "payout-\(period.id.recordName)"
                     descriptionPrefix = "Quest earnings"
-
-                    // Real-time heroes already settled each week's earnings into
-                    // an "rt-" entry; minting a payout entry over it would total
-                    // the week's quest earnings twice in currentBalance.
                     let rtID = CKRecord.ID(recordName: "rt-\(period.id.recordName)", zoneID: zoneID)
                     let realTimeEntry = try await fetchRecordOrNil(
                         LedgerEntry.self,
@@ -206,11 +180,6 @@ extension DataMigrationsCoordinator {
                     if realTimeEntry != nil {
                         continue
                     }
-
-                    // For legacy paid periods created under earlier app versions,
-                    // paidAmount included manual deposit bonus gold. Subtract any
-                    // existing non-quest deposit entries for that week so bonus gold
-                    // is not double-counted in currentBalance.
                     let weekEnd = Calendar.iso8601UTC.date(byAdding: .day, value: 7, to: period.weekOf) ?? period.weekOf.addingTimeInterval(7 * 86400)
                     let depositBonusSum = existingLedgers
                         .filter {
@@ -221,16 +190,12 @@ extension DataMigrationsCoordinator {
                                 $0.date < weekEnd
                         }
                         .reduce(0.0) { $0 + $1.amount }
-
                     paidAmount = max(0, paidAmount - depositBonusSum)
                     guard paidAmount > 0 else { continue }
                 } else {
-                    // Open/never-paid periods mint the real-time "rt-" entry so
-                    // their accumulated earnings do not vanish from the wallet.
                     entryRecordName = "rt-\(period.id.recordName)"
                     descriptionPrefix = "Quest earnings — real-time"
                 }
-
                 let targetID = CKRecord.ID(recordName: entryRecordName, zoneID: zoneID)
                 let existing = try await fetchRecordOrNil(
                     LedgerEntry.self,
@@ -240,7 +205,6 @@ extension DataMigrationsCoordinator {
                 if existing != nil {
                     continue
                 }
-
                 let formatter = DateFormatter()
                 formatter.dateStyle = .medium
                 formatter.timeStyle = .none
@@ -269,13 +233,11 @@ extension DataMigrationsCoordinator {
                 logger.info("No active family zone, skipping achievement migration.")
                 return
             }
-
             let allAchievements = try await cloudKit.query(
                 Achievement.self,
                 predicate: NSPredicate(value: true),
                 in: zoneID
             )
-
             for achievement in allAchievements {
                 let familyName = achievement.family.recordID.recordName
                 let expectedPrefix = "\(familyName)-"
@@ -294,7 +256,6 @@ extension DataMigrationsCoordinator {
                     )
                     let saved = try await cloudKit.save(canonical, in: zoneID, using: nil)
                     cacheService?.upsertAchievement(saved)
-
                     do {
                         try await cloudKit.delete(achievement.id, in: zoneID, using: nil)
                     } catch {
@@ -307,12 +268,6 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    // MARK: - Hero Bootstrap Backfills
-
-    /// Backfills missing notification preferences for existing heroes so every
-    /// profile has a row per event type. Scoped to the active family zone and
-    /// skipped when rows already exist, so the migration is idempotent across
-    /// re-runs and multi-tenant families.
     static func heroNotificationPreferenceBackfillV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService?,
@@ -326,14 +281,12 @@ extension DataMigrationsCoordinator {
             }
             let familyRecordName = zoneID.zoneName
             let isOwner = cloudKit.activeIsOwner
-            // Existing profiles in this family zone
             let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
             let activeProfiles = profiles.filter(\.isActive)
             guard !activeProfiles.isEmpty else {
                 logger.info("No active profiles for notification preference backfill.")
                 return
             }
-            // Existing preferences in zone to build idempotent set
             let existingPrefs = try await cloudKit.query(NotificationPreference.self, predicate: NSPredicate(value: true), in: zoneID)
             let existingNames = Set(existingPrefs.map(\.id.recordName))
             var toCreate: [NotificationPreference] = []
@@ -346,8 +299,6 @@ extension DataMigrationsCoordinator {
                     if existingNames.contains(deterministicName) || existingNames.contains(altName) {
                         continue
                     }
-                    // Also check local cache to avoid re-minting a row that is
-                    // already cached but not yet synced.
                     if let cacheService,
                        cacheService.fetchNotificationPreference(
                            profileRecordName: profileName,
@@ -372,8 +323,6 @@ extension DataMigrationsCoordinator {
                 logger.info("No missing notification preferences to backfill.")
                 return
             }
-            // Batch upsert via cache for local immediacy, mirroring the
-            // BackgroundCacheActor batch pattern for bulk preference hydration.
             if let cacheService {
                 cacheService.upsertNotificationPreferences(toCreate, family: familyRecordName)
             }
@@ -390,10 +339,6 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    /// Seeds a current-week allowance period for heroes missing one so
-    /// treasury reads always have an active period. Week anchor respects the
-    /// payout-day chain (profile → family → Sunday) and uses the same
-    /// deterministic naming as the live join seeding.
     static func allowancePeriodSeedV1(
         cloudKit: any CloudKitServiceProtocol,
         cacheService: CacheService?,
@@ -407,7 +352,6 @@ extension DataMigrationsCoordinator {
             }
             let familyRecordName = zoneID.zoneName
             let isOwner = cloudKit.activeIsOwner
-            // Resolve family to obtain payoutDay fallback when available
             let family: Family? = if let cached = cacheService?.fetchFamily(recordName: familyRecordName) {
                 cached.toFamily(zoneID: zoneID)
             } else {

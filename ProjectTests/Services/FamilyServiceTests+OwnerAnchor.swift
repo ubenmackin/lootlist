@@ -125,7 +125,7 @@ extension FamilyServiceTests {
     func `deposit throws unauthorized when the actor is a non-parent hero`() async throws {
         let (_, cloudKit, appState, _) = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        let spending = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let spending = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let (_, _, family, hero, _) = makeStandardFixtures()
         appState.currentProfile = hero
@@ -152,7 +152,7 @@ extension FamilyServiceTests {
     func `withdraw throws unauthorized when the actor is a non-parent hero`() async throws {
         let (_, cloudKit, appState, _) = makeDependencies()
         let cache = try CacheService(inMemory: true)
-        let spending = ManualSpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+        let spending = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let (_, _, family, hero, _) = makeStandardFixtures()
         appState.currentProfile = hero

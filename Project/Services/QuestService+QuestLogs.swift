@@ -36,15 +36,11 @@ extension QuestService {
         return streak
     }
 
-    /// Authoritative week earnings for the wallet. Delegates gold proration to
-    /// `GoldCalculation.totalCredit` which keys quests by `recordName` and
-    /// **throws** on transient `CloudKitServiceProtocol` fetch failures instead
-    /// of `try?` → `0` silent under-credit.
+    /// Authoritative week earnings for the wallet. Pure `GoldCalculation` math
+    /// over already-fetched quests — no CloudKit access inside the math util.
     ///
-    /// - Throws: Re-throws `GoldCalculation.totalCredit` / `fetchQuestLogs`
-    ///   CloudKit errors. Callers (notably `HeroDashboardViewModel.refreshEarnedThisWeek`
-    ///   and any `View` pull-to-refresh) must handle with `do { try await ... } catch`
-    ///   + `ToastManager.show` + retry affordance so the wallet never hangs.
+    /// - Throws: Re-throws `fetchQuestLogs` / quest-fetch CloudKit errors.
+    ///   Callers must handle with `do { try await ... } catch` + toast + retry.
     ///   Cache-only callers should use `HeroDashboardViewModel.earnedThisWeek`
     ///   / `GoldCalculation.netWeeklyGold` instead, which are `sync`/`non-throwing`.
     func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
@@ -57,12 +53,58 @@ extension QuestService {
             }
 
         guard !logs.isEmpty else { return 0 }
+        let quests = try await fetchQuestsForLogs(logs, family: appState?.family)
+        return GoldCalculation.totalCredit(for: quests, logs: logs)
+    }
 
-        return try await GoldCalculation.totalCredit(
-            logs: logs,
-            cacheService: cacheService,
-            cloudKit: cloudKit,
-            family: appState?.family
+    private func fetchQuestsForLogs(
+        _ logs: [QuestCompletion],
+        family: Family?
+    ) async throws -> [Quest] {
+        guard !logs.isEmpty else { return [] }
+        let needed = Set(logs.map(\.quest.recordID.recordName))
+        if let cache = cacheService, let family {
+            let familyName = family.id.recordName
+            let isFresh = await MainActor.run {
+                cache.isCacheFresh(familyRecordName: familyName, type: .quest)
+            }
+            if isFresh {
+                let zoneID = family.id.zoneID
+                let cached = await MainActor.run {
+                    cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
+                }
+                var map = Dictionary(uniqueKeysWithValues: cached.map { ($0.id.recordName, $0) })
+                let missing = needed.filter { map[$0] == nil }
+                if missing.isEmpty {
+                    return cached.filter { needed.contains($0.id.recordName) }
+                }
+                let fetched = try await fetchMissingQuestsForLogs(
+                    missingNames: Array(missing),
+                    family: family
+                )
+                for quest in fetched {
+                    map[quest.id.recordName] = quest
+                }
+                return Array(map.values).filter { needed.contains($0.id.recordName) }
+            }
+        }
+        if let family {
+            return try await fetchMissingQuestsForLogs(
+                missingNames: Array(needed),
+                family: family
+            )
+        }
+        return []
+    }
+
+    private func fetchMissingQuestsForLogs(
+        missingNames: [String],
+        family: Family
+    ) async throws -> [Quest] {
+        try await BatchQuestFetcher.fetchMissingQuests(
+            names: missingNames,
+            family: family,
+            cloudKit: cloudKit
         )
     }
 

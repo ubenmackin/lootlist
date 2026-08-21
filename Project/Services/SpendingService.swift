@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import CryptoKit
 import Foundation
 import os
 
@@ -26,80 +27,7 @@ enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
 }
 
 @MainActor
-protocol SpendingService: Sendable {
-    func fetchTransactions(for profile: Profile,
-                           in dateRange: DateInterval) async throws -> [LedgerEntry]
-
-    func isAvailable() -> Bool
-
-    func logManual(profile: Profile,
-                   family: Family,
-                   familyRecordName: String,
-                   description: String,
-                   amount: Double,
-                   location: String?,
-                   date: Date) async throws -> LedgerEntry
-
-    func deposit(profile: Profile,
-                 family: Family,
-                 familyRecordName: String,
-                 description: String,
-                 amount: Double,
-                 location: String?,
-                 date: Date) async throws -> LedgerEntry
-
-    func withdraw(profile: Profile,
-                  family: Family,
-                  familyRecordName: String,
-                  description: String,
-                  amount: Double,
-                  location: String?,
-                  date: Date) async throws -> LedgerEntry
-
-    func delete(_ entry: LedgerEntry) async throws
-}
-
-extension SpendingService {
-    func logManual(profile _: Profile,
-                   family _: Family,
-                   familyRecordName _: String,
-                   description _: String,
-                   amount _: Double,
-                   location _: String? = nil,
-                   date _: Date = Date()) async throws -> LedgerEntry
-    {
-        throw SpendingServiceError.unsupported
-    }
-
-    func deposit(profile _: Profile,
-                 family _: Family,
-                 familyRecordName _: String,
-                 description _: String,
-                 amount _: Double,
-                 location _: String? = nil,
-                 date _: Date = Date()) async throws -> LedgerEntry
-    {
-        throw SpendingServiceError.unsupported
-    }
-
-    func withdraw(profile _: Profile,
-                  family _: Family,
-                  familyRecordName _: String,
-                  description _: String,
-                  amount _: Double,
-                  location _: String? = nil,
-                  date _: Date = Date()) async throws -> LedgerEntry
-    {
-        throw SpendingServiceError.unsupported
-    }
-
-    func delete(_: LedgerEntry) async throws {
-        throw SpendingServiceError.unsupported
-    }
-}
-
-@MainActor
-final class ManualSpendingService: SpendingService {
+class SpendingService {
     private let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService?
     var syncCoordinator: CKSyncEngineCoordinator?
@@ -151,7 +79,6 @@ final class ManualSpendingService: SpendingService {
                     )
                 }
             }
-            // Cache-first fallback for new hero without freshness stamp.
             if !filtered.isEmpty || !cached.isEmpty {
                 if !filtered.isEmpty {
                     logger.debug("fetchTransactions: returning cached \(filtered.count) rows without freshness stamp for new hero")
@@ -174,7 +101,6 @@ final class ManualSpendingService: SpendingService {
             cacheService?.upsertLedgerEntries(all)
             return all.filter { dateRange.contains($0.date) }
         } catch {
-            // Offline fallback: return cached rows so a new hero does not surface an error.
             logger.warning("fetchTransactions CloudKit query failed, falling back to cache: \(error, privacy: .private)")
             if let cache = cacheService {
                 let profileName = profile.id.recordName
@@ -199,21 +125,16 @@ final class ManualSpendingService: SpendingService {
 
     // MARK: - Helpers
 
-    /// Deterministic record name for idempotent writes — same inputs reuse the same record.
     private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> String {
         let ms = Int(date.timeIntervalSince1970 * 1000)
         let cents = Int((abs(amount) * 100).rounded())
-        // Stable djb2 hash — Swift's hashValue is per-process randomized.
         let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        var hash: UInt64 = 5381
-        for byte in trimmed.utf8 {
-            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
-        }
-        let descHash = hash % 10000
+        let digest = SHA256.hash(data: Data(trimmed.utf8))
+        let value = digest.prefix(8).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        let descHash = value % 10000
         return "\(source)-\(profile.id.recordName)-\(family.id.recordName)-\(ms)-\(cents)-\(descHash)"
     }
 
-    /// Scope check that tolerates a brand-new hero whose zone has not yet synced.
     private func validateScopeAllowingNewHero(family: Family) throws {
         guard let appState else { throw ScopeViolation.noActiveFamily }
         do {
@@ -226,7 +147,6 @@ final class ManualSpendingService: SpendingService {
 
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> CKRecord.ID {
         var base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
-        // Disambiguate on deterministic collision (e.g. double-tap with identical timestamp).
         if let cache = cacheService, cache.fetchLedgerEntry(recordName: base, family: family.id.recordName) != nil {
             base += "-\(UUID().uuidString.prefix(8))"
         }
@@ -274,7 +194,6 @@ final class ManualSpendingService: SpendingService {
             id: makeLedgerID(source: "manual", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
         )
 
-        // Local-first: cache before enqueue for instant offline display.
         cacheService?.upsertLedgerEntry(entry)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
@@ -389,7 +308,7 @@ final class ManualSpendingService: SpendingService {
         try ActiveFamilyScopeGuard.requireActiveFamily(familyRef: entry.family, appState: appState)
 
         let name = entry.id.recordName
-        cacheService?.invalidateLedgerEntry(recordName: name, family: entry.family.recordID.recordName)
+        cacheService?.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueDelete(recordID: entry.id, isOwner: isOwner)
     }
