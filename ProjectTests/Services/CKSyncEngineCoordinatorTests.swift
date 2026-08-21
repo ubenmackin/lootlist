@@ -130,15 +130,20 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     }
 
     func testRealFetchPassEndToEndHydratesCacheAndStampsFreshness() async {
+        // Ingestion is fail-closed: establish the active family + zone session first.
+        let zoneID = CKRecordZone.ID(zoneName: "e2e-hydration-zone", ownerName: CKCurrentUserDefaultName)
+        let family = Family(
+            name: "Active Family",
+            createdBy: CKRecord.ID(recordName: "user1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "active-family", zoneID: zoneID)
+        )
+        appState.family = family
+        appState.familyZoneID = zoneID
+
         for type in CachedRecordType.allCases {
             XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type))
         }
 
-        let family = Family(
-            name: "Active Family",
-            createdBy: CKRecord.ID(recordName: "user1"),
-            id: CKRecord.ID(recordName: "active-family")
-        )
         let familyRecord = family.toRecord()
 
         let profile = Profile(
@@ -146,7 +151,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
             role: .hero,
             iCloudUserID: CKRecord.ID(recordName: "icloud-user-1"),
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: "hero-profile")
+            id: CKRecord.ID(recordName: "hero-profile", zoneID: zoneID)
         )
         let profileRecord = profile.toRecord()
 
@@ -158,7 +163,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
             scheduleType: .weeklyFlexible,
             createdBy: CKRecord.Reference(recordID: profile.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: CKRecord.ID(recordName: "tpl-1")
+            id: CKRecord.ID(recordName: "tpl-1", zoneID: zoneID)
         )
         let templateRecord = template.toRecord()
 
@@ -172,7 +177,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
             createdBy: CKRecord.Reference(recordID: profile.id, action: .none),
             family: CKRecord.Reference(recordID: family.id, action: .none),
             name: "Clean Room",
-            id: CKRecord.ID(recordName: "quest-1")
+            id: CKRecord.ID(recordName: "quest-1", zoneID: zoneID)
         )
         let questRecord = quest.toRecord()
 
@@ -195,7 +200,16 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     }
 
     func testRealFetchPassWithParseFailureDoesNotStampFreshness() async {
-        let badRecord = CKRecord(recordType: "CorruptedRecordType", recordID: CKRecord.ID(recordName: "corrupt-1"))
+        // Ingestion is fail-closed: establish the active family + zone session first.
+        let zoneID = CKRecordZone.ID(zoneName: "parse-failure-zone", ownerName: CKCurrentUserDefaultName)
+        appState.family = Family(
+            name: "Parse Failure Family",
+            createdBy: CKRecord.ID(recordName: "user", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "active-family", zoneID: zoneID)
+        )
+        appState.familyZoneID = zoneID
+
+        let badRecord = CKRecord(recordType: "CorruptedRecordType", recordID: CKRecord.ID(recordName: "corrupt-1", zoneID: zoneID))
         await delegateHandler.handleIncomingRecordsDirectly([badRecord])
 
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])

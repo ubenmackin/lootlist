@@ -21,7 +21,6 @@ struct QuestDetailView: View {
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     @Query private var cachedCompletions: [QuestCompletionCache]
-    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
@@ -64,15 +63,6 @@ struct QuestDetailView: View {
             filter: filter,
             sort: \QuestCompletionCache.completedDate,
             order: .reverse
-        )
-
-        // Scope templates to the quest's family at the SwiftData store layer.
-        let familyName = quest.family.recordID.recordName
-        let templateFilter = #Predicate<QuestTemplateCache> {
-            $0.familyRecordName == familyName
-        }
-        _cachedTemplates = Query(
-            filter: templateFilter
         )
     }
 
@@ -321,21 +311,13 @@ struct QuestDetailView: View {
         isLoadingLog = true
         defer { isLoadingLog = false }
 
-        let templateName = quest.template.recordID.recordName
-        let zoneID = quest.id.zoneID
-        let familyName = quest.family.recordID.recordName
-        if let cached = cachedTemplates.first(where: { $0.recordName == templateName }) {
-            template = cached.toQuestTemplate(zoneID: zoneID)
-        } else if let cachedDeactivated = questService.cacheService?.fetchQuestTemplate(recordName: templateName, family: familyName) {
-            template = cachedDeactivated.toQuestTemplate(zoneID: zoneID)
-        } else {
-            do {
-                template = try await questService.cloudKitReference.fetch(
-                    QuestTemplate.self, id: quest.template.recordID
-                )
-            } catch {
-                template = nil
-            }
+        do {
+            template = try await questService.fetchTemplateCached(
+                id: quest.template.recordID,
+                familyRecordName: quest.family.recordID.recordName
+            )
+        } catch {
+            template = nil
         }
     }
 

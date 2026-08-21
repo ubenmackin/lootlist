@@ -460,7 +460,8 @@ final class AppLifecycleCoordinator {
               !appState.isZoneOwner,
               let family = appState.family,
               let zoneID = appState.familyZoneID,
-              let cacheService = appState.cacheService
+              let cacheService = appState.cacheService,
+              let syncCoordinator
         else {
             return
         }
@@ -510,10 +511,6 @@ final class AppLifecycleCoordinator {
                 .filter { !serverCompletionNames.contains($0.recordName) }
             let stalePeriods = cacheService.fetchAllowancePeriods(family: family.id.recordName)
                 .filter { !serverPeriodNames.contains($0.recordName) }
-            cacheService.upsertQuests(quests, family: family.id.recordName)
-            cacheService.upsertLedgerEntries(entries, family: family.id.recordName)
-            cacheService.upsertQuestCompletions(completions, family: family.id.recordName)
-            cacheService.upsertAllowancePeriods(periods, family: family.id.recordName)
             for staleQuest in staleQuests {
                 cacheService.invalidate(
                     identity: ScopedRecordIdentity(
@@ -558,6 +555,29 @@ final class AppLifecycleCoordinator {
                     type: .allowancePeriod
                 )
             }
+
+            // Hydrated rows must ride the single ingestion pipeline rather than
+            // being upserted directly: a direct write drops the record's
+            // encoded system fields and can clobber unsynced local edits.
+            // The round-trip through `toRecord()` preserves them.
+            let inboundRecords = quests.map { $0.toRecord() }
+                + entries.map { $0.toRecord() }
+                + completions.map { $0.toRecord() }
+                + periods.map { $0.toRecord() }
+            guard !inboundRecords.isEmpty else { return }
+            guard let engineCoordinator = syncCoordinator as? CKSyncEngineCoordinator else {
+                logger.info("Participant cache reconciliation skipped without a sync engine coordinator")
+                return
+            }
+            await engineCoordinator.delegateHandler.ingest(
+                records: inboundRecords,
+                databaseScope: .shared,
+                zoneID: zoneID,
+                // Hydration is a server→local reconciliation pass, not a new
+                // event the user acted on — the records it ingests already
+                // fired their notifications on whichever device authored them.
+                notifiesOnCompletion: false
+            )
         } catch {
             logger.error("Participant cache reconciliation failed: \(error, privacy: .private)")
         }

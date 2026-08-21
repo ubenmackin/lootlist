@@ -61,10 +61,10 @@ final class AppDependencies {
         network.start()
         networkMonitor = network
 
-        let conflict = CKSyncConflictResolver(cacheService: cache, toastManager: toast, appState: app)
-        conflictResolver = conflict
-
         let sharedBgActor = cache.flatMap { $0.container.map { BackgroundCacheActor(container: $0) } }
+
+        let conflict = CKSyncConflictResolver(cacheService: cache, backgroundCache: sharedBgActor, toastManager: toast, appState: app)
+        conflictResolver = conflict
 
         let delegate = CKSyncEngineDelegateHandler(
             backgroundCache: sharedBgActor,
