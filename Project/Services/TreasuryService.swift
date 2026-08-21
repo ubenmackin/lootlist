@@ -355,7 +355,8 @@ final class TreasuryService {
                 weekOf: period.weekOf,
                 profile: period.profile,
                 family: period.family,
-                date: updated.paidDate ?? Date()
+                date: updated.paidDate ?? Date(),
+                isOwner: appState.isZoneOwner
             )
         }
 
@@ -447,7 +448,8 @@ final class TreasuryService {
             weekOf: weekOf,
             profile: period.profile,
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            date: Date()
+            date: Date(),
+            isOwner: appState.isZoneOwner
         )
 
         return saved
@@ -462,7 +464,8 @@ final class TreasuryService {
         weekOf: Date,
         profile: CKRecord.Reference,
         family: CKRecord.Reference,
-        date: Date
+        date: Date,
+        isOwner: Bool
     ) async {
         guard amount > 0 else { return }
         let entryRecordName = "payout-\(periodRecordName)"
@@ -497,7 +500,6 @@ final class TreasuryService {
             id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
         )
         cacheService?.upsertLedgerEntry(entry)
-        let isOwner = appState?.isZoneOwner ?? false
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
     }
 
@@ -507,7 +509,8 @@ final class TreasuryService {
         weekOf: Date,
         profile: CKRecord.Reference,
         family: CKRecord.Reference,
-        date: Date
+        date: Date,
+        isOwner: Bool
     ) async {
         guard amount > 0 else { return }
         let entryRecordName = "rt-\(periodRecordName)"
@@ -524,7 +527,6 @@ final class TreasuryService {
             id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
         )
         cacheService?.upsertLedgerEntry(entry)
-        let isOwner = appState?.isZoneOwner ?? false
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
     }
 }

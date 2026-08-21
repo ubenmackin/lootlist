@@ -10,9 +10,6 @@ import Foundation
 
 extension CloudKitService {
     func deleteZone(_ zoneID: CKRecordZone.ID) async throws {
-        if isTestingOrMocking {
-            return
-        }
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
@@ -22,9 +19,6 @@ extension CloudKitService {
     }
 
     func ensureZoneExists(_ zoneID: CKRecordZone.ID) async throws {
-        if isTestingOrMocking {
-            return
-        }
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
@@ -110,13 +104,6 @@ extension CloudKitService {
     /// `UICloudSharingController`; the share's public link is not a bearer
     /// credential, so only participants the GM adds can join.
     func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
-        if isTestingOrMocking {
-            let root = CKRecord(recordType: Family.recordType, recordID: resolveShareTargetID(for: rootRecordID))
-            let share = CKShare(rootRecord: root)
-            share[CKShare.SystemFieldKey.title] = "\(root["name"] as? String ?? "Family Guild")\(role.shareTitleSuffix)"
-            share.publicPermission = .none
-            return share
-        }
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
@@ -266,9 +253,6 @@ extension CloudKitService {
     }
 
     func fetchPrivateZones() async throws -> [CKRecordZone] {
-        if isTestingOrMocking {
-            return []
-        }
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
@@ -276,9 +260,6 @@ extension CloudKitService {
     }
 
     func fetchSharedZones() async throws -> [CKRecordZone] {
-        if isTestingOrMocking {
-            return []
-        }
         guard let sharedDB = sharedDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
@@ -321,9 +302,6 @@ extension CloudKitService {
     /// participant, so the caller can surface the failure instead of assuming
     /// access was revoked.
     func removeParticipant(iCloudUserRecordName: String, from rootRecordID: CKRecord.ID) async throws {
-        if isTestingOrMocking {
-            return
-        }
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }
@@ -445,9 +423,6 @@ extension CloudKitService {
     /// so the caller can surface the failure instead of assuming access was
     /// revoked.
     func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws {
-        if isTestingOrMocking {
-            return
-        }
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
         }

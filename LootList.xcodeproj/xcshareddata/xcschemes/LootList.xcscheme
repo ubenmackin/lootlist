@@ -29,6 +29,20 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B6D6EF1D0FFE1E0A8151EDB2"
+               BuildableName = "LootListIntegrationTests.xctest"
+               BlueprintName = "LootListIntegrationTests"
+               ReferencedContainer = "container:LootList.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "AD1C4705F9EB68374FF9D77A"
                BuildableName = "LootListTests.xctest"
                BlueprintName = "LootListTests"
@@ -86,6 +100,17 @@
                BlueprintIdentifier = "5F40BCE98725F47C879688DE"
                BuildableName = "LootListUITests.xctest"
                BlueprintName = "LootListUITests"
+               ReferencedContainer = "container:LootList.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "B6D6EF1D0FFE1E0A8151EDB2"
+               BuildableName = "LootListIntegrationTests.xctest"
+               BlueprintName = "LootListIntegrationTests"
                ReferencedContainer = "container:LootList.xcodeproj">
             </BuildableReference>
          </TestableReference>

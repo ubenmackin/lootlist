@@ -58,10 +58,15 @@ final class CKSyncConflictResolver {
             return await handleServerRecordChanged(ckError: ckError, originalRecord: record)
 
         case .unknownItem, .zoneNotFound:
-            let derivedFamily = appState?.family?.id.recordName
+            // Family derivation: appState → record's family reference → parent record → zoneName
+            // fallback. The zoneName fallback is essential when the deleted record is the
+            // Family itself (no family field, no parent) — without it the branch returns
+            // nil and the local FamilyCache row is never purged.
+            let derivedFamily: String = appState?.family?.id.recordName
                 ?? (record["family"] as? CKRecord.Reference)?.recordID.recordName
                 ?? record.parent?.recordID.recordName
-            guard let derivedFamily else {
+                ?? record.recordID.zoneID.zoneName
+            guard !derivedFamily.isEmpty else {
                 logger.warning("resolveFailedSave could not resolve family for deleted record \(record.recordID.recordName, privacy: .private)")
                 return nil
             }

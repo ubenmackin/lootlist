@@ -20,7 +20,7 @@ struct QuestServiceTests {
         // Stale cache: a pending log for this quest.
         scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .pending)])
         // CloudKit truth: a verified log for this quest.
-        scaffold.cloudKit.seedMockRecords([scaffold.completion(status: .verified)])
+        scaffold.seedMockRecords([scaffold.completion(status: .verified)])
 
         await #expect(throws: QuestServiceError.alreadyCompleted) {
             try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
@@ -31,7 +31,7 @@ struct QuestServiceTests {
     func `markComplete with empty cache proceeds without a pre-write CloudKit check`() async throws {
         let scaffold = try MarkCompleteScaffold()
 
-        scaffold.cloudKit.seedMockRecords([scaffold.completion(status: .verified)])
+        scaffold.seedMockRecords([scaffold.completion(status: .verified)])
 
         let saved = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
 
@@ -49,7 +49,7 @@ struct QuestServiceTests {
         let scaffold = try MarkCompleteScaffold()
 
         scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
-        scaffold.cloudKit.seedMockRecords([scaffold.completion(status: .pending)])
+        scaffold.seedMockRecords([scaffold.completion(status: .pending)])
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
 
@@ -150,7 +150,7 @@ struct QuestServiceTests {
         )
         scaffold.cache.invalidateFreshness(familyRecordName: "fam1", type: .questCompletion)
 
-        scaffold.cloudKit.seedMockRecords([
+        scaffold.seedMockRecords([
             scaffold.completion(status: .autoApproved, recordName: "log1")
         ])
 
@@ -158,7 +158,7 @@ struct QuestServiceTests {
         hero.xp = 33
         hero.level = 1
         scaffold.cache.upsertProfile(hero)
-        scaffold.cloudKit.seedMockRecords([hero])
+        scaffold.seedMockRecords([hero])
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
 
@@ -608,7 +608,7 @@ struct QuestServiceTests {
         hero.level = 1
         scaffold.cache.upsertProfile(hero)
         scaffold.cache.upsertQuest(scaffold.quest)
-        scaffold.cloudKit.seedMockRecords([scaffold.quest, hero])
+        scaffold.seedMockRecords([scaffold.quest, hero])
 
         let pending = scaffold.completion(status: .pending)
         scaffold.cache.upsertQuestCompletion(pending)

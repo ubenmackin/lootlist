@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import SwiftData
 
 /// Bridges local SwiftData cached models to CloudKit `CKRecord` objects
 /// when `CKSyncEngine` requests record batches to send to the server.
@@ -33,6 +34,40 @@ enum RecordBridge {
         }
         logger.warning("RecordBridge could not find cached entity for recordID=\(name, privacy: .private)")
         return nil
+    }
+
+    /// Returns true only when no cached row exists for the record name across
+    /// every cache table — i.e., local deletion is confirmed. Lookups are
+    /// deliberately family- and database-scope-agnostic. The check is
+    /// FAIL-CLOSED: each table lookup must complete successfully and find no
+    /// row before a server-side delete may be enqueued. A nil result from
+    /// `record(for:)` alone proves nothing — family validation, scope
+    /// validation (locally-created rows are never hydrated with
+    /// `sourceDatabaseScope`), or a cache fetch failure can all produce it —
+    /// so any unavailable context or thrown fetch aborts confirmation here
+    /// and returns false (treat as NOT deleted). A cache error must never be
+    /// misread as "row absent", which would destroy a live cloud record.
+    static func confirmedLocalDeletion(for identity: ScopedRecordIdentity, cacheService: CacheService) -> Bool {
+        let name = identity.recordName
+
+        /// Returns true only when the lookup itself succeeded AND found no row.
+        func confirmedAbsent<T: PersistentModel>(_ type: T.Type, predicate: Predicate<T>) -> Bool {
+            guard let rows = cacheService.tryFetch(type, predicate: predicate) else { return false }
+            return rows.first == nil
+        }
+
+        return confirmedAbsent(FamilyCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(ProfileCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(QuestCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(QuestTemplateCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(QuestCompletionCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(LedgerEntryCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(AllowancePeriodCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(AchievementCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(ProfileAchievementCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(NotificationPreferenceCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(GemLedgerCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(RewardEventCache.self, predicate: #Predicate { $0.recordName == name })
     }
 
     private static func resolvedRecord(

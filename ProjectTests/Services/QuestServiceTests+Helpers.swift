@@ -312,7 +312,16 @@ extension QuestServiceTests {
             if let family = appState.family {
                 cache.upsertFamily(family)
             }
-            resolvedCloudKit.seedMockRecords([parent, hero, quest])
+            if let mock = resolvedCloudKit as? MockCloudKitService {
+                mock.seedMockRecords([parent, hero, quest])
+            }
+        }
+
+        /// Seeds records into the scaffold's mock store. Mock seeding is not a
+        /// `CloudKitServiceProtocol` requirement, so tests route through this
+        /// helper instead of calling the protocol existential directly.
+        func seedMockRecords(_ models: [any CloudKitRecord]) {
+            (cloudKit as? MockCloudKitService)?.seedMockRecords(models)
         }
 
         func completion(

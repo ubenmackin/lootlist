@@ -229,6 +229,16 @@ final class CKSyncEngineCoordinator {
     }
 
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool) {
+        // Dangling pending fix: if a save is pending and the underlying cache
+        // row is deleted before transmission, the save would forever retry nil
+        // from RecordBridge. Nil-out any pending save so the delete is canonical.
+        // Callers must only enqueue after CONFIRMED local deletion — a nil from
+        // RecordBridge.record(for:) alone can mean family/scope validation or a
+        // fetch failure on a live row; gate ambiguous cases through
+        // RecordBridge.confirmedLocalDeletion instead of deleting server-side.
+        pendingEnqueueBuffer.withLock { buffer in
+            buffer.removeAll { $0.recordID == recordID }
+        }
         guard let engine = activeEngine(isOwner: isOwner) else {
             let identity = ScopedRecordIdentity(
                 databaseScope: isOwner ? .private : .shared,
@@ -240,6 +250,7 @@ final class CKSyncEngineCoordinator {
             logger.warning("No active sync engine — buffering delete for \(recordID.recordName, privacy: .private)")
             return
         }
+        engine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
         engine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
         logger.info("Enqueued pending delete: \(recordID.recordName, privacy: .private) in \(isOwner ? "private" : "shared") database")
     }
@@ -253,7 +264,7 @@ final class CKSyncEngineCoordinator {
         }
         guard privateSyncEngine != nil || sharedSyncEngine != nil else {
             logger.info("Fetch changes skipped: no active sync engines initialized")
-            postSyncDidComplete(outcome: .noChange)
+            postSyncDidComplete(outcome: .failed)
             return
         }
         isSyncing = true
@@ -290,7 +301,7 @@ final class CKSyncEngineCoordinator {
             return
         }
         guard privateSyncEngine != nil || sharedSyncEngine != nil else {
-            postSyncDidComplete(outcome: .noChange)
+            postSyncDidComplete(outcome: .failed)
             return
         }
         isSyncing = true

@@ -219,7 +219,6 @@ protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
     func fetchPrivateZones() async throws -> [CKRecordZone]
     func fetchSharedZones() async throws -> [CKRecordZone]
     func deleteZone(_ zoneID: CKRecordZone.ID) async throws
-    func seedMockRecords(_ models: [any CloudKitRecord])
 
     func atomicallyDebitGems(
         amount: Int,
@@ -287,8 +286,7 @@ extension CloudKitServiceProtocol {
             throw CloudKitServiceError.invalidArguments("Gem debit does not match the purchase amount")
         }
 
-        let isMock = (self as? CloudKitService)?.isTestingOrMocking == true
-            || self is MockCloudKitService
+        let isMock = self is MockCloudKitService
         guard isMock || activeFamilyDatabase != nil else {
             throw CloudKitServiceError.accountUnavailable
         }

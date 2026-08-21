@@ -11,59 +11,11 @@ import Foundation
 import Testing
 
 @MainActor
-final class MockSpendingService: SpendingService {
-    var transactions: [LedgerEntry] = []
-    var isAvailableValue: Bool = true
-    var shouldFail: Bool = false
-
-    init() {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let ck = MockCloudKitService(zoneID: zoneID)
-        super.init(cloudKit: ck)
-    }
-
-    override func isAvailable() -> Bool {
-        isAvailableValue
-    }
-
-    override func fetchTransactions(for _: Profile, in _: DateInterval) async throws -> [LedgerEntry] {
-        if shouldFail {
-            throw SpendingServiceError.underlying("Mock error")
-        }
-        return transactions
-    }
-
-    override func logManual(profile: Profile, family: Family, familyRecordName _: String, description: String, amount: Double, location: String? = nil,
-                            date: Date = Date()) async throws -> LedgerEntry
-    {
-        if shouldFail {
-            throw SpendingServiceError.underlying("Mock error")
-        }
-        let entry = LedgerEntry(
-            profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: -abs(amount),
-            description: description,
-            location: location,
-            date: date,
-            source: "manual",
-            family: CKRecord.Reference(recordID: family.id, action: .none)
-        )
-        transactions.append(entry)
-        return entry
-    }
-}
-
-@MainActor
 struct TreasuryViewModelTests {
     @Test
-    func `logging spending with empty description fails validation`() async {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService(zoneID: zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
-        let appState = AppState()
-
-        let viewModel = TreasuryViewModel(treasury: treasury, spending: spendingMock, appState: appState)
+    func `logging spending with empty description fails validation`() async throws {
+        let state = makeAppState()
+        let viewModel = try makeTreasuryViewModel(state)
 
         let success = await viewModel.logSpending(description: "   ", amount: 10.0)
         #expect(success == false)
@@ -71,14 +23,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `logging spending with negative or zero amount fails validation`() async {
-        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService(zoneID: zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
-        let appState = AppState()
-
-        let viewModel = TreasuryViewModel(treasury: treasury, spending: spendingMock, appState: appState)
+    func `logging spending with negative or zero amount fails validation`() async throws {
+        let state = makeAppState()
+        let viewModel = try makeTreasuryViewModel(state)
 
         let successNegative = await viewModel.logSpending(description: "Spellbook", amount: -5.0)
         #expect(successNegative == false)
@@ -128,14 +75,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists reflects allowance period status flip without cloudkit fetch`() {
+    func `rebuildLists reflects allowance period status flip without cloudkit fetch`() throws {
         let state = makeAppState()
-        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
-        let viewModel = TreasuryViewModel(
-            treasury: treasury, spending: spendingMock, appState: state.appState
-        )
+        let viewModel = try makeTreasuryViewModel(state)
 
         let currentWeek = WeekMath.weekOf(date: Date())
 
@@ -188,14 +130,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists scopes allowance period to current profile and week`() {
+    func `rebuildLists scopes allowance period to current profile and week`() throws {
         let state = makeAppState()
-        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
-        let viewModel = TreasuryViewModel(
-            treasury: treasury, spending: spendingMock, appState: state.appState
-        )
+        let viewModel = try makeTreasuryViewModel(state)
 
         let currentWeek = WeekMath.weekOf(date: Date())
         let lastWeek = WeekMath.weekOf(date: Date().addingTimeInterval(-7 * 24 * 3600))
@@ -231,9 +168,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists filters spending log: this week scope`() {
+    func `rebuildLists filters spending log: this week scope`() throws {
         let state = makeAppState()
-        let viewModel = makeTreasuryViewModel(state)
+        let viewModel = try makeTreasuryViewModel(state)
         let fixtures = scopedLedgerFixtures()
         let (quest, log) = questAndLogFixtures(state: state)
 
@@ -252,9 +189,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists filters spending log: this month scope`() {
+    func `rebuildLists filters spending log: this month scope`() throws {
         let state = makeAppState()
-        let viewModel = makeTreasuryViewModel(state)
+        let viewModel = try makeTreasuryViewModel(state)
         let fixtures = scopedLedgerFixtures()
         let (quest, log) = questAndLogFixtures(state: state)
 
@@ -273,9 +210,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists filters spending log: this quarter scope`() {
+    func `rebuildLists filters spending log: this quarter scope`() throws {
         let state = makeAppState()
-        let viewModel = makeTreasuryViewModel(state)
+        let viewModel = try makeTreasuryViewModel(state)
         let fixtures = scopedLedgerFixtures()
         let (quest, log) = questAndLogFixtures(state: state)
 
@@ -294,9 +231,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists filters spending log: all time scope`() {
+    func `rebuildLists filters spending log: all time scope`() throws {
         let state = makeAppState()
-        let viewModel = makeTreasuryViewModel(state)
+        let viewModel = try makeTreasuryViewModel(state)
         let fixtures = scopedLedgerFixtures()
         let (quest, log) = questAndLogFixtures(state: state)
 
@@ -366,7 +303,7 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists keeps early-cycle ledger in thisWeek for friday payout but drops it for sunday default`() {
+    func `rebuildLists keeps early-cycle ledger in thisWeek for friday payout but drops it for sunday default`() throws {
         let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
         let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
         let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
@@ -383,7 +320,7 @@ struct TreasuryViewModelTests {
         )
 
         let fridayState = makeAppState(familyPayoutDay: .friday)
-        let fridayVM = makeTreasuryViewModel(fridayState)
+        let fridayVM = try makeTreasuryViewModel(fridayState)
         fridayVM.rebuildLists(
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
             allowancePeriods: [], scope: .thisWeek
@@ -391,7 +328,7 @@ struct TreasuryViewModelTests {
         #expect(fridayVM.spendingLog.map(\.id).contains("l_gap"))
 
         let sundayState = makeAppState(familyPayoutDay: .sunday)
-        let sundayVM = makeTreasuryViewModel(sundayState)
+        let sundayVM = try makeTreasuryViewModel(sundayState)
         sundayVM.rebuildLists(
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
             allowancePeriods: [], scope: .thisWeek
@@ -400,7 +337,7 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildLists per-profile payoutDay overrides family for thisWeek`() {
+    func `rebuildLists per-profile payoutDay overrides family for thisWeek`() throws {
         let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
         let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
         let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
@@ -417,7 +354,7 @@ struct TreasuryViewModelTests {
         )
 
         let overrideState = makeAppState(familyPayoutDay: .sunday, profilePayoutDay: .friday)
-        let overrideVM = makeTreasuryViewModel(overrideState)
+        let overrideVM = try makeTreasuryViewModel(overrideState)
         overrideVM.rebuildLists(
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
             allowancePeriods: [], scope: .thisWeek
@@ -426,7 +363,7 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `rebuildSpendingLog keeps early-cycle ledger for friday payout but drops it for sunday default`() {
+    func `rebuildSpendingLog keeps early-cycle ledger for friday payout but drops it for sunday default`() throws {
         let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
         let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
         let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
@@ -443,22 +380,23 @@ struct TreasuryViewModelTests {
         )
 
         let fridayState = makeAppState(familyPayoutDay: .friday)
-        let fridayVM = makeTreasuryViewModel(fridayState)
+        let fridayVM = try makeTreasuryViewModel(fridayState)
         fridayVM.rebuildSpendingLog(from: [gapLedger, todayLedger], scope: .thisWeek)
         #expect(fridayVM.spendingLog.map(\.id).contains("l_gap"))
 
         let sundayState = makeAppState(familyPayoutDay: .sunday)
-        let sundayVM = makeTreasuryViewModel(sundayState)
+        let sundayVM = try makeTreasuryViewModel(sundayState)
         sundayVM.rebuildSpendingLog(from: [gapLedger, todayLedger], scope: .thisWeek)
         #expect(!sundayVM.spendingLog.map(\.id).contains("l_gap"))
     }
 
-    private func makeTreasuryViewModel(_ state: TestAppState) -> TreasuryViewModel {
+    private func makeTreasuryViewModel(_ state: TestAppState, cacheService: CacheService? = nil) throws -> TreasuryViewModel {
         let cloudKit = MockCloudKitService(zoneID: state.zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
+        let cache = try cacheService ?? CacheService(inMemory: true)
+        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: state.appState)
+        let spending = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: state.appState)
         return TreasuryViewModel(
-            treasury: treasury, spending: spendingMock, appState: state.appState
+            treasury: treasury, spending: spending, appState: state.appState
         )
     }
 
@@ -514,14 +452,9 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `previousLocations extracts unique sorted locations from ledgers`() {
+    func `previousLocations extracts unique sorted locations from ledgers`() throws {
         let state = makeAppState()
-        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
-        let viewModel = TreasuryViewModel(
-            treasury: treasury, spending: spendingMock, appState: state.appState
-        )
+        let viewModel = try makeTreasuryViewModel(state)
 
         let ledger1 = LedgerEntryCache(
             recordName: "l1",
@@ -569,30 +502,23 @@ struct TreasuryViewModelTests {
     }
 
     @Test
-    func `logging spending passes location to spending service`() async {
+    func `logging spending passes location to spending service`() async throws {
         let state = makeAppState()
-        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
-        let viewModel = TreasuryViewModel(
-            treasury: treasury, spending: spendingMock, appState: state.appState
-        )
+        let cacheService = try CacheService(inMemory: true)
+        let viewModel = try makeTreasuryViewModel(state, cacheService: cacheService)
 
         let success = await viewModel.logSpending(description: "Hammer", amount: 12.50, location: "Home Depot")
         #expect(success == true)
-        #expect(spendingMock.transactions.count == 1)
-        #expect(spendingMock.transactions.first?.location == "Home Depot")
+        let cached = cacheService.fetchLedgerEntries(profileRecordName: state.profileName, family: "fam1")
+        #expect(cached.count == 1)
+        #expect(cached.first?.location == "Home Depot")
+        #expect(cached.first?.amount == -12.50)
     }
 
     @Test
-    func `rebuildLists recognizes allowance period with hour offset or DST variance`() {
+    func `rebuildLists recognizes allowance period with hour offset or DST variance`() throws {
         let state = makeAppState()
-        let cloudKit = MockCloudKitService(zoneID: state.zoneID)
-        let treasury = TreasuryService(cloudKit: cloudKit)
-        let spendingMock = MockSpendingService()
-        let viewModel = TreasuryViewModel(
-            treasury: treasury, spending: spendingMock, appState: state.appState
-        )
+        let viewModel = try makeTreasuryViewModel(state)
 
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
         let periodWeekOfWithOffset = currentWeek.addingTimeInterval(8 * 3600)

@@ -60,7 +60,7 @@ struct TreasuryServiceRealTimeTests {
             )
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
-            cloudKit.seedMockRecords([profile])
+            mock.seedMockRecords([profile])
             appState.currentProfile = profile
         }
 
@@ -237,7 +237,7 @@ struct TreasuryServiceRealTimeTests {
             )
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
-            cloudKit.seedMockRecords([hero, guildMaster, family])
+            mock.seedMockRecords([hero, guildMaster, family])
             cache.upsertProfile(hero)
             cache.upsertProfile(guildMaster)
             cache.upsertFamily(family)

@@ -387,6 +387,8 @@ final class QuestService {
             recordID: quest.id,
             familyRecordName: quest.family.recordID.recordName
         )
+        // Pre-delete identity captured before invalidate; RecordBridge returns nil
+        // for the dangling record and coordinator drain handles the tombstone.
         cacheService?.invalidate(identity: identity, type: .quest)
         syncCoordinator?.enqueueDelete(recordID: quest.id, isOwner: isOwner)
     }

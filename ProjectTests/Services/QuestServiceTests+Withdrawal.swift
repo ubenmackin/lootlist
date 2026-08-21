@@ -59,7 +59,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
         scaffold.cache.upsertQuestCompletion(pending)
-        scaffold.cloudKit.seedMockRecords([pending])
+        scaffold.seedMockRecords([pending])
 
         try await scaffold.questService.withdrawCompletion(questLog: pending, by: scaffold.hero)
 

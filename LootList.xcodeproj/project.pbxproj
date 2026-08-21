@@ -226,6 +226,7 @@
 		CCDDCA3B0C69344A4BEC71D4 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5DFE9263D114B8E70D29C8 /* ToastView.swift */; };
 		CD95D50EB2893EE79312C6DA /* XPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ACB50C5AFC8745DF880FC82 /* XPService.swift */; };
 		CDF3B66C97E4BE042AB09CB4 /* ProfileViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43EE66D0D9D493BF47D10DA7 /* ProfileViewModelTests.swift */; };
+		CEE615BF73574AC3316572F3 /* SerialMutationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */; };
 		CFEF25C925DFF69068BC8BD4 /* QuestLogViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AF24E70BF63F8C3E4B014D /* QuestLogViewModelTests.swift */; };
 		D05216ABA42E5FF6375FD38A /* FamilyService+Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 948EDDDAD54F2B77BE95CE18 /* FamilyService+Settings.swift */; };
 		D07459F95DA8738D4D87D5B9 /* FamilyShareReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2116AC4A8D9A7A6EEAE90FD /* FamilyShareReconciler.swift */; };
@@ -240,6 +241,7 @@
 		DA17CF7A2E5D60F9E85607C9 /* AppLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E828C60E9ADE3B590E578B7 /* AppLifecycleCoordinator.swift */; };
 		DA4810D71FE31FD832DCF808 /* InviteErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41B23C330040CF5222E25760 /* InviteErrorTests.swift */; };
 		DA5FCFBBA3499702B942474F /* QuestManagerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB8F932423BB04CC32F1B0A3 /* QuestManagerViewModel.swift */; };
+		DC52391AC055235878A07A80 /* CloudKitLiveIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAF314690AB31B4DC9BF54F3 /* CloudKitLiveIntegrationTests.swift */; };
 		DC69B6E9CDF2FCE89100AB23 /* QuestAssignmentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D870526224A67A707B7E4A4D /* QuestAssignmentView.swift */; };
 		DCD15CF9101BFF6BA73DBBE7 /* StreakCalculatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D51CE0E0061F9333E8079DC /* StreakCalculatorTests.swift */; };
 		DDEF00353887E9CAF6C5A4D5 /* RecordBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9162B55882719C5378F48EF6 /* RecordBridge.swift */; };
@@ -273,6 +275,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		0968CB581760C37287A8BD8C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 966FB30FB33E5D77C7A349A3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 72D9EAE63C10970AC75E457F;
+			remoteInfo = LootList;
+		};
 		618623441129B3BE4AB69EB1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 966FB30FB33E5D77C7A349A3 /* Project object */;
@@ -429,6 +438,7 @@
 		7EA257916025679E0AA31706 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
 		7FC99256061AF65F145425F4 /* EquipmentServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentServiceTests.swift; sourceTree = "<group>"; };
 		80AA429949DE95170513B347 /* LootListSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListSchema.swift; sourceTree = "<group>"; };
+		81528F8B356212A13CF346D9 /* LootListIntegrationTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListIntegrationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		81E373C156981A67C46478F5 /* GemServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemServiceTests.swift; sourceTree = "<group>"; };
 		831CA0373D9645FB1500A84B /* FamilyServiceTests+Authorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyServiceTests+Authorization.swift"; sourceTree = "<group>"; };
 		8489EFF3404096B84A6A50E9 /* QuestManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerView.swift; sourceTree = "<group>"; };
@@ -488,6 +498,7 @@
 		B89013EC78089F906DCD314F /* LootListApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListApp.swift; sourceTree = "<group>"; };
 		B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserRole.swift; sourceTree = "<group>"; };
 		BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Calendar+ISO8601UTC.swift"; sourceTree = "<group>"; };
+		BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerialMutationQueue.swift; sourceTree = "<group>"; };
 		BD8FDD3E9D17F1355BDC2C8B /* QuestTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestTemplate.swift; sourceTree = "<group>"; };
 		BEA32A99EF7AD83493CB7E19 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
 		C0168D33CAFC7EF9E0B61580 /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
@@ -531,6 +542,7 @@
 		E7D5FFB2309BB52C24341C5F /* ActiveFamilyScopeGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveFamilyScopeGuard.swift; sourceTree = "<group>"; };
 		EA56F1C78EF704793A4CC8BA /* HeroAvatarSpritesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroAvatarSpritesTests.swift; sourceTree = "<group>"; };
 		EA8C10DB8B00F3CBF07A0F97 /* DataMigrationsCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataMigrationsCoordinator.swift; sourceTree = "<group>"; };
+		EAF314690AB31B4DC9BF54F3 /* CloudKitLiveIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitLiveIntegrationTests.swift; sourceTree = "<group>"; };
 		EB8F932423BB04CC32F1B0A3 /* QuestManagerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerViewModel.swift; sourceTree = "<group>"; };
 		EBE1E6F95C4D05CA5E41B214 /* LogSpendingIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogSpendingIntent.swift; sourceTree = "<group>"; };
 		EC02F032B488C7539AE674DD /* AvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarView.swift; sourceTree = "<group>"; };
@@ -696,6 +708,7 @@
 				86D997850B328758B3EDCDEF /* QuestService+QuestLogs.swift */,
 				9E9F0C2BF49D9C2AA4E08A5B /* QuestService+Rewards.swift */,
 				9162B55882719C5378F48EF6 /* RecordBridge.swift */,
+				BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */,
 				A8DCAC9147DBA316A1D95311 /* SoundManager.swift */,
 				73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */,
 				7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */,
@@ -731,6 +744,7 @@
 			isa = PBXGroup;
 			children = (
 				2130409982CCED93E0B0CF0E /* LootList.app */,
+				81528F8B356212A13CF346D9 /* LootListIntegrationTests.xctest */,
 				49F5B9AB44CCF6853B519183 /* LootListTests.xctest */,
 				334F0806849AF68243D2E6A6 /* LootListUITests.xctest */,
 			);
@@ -741,6 +755,7 @@
 			isa = PBXGroup;
 			children = (
 				7F2E48B98C9930EE8373C5F3 /* Project */,
+				7D691F721421D584CD546915 /* ProjectIntegrationTests */,
 				69249A20912CF85D9DFDBBC9 /* ProjectTests */,
 				4BE4662E212EF363BA47D503 /* ProjectUITests */,
 				3EBF39425CC6EFE94CC3C823 /* Products */,
@@ -852,6 +867,14 @@
 				06C3E6FC5C9D55197733AA29 /* TrophyRoomView.swift */,
 			);
 			path = Trophies;
+			sourceTree = "<group>";
+		};
+		7D691F721421D584CD546915 /* ProjectIntegrationTests */ = {
+			isa = PBXGroup;
+			children = (
+				EAF314690AB31B4DC9BF54F3 /* CloudKitLiveIntegrationTests.swift */,
+			);
+			path = ProjectIntegrationTests;
 			sourceTree = "<group>";
 		};
 		7F2E48B98C9930EE8373C5F3 /* Project */ = {
@@ -1114,6 +1137,24 @@
 			productReference = 49F5B9AB44CCF6853B519183 /* LootListTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B6D6EF1D0FFE1E0A8151EDB2 /* LootListIntegrationTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1B7881AA5F6075B11071454B /* Build configuration list for PBXNativeTarget "LootListIntegrationTests" */;
+			buildPhases = (
+				5854C11E8F43E153DB1E4AF5 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3DC884B7D7B4B9DC6304D018 /* PBXTargetDependency */,
+			);
+			name = LootListIntegrationTests;
+			packageProductDependencies = (
+			);
+			productName = LootListIntegrationTests;
+			productReference = 81528F8B356212A13CF346D9 /* LootListIntegrationTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -1136,6 +1177,10 @@
 						DevelopmentTeam = LYYD96F2J8;
 						ProvisioningStyle = Automatic;
 					};
+					B6D6EF1D0FFE1E0A8151EDB2 = {
+						DevelopmentTeam = LYYD96F2J8;
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = FBF25A26A3C91E9EC51BECE8 /* Build configuration list for PBXProject "LootList" */;
@@ -1155,6 +1200,7 @@
 				72D9EAE63C10970AC75E457F /* LootList */,
 				AD1C4705F9EB68374FF9D77A /* LootListTests */,
 				5F40BCE98725F47C879688DE /* LootListUITests */,
+				B6D6EF1D0FFE1E0A8151EDB2 /* LootListIntegrationTests */,
 			);
 		};
 /* End PBXProject section */
@@ -1171,6 +1217,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		5854C11E8F43E153DB1E4AF5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DC52391AC055235878A07A80 /* CloudKitLiveIntegrationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		5A31019C4B1353375CB9D41C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1348,6 +1402,7 @@
 				C8CD8FF93EA85F62F2D74717 /* SampleData.swift in Sources */,
 				4B2DDC650ED6CBC2A211C075 /* SceneDelegate.swift in Sources */,
 				E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */,
+				CEE615BF73574AC3316572F3 /* SerialMutationQueue.swift in Sources */,
 				C9755D15F13609830FD24E6E /* SettingsView.swift in Sources */,
 				20B709BE101F5846C617809D /* ShareSheet.swift in Sources */,
 				C23FC8F96ADB7F292EA634CF /* ShopItem.swift in Sources */,
@@ -1457,6 +1512,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		3DC884B7D7B4B9DC6304D018 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 72D9EAE63C10970AC75E457F /* LootList */;
+			targetProxy = 0968CB581760C37287A8BD8C /* PBXContainerItemProxy */;
+		};
 		ADB1EB8C622FA1A9D97AAF05 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 72D9EAE63C10970AC75E457F /* LootList */;
@@ -1502,6 +1562,29 @@
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+		602D5F759882C8B5626D2DCD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_ENTITLEMENTS = LootList.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = LYYD96F2J8;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.volcrypt.lootlist.integrationtests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LootList.app/LootList";
 			};
 			name = Release;
 		};
@@ -1711,6 +1794,29 @@
 			};
 			name = Debug;
 		};
+		D8C263CE2073E41D88DC2781 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_ENTITLEMENTS = LootList.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = LYYD96F2J8;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.volcrypt.lootlist.integrationtests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LootList.app/LootList";
+			};
+			name = Debug;
+		};
 		DBF750D47A6446A2446242BB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1752,6 +1858,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1B7881AA5F6075B11071454B /* Build configuration list for PBXNativeTarget "LootListIntegrationTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D8C263CE2073E41D88DC2781 /* Debug */,
+				602D5F759882C8B5626D2DCD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		2DD545E15BDF5AC32FAA6664 /* Build configuration list for PBXNativeTarget "LootList" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

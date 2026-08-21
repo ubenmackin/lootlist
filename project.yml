@@ -101,6 +101,26 @@ targets:
         IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         GENERATE_INFOPLIST_FILE: YES
 
+  LootListIntegrationTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ProjectIntegrationTests
+        excludes:
+          - "**/.DS_Store"
+    dependencies:
+      - target: LootList
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.volcrypt.lootlist.integrationtests
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: LootList.entitlements
+        CODE_SIGN_IDENTITY: "iPhone Developer"
+        DEVELOPMENT_TEAM: "LYYD96F2J8"
+        CODE_SIGN_STYLE: Automatic
+
 schemes:
   LootList:
     build:
@@ -108,6 +128,7 @@ schemes:
         LootList: all
         LootListTests: [test]
         LootListUITests: [test]
+        LootListIntegrationTests: [test]
     run:
       config: Debug
     test:
@@ -115,6 +136,7 @@ schemes:
       targets:
         - LootListTests
         - LootListUITests
+        - LootListIntegrationTests
     profile:
       config: Release
     analyze:

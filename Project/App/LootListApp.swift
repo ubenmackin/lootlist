@@ -203,7 +203,7 @@ final class AppDependencies {
         logger: Logger
     ) {
         logger.info("Tests detected — seeding mock data and setting test auth state")
-        SampleData.populate(cloudKit: cloudKit, cacheService: cache)
+        SampleData.populate(cacheService: cache)
         cloudKit.activeFamilyZoneID = SampleData.zoneID
 
         if CommandLine.arguments.contains("--onboarding") {

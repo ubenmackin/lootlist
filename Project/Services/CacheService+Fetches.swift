@@ -30,6 +30,26 @@ extension CacheService {
         }
     }
 
+    /// Fail-closed variant of `fetch`: returns `nil` when the cache context is
+    /// unavailable or the underlying fetch throws, instead of collapsing the
+    /// failure into an empty array. Callers that must *prove* absence (e.g.
+    /// local-deletion confirmation before enqueueing a server-side delete)
+    /// use this so a cache failure is never mistaken for "no rows exist".
+    func tryFetch<T: PersistentModel>(
+        _: T.Type,
+        predicate: Predicate<T>? = nil,
+        sortBy: [SortDescriptor<T>] = []
+    ) -> [T]? {
+        guard let context else { return nil }
+        do {
+            let descriptor = FetchDescriptor<T>(predicate: predicate, sortBy: sortBy)
+            return try context.fetch(descriptor)
+        } catch {
+            Self.fetchLogger.error("Failed to fetch \(String(describing: T.self), privacy: .private): \(error, privacy: .private)")
+            return nil
+        }
+    }
+
     /// Fetches every record of `T`, optionally scoped to a single family and sorted
     /// by `sortBy`. Returns `[]` if the fetch fails (mirrors the inline
     /// `(try? context.fetch(...)) ?? []` pattern used elsewhere in this service).

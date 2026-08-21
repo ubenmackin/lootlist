@@ -25,74 +25,9 @@ actor BackgroundCacheActor {
 
     @discardableResult
     private func batchUpsert<T: CacheMergeable>(_: T.Type, _ items: [T.DomainModel], familyRecordName: String?) async -> Bool {
-        if let familyRecordName {
-            let existing: [T]
-            do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName)) } catch {
-                logger.error("Failed to fetch existing \(T.self, privacy: .private) for batchUpsert: \(error, privacy: .private)")
-                return false
-            }
-            let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-            for item in items {
-                let name = item.id.recordName
-                if let target = byName[name] {
-                    if target.familyRecordName != familyRecordName,
-                       !target.familyRecordName.isEmpty
-                    {
-                        logger.warning(
-                            """
-                            BackgroundCacheActor batchUpsert target mismatch for \
-                            \(name, privacy: .private): expected \
-                            \(familyRecordName, privacy: .private), found \
-                            \(target.familyRecordName, privacy: .private)
-                            """
-                        )
-                        continue
-                    }
-                    target.update(from: item, isServerSync: true)
-                } else {
-                    let newRow = T(from: item)
-                    if newRow.familyRecordName != familyRecordName,
-                       !newRow.familyRecordName.isEmpty
-                    {
-                        logger.warning(
-                            """
-                            BackgroundCacheActor batchUpsert new row mismatch for \
-                            \(name, privacy: .private): expected \
-                            \(familyRecordName, privacy: .private), found \
-                            \(newRow.familyRecordName, privacy: .private)
-                            """
-                        )
-                        continue
-                    }
-                    modelContext.insert(newRow)
-                }
-            }
-            return saveContext()
-        }
-        // Nil family — group to keep per-family saves isolated; families themselves are unscoped.
-        if T.self == FamilyCache.self {
-            let existing: [T]
-            do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: nil)) } catch {
-                logger.error("Failed to fetch existing \(T.self, privacy: .private) for batchUpsert: \(error, privacy: .private)")
-                return false
-            }
-            let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
-            for item in items {
-                let name = item.id.recordName
-                if let target = byName[name] {
-                    target.update(from: item, isServerSync: true)
-                } else {
-                    modelContext.insert(T(from: item))
-                }
-            }
-            return saveContext()
-        }
-        let grouped = Dictionary(grouping: items) { T(from: $0).familyRecordName }
-        var success = true
-        for (family, group) in grouped {
-            success = await batchUpsert(T.self, group, familyRecordName: family.isEmpty ? nil : family) && success
-        }
-        return success
+        let ok = await performUpsert(T.self, items, familyRecordName: familyRecordName, logLabel: "batchUpsert")
+        guard ok else { return false }
+        return saveContext()
     }
 
     private func purgeMissing<T: CacheMergeable>(
@@ -213,7 +148,7 @@ actor BackgroundCacheActor {
         await batchUpsert(RewardEventCache.self, events, familyRecordName: familyRecordName)
     }
 
-    private struct ParsedBatch {
+    private struct ParsedBatch: Sendable {
         var families: [Family] = []
         var profiles: [Profile] = []
         var quests: [Quest] = []
@@ -246,70 +181,171 @@ actor BackgroundCacheActor {
         }
     }
 
+    // MARK: - Atomic batch (single-save) + shared serialization
+
     @discardableResult
     func batchUpsertParsedRecords(_ records: [ParsedRecord]) async -> Bool {
         var batch = ParsedBatch()
         for record in records {
             batch.append(record)
         }
-        return await commitParsedBatch(batch)
+        let capturedBatch = batch
+        return await SerialMutationQueue.shared.write {
+            await self.commitParsedBatch(capturedBatch)
+        }
     }
 
+    /// Single-transaction commit: accumulates all inserts/updates across
+    /// ParsedBatch in this actor's single ModelContext without intermediate
+    /// saves, then calls saveContext() exactly once. Two-phase ordering
+    /// (families/profiles first for FK parent) is preserved but the save is
+    /// deferred to ensure @Query observes the batch atomically.
     private func commitParsedBatch(_ batch: ParsedBatch) async -> Bool {
-        let coreSuccess = await commitCoreEntities(batch)
-        let secondarySuccess = await commitSecondaryEntities(batch)
-        return coreSuccess && secondarySuccess
+        var success = true
+        success = await commitCoreEntitiesDeferred(batch) && success
+        success = await commitSecondaryEntitiesDeferred(batch) && success
+        let saved = saveContext()
+        return saved && success
     }
 
-    private func commitCoreEntities(_ batch: ParsedBatch) async -> Bool {
+    private func commitCoreEntitiesDeferred(_ batch: ParsedBatch) async -> Bool {
         var success = true
         if !batch.families.isEmpty {
-            success = await batchUpsertFamilies(batch.families) && success
+            success = await batchUpsertWithoutSave(FamilyCache.self, batch.families, familyRecordName: nil) && success
         }
         if !batch.profiles.isEmpty {
-            success = await batchUpsertProfiles(batch.profiles) && success
+            success = await batchUpsertWithoutSave(ProfileCache.self, batch.profiles, familyRecordName: nil) && success
         }
         if !batch.quests.isEmpty {
-            success = await batchUpsertQuests(batch.quests) && success
+            success = await batchUpsertWithoutSave(QuestCache.self, batch.quests, familyRecordName: nil) && success
         }
         if !batch.templates.isEmpty {
-            success = await batchUpsertQuestTemplates(batch.templates) && success
+            success = await batchUpsertWithoutSave(QuestTemplateCache.self, batch.templates, familyRecordName: nil) && success
         }
         if !batch.completions.isEmpty {
-            success = await batchUpsertQuestCompletions(batch.completions) && success
-            success = await reconcileStoredRewardEvents(for: batch.completions) && success
+            success = await batchUpsertWithoutSave(QuestCompletionCache.self, batch.completions, familyRecordName: nil) && success
+            success = await reconcileStoredRewardEventsWithoutSave(for: batch.completions) && success
         }
         return success
     }
 
-    private func commitSecondaryEntities(_ batch: ParsedBatch) async -> Bool {
+    private func commitSecondaryEntitiesDeferred(_ batch: ParsedBatch) async -> Bool {
         var success = true
         if !batch.ledgerEntries.isEmpty {
-            success = await batchUpsertLedgerEntries(batch.ledgerEntries) && success
+            success = await batchUpsertWithoutSave(LedgerEntryCache.self, batch.ledgerEntries, familyRecordName: nil) && success
         }
         if !batch.periods.isEmpty {
-            success = await batchUpsertAllowancePeriods(batch.periods) && success
+            success = await batchUpsertWithoutSave(AllowancePeriodCache.self, batch.periods, familyRecordName: nil) && success
         }
         if !batch.achievements.isEmpty {
-            success = await batchUpsertAchievements(batch.achievements) && success
+            success = await batchUpsertWithoutSave(AchievementCache.self, batch.achievements, familyRecordName: nil) && success
         }
         if !batch.profileAchievements.isEmpty {
-            success = await batchUpsertProfileAchievements(batch.profileAchievements) && success
+            success = await batchUpsertWithoutSave(ProfileAchievementCache.self, batch.profileAchievements, familyRecordName: nil) && success
         }
         if !batch.notificationPrefs.isEmpty {
-            success = await batchUpsertNotificationPreferences(batch.notificationPrefs) && success
+            success = await batchUpsertWithoutSave(NotificationPreferenceCache.self, batch.notificationPrefs, familyRecordName: nil) && success
         }
         if !batch.gemLedgers.isEmpty {
-            success = await batchUpsertGemLedgers(batch.gemLedgers) && success
+            success = await batchUpsertWithoutSave(GemLedgerCache.self, batch.gemLedgers, familyRecordName: nil) && success
         }
         if !batch.rewardEvents.isEmpty {
-            success = await batchUpsertRewardEvents(batch.rewardEvents) && success
-            success = await reconcileRewardEvents(batch.rewardEvents) && success
+            success = await batchUpsertWithoutSave(RewardEventCache.self, batch.rewardEvents, familyRecordName: nil) && success
+            success = await reconcileRewardEventsWithoutSave(batch.rewardEvents) && success
         }
         return success
     }
 
-    private func reconcileRewardEvents(_ events: [RewardEvent]) async -> Bool {
+    /// Shared upsert core: mutates the actor's ModelContext without saving so
+    /// callers decide when to commit — single-type paths save immediately,
+    /// while multi-type batches coalesce into one saveContext() at the
+    /// transaction boundary. `logLabel` keeps log output identical to the
+    /// original per-path messages.
+    private func performUpsert<T: CacheMergeable>(
+        _: T.Type,
+        _ items: [T.DomainModel],
+        familyRecordName: String?,
+        logLabel: String
+    ) async -> Bool {
+        if let familyRecordName {
+            let existing: [T]
+            do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName)) } catch {
+                logger.error("Failed to fetch existing \(T.self, privacy: .private) for \(logLabel, privacy: .public): \(error, privacy: .private)")
+                return false
+            }
+            let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
+            for item in items {
+                let name = item.id.recordName
+                if let target = byName[name] {
+                    if target.familyRecordName != familyRecordName,
+                       !target.familyRecordName.isEmpty
+                    {
+                        logger.warning(
+                            """
+                            BackgroundCacheActor \(logLabel, privacy: .public) target mismatch for \
+                            \(name, privacy: .private): expected \
+                            \(familyRecordName, privacy: .private), found \
+                            \(target.familyRecordName, privacy: .private)
+                            """
+                        )
+                        continue
+                    }
+                    target.update(from: item, isServerSync: true)
+                } else {
+                    let newRow = T(from: item)
+                    if newRow.familyRecordName != familyRecordName,
+                       !newRow.familyRecordName.isEmpty
+                    {
+                        logger.warning(
+                            """
+                            BackgroundCacheActor \(logLabel, privacy: .public) new row mismatch for \
+                            \(name, privacy: .private): expected \
+                            \(familyRecordName, privacy: .private), found \
+                            \(newRow.familyRecordName, privacy: .private)
+                            """
+                        )
+                        continue
+                    }
+                    modelContext.insert(newRow)
+                }
+            }
+            return true
+        }
+        // Nil family — families themselves are unscoped; other types group by
+        // their own family scope and recurse per family.
+        if T.self == FamilyCache.self {
+            let existing: [T]
+            do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: nil)) } catch {
+                logger.error("Failed to fetch existing \(T.self, privacy: .private) for \(logLabel, privacy: .public): \(error, privacy: .private)")
+                return false
+            }
+            let byName = Dictionary(existing.map { ($0.recordName, $0) }, uniquingKeysWith: { first, _ in first })
+            for item in items {
+                let name = item.id.recordName
+                if let target = byName[name] {
+                    target.update(from: item, isServerSync: true)
+                } else {
+                    modelContext.insert(T(from: item))
+                }
+            }
+            return true
+        }
+        let grouped = Dictionary(grouping: items) { T(from: $0).familyRecordName }
+        var success = true
+        for (family, group) in grouped {
+            success = await performUpsert(T.self, group, familyRecordName: family.isEmpty ? nil : family, logLabel: logLabel) && success
+        }
+        return success
+    }
+
+    /// Deferred variant of batchUpsert that mutates the actor's ModelContext
+    /// without saving, allowing the caller to coalesce multiple type batches
+    /// into a single saveContext() at the transaction boundary.
+    private func batchUpsertWithoutSave<T: CacheMergeable>(_: T.Type, _ items: [T.DomainModel], familyRecordName: String?) async -> Bool {
+        await performUpsert(T.self, items, familyRecordName: familyRecordName, logLabel: "batchUpsertWithoutSave")
+    }
+
+    private func reconcileRewardEventsWithoutSave(_ events: [RewardEvent]) async -> Bool {
         for event in events {
             let completionName = event.questCompletion.recordID.recordName
             let familyName = event.family.recordID.recordName
@@ -323,10 +359,10 @@ actor BackgroundCacheActor {
                 return false
             }
         }
-        return saveContext()
+        return true
     }
 
-    private func reconcileStoredRewardEvents(for completions: [QuestCompletion]) async -> Bool {
+    private func reconcileStoredRewardEventsWithoutSave(for completions: [QuestCompletion]) async -> Bool {
         for completion in completions {
             let familyName = completion.family.recordID.recordName
             let completionRecordName = completion.id.recordName
@@ -346,6 +382,19 @@ actor BackgroundCacheActor {
                 return false
             }
         }
+        return true
+    }
+
+    /// Legacy single-type paths retain their own save for backward compat.
+    private func reconcileRewardEvents(_ events: [RewardEvent]) async -> Bool {
+        let ok = await reconcileRewardEventsWithoutSave(events)
+        guard ok else { return false }
+        return saveContext()
+    }
+
+    private func reconcileStoredRewardEvents(for completions: [QuestCompletion]) async -> Bool {
+        let ok = await reconcileStoredRewardEventsWithoutSave(for: completions)
+        guard ok else { return false }
         return saveContext()
     }
 
@@ -572,7 +621,10 @@ actor BackgroundCacheActor {
 
     @discardableResult
     private func saveContext() -> Bool {
-        do { try modelContext.save(); return true } catch {
+        do {
+            try modelContext.save()
+            return true
+        } catch {
             logger.error("Failed to save background context: \(error, privacy: .private)")
             return false
         }

@@ -13,11 +13,6 @@ extension CloudKitService {
                                   id: CKRecord.ID,
                                   using db: CKDatabase? = nil) async throws -> T
     {
-        if isTestingOrMocking {
-            let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
-            return try mockStore.fetch(T.self, id: id, activeZoneID: activeFamilyZoneID, databaseScope: scope)
-        }
-
         guard let targetDB = db ?? activeFamilyDatabase else {
             logger.error("CloudKitService.fetch rejected: no target database provided and no activeFamilyDatabase available")
             throw CloudKitServiceError.accountUnavailable
