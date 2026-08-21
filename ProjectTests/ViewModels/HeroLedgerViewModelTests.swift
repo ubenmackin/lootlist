@@ -60,11 +60,17 @@ struct HeroLedgerViewModelTests {
         )
     }
 
-    private func makeViewModel() -> HeroLedgerViewModel {
+    private func makeSpendingService(zoneID: CKRecordZone.ID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner"), appState: AppState? = nil) throws -> SpendingService {
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        return SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+    }
+
+    private func makeViewModel() throws -> HeroLedgerViewModel {
         let setup = makeHero()
-        return HeroLedgerViewModel(
+        return try HeroLedgerViewModel(
             heroProfile: setup.hero,
-            spending: MockSpendingService(),
+            spending: makeSpendingService(appState: setup.appState),
             appState: setup.appState
         )
     }
@@ -103,8 +109,8 @@ struct HeroLedgerViewModelTests {
     }
 
     @Test
-    func `rebuildLedger filters rows: this week scope`() {
-        let viewModel = makeViewModel()
+    func `rebuildLedger filters rows: this week scope`() throws {
+        let viewModel = try makeViewModel()
         let fixtures = scopedLedgerFixtures()
 
         viewModel.rebuildLedger(ledgers: fixtures, quests: [], completions: [], scope: .thisWeek)
@@ -119,8 +125,8 @@ struct HeroLedgerViewModelTests {
     }
 
     @Test
-    func `rebuildLedger filters rows: this month scope`() {
-        let viewModel = makeViewModel()
+    func `rebuildLedger filters rows: this month scope`() throws {
+        let viewModel = try makeViewModel()
         let fixtures = scopedLedgerFixtures()
 
         viewModel.rebuildLedger(ledgers: fixtures, quests: [], completions: [], scope: .thisMonth)
@@ -135,8 +141,8 @@ struct HeroLedgerViewModelTests {
     }
 
     @Test
-    func `rebuildLedger filters rows: this quarter scope`() {
-        let viewModel = makeViewModel()
+    func `rebuildLedger filters rows: this quarter scope`() throws {
+        let viewModel = try makeViewModel()
         let fixtures = scopedLedgerFixtures()
 
         viewModel.rebuildLedger(ledgers: fixtures, quests: [], completions: [], scope: .thisQuarter)
@@ -151,8 +157,8 @@ struct HeroLedgerViewModelTests {
     }
 
     @Test
-    func `rebuildLedger filters rows: all time scope`() {
-        let viewModel = makeViewModel()
+    func `rebuildLedger filters rows: all time scope`() throws {
+        let viewModel = try makeViewModel()
         let fixtures = scopedLedgerFixtures()
 
         viewModel.rebuildLedger(ledgers: fixtures, quests: [], completions: [], scope: .allTime)
@@ -165,7 +171,7 @@ struct HeroLedgerViewModelTests {
     // MARK: - CalendarScope payout-day threading
 
     @Test
-    func `rebuildLedger keeps friday-anchored early-cycle entries in thisWeek`() {
+    func `rebuildLedger keeps friday-anchored early-cycle entries in thisWeek`() throws {
         let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
         let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
         let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
@@ -173,30 +179,30 @@ struct HeroLedgerViewModelTests {
 
         // Per-profile payout day = friday keeps the early-cycle entry.
         let setup = makeConfiguredHero(payoutDay: .friday, familyPayoutDay: .sunday)
-        let viewModel = HeroLedgerViewModel(
-            heroProfile: setup.hero, spending: MockSpendingService(), appState: setup.appState
+        let viewModel = try HeroLedgerViewModel(
+            heroProfile: setup.hero, spending: makeSpendingService(appState: setup.appState), appState: setup.appState
         )
         viewModel.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], scope: .thisWeek)
         #expect(viewModel.ledgerRows.map(\.id).contains("l_gap"))
     }
 
     @Test
-    func `rebuildLedger drops friday-gap entries for sunday default`() {
+    func `rebuildLedger drops friday-gap entries for sunday default`() throws {
         let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
         let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
         let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
         let gapLedger = makeLedger("l_gap", date: gapDate)
 
         let setup = makeConfiguredHero(payoutDay: nil, familyPayoutDay: .sunday)
-        let viewModel = HeroLedgerViewModel(
-            heroProfile: setup.hero, spending: MockSpendingService(), appState: setup.appState
+        let viewModel = try HeroLedgerViewModel(
+            heroProfile: setup.hero, spending: makeSpendingService(appState: setup.appState), appState: setup.appState
         )
         viewModel.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], scope: .thisWeek)
         #expect(!viewModel.ledgerRows.map(\.id).contains("l_gap"))
     }
 
     @Test
-    func `rebuildLedger per-profile payoutDay overrides family for thisWeek`() {
+    func `rebuildLedger per-profile payoutDay overrides family for thisWeek`() throws {
         let fridayRange = CalendarScope.thisWeek.dateRange(payoutDay: .friday)
         let sundayRange = CalendarScope.thisWeek.dateRange(payoutDay: .sunday)
         let gapDate = !sundayRange.contains(fridayRange.lowerBound) ? fridayRange.lowerBound : fridayRange.upperBound
@@ -204,29 +210,29 @@ struct HeroLedgerViewModelTests {
 
         // Family sunday + hero override friday → override wins, entry kept.
         let overrideSetup = makeConfiguredHero(payoutDay: .friday, familyPayoutDay: .sunday)
-        let overrideVM = HeroLedgerViewModel(
-            heroProfile: overrideSetup.hero, spending: MockSpendingService(), appState: overrideSetup.appState
+        let overrideVM = try HeroLedgerViewModel(
+            heroProfile: overrideSetup.hero, spending: makeSpendingService(appState: overrideSetup.appState), appState: overrideSetup.appState
         )
         overrideVM.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], scope: .thisWeek)
         #expect(overrideVM.ledgerRows.map(\.id).contains("l_gap"))
 
         // Hero nil + family friday → family fallback, entry kept.
         let familySetup = makeConfiguredHero(payoutDay: nil, familyPayoutDay: .friday)
-        let familyVM = HeroLedgerViewModel(
-            heroProfile: familySetup.hero, spending: MockSpendingService(), appState: familySetup.appState
+        let familyVM = try HeroLedgerViewModel(
+            heroProfile: familySetup.hero, spending: makeSpendingService(appState: familySetup.appState), appState: familySetup.appState
         )
         familyVM.rebuildLedger(ledgers: [gapLedger], quests: [], completions: [], scope: .thisWeek)
         #expect(familyVM.ledgerRows.map(\.id).contains("l_gap"))
     }
 
     @Test
-    func `rebuildLedger scopes rows against friday payout day across all scopes`() {
+    func `rebuildLedger scopes rows against friday payout day across all scopes`() throws {
         let day: TimeInterval = 24 * 3600
         let now = Date()
         let sundayStart = WeekMath.startOfWeek(for: now, payoutDay: .sunday)
         let setup = makeConfiguredHero(payoutDay: .friday, familyPayoutDay: .friday)
-        let viewModel = HeroLedgerViewModel(
-            heroProfile: setup.hero, spending: MockSpendingService(), appState: setup.appState
+        let viewModel = try HeroLedgerViewModel(
+            heroProfile: setup.hero, spending: makeSpendingService(appState: setup.appState), appState: setup.appState
         )
 
         let fixtures = [
@@ -249,7 +255,7 @@ struct HeroLedgerViewModelTests {
     }
 
     @Test
-    func `rebuildLedger non-week scopes ignore payout day`() {
+    func `rebuildLedger non-week scopes ignore payout day`() throws {
         let day: TimeInterval = 24 * 3600
         let now = Date()
         let ledgers = [
@@ -258,12 +264,12 @@ struct HeroLedgerViewModelTests {
         ]
 
         let fridaySetup = makeConfiguredHero(payoutDay: .friday, familyPayoutDay: .friday)
-        let fridayVM = HeroLedgerViewModel(
-            heroProfile: fridaySetup.hero, spending: MockSpendingService(), appState: fridaySetup.appState
+        let fridayVM = try HeroLedgerViewModel(
+            heroProfile: fridaySetup.hero, spending: makeSpendingService(appState: fridaySetup.appState), appState: fridaySetup.appState
         )
         let sundaySetup = makeConfiguredHero(payoutDay: .sunday, familyPayoutDay: .sunday)
-        let sundayVM = HeroLedgerViewModel(
-            heroProfile: sundaySetup.hero, spending: MockSpendingService(), appState: sundaySetup.appState
+        let sundayVM = try HeroLedgerViewModel(
+            heroProfile: sundaySetup.hero, spending: makeSpendingService(appState: sundaySetup.appState), appState: sundaySetup.appState
         )
 
         for scope in [CalendarScope.thisMonth, .thisQuarter, .allTime] {

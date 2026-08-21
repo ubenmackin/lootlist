@@ -15,12 +15,6 @@ extension CloudKitService {
                                   sortDescriptors: [NSSortDescriptor]? = nil,
                                   using db: CKDatabase? = nil) async throws -> [T]
     {
-        if isTestingOrMocking {
-            let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
-            let zone = zoneID ?? activeFamilyZoneID
-            return try mockStore.query(type, predicate: predicate, in: zone, sortDescriptors: sortDescriptors, databaseScope: scope)
-        }
-
         guard let zone = zoneID ?? activeFamilyZoneID else {
             logger.error("CloudKitService.query rejected: no explicit zoneID or activeFamilyZoneID available")
             throw CloudKitServiceError.invalidArguments("CloudKitService.query requires an explicit zoneID or activeFamilyZoneID")

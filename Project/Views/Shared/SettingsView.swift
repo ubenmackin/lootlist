@@ -39,24 +39,26 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("iCloud Sync") {
-                    NavigationLink {
-                        iCloudStatusView()
-                    } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("iCloud Sync")
-                                    .font(.body.weight(.semibold))
-                                Text(syncStatusText)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                #if DEBUG
+                    Section("iCloud Sync") {
+                        NavigationLink {
+                            iCloudStatusView(familyRecordName: appState.family?.id.recordName)
+                        } label: {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("iCloud Sync")
+                                        .font(.body.weight(.semibold))
+                                    Text(syncStatusText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "cloud.fill")
+                                    .foregroundStyle(.blue)
                             }
-                        } icon: {
-                            Image(systemName: "cloud.fill")
-                                .foregroundStyle(.blue)
                         }
                     }
-                }
+                #endif
 
                 // Section 3: Preferences
                 Section("Preferences") {

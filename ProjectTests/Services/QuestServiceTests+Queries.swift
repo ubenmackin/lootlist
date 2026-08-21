@@ -467,7 +467,7 @@ extension QuestServiceTests {
     func `unassignQuest allows the assignee hero to unassign their own quest`() async throws {
         let scaffold = try MarkCompleteScaffold()
         scaffold.cache.upsertQuest(scaffold.quest)
-        scaffold.cloudKit.seedMockRecords([scaffold.quest])
+        scaffold.seedMockRecords([scaffold.quest])
 
         // The quest's own assignee may unassign it (self-service leave
         // cleanup). The scaffold's hero is the assignee of `scaffold.quest`.

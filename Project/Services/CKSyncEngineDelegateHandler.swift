@@ -153,9 +153,37 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 recordID: recordID,
                 familyRecordName: activeFamily
             )
-            return await MainActor.run {
+            let record = await MainActor.run {
                 RecordBridge.record(for: identity, cacheService: cacheService)
             }
+            if record == nil {
+                // Dangling pending fix: the underlying *Cache may have been
+                // deleted after enqueueSave but before transmission, and
+                // CKSyncEngine retains pendingRecordZoneChanges forever if we
+                // keep returning nil. A nil bridge alone does NOT prove local
+                // deletion — family or database-scope validation can also fail
+                // (e.g. locally-created rows never hydrated with
+                // sourceDatabaseScope). Enqueue a server-side delete only when
+                // no cached row exists for the record name at all; otherwise
+                // drop just the stale save so a live cloud record is never
+                // destroyed.
+                let locallyDeleted = await MainActor.run {
+                    RecordBridge.confirmedLocalDeletion(for: identity, cacheService: cacheService)
+                }
+                await MainActor.run {
+                    syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                    if locallyDeleted {
+                        syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+                    }
+                }
+                if locallyDeleted {
+                    self.logger.warning("nextRecordZoneChangeBatch removed dangling pending save for \(recordID.recordName, privacy: .private) — enqueued delete")
+                } else {
+                    self.logger
+                        .warning("nextRecordZoneChangeBatch removed stale pending save for \(recordID.recordName, privacy: .private) — local row still present, delete suppressed")
+                }
+            }
+            return record
         }
     }
 
@@ -172,6 +200,14 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         coordinator?.noteChangesProcessed()
     }
 
+    /// Inbound sync is off-main: parses on MainActor then hands Sendable
+    /// ParsedRecords to BackgroundCacheActor for batched, single-save
+    /// persistence. The actor's DefaultSerialModelExecutor + autosaveEnabled=false
+    /// ensures the save triggers ModelContext.didSave → CacheService
+    /// processPendingChanges exactly once per batch for atomic @Query visibility.
+    /// Dual-scope is derived via databaseScope ?? (isZoneOwner ? .private : .shared)
+    /// and validated via identity.matchesActiveScope; shared and private engines
+    /// share this identical pipeline.
     func handleIncomingRecordsDirectly(
         _ records: [CKRecord],
         databaseScope: CKDatabase.Scope? = nil,
@@ -226,6 +262,12 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         }
 
         if !validRecords.isEmpty {
+            // Concurrent batch commits (e.g. private + shared engines racing)
+            // are linearized by SerialMutationQueue.shared inside
+            // batchUpsertParsedRecords, and each commit lands the entire
+            // ParsedBatch in one ModelContext.save for atomic visibility — no
+            // intermediate saves between families/profiles and secondary
+            // entities (LedgerEntry/AllowancePeriod/RewardEvent hydration).
             let writeSuccess = await backgroundCache?.batchUpsertParsedRecords(validRecords) ?? false
             if writeSuccess {
                 coordinator?.noteChangesProcessed()

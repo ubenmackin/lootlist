@@ -72,6 +72,9 @@ class MockCloudKitService: CloudKitServiceProtocol {
         activeFamilyZoneID ?? CKRecordZone.default().zoneID
     }
 
+    /// Test-only seeding helper. Deliberately NOT part of `CloudKitServiceProtocol`
+    /// — production CloudKit has no record-seeding surface, so tests must call
+    /// this on the concrete mock type.
     func seedMockRecords(_ models: [any CloudKitRecord]) {
         seedMockRecords(models, creatorUserRecordName: Self.mockUserRecordName)
     }

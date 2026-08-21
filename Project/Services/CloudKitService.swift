@@ -103,12 +103,6 @@ class CloudKitService: CloudKitServiceProtocol {
     private var cachedPrivateDatabase: CKDatabase?
     private var cachedSharedDatabase: CKDatabase?
 
-    var mockStore = MockRecordStore()
-
-    var isTestingOrMocking: Bool {
-        TestEnvironment.isRunningUnitOrUITests || !mockStore.isEmpty
-    }
-
     var database: CKDatabase? {
         privateDatabase
     }
@@ -160,13 +154,6 @@ class CloudKitService: CloudKitServiceProtocol {
 
     func database(isOwner: Bool) -> CKDatabase? {
         isOwner ? privateDatabase : sharedDatabase
-    }
-
-    // MARK: - In-Memory Mock Record Storage for Testing & Screenshots
-
-    func seedMockRecords(_ models: [any CloudKitRecord]) {
-        let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
-        mockStore.seed(models, databaseScope: scope)
     }
 
     private static let maxRetries = AppConstants.CloudKit.maxRetries

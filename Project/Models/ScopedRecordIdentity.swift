@@ -11,16 +11,24 @@ import Foundation
 /// Composite identity for a CloudKit record scoped to a specific database, zone,
 /// and family. Prevents cross-family/cross-zone record collisions in local cache
 /// operations and during sync conflict resolution.
-/// @unchecked Sendable audit: CKRecordZone.ID and CKRecord.ID are not Sendable
-/// under Swift 6 but are immutable value types with no shared mutable state.
-/// ScopedRecordIdentity stores only `let` properties and is safe to share across
-/// concurrency domains; Mutex<[ScopedRecordIdentity]> buffering in
-/// CKSyncEngineCoordinator remains valid.
-struct ScopedRecordIdentity: Hashable, @unchecked Sendable {
+///
+/// Decomposed into Sendable primitive types (`String` and `CKDatabase.Scope`)
+/// for 100% compiler-verified `Sendable` conformance.
+/// Vends `CKRecordZone.ID` and `CKRecord.ID` on demand via computed properties.
+struct ScopedRecordIdentity: Hashable, Sendable {
     let databaseScope: CKDatabase.Scope
-    let zoneID: CKRecordZone.ID
-    let recordID: CKRecord.ID
+    let zoneName: String
+    let zoneOwnerName: String
+    let recordName: String
     let familyRecordName: String?
+
+    var zoneID: CKRecordZone.ID {
+        CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
+    }
+
+    var recordID: CKRecord.ID {
+        CKRecord.ID(recordName: recordName, zoneID: zoneID)
+    }
 
     init(
         databaseScope: CKDatabase.Scope,
@@ -29,20 +37,32 @@ struct ScopedRecordIdentity: Hashable, @unchecked Sendable {
         familyRecordName: String?
     ) {
         self.databaseScope = databaseScope
-        self.zoneID = zoneID
-        self.recordID = recordID
+        self.zoneName = zoneID.zoneName
+        self.zoneOwnerName = zoneID.ownerName
+        self.recordName = recordID.recordName
+        self.familyRecordName = familyRecordName
+    }
+
+    init(
+        databaseScope: CKDatabase.Scope,
+        zoneName: String,
+        zoneOwnerName: String,
+        recordName: String,
+        familyRecordName: String?
+    ) {
+        self.databaseScope = databaseScope
+        self.zoneName = zoneName
+        self.zoneOwnerName = zoneOwnerName
+        self.recordName = recordName
         self.familyRecordName = familyRecordName
     }
 
     init(from record: CKRecord, databaseScope: CKDatabase.Scope, familyRecordName: String?) {
         self.databaseScope = databaseScope
-        self.zoneID = record.recordID.zoneID
-        self.recordID = record.recordID
+        self.zoneName = record.recordID.zoneID.zoneName
+        self.zoneOwnerName = record.recordID.zoneID.ownerName
+        self.recordName = record.recordID.recordName
         self.familyRecordName = familyRecordName
-    }
-
-    var recordName: String {
-        recordID.recordName
     }
 
     var databaseScopeString: String {

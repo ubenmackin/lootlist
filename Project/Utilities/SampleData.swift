@@ -243,41 +243,25 @@ enum SampleData {
         return (defaultAchs, profileAchs)
     }
 
-    static func populate(cloudKit: CloudKitService, cacheService: CacheService? = nil) {
+    static func populate(cacheService: CacheService? = nil) {
         let questData = createTemplatesAndQuests()
         let ledger = createLedgerEntries()
         let periods = createAllowancePeriods()
         let (achs, profileAchs) = createAchievements()
 
-        var allRecords: [any CloudKitRecord] = []
-        allRecords.append(family)
-        allRecords.append(heroProfile)
-        allRecords.append(secondHeroProfile)
-        allRecords.append(parentProfile)
-        allRecords.append(contentsOf: questData.templates)
-        allRecords.append(contentsOf: questData.quests)
-        allRecords.append(contentsOf: questData.completions)
-        allRecords.append(contentsOf: ledger)
-        allRecords.append(contentsOf: periods)
-        allRecords.append(contentsOf: achs)
-        allRecords.append(contentsOf: profileAchs)
-
-        cloudKit.seedMockRecords(allRecords)
-
-        if let cache = cacheService {
-            cache.upsertFamily(family)
-            cache.upsertProfiles([heroProfile, secondHeroProfile, parentProfile])
-            cache.upsertQuestTemplates(questData.templates)
-            cache.upsertQuests(questData.quests)
-            cache.upsertQuestCompletions(questData.completions)
-            if !ledger.isEmpty {
-                cache.upsertLedgerEntries(ledger)
-            }
-            if !periods.isEmpty {
-                cache.upsertAllowancePeriods(periods)
-            }
-            cache.upsertAchievements(achs)
-            cache.upsertProfileAchievements(profileAchs)
+        guard let cache = cacheService else { return }
+        cache.upsertFamily(family)
+        cache.upsertProfiles([heroProfile, secondHeroProfile, parentProfile])
+        cache.upsertQuestTemplates(questData.templates)
+        cache.upsertQuests(questData.quests)
+        cache.upsertQuestCompletions(questData.completions)
+        if !ledger.isEmpty {
+            cache.upsertLedgerEntries(ledger)
         }
+        if !periods.isEmpty {
+            cache.upsertAllowancePeriods(periods)
+        }
+        cache.upsertAchievements(achs)
+        cache.upsertProfileAchievements(profileAchs)
     }
 }
