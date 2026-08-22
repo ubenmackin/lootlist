@@ -14,6 +14,27 @@ import UserNotifications
 
 @MainActor
 struct NotificationServiceTests {
+    // MARK: - iCloud Guard
+
+    /// The simulator periodically loses its iCloud login. Tests that spin up
+    /// the real sync engine hang forever without an authenticated account,
+    /// so callers skip instead.
+    /// Returns `false` (skip) when no iCloud account is available.
+    private static func iCloudAccountAvailable() async -> Bool {
+        // Race accountStatus against a timeout so even this call can't hang.
+        let status: CKAccountStatus? = await withTaskGroup(of: CKAccountStatus?.self) { group in
+            group.addTask { await (try? CKContainer.default().accountStatus()) ?? .couldNotDetermine }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        return status == .available
+    }
+
     // MARK: - Fixtures
 
     private static let userDefaultsKeysToReset = [
@@ -64,6 +85,11 @@ struct NotificationServiceTests {
 
     @Test
     func `updatePreference writes through to cache and cloudkit`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
@@ -104,6 +130,11 @@ struct NotificationServiceTests {
 
     @Test
     func `isNotificationEnabled reflects remote preference change via backgroundCache upsert`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
@@ -179,6 +210,11 @@ struct NotificationServiceTests {
 
     @Test
     func `updatePreference re-fetches and re-upserts authoritative on serverRecordChanged save failure`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
@@ -266,6 +302,11 @@ struct NotificationServiceTests {
 
     @Test
     func `deliverSyncNotification skips self notifications`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
@@ -290,6 +331,10 @@ struct NotificationServiceTests {
 
     @Test
     func `deliverSyncNotification deep-link profileID carries the authoring peer, not the viewer`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("⏭️ Skipped: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
@@ -344,6 +389,11 @@ struct NotificationServiceTests {
 
     @Test
     func `sendQuestRejected delivers notification to recipient hero`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
@@ -389,6 +439,11 @@ struct NotificationServiceTests {
 
     @Test
     func `sendQuestNeedsReview honors recipient parent preference`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
@@ -446,6 +501,11 @@ struct NotificationServiceTests {
 
     @Test
     func `deliverSyncNotification delivers for peer events and skips self-notifications`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
         resetUserDefaults()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()

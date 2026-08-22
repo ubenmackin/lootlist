@@ -1,6 +1,9 @@
 excluded:
   - DerivedData
   - Build
+  # Generated code — see tools/generate_hero_bases.py
+  - Project/Resources/SpriteData/HeroAvatarSprites+TracedGrids.swift
+  - Project/Resources/SpriteData/HeroAvatarSprites+GeneratedGrids.swift
 
 disabled_rules:
   - inclusive_language

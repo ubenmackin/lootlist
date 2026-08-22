@@ -3,6 +3,7 @@
 # gitignore contributors: remember to update Global/Xcode.gitignore, Objective-C.gitignore & Swift.gitignore
 
 APPSTOREDESC.txt
+assets/
 
 # -----------------------------------------------------------------------------
 # Opencode
@@ -110,3 +111,7 @@ iOSInjectionProject/
 
 # Scratch / build artifacts
 scratch/
+
+# Sprite design-review snapshots
+.sprite-previews/
+.venv/
