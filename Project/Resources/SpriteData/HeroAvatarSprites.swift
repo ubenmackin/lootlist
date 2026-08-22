@@ -98,154 +98,83 @@ enum HeroAvatarSprites: Sendable {
     }
 
     private static func characterMatrix(for preset: AvatarPreset) -> [String] {
-        placeholderMatrix(for: preset)
+        // Female variants (v3/v4) use the female base silhouette; class
+        // accessories are stamped on at native resolution, then upscaled.
+        let female = preset.variationNumber >= 3
+        let native = composing(
+            female ? HeroAvatarTracedGrids.femaleBase : HeroAvatarTracedGrids.maleBase,
+            overlays: accessoryOverlays(for: preset.avatarClass)
+        )
+        return upscaledToCanvas(native)
     }
 
-    private static func placeholderMatrix(for preset: AvatarPreset) -> [String] {
-        // Minimal 64x64 placeholder that satisfies 64-char row test and palette check.
-        // Uses only "." and a class-specific char so palette contains it.
-        let fillChar: Character = switch preset.avatarClass {
-        case .knight: "s"
-        case .mage: "p"
-        case .rogue: "U"
-        case .guardian: "g"
-        case .healer: "W"
-        }
-        var rows: [String] = []
-        for rowIndex in 0 ..< canvasSize {
-            if rowIndex < 2 || rowIndex >= 62 {
-                rows.append(String(repeating: ".", count: canvasSize))
-            } else {
-                let row = String(repeating: ".", count: canvasSize)
-                var chars = Array(row)
-                for colIndex in 12 ..< 52 {
-                    chars[colIndex] = (rowIndex % 4 == 0 && colIndex % 4 == 0) ? fillChar : "s"
-                }
-                // outline
-                chars[12] = "k"; chars[51] = "k"
-                if rowIndex == 2 || rowIndex == 61 {
-                    for colIndex in 12 ... 51 {
-                        chars[colIndex] = "k"
-                    }
-                }
-                rows.append(String(chars))
-            }
-        }
-        return rows
+    private static let tracedPalettes: [AvatarPreset: [Character: Color]] = [
+        .knightV1: HeroAvatarTracedGrids.knightV1Palette,
+        .knightV2: HeroAvatarTracedGrids.knightV2Palette,
+        .knightV3: HeroAvatarTracedGrids.knightV3Palette,
+        .knightV4: HeroAvatarTracedGrids.knightV4Palette,
+        .mageV1: HeroAvatarTracedGrids.mageV1Palette,
+        .mageV2: HeroAvatarTracedGrids.mageV2Palette,
+        .mageV3: HeroAvatarTracedGrids.mageV3Palette,
+        .mageV4: HeroAvatarTracedGrids.mageV4Palette,
+        .rogueV1: HeroAvatarTracedGrids.rogueV1Palette,
+        .rogueV2: HeroAvatarTracedGrids.rogueV2Palette,
+        .rogueV3: HeroAvatarTracedGrids.rogueV3Palette,
+        .rogueV4: HeroAvatarTracedGrids.rogueV4Palette,
+        .guardianV1: HeroAvatarTracedGrids.guardianV1Palette,
+        .guardianV2: HeroAvatarTracedGrids.guardianV2Palette,
+        .guardianV3: HeroAvatarTracedGrids.guardianV3Palette,
+        .guardianV4: HeroAvatarTracedGrids.guardianV4Palette,
+        .healerV1: HeroAvatarTracedGrids.healerV1Palette,
+        .healerV2: HeroAvatarTracedGrids.healerV2Palette,
+        .healerV3: HeroAvatarTracedGrids.healerV3Palette,
+        .healerV4: HeroAvatarTracedGrids.healerV4Palette
+    ]
+
+    private static func characterPalette(for preset: AvatarPreset) -> [Character: Color] {
+        tracedPalettes[preset] ?? [:]
     }
 
-    private static func characterPalette(for _: AvatarPreset) -> [Character: Color] {
-        [
-            ".": cClear,
-            "k": cCharcoal,
-            "w": cWhite,
-            "y": cGold,
-            "Y": cBrightGold,
-            "T": cDarkWood,
-            "t": cLeatherBrown,
-            "H": cHairHighlight,
-            "W": cOffWhite,
-            "u": cIronBlack,
-            "s": cSkinFair,
-            "S": cSkinFairShadow,
-            "g": cSteelLight,
-            "G": cSteelDark,
-            "p": cArcanePurple,
-            "P": cDeepPurple,
-            "U": cIronBlack,
-            "A": cSteelHighlight,
-            "b": cRoyalBlue,
-            "B": cNavyBlue,
-            "c": cCyanGlow,
-            "C": cBrightCyan,
-            "r": cCrimsonRed,
-            "R": cDarkRed,
-            "O": cFlameOrange,
-            "e": cEmeraldGreen,
-            "E": cDarkGreen,
-            "h": cLeatherBrown,
-            "m": cPinkRose,
-            "o": cBrightOrange,
-            "K": cCharcoal,
-            "I": cNavyBlue
-        ]
-        // Ensure class-specific fill char has entry (already covered above)
-    }
-
-    // MARK: - Equipment Layers (consolidated placeholder)
+    // MARK: - Equipment Layers
 
     static func backgroundEquipmentLayer(for gearKey: String) -> PixelLayer? {
         if gearKey.contains("wing") {
-            return placeholderEquipmentLayer(id: "gear_golden_wings", zIndex: -10)
+            return goldenWingsLayer()
         }
         if gearKey.contains("shadow_cloak") || gearKey == "cloak" {
-            return placeholderEquipmentLayer(id: "gear_shadow_cloak", zIndex: -5)
+            return shadowCloakLayer()
         }
         if gearKey.contains("aura") || gearKey.contains("cosmic") {
-            return placeholderEquipmentLayer(id: "gear_cosmic_aura_bg", zIndex: -20)
+            return cosmicAuraBackgroundLayer()
         }
         if gearKey.contains("bolt") || gearKey.contains("level.10") {
-            return placeholderEquipmentLayer(id: "gear_lightning_sparks_bg", zIndex: -15)
+            return lightningSparksBackgroundLayer()
         }
         return nil
     }
 
     static func foregroundEquipmentLayer(for gearKey: String) -> PixelLayer? {
         if gearKey.contains("crown") {
-            return placeholderEquipmentLayer(id: "gear_crown", zIndex: 25)
+            return crownLayer()
         }
         if gearKey.contains("wizard_hat") || gearKey.contains("hat") {
-            return placeholderEquipmentLayer(id: "gear_wizard_hat", zIndex: 25)
+            return wizardHatLayer()
         }
         if gearKey.contains("flaming_sword") || gearKey.contains("fire") || gearKey.contains("level.20") {
-            return placeholderEquipmentLayer(id: "gear_flaming_sword", zIndex: 20)
+            return flamingSwordLayer()
         }
         if gearKey.contains("crystal_staff") || gearKey.contains("staff") {
-            return placeholderEquipmentLayer(id: "gear_crystal_staff", zIndex: 20)
+            return crystalStaffLayer()
         }
         if gearKey.contains("sparkles") || gearKey.contains("level.5") {
-            return placeholderEquipmentLayer(id: "gear_sparkles", zIndex: 35)
+            return sparklesLayer()
         }
         if gearKey.contains("star") || gearKey.contains("level.15") {
-            return placeholderEquipmentLayer(id: "gear_star_aura", zIndex: 35)
+            return starAuraLayer()
         }
         if gearKey.contains("aura") || gearKey.contains("cosmic") {
-            return placeholderEquipmentLayer(id: "gear_cosmic_aura_fg", zIndex: 30)
+            return cosmicAuraForegroundLayer()
         }
         return nil
     }
-
-    private static func placeholderEquipmentLayer(id: String, zIndex: Int) -> PixelLayer {
-        let row = String(repeating: ".", count: canvasSize)
-        let matrix = Array(repeating: row, count: canvasSize)
-        return PixelLayer(id: id, matrix: matrix, palette: [".": cClear], zIndex: zIndex)
-    }
-
-    // Legacy gear constants kept as aliases to placeholder (for test identity checks)
-    static let crownLayer = PixelLayer(id: "gear_crown", matrix: Array(repeating: String(repeating: ".", count: 64), count: 64), palette: [".": cClear], zIndex: 25)
-    static let wizardHatLayer = PixelLayer(id: "gear_wizard_hat", matrix: Array(repeating: String(repeating: ".", count: 64), count: 64), palette: [".": cClear], zIndex: 25)
-    static let goldenWingsLayer = PixelLayer(id: "gear_golden_wings", matrix: Array(repeating: String(repeating: ".", count: 64), count: 64), palette: [".": cClear], zIndex: -10)
-    static let shadowCloakLayer = PixelLayer(id: "gear_shadow_cloak", matrix: Array(repeating: String(repeating: ".", count: 64), count: 64), palette: [".": cClear], zIndex: -5)
-    static let cosmicAuraBackgroundLayer = PixelLayer(
-        id: "gear_cosmic_aura_bg",
-        matrix: Array(repeating: String(repeating: ".", count: 64), count: 64),
-        palette: [".": cClear],
-        zIndex: -20
-    )
-    static let cosmicAuraForegroundLayer = PixelLayer(
-        id: "gear_cosmic_aura_fg",
-        matrix: Array(repeating: String(repeating: ".", count: 64), count: 64),
-        palette: [".": cClear],
-        zIndex: 30
-    )
-    static let lightningSparksBackgroundLayer = PixelLayer(
-        id: "gear_lightning_sparks_bg",
-        matrix: Array(repeating: String(repeating: ".", count: 64), count: 64),
-        palette: [".": cClear],
-        zIndex: -15
-    )
-    static let flamingSwordLayer = PixelLayer(id: "gear_flaming_sword", matrix: Array(repeating: String(repeating: ".", count: 64), count: 64), palette: [".": cClear], zIndex: 20)
-    static let crystalStaffLayer = PixelLayer(id: "gear_crystal_staff", matrix: Array(repeating: String(repeating: ".", count: 64), count: 64), palette: [".": cClear], zIndex: 20)
-    static let sparklesLayer = PixelLayer(id: "gear_sparkles", matrix: Array(repeating: String(repeating: ".", count: 64), count: 64), palette: [".": cClear], zIndex: 35)
-    static let starAuraLayer = PixelLayer(id: "gear_star_aura", matrix: Array(repeating: String(repeating: ".", count: 64), count: 16), palette: [".": cClear], zIndex: 35)
 }
