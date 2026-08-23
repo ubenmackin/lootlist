@@ -27,6 +27,7 @@ enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
 }
 
 @MainActor
+@Observable
 class SpendingService {
     private let cloudKit: any CloudKitServiceProtocol
     var cacheService: CacheService?

@@ -220,10 +220,10 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     /// must reuse this exact path rather than duplicating validation or
     /// persistence, keeping one merge/save semantics across all entry points.
     ///
-    /// Inbound sync is off-main: scope values resolve here on MainActor, then
-    /// a single actor call hands the batch to BackgroundCacheActor inside a
-    /// Sendable box for parsing, validation, and batched single-save
-    /// persistence. The actor's DefaultSerialModelExecutor +
+    /// Inbound sync validates scope and parses inbound records canonically here
+    /// on MainActor into Sendable `ParsedRecord` domain models, then hands the
+    /// batch to `BackgroundCacheActor.batchUpsertParsedRecords` for single-save
+    /// atomic persistence. The actor's DefaultSerialModelExecutor +
     /// autosaveEnabled=false ensures the save triggers ModelContext.didSave →
     /// CacheService processPendingChanges exactly once per batch for atomic
     /// @Query visibility. Shared and private engines share this identical
@@ -257,38 +257,69 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             return
         }
 
+        let expectedDbScope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+
+        var accepted: [ParsedRecord] = []
+        var parseFailures = 0
+
+        for record in records {
+            // The identity is anchored on the record's own zone, not the
+            // session's active zone — otherwise a record from any other zone
+            // would validate against itself and the gate could never reject it.
+            let identity = ScopedRecordIdentity(
+                databaseScope: databaseScope,
+                zoneID: record.recordID.zoneID,
+                recordID: record.recordID,
+                familyRecordName: activeFamily
+            )
+
+            // Fail-closed scope gate.
+            guard identity.matchesActiveScope(
+                expectedFamily: activeFamily,
+                expectedZone: activeZone,
+                expectedDatabase: expectedDbScope
+            ) else {
+                logger.debug("Skipping incoming record outside active scope: \(record.recordID.recordName)")
+                continue
+            }
+
+            let parsed = ParsedRecord.parse(record: record)
+            switch parsed {
+            case .parseFailure:
+                parseFailures += 1
+                logger.error("Parse failure for incoming record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
+            case .ignoredSystemRecord:
+                logger.debug("Ignored system record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
+            default:
+                accepted.append(parsed)
+            }
+        }
+
+        if parseFailures > 0 {
+            logger.warning("\(parseFailures) record(s) failed to parse during incoming zone changes")
+            for _ in 0 ..< parseFailures {
+                coordinator?.noteParseFailure()
+            }
+        }
+
+        guard !accepted.isEmpty else { return }
+
         guard let backgroundCache else {
             coordinator?.noteCacheWriteFailure()
             logger.error("Cache write failure during incoming zone changes")
             return
         }
 
-        let outcome = await backgroundCache.parseAndUpsert(
-            records: IncomingRecordBatch(records: records),
-            expectedScope: databaseScope,
-            familyRecordName: activeFamily,
-            activeZone: activeZone,
-            isZoneOwner: appState?.isZoneOwner == true
-        )
-
-        if outcome.parseFailures > 0 {
-            logger.warning("\(outcome.parseFailures) record(s) failed to parse during incoming zone changes")
-            for _ in 0 ..< outcome.parseFailures {
-                coordinator?.noteParseFailure()
-            }
-        }
-
-        guard outcome.writeSucceeded else {
+        let writeSucceeded = await backgroundCache.batchUpsertParsedRecords(accepted)
+        guard writeSucceeded else {
             coordinator?.noteCacheWriteFailure()
             logger.error("Cache write failure during incoming zone changes")
             return
         }
 
-        if !outcome.acceptedRecords.isEmpty {
-            coordinator?.noteChangesProcessed()
-            if notifiesOnCompletion {
-                await triggerSyncNotifications(for: outcome.acceptedRecords)
-            }
+        coordinator?.noteChangesProcessed()
+        if notifiesOnCompletion {
+            await triggerSyncNotifications(for: accepted)
         }
     }
 

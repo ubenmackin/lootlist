@@ -105,11 +105,11 @@ struct TabBarView: View {
     }
 
     private func handleQuickAction(_ action: QuickActionType) {
+        defer { appState.pendingQuickAction = nil }
         switch action {
         case .processPayouts:
             if roleKind == .parent {
                 selectedTab = .payouts
-                appState.pendingQuickAction = nil
             }
         case .addQuickQuest, .addTemplate:
             if roleKind == .parent {
@@ -121,7 +121,6 @@ struct TabBarView: View {
             }
         case .manageQuests:
             selectedTab = (roleKind == .parent) ? .manage : .quests
-            appState.pendingQuickAction = nil
         }
     }
 

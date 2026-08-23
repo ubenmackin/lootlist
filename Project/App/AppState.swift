@@ -613,9 +613,9 @@ final class AppState {
                         || zoneOwner == "_defaultOwner_"
                     let familyCreatorMatches = foundFamily.creatorUserRecordName == userRecordID.recordName
                         || foundFamily.createdBy.recordName == userRecordID.recordName
-                    let isPlaceholderFamilyCreator = ["owner", "Owner1", "__defaultOwner__", "_defaultOwner_", CKCurrentUserDefaultName, ""]
+                    let isPlaceholderFamilyCreator = AppConstants.Security.legacyPlaceholderCreators
                         .contains(foundFamily.creatorUserRecordName ?? "")
-                        || ["owner", "Owner1", ""].contains(foundFamily.createdBy.recordName)
+                        || AppConstants.Security.legacyPlaceholderCreators.contains(foundFamily.createdBy.recordName)
                     let shouldConsiderFamily = familyCreatorMatches || isZoneOwnedByUser || (isPlaceholderFamilyCreator && isZoneOwnedByUser)
                     guard shouldConsiderFamily else {
                         logger.info(
@@ -638,7 +638,7 @@ final class AppState {
                         let matchingProfiles = profiles.filter {
                             let creatorOK = $0.creatorUserRecordName == userRecordID.recordName
                                 || $0.creatorUserRecordName == nil
-                                || ["owner", "Owner1", "__defaultOwner__", "_defaultOwner_", CKCurrentUserDefaultName, ""].contains($0.creatorUserRecordName ?? "")
+                                || AppConstants.Security.legacyPlaceholderCreators.contains($0.creatorUserRecordName ?? "")
                             return $0.isActive
                                 && $0.role == .guildMaster
                                 && $0.family.recordID == foundFamily.id
@@ -764,8 +764,7 @@ final class AppState {
         for profile in profiles where profile.isActive && profile.iCloudUserID.recordName == userRecordName {
             if let creatorUserRecordName = profile.creatorUserRecordName {
                 guard creatorUserRecordName == userRecordName
-                    || creatorUserRecordName == CKCurrentUserDefaultName
-                    || creatorUserRecordName == "_defaultOwner_"
+                    || AppConstants.Security.legacyPlaceholderCreators.contains(creatorUserRecordName)
                 else { continue }
                 matches.append(profile)
                 continue
@@ -789,8 +788,7 @@ final class AppState {
             guard serverProfile.isActive,
                   serverProfile.iCloudUserID.recordName == userRecordName,
                   serverProfile.creatorUserRecordName == userRecordName
-                  || serverProfile.creatorUserRecordName == CKCurrentUserDefaultName
-                  || serverProfile.creatorUserRecordName == "_defaultOwner_",
+                  || AppConstants.Security.legacyPlaceholderCreators.contains(serverProfile.creatorUserRecordName ?? ""),
                   serverProfile.family.recordID == profile.family.recordID
             else { continue }
 

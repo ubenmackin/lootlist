@@ -24,6 +24,9 @@ extension QuestService {
         else {
             throw FamilyServiceError.unauthorized
         }
+        guard quest.assignee.recordID.recordName == profile.id.recordName || acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
         guard profile.family.recordID == quest.family.recordID,
               profile.id.zoneID == quest.id.zoneID
         else {

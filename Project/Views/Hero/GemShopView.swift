@@ -576,9 +576,7 @@ struct GemShopView: View {
             do {
                 try await equipmentService.buyItem(
                     item: item,
-                    profile: profile,
-                    gemService: gemService,
-                    soundManager: soundManager
+                    profile: profile
                 )
 
                 celebratedItem = item

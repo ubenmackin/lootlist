@@ -181,7 +181,7 @@ struct MascotBannerView: View {
 
         Task {
             do {
-                try await bonusService.claimObjective(objective: objective, profile: profile, gemService: gemService, soundManager: soundManager)
+                try await bonusService.claimObjective(objective: objective, profile: profile)
                 // Let confetti play
                 try await Task.sleep(for: .seconds(2))
             } catch {

@@ -191,9 +191,24 @@ class CloudKitService: CloudKitServiceProtocol {
                     ? .networkUnavailable
                     : .retryable(attempt: attempt, code: error.code.rawValue)
 
-                if attempt < Self.maxRetries,
-                   let delayNanos = Self.backoffSchedule[safe: attempt - 1]
-                {
+                if attempt < Self.maxRetries {
+                    // Server-supplied retry-after values are untrusted: negative
+                    // or non-finite values would trap in the UInt64 conversion,
+                    // and even a large-but-finite value can overflow at that
+                    // same conversion, so anything invalid falls back to the
+                    // fixed backoff schedule while anything above the schedule's
+                    // largest delay clamps to that maximum.
+                    let maxScheduledNanos = Self.backoffSchedule.max() ?? 1_000_000_000
+                    let maxScheduledSeconds = Double(maxScheduledNanos) / 1_000_000_000
+                    let delayNanos: UInt64 = if let retryAfter = error.retryAfterSeconds,
+                                                retryAfter.isFinite,
+                                                retryAfter > 0
+                    {
+                        min(UInt64(min(retryAfter, maxScheduledSeconds) * 1_000_000_000),
+                            maxScheduledNanos)
+                    } else {
+                        Self.backoffSchedule[safe: attempt - 1] ?? 1_000_000_000
+                    }
                     try await Task.sleep(nanoseconds: delayNanos)
                     continue
                 }

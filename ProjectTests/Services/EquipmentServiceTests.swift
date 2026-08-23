@@ -27,7 +27,7 @@ struct EquipmentServiceTests {
         let cache = try CacheService(inMemory: true)
         let sound = SoundManager()
         let gemService = GemService(cloudKitService: cloudKit, cacheService: cache, soundManager: sound)
-        let equipmentService = EquipmentService(cloudKitService: cloudKit, cacheService: cache)
+        let equipmentService = EquipmentService(cloudKitService: cloudKit, gemService: gemService, soundManager: sound, cacheService: cache)
 
         let familyID = CKRecord.ID(recordName: "test-family", zoneID: zoneID)
         let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
@@ -152,14 +152,13 @@ struct EquipmentServiceTests {
     @Test
     func `purchase item success path with gem deduction and auto equip`() async throws {
         let env = try makeIsolatedEnvironment()
-        let sound = SoundManager()
 
         try await env.gemService.creditGems(amount: 200, to: env.profile, source: "testReward", eventKey: "test-setup")
         let startingBalance = try env.gemService.balance(for: env.profile.id.recordName, familyRecordName: "test-family")
         #expect(startingBalance == 200)
 
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
-        try await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+        try await env.equipmentService.buyItem(item: crown, profile: env.profile)
 
         #expect(env.equipmentService.isOwned(item: crown, profile: env.profile))
         #expect(env.equipmentService.isEquipped(item: crown, profile: env.profile))
@@ -212,7 +211,6 @@ struct EquipmentServiceTests {
     func `purchase item fails when level too low`() async throws {
         let env = try makeIsolatedEnvironment()
         var profile = env.profile
-        let sound = SoundManager()
 
         profile.level = 2
         try await env.gemService.creditGems(amount: 300, to: profile, source: "testReward", eventKey: "test-setup")
@@ -220,7 +218,7 @@ struct EquipmentServiceTests {
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
         await #expect(throws: EquipmentError.levelTooLow(required: 5)) {
-            try await env.equipmentService.buyItem(item: crown, profile: profile, gemService: env.gemService, soundManager: sound)
+            try await env.equipmentService.buyItem(item: crown, profile: profile)
         }
 
         #expect(!env.equipmentService.isOwned(item: crown, profile: profile))
@@ -229,14 +227,13 @@ struct EquipmentServiceTests {
     @Test
     func `purchase item fails when insufficient gems`() async throws {
         let env = try makeIsolatedEnvironment()
-        let sound = SoundManager()
 
         try await env.gemService.creditGems(amount: 50, to: env.profile, source: "testReward", eventKey: "test-setup")
 
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
         await #expect(throws: EquipmentError.insufficientGems(required: 120, current: 50)) {
-            try await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+            try await env.equipmentService.buyItem(item: crown, profile: env.profile)
         }
 
         #expect(!env.equipmentService.isOwned(item: crown, profile: env.profile))
@@ -245,39 +242,37 @@ struct EquipmentServiceTests {
     @Test
     func `purchase item fails when already owned`() async throws {
         let env = try makeIsolatedEnvironment()
-        let sound = SoundManager()
 
         try await env.gemService.creditGems(amount: 300, to: env.profile, source: "testReward", eventKey: "test-setup")
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
-        try await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+        try await env.equipmentService.buyItem(item: crown, profile: env.profile)
         #expect(env.equipmentService.isOwned(item: crown, profile: env.profile))
 
         await #expect(throws: EquipmentError.alreadyOwned) {
-            try await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+            try await env.equipmentService.buyItem(item: crown, profile: env.profile)
         }
     }
 
     @Test
     func `toggle equip when owned and unowned`() async throws {
         let env = try makeIsolatedEnvironment()
-        let sound = SoundManager()
 
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
         await #expect(throws: EquipmentError.notOwned) {
-            try await env.equipmentService.toggleEquip(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+            try await env.equipmentService.toggleEquip(item: crown, profile: env.profile)
         }
 
         try await env.gemService.creditGems(amount: 200, to: env.profile, source: "testReward", eventKey: "test-setup")
-        try await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+        try await env.equipmentService.buyItem(item: crown, profile: env.profile)
         #expect(env.equipmentService.isEquipped(item: crown, profile: env.profile))
 
-        try await env.equipmentService.toggleEquip(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+        try await env.equipmentService.toggleEquip(item: crown, profile: env.profile)
         #expect(!env.equipmentService.isEquipped(item: crown, profile: env.profile))
         #expect(env.equipmentService.equippedItem(for: .headwear, profile: env.profile) == nil)
 
-        try await env.equipmentService.toggleEquip(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+        try await env.equipmentService.toggleEquip(item: crown, profile: env.profile)
         #expect(env.equipmentService.isEquipped(item: crown, profile: env.profile))
         #expect(env.equipmentService.equippedItem(for: .headwear, profile: env.profile) == crown)
     }
@@ -314,7 +309,6 @@ struct EquipmentServiceTests {
     @Test
     func `buyItem succeeds when cached profile level meets requirement despite stale profile snapshot`() async throws {
         let env = try makeIsolatedEnvironment()
-        let sound = SoundManager()
 
         try await env.gemService.creditGems(amount: 300, to: env.profile, source: "testReward", eventKey: "test-setup")
         let item = try #require(ShopItem.item(withId: "weapon_holy_mace"))
@@ -323,7 +317,7 @@ struct EquipmentServiceTests {
         var staleProfile = env.profile
         staleProfile.level = 1
 
-        try await env.equipmentService.buyItem(item: item, profile: staleProfile, gemService: env.gemService, soundManager: sound)
+        try await env.equipmentService.buyItem(item: item, profile: staleProfile)
         #expect(env.equipmentService.isOwned(item: item, profile: env.profile))
     }
 
@@ -372,13 +366,12 @@ struct EquipmentServiceTests {
     func `concurrent duplicate eventKey via equipment purchase does not double mint`() async throws {
         let env = try makeIsolatedEnvironment()
         try await env.gemService.creditGems(amount: 500, to: env.profile, source: "testReward", eventKey: "setup-concurrent-buy")
-        let sound = SoundManager()
         let crown = try #require(ShopItem.item(withId: "headwear_golden_crown"))
 
         var tasks: [Task<Void, Never>] = []
         for _ in 0 ..< 5 {
             tasks.append(Task { @MainActor in
-                try? await env.equipmentService.buyItem(item: crown, profile: env.profile, gemService: env.gemService, soundManager: sound)
+                try? await env.equipmentService.buyItem(item: crown, profile: env.profile)
             })
         }
         for task in tasks {

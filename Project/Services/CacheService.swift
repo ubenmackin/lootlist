@@ -25,7 +25,7 @@ final class CacheService {
         var ledgerEntryFetchScopes: [String?] = []
     #endif
 
-    @ObservationIgnored private var didSaveObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private nonisolated(unsafe) var didSaveObserver: (any NSObjectProtocol)?
 
     var context: ModelContext? {
         container?.mainContext
@@ -68,10 +68,8 @@ final class CacheService {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            if let token = self.didSaveObserver {
-                NotificationCenter.default.removeObserver(token)
-            }
+        if let token = didSaveObserver {
+            NotificationCenter.default.removeObserver(token)
         }
     }
 

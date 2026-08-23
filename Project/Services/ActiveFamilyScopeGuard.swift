@@ -183,21 +183,10 @@ enum ActiveFamilyScopeGuard {
             throw ScopeViolation.identityMismatch
         }
 
-        let legacyPlaceholderCreators: Set<String> = [
-            "owner",
-            "Owner1",
-            "__defaultOwner__",
-            "_defaultOwner_",
-            CKCurrentUserDefaultName,
-            ""
-        ]
-
         // Creator is checked only when resolved — nil (legacy) is not a proven mismatch.
         if let creator = profile.creatorUserRecordName {
             guard creator == currentUserRecordName
-                || creator == CKCurrentUserDefaultName
-                || creator == "_defaultOwner_"
-                || legacyPlaceholderCreators.contains(creator)
+                || AppConstants.Security.legacyPlaceholderCreators.contains(creator)
             else {
                 throw ScopeViolation.identityMismatch
             }
@@ -205,7 +194,7 @@ enum ActiveFamilyScopeGuard {
 
         if isOwner, let familyCreator = family.creatorUserRecordName {
             guard familyCreator == currentUserRecordName
-                || legacyPlaceholderCreators.contains(familyCreator)
+                || AppConstants.Security.legacyPlaceholderCreators.contains(familyCreator)
             else {
                 throw ScopeViolation.identityMismatch
             }

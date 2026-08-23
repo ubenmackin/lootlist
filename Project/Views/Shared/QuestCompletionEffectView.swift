@@ -142,7 +142,7 @@ struct QuestCompletionEffectView: View {
         particlesActive = false
         flashVisible = false
 
-        Task { @MainActor in
+        Task {
             // Small delay to allow layout
             try? await Task.sleep(nanoseconds: 10_000_000)
 
@@ -163,7 +163,7 @@ struct QuestCompletionEffectView: View {
 
             // 4. Gold text pop (delayed by 0.2s)
             if goldEarned != nil {
-                Task { @MainActor in
+                Task {
                     try? await Task.sleep(nanoseconds: 200_000_000)
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                         goldScale = 1.2

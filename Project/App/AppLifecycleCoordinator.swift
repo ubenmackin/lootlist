@@ -118,8 +118,8 @@ final class AppLifecycleCoordinator {
     /// Injected scheduler so tests can simulate a failing `scheduleWeeklyPayoutRefresh`.
     private let payoutScheduler: (PayoutDay) -> Bool
 
-    @ObservationIgnored private var sessionClearObserver: NSObjectProtocol?
-    @ObservationIgnored private var zoneChangeObserver: NSObjectProtocol?
+    @ObservationIgnored private nonisolated(unsafe) var sessionClearObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private nonisolated(unsafe) var zoneChangeObserver: (any NSObjectProtocol)?
 
     // MARK: - Initialization
 
@@ -192,13 +192,11 @@ final class AppLifecycleCoordinator {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            if let observer = self.sessionClearObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = self.zoneChangeObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
+        if let observer = sessionClearObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = zoneChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 

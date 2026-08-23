@@ -56,6 +56,8 @@ enum BonusObjectiveServiceError: Error, Equatable, LocalizedError {
 @Observable
 final class BonusObjectiveService {
     private let cloudKitService: any CloudKitServiceProtocol
+    private let gemService: GemService?
+    private let soundManager: SoundManager?
 
     var cacheService: CacheService?
     var appState: AppState?
@@ -70,12 +72,17 @@ final class BonusObjectiveService {
         ObjectiveTemplate(type: .completeTwoQuests, title: "Double Duty", description: "Complete at least 2 quests today", reward: 15)
     ]
 
-    init(cloudKitService: any CloudKitServiceProtocol,
-         cacheService: CacheService? = nil,
-         appState: AppState? = nil,
-         syncCoordinator: CKSyncEngineCoordinator? = nil)
-    {
+    init(
+        cloudKitService: any CloudKitServiceProtocol,
+        gemService: GemService? = nil,
+        soundManager: SoundManager? = nil,
+        cacheService: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) {
         self.cloudKitService = cloudKitService
+        self.gemService = gemService
+        self.soundManager = soundManager
         self.cacheService = cacheService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
@@ -154,10 +161,20 @@ final class BonusObjectiveService {
         }
     }
 
-    func claimObjective(objective: BonusObjective, profile: Profile, gemService: GemService, soundManager: SoundManager) async throws {
+    func claimObjective(
+        objective: BonusObjective,
+        profile: Profile,
+        gemService customGemService: GemService? = nil,
+        soundManager customSoundManager: SoundManager? = nil
+    ) async throws {
         guard let appState else {
             throw BonusObjectiveServiceError.unauthorizedProfile
         }
+        guard let activeGemService = customGemService ?? gemService else {
+            throw BonusObjectiveServiceError.authoritativeRecordsUnavailable
+        }
+        let activeSoundManager = customSoundManager ?? soundManager
+
         try ActiveFamilyScopeGuard.requireAuthenticatedActiveProfile(profile, appState: appState)
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             familyRecordName: profile.family.recordID.recordName,
@@ -252,7 +269,7 @@ final class BonusObjectiveService {
 
         current.claimedBonusObjectives.append(canonicalObjective.id)
 
-        try await gemService.creditGems(
+        try await activeGemService.creditGems(
             amount: canonicalObjective.gemReward,
             to: current,
             source: "bonusObjective",
@@ -266,7 +283,7 @@ final class BonusObjectiveService {
             }
         }
 
-        soundManager.play(.gemEarned)
+        activeSoundManager?.play(.gemEarned)
     }
 
     func isClaimed(objective: BonusObjective, profile: Profile) -> Bool {

@@ -60,7 +60,7 @@ final class FamilyDashboardViewModel {
     /// Stable, non-PII row token cache. Each unique identity key is mapped to
     /// a deterministic SHA256 token on first encounter and reused on
     /// subsequent calls so SwiftUI row identity stays stable across refreshes.
-    private static var identityTokenCache: [String: String] = [:]
+    private var identityTokenCache: [String: String] = [:]
 
     /// Per-refresh counter for assigning sequential numeric labels to
     /// identities. Reset at the start of each `refreshInvitations()` call so
@@ -263,7 +263,7 @@ final class FamilyDashboardViewModel {
         }
         if status.isRemoved {
             return FamilyInvitation(
-                id: Self.opaqueIdentityToken(key),
+                id: opaqueIdentityToken(key),
                 identity: identityDisplay(for: key, recordName: status.recordName, participant: participant),
                 statusText: "Removed",
                 participant: participant,
@@ -274,7 +274,7 @@ final class FamilyDashboardViewModel {
         }
         if let recordName = status.recordName, let displayName = inactiveIdentities[recordName] {
             return FamilyInvitation(
-                id: Self.opaqueIdentityToken(key),
+                id: opaqueIdentityToken(key),
                 identity: displayName,
                 statusText: "Left the guild — revoke share access",
                 participant: participant,
@@ -285,7 +285,7 @@ final class FamilyDashboardViewModel {
         }
         if let recordName = status.recordName {
             return FamilyInvitation(
-                id: Self.opaqueIdentityToken(key),
+                id: opaqueIdentityToken(key),
                 identity: identityDisplay(for: key, recordName: recordName, participant: participant),
                 statusText: "Accepted",
                 participant: participant,
@@ -318,7 +318,7 @@ final class FamilyDashboardViewModel {
         let targetRole = recordName.flatMap { roleMap[$0] } ?? pKey.flatMap { roleMap[$0] }
         let isRemoved = participant.acceptanceStatus == .removed
         return FamilyInvitation(
-            id: Self.invitationID(for: participant),
+            id: invitationID(for: participant),
             identity: participantIdentityDisplay(participant),
             statusText: isRemoved ? "Removed" : Self.invitationStatusText(participant.acceptanceStatus),
             participant: participant,
@@ -399,7 +399,7 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    private static func invitationID(for participant: CKShare.Participant) -> String {
+    private func invitationID(for participant: CKShare.Participant) -> String {
         // Hash identity key to create stable, non-PII row tokens.
         if let key = ShareParticipantKey.key(for: participant) {
             return opaqueIdentityToken(key)
@@ -408,7 +408,7 @@ final class FamilyDashboardViewModel {
     }
 
     /// Generates a stable, non-PII SHA256 token for row identification.
-    private static func opaqueIdentityToken(_ value: String) -> String {
+    private func opaqueIdentityToken(_ value: String) -> String {
         if let cached = identityTokenCache[value] {
             return cached
         }
