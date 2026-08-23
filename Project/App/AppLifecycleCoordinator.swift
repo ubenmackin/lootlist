@@ -118,8 +118,8 @@ final class AppLifecycleCoordinator {
     /// Injected scheduler so tests can simulate a failing `scheduleWeeklyPayoutRefresh`.
     private let payoutScheduler: (PayoutDay) -> Bool
 
-    @ObservationIgnored private nonisolated(unsafe) var sessionClearObserver: (any NSObjectProtocol)?
-    @ObservationIgnored private nonisolated(unsafe) var zoneChangeObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var sessionClearToken: NotificationToken?
+    @ObservationIgnored private var zoneChangeToken: NotificationToken?
 
     // MARK: - Initialization
 
@@ -147,7 +147,7 @@ final class AppLifecycleCoordinator {
         // `resetState` on the sync coordinator clears engines, but without clearing
         // `lastSynchronizedScopeKey` a subsequent sign-in to a different family
         // whose scope string collides could skip `initializeEngines`.
-        sessionClearObserver = NotificationCenter.default.addObserver(
+        sessionClearToken = NotificationToken(NotificationCenter.default.addObserver(
             forName: .didClearSession,
             object: nil,
             queue: .main
@@ -155,12 +155,12 @@ final class AppLifecycleCoordinator {
             Task { @MainActor in
                 self?.invalidateScopeStateForSessionClear()
             }
-        }
+        })
 
         // Observe zone identity changes that occur without an engine reset so a
         // stale `lastSynchronizedScopeKey` does not make a new zone appear
         // already synchronized.
-        zoneChangeObserver = NotificationCenter.default.addObserver(
+        zoneChangeToken = NotificationToken(NotificationCenter.default.addObserver(
             forName: .didChangeFamilyZoneID,
             object: nil,
             queue: .main
@@ -168,7 +168,7 @@ final class AppLifecycleCoordinator {
             Task { @MainActor in
                 self?.invalidateScopeForZoneChange()
             }
-        }
+        })
     }
 
     /// Convenience initializer preserving the existing `CKSyncEngineCoordinator` call site.
@@ -189,15 +189,6 @@ final class AppLifecycleCoordinator {
             autoPayoutCoordinator: autoPayoutCoordinator,
             payoutScheduler: nil
         )
-    }
-
-    deinit {
-        if let observer = sessionClearObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = zoneChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
     }
 
     // MARK: - Scope Invalidation

@@ -44,12 +44,12 @@ struct Toast: Identifiable, Sendable {
     let type: ToastType
     /// Optional action invoked when the user taps the toast body. The toast is
     /// always dismissed by the X button regardless of whether this is set.
-    let dismissAction: (@Sendable () -> Void)?
+    let dismissAction: (@Sendable @MainActor () -> Void)?
 
     init(id: UUID = UUID(),
          message: String,
          type: ToastType,
-         dismissAction: (@Sendable () -> Void)? = nil)
+         dismissAction: (@Sendable @MainActor () -> Void)? = nil)
     {
         self.id = id
         self.message = message
@@ -93,7 +93,7 @@ final class ToastManager {
     @discardableResult
     func show(message: String,
               type: ToastType = .info,
-              dismissAction: (@Sendable () -> Void)? = nil) -> UUID
+              dismissAction: (@Sendable @MainActor () -> Void)? = nil) -> UUID
     {
         // Deduplication: if an identical toast is already active, refresh its timer and avoid stacking duplicates.
         if let existing = toasts.first(where: { $0.message == message && $0.type == type }) {

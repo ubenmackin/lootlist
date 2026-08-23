@@ -20,6 +20,8 @@ struct LootDropOverlayView: View {
     @State private var glowScale: CGFloat = 0.5
     @State private var glowOpacity: Double = 0.0
 
+    @State private var animationTask: Task<Void, Never>?
+
     enum AnimationPhase {
         case hidden
         case poppingIn
@@ -43,6 +45,9 @@ struct LootDropOverlayView: View {
                     .accessibilityAddTraits(.isModal)
                     .onAppear {
                         startAnimationSequence()
+                    }
+                    .onDisappear {
+                        animationTask?.cancel()
                     }
             }
         }
@@ -137,6 +142,7 @@ struct LootDropOverlayView: View {
     }
 
     private func startAnimationSequence() {
+        animationTask?.cancel()
         phase = .hidden
         chestRotation = 0
         glowScale = 0.5
@@ -147,22 +153,27 @@ struct LootDropOverlayView: View {
             phase = .poppingIn
         }
 
-        // 2. Wobble
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        animationTask = Task { @MainActor in
+            // 2. Wobble
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+
             phase = .wobbling
             withAnimation(.easeInOut(duration: 0.1).repeatCount(5, autoreverses: true)) {
                 chestRotation = 15
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                withAnimation {
-                    chestRotation = 0
-                }
-            }
-        }
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
 
-        // 3. Open
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation {
+                chestRotation = 0
+            }
+
+            // 3. Open (0.2s after wobble finishes, matching the 1.2s total delay)
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                 phase = .opened
                 glowScale = 2.5
@@ -181,15 +192,18 @@ struct LootDropOverlayView: View {
             triggerHaptic()
 
             // Auto-dismiss after 4.5 seconds from opening
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
-                if isPresented {
-                    dismiss()
-                }
+            try? await Task.sleep(for: .milliseconds(4500))
+            guard !Task.isCancelled else { return }
+
+            if isPresented {
+                dismiss()
             }
         }
     }
 
     private func dismiss() {
+        animationTask?.cancel()
+        animationTask = nil
         withAnimation {
             isPresented = false
             phase = .hidden
