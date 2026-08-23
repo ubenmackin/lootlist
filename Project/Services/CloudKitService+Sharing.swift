@@ -33,19 +33,7 @@ extension CloudKitService {
                 let zone = CKRecordZone(zoneID: zoneID)
                 do {
                     _ = try await retrying { () -> CKRecordZone in
-                        try await withCheckedThrowingContinuation { continuation in
-                            pvtDB.save(zone) { zone, error in
-                                if let error {
-                                    continuation.resume(throwing: error)
-                                } else {
-                                    guard let zone else {
-                                        continuation.resume(throwing: CKError(.internalError))
-                                        return
-                                    }
-                                    continuation.resume(returning: zone)
-                                }
-                            }
-                        }
+                        try await pvtDB.save(zone)
                     }
                 } catch {
                     throw CloudKitServiceError.zoneSetupFailed(
@@ -156,24 +144,25 @@ extension CloudKitService {
     }
 
     private func persistShare(_ share: CKShare, with rootRecord: CKRecord, using pvtDB: CKDatabase) async throws -> CKShare {
-        let operation = CKModifyRecordsOperation(
-            recordsToSave: [rootRecord, share],
-            recordIDsToDelete: nil
-        )
-        operation.isAtomic = true
-
-        return try await withCheckedThrowingContinuation { continuation in
-            operation.modifyRecordsResultBlock = { result in
-                switch result {
-                case .success:
-                    continuation.resume(returning: share)
-                case .failure:
-                    continuation.resume(throwing: CloudKitServiceError.shareFailed(
-                        "Could not create the iCloud share. Please try again."
-                    ))
-                }
+        do {
+            let (savedRecords, _) = try await pvtDB.modifyRecords(
+                saving: [rootRecord, share],
+                deleting: [],
+                savePolicy: .ifServerRecordUnchanged,
+                atomically: true
+            )
+            guard let savedShare = savedRecords[share.recordID], case .success = savedShare else {
+                throw CloudKitServiceError.shareFailed(
+                    "Could not create the iCloud share. Please try again."
+                )
             }
-            pvtDB.add(operation)
+            return share
+        } catch let serviceError as CloudKitServiceError {
+            throw serviceError
+        } catch {
+            throw CloudKitServiceError.shareFailed(
+                "Could not create the iCloud share. Please try again."
+            )
         }
     }
 
@@ -225,30 +214,22 @@ extension CloudKitService {
     func acceptShare(metadata: CKShare.Metadata) async throws {
         let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "Untitled Share"
         logger.info("Accepting share invitation for \(title, privacy: .private)...")
-        let operation = CKAcceptSharesOperation(shareMetadatas: [metadata])
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            operation.acceptSharesResultBlock = { result in
-                switch result {
-                case .success:
-                    self.logger.info("Accepted share invitation for \(title, privacy: .private)")
-                    continuation.resume()
-                case let .failure(error):
-                    let code = (error as NSError).domain == CKErrorDomain
-                        ? CKError.Code(rawValue: (error as NSError).code)
-                        : nil
-                    self.logger.error("Accepting share invitation failed: \(error, privacy: .private)")
-                    // The raw CloudKit error is logged above with a `.private`
-                    // annotation and must never reach the user-facing string —
-                    // keep the accept-failure message static and generic. The
-                    // symbolic `code` remains available for classification.
-                    continuation.resume(throwing: CloudKitServiceError.shareAcceptFailed(
-                        code: code,
-                        message: "The share invitation could not be accepted."
-                    ))
-                }
-            }
-            container.add(operation)
+        do {
+            _ = try await container.accept(metadata)
+            logger.info("Accepted share invitation for \(title, privacy: .private)")
+        } catch {
+            let code = (error as NSError).domain == CKErrorDomain
+                ? CKError.Code(rawValue: (error as NSError).code)
+                : nil
+            logger.error("Accepting share invitation failed: \(error, privacy: .private)")
+            // The raw CloudKit error is logged above with a `.private`
+            // annotation and must never reach the user-facing string —
+            // keep the accept-failure message static and generic. The
+            // symbolic `code` remains available for classification.
+            throw CloudKitServiceError.shareAcceptFailed(
+                code: code,
+                message: "The share invitation could not be accepted."
+            )
         }
     }
 
