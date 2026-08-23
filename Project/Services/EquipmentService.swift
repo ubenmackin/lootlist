@@ -14,6 +14,7 @@ enum EquipmentError: LocalizedError, Sendable, Equatable {
     case levelTooLow(required: Int)
     case insufficientGems(required: Int, current: Int)
     case notOwned
+    case authoritativeRecordsUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ enum EquipmentError: LocalizedError, Sendable, Equatable {
             "Need \(required) gems, but you have \(current) 💎."
         case .notOwned:
             "You must purchase this item before equipping it!"
+        case .authoritativeRecordsUnavailable:
+            "Your guild data is not available yet. Please try again."
         }
     }
 }
@@ -34,19 +37,25 @@ enum EquipmentError: LocalizedError, Sendable, Equatable {
 final class EquipmentService {
     private let cloudKitService: any CloudKitServiceProtocol
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "Equipment")
-
+    private let gemService: GemService?
+    private let soundManager: SoundManager?
     var cacheService: CacheService?
     var appState: AppState?
     var syncCoordinator: CKSyncEngineCoordinator?
 
     private(set) var revision: Int = 0
 
-    init(cloudKitService: any CloudKitServiceProtocol,
-         cacheService: CacheService? = nil,
-         appState: AppState? = nil,
-         syncCoordinator: CKSyncEngineCoordinator? = nil)
-    {
+    init(
+        cloudKitService: any CloudKitServiceProtocol,
+        gemService: GemService? = nil,
+        soundManager: SoundManager? = nil,
+        cacheService: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) {
         self.cloudKitService = cloudKitService
+        self.gemService = gemService
+        self.soundManager = soundManager
         self.cacheService = cacheService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
@@ -130,9 +139,15 @@ final class EquipmentService {
     func buyItem(
         item: ShopItem,
         profile: Profile,
-        gemService: GemService,
-        soundManager: SoundManager
+        gemService customGemService: GemService? = nil,
+        soundManager customSoundManager: SoundManager? = nil
     ) async throws {
+        guard let activeGemService = customGemService ?? gemService else {
+            logger.error("buyItem failed: GemService is not available.")
+            throw EquipmentError.authoritativeRecordsUnavailable
+        }
+        let activeSoundManager = customSoundManager ?? soundManager
+
         // Re-resolve the authoritative profile BEFORE the level and gem spend checks so the
         // upsert inside `GemService.spendGems` carries the real owned-equipment and level
         // list forward — the passed `profile` copy may carry a stale snapshot.
@@ -146,12 +161,12 @@ final class EquipmentService {
             throw EquipmentError.levelTooLow(required: item.requiredLevel)
         }
 
-        let currentBalance = try gemService.balance(for: current.id.recordName, familyRecordName: current.family.recordID.recordName)
+        let currentBalance = try activeGemService.balance(for: current.id.recordName, familyRecordName: current.family.recordID.recordName)
         guard currentBalance >= item.gemPrice else {
             throw EquipmentError.insufficientGems(required: item.gemPrice, current: currentBalance)
         }
 
-        let success = try await gemService.spendGems(
+        let success = try await activeGemService.spendGems(
             amount: item.gemPrice,
             from: current,
             itemID: item.id,
@@ -178,14 +193,13 @@ final class EquipmentService {
         persist(current)
 
         logger.info("Successfully purchased \(item.name) for \(item.gemPrice) gems by profile \(profile.displayName)")
-        soundManager.play(.shopPurchase)
+        activeSoundManager?.play(.shopPurchase)
     }
 
     func toggleEquip(
         item: ShopItem,
         profile: Profile,
-        gemService _: GemService,
-        soundManager: SoundManager
+        soundManager customSoundManager: SoundManager? = nil
     ) async throws {
         guard isOwned(item: item, profile: profile) else {
             throw EquipmentError.notOwned
@@ -197,7 +211,8 @@ final class EquipmentService {
             equip(item: item, profile: profile)
         }
 
-        soundManager.play(.equipItem)
+        let activeSoundManager = customSoundManager ?? soundManager
+        activeSoundManager?.play(.equipItem)
     }
 
     func equip(item: ShopItem, profile: Profile) {

@@ -73,7 +73,7 @@ Adding a new cached record type REQUIRES all of: `*Cache` @Model conforming `Fam
 **Outbound:** engine requests batch → `RecordBridge` synthesizes current CKRecord from SwiftData, rehydrating stored changeTag + encodedSystemFields (optimistic locking). Dangling pending saves whose cache row vanished resolve fail-closed via `confirmedLocalDeletion` (absence proven across ALL tables) before converting save→delete. After successful send: persist ONLY the server-acked changeTag/encodedSystemFields (`BackgroundCacheActor.updateSystemFields`). Never re-upsert sent record payloads.
 
 **Inbound (single ingestion path):**
-`CKRecord[] → ingest() → fail-closed guards → BackgroundCacheActor.parseAndUpsert (parse + scope validation off-main) → single-save batch commit → ParseOutcome accounting → optional sync notifications`.
+`CKRecord[] → ingest() → fail-closed guards → parse + scope validation → BackgroundCacheActor.batchUpsertParsedRecords (single-save batch commit) → accounting → optional sync notifications`.
 
 Ingestion contract:
 - Drop records when no active session OR caller zone ≠ active family zone (re-delivered later via persisted change tokens).
@@ -120,7 +120,7 @@ DON'T:
 - Don't call CKDatabase/cloudKitService methods from Views or ViewModels — even "just for a fallback." Add a cache-first service method instead (hydrate the cache row, don't re-enqueue server-originated saves).
 - Don't write query results directly into CacheService/BackgroundCacheActor outside `ingest()` — this silently drops encodedSystemFields, bypasses conflict resolution, and can clobber unsynced edits.
 - Don't re-upsert sent records after successful sends; only refresh their system fields.
-- Don't parse incoming records on the main thread; parsing belongs inside BackgroundCacheActor.
+- Inbound CKRecords are parsed canonically on the sync engine handler into Sendable ParsedRecord domain models before passing to BackgroundCacheActor (parsing is in-memory-only and sub-millisecond).
 - Don't alter conflict merge formulas, XP ledger semantics, or watermark stamping conditions without explicit architecture review.
 - Don't put authoritative domain state in UserDefaults.
 - Don't reference planning artifacts (session IDs, task IDs, tickets) in code comments.

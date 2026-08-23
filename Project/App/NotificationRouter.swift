@@ -179,12 +179,12 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
                 return
             }
 
-            let cachedLog = deps.cacheService?
-                .fetchQuestCompletions(family: deps.appState.family?.id.recordName)
-                .first { $0.recordName == questLogID }
-            guard let questLog = cachedLog?.toQuestCompletion(zoneID: zoneID) else {
+            guard let familyName = deps.appState.family?.id.recordName,
+                  let cachedLog = deps.cacheService?.fetchQuestCompletion(recordName: questLogID, family: familyName)
+            else {
                 return
             }
+            let questLog = cachedLog.toQuestCompletion(zoneID: zoneID)
 
             do {
                 switch verificationAction {

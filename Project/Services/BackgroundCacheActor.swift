@@ -10,33 +10,6 @@ import Foundation
 import os
 import SwiftData
 
-/// Aggregate result of an off-main ingestion pass. Beyond the counters, it
-/// carries the accepted ParsedRecords back to the MainActor caller (sync
-/// notifications must fire against domain models on the session actor) and a
-/// write-success flag so a failed single-save commit surfaces through the same
-/// noteCacheWriteFailure path as a nil cache — without opening a second write
-/// mechanism.
-struct ParseOutcome: Sendable {
-    let received: Int
-    let accepted: Int
-    let parseFailures: Int
-    let scopeRejections: Int
-    let acceptedRecords: [ParsedRecord]
-    let writeSucceeded: Bool
-}
-
-/// Sendable hand-off box for inbound CKRecord batches crossing the
-/// MainActor → BackgroundCacheActor boundary. CKRecord carries no Sendable
-/// conformance from CloudKit, but a record received from a sync event acts as
-/// an immutable value snapshot once decoded off the wire: the handing side
-/// never touches it again after the batch departs and this actor holds the
-/// sole reference on arrival, so no data race is possible despite the missing
-/// conformance. This is the only sanctioned way raw records enter the actor —
-/// everything else crosses as ParsedRecord domain values.
-struct IncomingRecordBatch: @unchecked Sendable {
-    let records: [CKRecord]
-}
-
 /// Sendable descriptor for one server-stamped system-field refresh on an
 /// existing cache row. Carries only plain values so a whole save round-trip
 /// can cross to the background actor and commit under a single context save
@@ -241,91 +214,6 @@ actor BackgroundCacheActor {
         return await SerialMutationQueue.shared.write {
             await self.commitParsedBatch(capturedBatch)
         }
-    }
-
-    /// Off-main ingestion entry point: parses inbound CKRecords, validates
-    /// each against the active family scope, and commits survivors through the
-    /// shared single-save pipeline. All scope inputs arrive as value
-    /// parameters so this actor never reads MainActor session state — the
-    /// caller resolves them first. Keeping parsing here moves CPU-bound record
-    /// decoding off the main thread for large fetch batches without creating a
-    /// second persistence pipeline; scope rejection semantics mirror the
-    /// previous MainActor loop exactly (expected DB scope derives from
-    /// isZoneOwner, matching how the private/shared engine split is decided).
-    func parseAndUpsert(
-        records: IncomingRecordBatch,
-        expectedScope: CKDatabase.Scope,
-        familyRecordName: String,
-        activeZone: CKRecordZone.ID,
-        isZoneOwner: Bool
-    ) async -> ParseOutcome {
-        let records = records.records
-        let expectedDbScope: CKDatabase.Scope = isZoneOwner ? .private : .shared
-
-        var accepted: [ParsedRecord] = []
-        var parseFailures = 0
-        var scopeRejections = 0
-
-        for record in records {
-            // The identity is anchored on the record's own zone, not the
-            // session's active zone — otherwise a record from any other zone
-            // would validate against itself and the gate could never reject
-            // it.
-            let identity = ScopedRecordIdentity(
-                databaseScope: expectedScope,
-                zoneID: record.recordID.zoneID,
-                recordID: record.recordID,
-                familyRecordName: familyRecordName
-            )
-
-            // Same fail-closed scope gate as every other ingestion path.
-            guard identity.matchesActiveScope(
-                expectedFamily: familyRecordName,
-                expectedZone: activeZone,
-                expectedDatabase: expectedDbScope
-            ) else {
-                scopeRejections += 1
-                logger.debug("Skipping incoming record outside active scope: \(record.recordID.recordName)")
-                continue
-            }
-
-            let parsed = ParsedRecord.parse(record: record)
-            switch parsed {
-            case .parseFailure:
-                parseFailures += 1
-                logger.error("Parse failure for incoming record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
-            case .ignoredSystemRecord:
-                logger.debug("Ignored system record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
-            default:
-                accepted.append(parsed)
-            }
-        }
-
-        guard !accepted.isEmpty else {
-            return ParseOutcome(
-                received: records.count,
-                accepted: 0,
-                parseFailures: parseFailures,
-                scopeRejections: scopeRejections,
-                acceptedRecords: [],
-                writeSucceeded: true
-            )
-        }
-
-        // Concurrent batch commits (e.g. private + shared engines racing) are
-        // linearized by SerialMutationQueue.shared inside
-        // batchUpsertParsedRecords, and each commit lands the entire batch in
-        // one ModelContext.save — the identical path every other entry point
-        // funnels through.
-        let writeSuccess = await batchUpsertParsedRecords(accepted)
-        return ParseOutcome(
-            received: records.count,
-            accepted: writeSuccess ? accepted.count : 0,
-            parseFailures: parseFailures,
-            scopeRejections: scopeRejections,
-            acceptedRecords: writeSuccess ? accepted : [],
-            writeSucceeded: writeSuccess
-        )
     }
 
     /// Single-transaction commit: accumulates all inserts/updates across

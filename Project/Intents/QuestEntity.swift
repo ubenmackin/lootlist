@@ -57,7 +57,12 @@ struct QuestEntityQuery: EntityStringQuery {
                   let cacheService = dep.cacheService
             else { return [] }
             let familyName = dep.appState.family?.id.recordName
-            let quests = cacheService.fetchQuests(family: familyName).filter(\.isActive)
+            let currentProfile = dep.appState.currentProfile
+            let profileRecordName = currentProfile?.id.recordName
+            // Mirror markComplete authorization: a parent may act on any
+            // family quest; everyone else only sees their own assignments.
+            let quests = cacheService.fetchQuests(family: familyName)
+                .filter { $0.isActive && (currentProfile?.role.isParent == true || $0.assigneeRecordName == profileRecordName) }
 
             return quests.map { questCache in
                 let formattedReward = CurrencyFormatter.string(questCache.goldReward)

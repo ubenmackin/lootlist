@@ -118,31 +118,56 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             )
         }
 
+        // Distinguishable race results: both arms yield a non-nil value so the
+        // for-await loop always terminates when either side finishes — a bare
+        // Optional here would treat the 25s deadline's `nil` as "no result yet"
+        // and defer completion past the APNs budget.
+        enum RemoteSyncRace: Sendable {
+            case completed(SyncOutcome)
+            case deadlineExpired
+        }
+
         Task { @MainActor in
             let syncNotifications = NotificationCenter.default.notifications(named: .syncDidComplete)
 
-            if let lifecycleCoordinator = AppDependencies.shared?.lifecycleCoordinator {
-                await lifecycleCoordinator.handleRemoteNotification()
-            }
-
-            let outcome: SyncOutcome? = await withTaskGroup(of: SyncOutcome?.self) { group in
+            let raceResult = await withTaskGroup(of: RemoteSyncRace.self) { group in
                 group.addTask {
                     for await notification in syncNotifications {
                         if let value = notification.userInfo?[SyncOutcome.userInfoKey] as? SyncOutcome {
-                            return value
+                            return .completed(value)
                         }
                     }
-                    return nil
+                    return .deadlineExpired
                 }
                 group.addTask {
                     try? await Task.sleep(for: .seconds(25))
-                    return nil
+                    return .deadlineExpired
                 }
-                let first = await group.next()
+
+                Task { @MainActor in
+                    if let lifecycleCoordinator = AppDependencies.shared?.lifecycleCoordinator {
+                        await lifecycleCoordinator.handleRemoteNotification()
+                    }
+                }
+
+                var winner: RemoteSyncRace = .deadlineExpired
+                for await result in group {
+                    winner = result
+                    break
+                }
+                // Whichever side wins the race (sync outcome or the 25s
+                // deadline), the other child must be cancelled so the group
+                // unwinds instead of blocking forever on the notification
+                // stream.
                 group.cancelAll()
-                return first ?? nil
+                return winner
             }
-            completionHandler((outcome ?? .failed).backgroundFetchResult)
+            switch raceResult {
+            case let .completed(outcome):
+                completionHandler(outcome.backgroundFetchResult)
+            case .deadlineExpired:
+                completionHandler(.failed)
+            }
         }
     }
 

@@ -5,9 +5,23 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import Foundation
 
 enum AppConstants {
+    enum Security {
+        /// Placeholder creator identifiers used by CloudKit in various legacy
+        /// and simulator contexts. Checked when verifying record ownership.
+        /// Computed per access so an in-process iCloud account switch never
+        /// observes a stale default-owner name.
+        static var legacyPlaceholderCreators: Set<String> {
+            [
+                "owner", "Owner1", "__defaultOwner__", "_defaultOwner_",
+                CKCurrentUserDefaultName, ""
+            ]
+        }
+    }
+
     enum Experience {
         static let stepBase: Int = 100
         static let accessoryCadence: Int = 5

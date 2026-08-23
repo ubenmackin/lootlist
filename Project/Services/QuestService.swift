@@ -10,7 +10,7 @@ import Foundation
 import os
 import Synchronization
 
-enum QuestServiceError: Error, Equatable, Sendable {
+enum QuestServiceError: Error, Equatable, Sendable, LocalizedError {
     case missingSession
 
     case alreadyCompleted
@@ -22,6 +22,23 @@ enum QuestServiceError: Error, Equatable, Sendable {
     case missingRecord(String)
 
     case staleData(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingSession:
+            "No active session — please sign in again."
+        case .alreadyCompleted:
+            "This quest has already been completed."
+        case .alreadyInFlight:
+            "This quest is already being processed."
+        case let .alreadyResolved(detail):
+            "This quest has already been resolved: \(detail)"
+        case let .missingRecord(detail):
+            "Quest record not found: \(detail)"
+        case let .staleData(detail):
+            "Quest data is out of date — please refresh: \(detail)"
+        }
+    }
 }
 
 @MainActor

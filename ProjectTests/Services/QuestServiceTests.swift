@@ -808,4 +808,25 @@ struct QuestServiceTests {
         #expect(cachedAfterSuccess.verificationStatus == VerificationStatus.verified.rawValue)
         #expect(cachedAfterSuccess.xpCredited == 50)
     }
+
+    @Test
+    func `markComplete throws when hero tries to complete another hero's quest`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let otherHeroID = CKRecord.ID(recordName: "hero2", zoneID: scaffold.zoneID)
+        let otherHero = Profile(
+            displayName: "Other Hero",
+            avatarClass: .rogue,
+            avatarPresetID: "rogue_01",
+            role: .hero,
+            iCloudUserID: otherHeroID,
+            family: scaffold.familyRef,
+            id: otherHeroID
+        )
+        scaffold.cache.upsertProfile(otherHero)
+        scaffold.appState.currentProfile = otherHero
+
+        await #expect(throws: FamilyServiceError.unauthorized) {
+            try await scaffold.questService.markComplete(quest: scaffold.quest, by: otherHero)
+        }
+    }
 }

@@ -118,8 +118,8 @@ final class AppDependencies {
         let lootDrop = LootDropService(gemService: gem, toastManager: toast, soundManager: sound)
         quest.lootDropService = lootDrop
         let dailyLogin = DailyLoginService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let bonusObjective = BonusObjectiveService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let equipment = EquipmentService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let bonusObjective = BonusObjectiveService(cloudKitService: ck, gemService: gem, soundManager: sound, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let equipment = EquipmentService(cloudKitService: ck, gemService: gem, soundManager: sound, cacheService: cache, appState: app, syncCoordinator: syncCoord)
 
         let migrations = Self.makeDataMigrations(cloudKit: ck, cache: cache, backgroundCache: sharedBgActor, syncCoordinator: syncCoord)
 
@@ -323,6 +323,10 @@ struct LootListApp: App {
         dependencies.equipmentService
     }
 
+    private var spendingService: SpendingService {
+        dependencies.spendingService
+    }
+
     var body: some Scene {
         WindowGroup {
             rootViewContent
@@ -390,6 +394,7 @@ struct LootListApp: App {
                 .environment(dailyLoginService)
                 .environment(bonusObjectiveService)
                 .environment(equipmentService)
+                .environment(spendingService)
 
             if let container = cacheService?.container {
                 baseRoot.modelContainer(container)
@@ -426,14 +431,12 @@ struct LootListApp: App {
         guard !TestEnvironment.isRunningUnitOrUITests else { return }
         logger.info("Handling incoming share URL: \(String(describing: url), privacy: .private)")
         let container = cloudKitService.container
-        Task {
+        Task { @MainActor in
             do {
                 let metadata = try await container.shareMetadata(for: url)
                 let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
                 logger.info("Resolved share metadata for incoming share URL (title '\(title, privacy: .private)')")
-                await MainActor.run {
-                    pendingShareMetadata = metadata
-                }
+                pendingShareMetadata = metadata
             } catch {
                 logger.error("Share metadata fetch failed for incoming URL: \(error, privacy: .private)")
             }
@@ -447,14 +450,10 @@ private struct RootView: View {
     let pendingShareMetadata: CKShare.Metadata?
 
     @Environment(AppState.self) private var appState
-    @Environment(CloudKitService.self) private var cloudKitService
     @Environment(FamilyService.self) private var familyService
-    @Environment(CacheService.self) private var cacheService: CacheService?
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
-    @Environment(ToastManager.self) private var toastManager
+    @Environment(SpendingService.self) private var spendingService: SpendingService
 
     @State private var onboardingVM: OnboardingViewModel?
-    @State private var spendingService: SpendingService?
 
     var body: some View {
         Group {
@@ -487,15 +486,9 @@ private struct RootView: View {
                         .background(Color(.systemBackground))
                 }
             case .authenticated:
-                if let spendingService {
-                    TabBarView(spending: spendingService, familyRecordName: appState.family?.id.recordName)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(.systemBackground))
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(.systemBackground))
-                }
+                TabBarView(spending: spendingService, familyRecordName: appState.family?.id.recordName)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(.systemBackground))
             case .offlineEmptyCache:
                 VStack(spacing: 16) {
                     Image(systemName: "wifi.slash")
@@ -521,13 +514,7 @@ private struct RootView: View {
                 )
                 vm.pendingShareMetadata = pendingShareMetadata
                 onboardingVM = vm
-                spendingService = nil
-            case .authenticated:
-                onboardingVM = nil
-                let spending = SpendingService(cloudKit: cloudKitService, cacheService: cacheService, appState: appState, syncCoordinator: syncCoordinator)
-                spending.toastManager = toastManager
-                spendingService = spending
-            case .restoringSession, .checkingCloudData, .detectedPreviousFamily, .offlineEmptyCache:
+            case .authenticated, .restoringSession, .checkingCloudData, .detectedPreviousFamily, .offlineEmptyCache:
                 onboardingVM = nil
             }
         }

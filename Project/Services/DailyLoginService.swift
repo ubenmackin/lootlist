@@ -228,22 +228,23 @@ final class DailyLoginService {
 
     // MARK: - Date helpers
 
-    private func todayString() -> String {
+    /// Shared formatter for the `yyyy-MM-dd` date string format used by
+    /// daily login tracking. Created once and reused.
+    private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.calendar = Calendar.iso8601UTC
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter.string(from: Date())
+        return formatter
+    }()
+
+    private func todayString() -> String {
+        Self.dayFormatter.string(from: Date())
     }
 
     private func dateFromString(_ str: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.calendar = Calendar.iso8601UTC
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter.date(from: str)
+        Self.dayFormatter.date(from: str)
     }
 
     private func yesterday() -> Date? {
