@@ -25,7 +25,18 @@ struct MascotSpriteRenderer {
     }
 
     static func frame(for companion: MascotCompanion, state: MascotState, frameIndex: Int) -> [String] {
-        placeholderFrame(for: companion, state: state, frameIndex: frameIndex)
+        let key = "\(companionKey(companion))_\(stateKey(state))_\(frameIndex % 2)"
+        return MascotSpriteGrids.frames[key] ?? placeholderFrame(for: companion, state: state, frameIndex: frameIndex)
+    }
+
+    private static func companionKey(_ companion: MascotCompanion) -> String {
+        switch companion {
+        case .owl: "owl"
+        case .dragon: "dragon"
+        case .fairy: "fairy"
+        case .fox: "fox"
+        case .cat: "cat"
+        }
     }
 
     private static func placeholderFrame(for companion: MascotCompanion, state: MascotState, frameIndex: Int) -> [String] {

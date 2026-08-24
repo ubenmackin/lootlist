@@ -43,6 +43,7 @@ struct SpriteSnapshotRenderingTests {
             "gear_crystal_staff": ["crystal_staff"],
             "gear_golden_wings": ["golden_wings"],
             "gear_shadow_cloak": ["Shadow Cloak"],
+            "gear_lightning": ["aura_lightning"],
             "gear_full_loadout": ["crown", "golden_wings", "cosmic_aura", "sparkles"]
         ]
         for (name, gear) in gearSets {
@@ -113,21 +114,21 @@ struct SpriteSnapshotRenderingTests {
             }
         }
 
-        guard let provider = CGDataProvider(data: Data(pixels) as CFData),
-              let context = CGContext(
-                  data: nil,
-                  width: width,
-                  height: height,
-                  bitsPerComponent: 8,
-                  bytesPerRow: width * 4,
-                  space: CGColorSpaceCreateDeviceRGB(),
-                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              ),
-              let image = context.makeImage()
-        else {
+        let image = pixels.withUnsafeMutableBytes { raw -> CGImage? in
+            guard let context = CGContext(
+                data: raw.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            return context.makeImage()
+        }
+        guard let image else {
             throw SpriteRenderError.failedToCreateImage
         }
-        _ = provider
         return image
     }
 

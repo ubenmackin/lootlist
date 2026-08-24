@@ -97,83 +97,75 @@ enum HeroAvatarSprites: Sendable {
         return PixelLayer(id: "base_\(preset.rawValue)", matrix: matrix, palette: palette, zIndex: 0)
     }
 
+    /// Bases are authored directly at 64x64 (generated losslessly from
+    /// assets/blanks pixel art), so no upscaling or accessory stamping.
     private static func characterMatrix(for preset: AvatarPreset) -> [String] {
-        // Female variants (v3/v4) use the female base silhouette; class
-        // accessories are stamped on at native resolution, then upscaled.
-        let female = preset.variationNumber >= 3
-        let native = composing(
-            female ? HeroAvatarTracedGrids.femaleBase : HeroAvatarTracedGrids.maleBase,
-            overlays: accessoryOverlays(for: preset.avatarClass)
-        )
-        return upscaledToCanvas(native)
+        HeroAvatarPixelBases.grid(for: preset)
     }
 
-    private static let tracedPalettes: [AvatarPreset: [Character: Color]] = [
-        .knightV1: HeroAvatarTracedGrids.knightV1Palette,
-        .knightV2: HeroAvatarTracedGrids.knightV2Palette,
-        .knightV3: HeroAvatarTracedGrids.knightV3Palette,
-        .knightV4: HeroAvatarTracedGrids.knightV4Palette,
-        .mageV1: HeroAvatarTracedGrids.mageV1Palette,
-        .mageV2: HeroAvatarTracedGrids.mageV2Palette,
-        .mageV3: HeroAvatarTracedGrids.mageV3Palette,
-        .mageV4: HeroAvatarTracedGrids.mageV4Palette,
-        .rogueV1: HeroAvatarTracedGrids.rogueV1Palette,
-        .rogueV2: HeroAvatarTracedGrids.rogueV2Palette,
-        .rogueV3: HeroAvatarTracedGrids.rogueV3Palette,
-        .rogueV4: HeroAvatarTracedGrids.rogueV4Palette,
-        .guardianV1: HeroAvatarTracedGrids.guardianV1Palette,
-        .guardianV2: HeroAvatarTracedGrids.guardianV2Palette,
-        .guardianV3: HeroAvatarTracedGrids.guardianV3Palette,
-        .guardianV4: HeroAvatarTracedGrids.guardianV4Palette,
-        .healerV1: HeroAvatarTracedGrids.healerV1Palette,
-        .healerV2: HeroAvatarTracedGrids.healerV2Palette,
-        .healerV3: HeroAvatarTracedGrids.healerV3Palette,
-        .healerV4: HeroAvatarTracedGrids.healerV4Palette
-    ]
-
     private static func characterPalette(for preset: AvatarPreset) -> [Character: Color] {
-        tracedPalettes[preset] ?? [:]
+        HeroAvatarPixelBases.palette(for: preset)
     }
 
     // MARK: - Equipment Layers
 
     static func backgroundEquipmentLayer(for gearKey: String) -> PixelLayer? {
-        if gearKey.contains("wing") {
-            return goldenWingsLayer()
+        let key = normalizeGearKey(gearKey)
+        // Specific matches must precede the generic "aura"/"wing" catches.
+        if key.contains("lightning") || key.contains("bolt") || key.contains("level.10") {
+            return lightningSparksBackgroundLayer()
         }
-        if gearKey.contains("shadow_cloak") || gearKey == "cloak" {
+        if key.contains("rune") {
+            return mysticRunesLayer()
+        }
+        if key.contains("starlight") || key.contains("star_aura") {
+            return starAuraLayer()
+        }
+        if key.contains("royal_cape") {
+            return royalCapeLayer()
+        }
+        if key.contains("frostweave") {
+            return frostweaveLayer()
+        }
+        if key.contains("shadow_cloak") || key == "cloak" {
             return shadowCloakLayer()
         }
-        if gearKey.contains("aura") || gearKey.contains("cosmic") {
-            return cosmicAuraBackgroundLayer()
+        if key.contains("phoenix") {
+            return phoenixWingsLayer()
         }
-        if gearKey.contains("bolt") || gearKey.contains("level.10") {
-            return lightningSparksBackgroundLayer()
+        if key.contains("wing") {
+            return goldenWingsLayer()
+        }
+        if key.contains("cosmic") || key.contains("aura") {
+            return cosmicAuraBackgroundLayer()
         }
         return nil
     }
 
     static func foregroundEquipmentLayer(for gearKey: String) -> PixelLayer? {
-        if gearKey.contains("crown") {
-            return crownLayer()
-        }
-        if gearKey.contains("wizard_hat") || gearKey.contains("hat") {
-            return wizardHatLayer()
-        }
-        if gearKey.contains("flaming_sword") || gearKey.contains("fire") || gearKey.contains("level.20") {
-            return flamingSwordLayer()
-        }
-        if gearKey.contains("crystal_staff") || gearKey.contains("staff") {
-            return crystalStaffLayer()
-        }
-        if gearKey.contains("sparkles") || gearKey.contains("level.5") {
-            return sparklesLayer()
-        }
-        if gearKey.contains("star") || gearKey.contains("level.15") {
-            return starAuraLayer()
-        }
-        if gearKey.contains("aura") || gearKey.contains("cosmic") {
-            return cosmicAuraForegroundLayer()
+        let key = normalizeGearKey(gearKey)
+        // Ordered: earlier entries win. "bow" precedes "dragon", etc.
+        let matchers: [([String], () -> PixelLayer)] = [
+            (["crown"], crownLayer),
+            (["bandana"], bandanaLayer),
+            (["viking"], vikingHelmLayer),
+            (["visor"], knightVisorLayer),
+            (["wizard_hat", "wizard", "hat"], wizardHatLayer),
+            (["mace"], holyMaceLayer),
+            (["bow"], dragonBowLayer),
+            (["dagger"], shadowDaggersLayer),
+            (["staff"], crystalStaffLayer),
+            (["flaming", "fire", "level.20"], flamingSwordLayer),
+            (["glow_sprite"], glowSpriteLayer),
+            (["griffin"], babyGriffinLayer),
+            (["hatchling", "dragon"], dragonHatchlingLayer),
+            (["familiar", "cat"], familiarCatLayer),
+            (["sparkles", "level.5"], sparklesLayer),
+            (["star"], starAuraLayer),
+            (["cosmic", "aura"], cosmicAuraForegroundLayer)
+        ]
+        for (fragments, factory) in matchers where fragments.contains(where: key.contains) {
+            return factory()
         }
         return nil
     }
