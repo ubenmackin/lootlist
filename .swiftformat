@@ -14,7 +14,7 @@
 --allman false
 
 # Ignore derived data
---exclude DerivedData,Build
+--exclude DerivedData,Build,Project/Resources/SpriteData/HeroAvatarSprites+PixelBases.swift,Project/Resources/SpriteData/HeroAvatarSprites+PixelGear.swift,Project/Resources/SpriteData/MascotSpriteGrids.swift
 
 # Disable redundantSelf rule to keep explicit self required by Swift 6 closure capture semantics
 --disable redundantSelf
