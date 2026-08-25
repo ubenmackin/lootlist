@@ -2,7 +2,7 @@
 //  TestUserDefaults.swift
 //  LootListTests
 //
-//  Created by Antigravity on 8/23/26.
+//  Created by Ben Mackin on 8/23/26.
 //
 
 import Foundation

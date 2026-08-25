@@ -56,6 +56,9 @@ final class OnboardingViewModel {
 
     var customAvatarImageData: Data?
 
+    /// Single emoji chosen as the profile's lightweight avatar during onboarding.
+    var avatarEmoji: String?
+
     var familyName: String = ""
 
     var path: [OnboardingStep] = []
@@ -238,7 +241,8 @@ final class OnboardingViewModel {
             role: .guildMaster,
             iCloudUserID: owneriCloudID,
             family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
-                                       action: .none)
+                                       action: .none),
+            avatarEmoji: avatarEmoji
         )
 
         do {
@@ -355,7 +359,8 @@ final class OnboardingViewModel {
                 profile: renamed,
                 avatarClass: avatarClass,
                 avatarPresetID: avatarPresetID,
-                customAvatarImageData: customAvatarImageData
+                customAvatarImageData: customAvatarImageData,
+                avatarEmoji: avatarEmoji
             )
 
             // Persist completed profile synchronously to CloudKit before background sync pull.
@@ -398,6 +403,7 @@ final class OnboardingViewModel {
         avatarClass = nil
         avatarPresetID = nil
         customAvatarImageData = nil
+        avatarEmoji = nil
         familyName = ""
         error = nil
         isLoading = false

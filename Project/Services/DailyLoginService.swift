@@ -161,14 +161,18 @@ final class DailyLoginService {
                     $0.familyRecordName == familyRecordName
             }
         )
-        if let allLedgers = try? cacheService.context?.fetch(descriptor) {
-            let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
-            if loginLedgers.contains(where: { calendar.isDateInToday($0.createdAt) }) {
-                return true
+        do {
+            if let allLedgers = try cacheService.context?.fetch(descriptor) {
+                let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
+                if loginLedgers.contains(where: { calendar.isDateInToday($0.createdAt) }) {
+                    return true
+                }
+                if !loginLedgers.isEmpty {
+                    return false
+                }
             }
-            if !loginLedgers.isEmpty {
-                return false
-            }
+        } catch {
+            logger.warning("Failed to fetch login ledgers from cache: \(error, privacy: .private)")
         }
 
         return true

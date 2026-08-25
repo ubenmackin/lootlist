@@ -8,6 +8,21 @@
 import PhotosUI
 import SwiftUI
 
+/// Curated emoji set for lightweight avatar selection during onboarding.
+/// Emoji are kept family-friendly and visually distinctive at small sizes.
+private let onboardingEmojiGrid: [String] = [
+    // Smileys & faces
+    "😀", "😃", "😄", "😁", "😆", "😊", "😇", "🙂", "😉", "😍",
+    "🥰", "😎", "🤩", "😋", "🤓", "🧐",
+    // Animals
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
+    "🦁", "🐮", "🐷", "🐸", "🐵", "🦄",
+    // Nature & symbols
+    "⭐", "🌟", "🔥", "🌈", "🌸", "🍀", "🌙", "💫",
+    // Fun
+    "🎨", "🎵", "🚀", "💎", "🎯"
+]
+
 struct AvatarSelectionView: View {
     @Bindable var viewModel: OnboardingViewModel
 
@@ -16,6 +31,8 @@ struct AvatarSelectionView: View {
     @State private var isRPGExpanded: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
 
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 8)
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -23,7 +40,11 @@ struct AvatarSelectionView: View {
 
                 nameSection
 
-                rpgDisclosureSection
+                emojiGridSection
+
+                if FeatureFlags.rpgImmersive {
+                    rpgDisclosureSection
+                }
 
                 finalizeButton
             }
@@ -65,7 +86,7 @@ struct AvatarSelectionView: View {
                 )
             Text("Setup Profile")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
-            Text("Enter your name to begin, or optionally pick an RPG character look.")
+            Text("Enter your name and pick a profile emoji.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -92,6 +113,92 @@ struct AvatarSelectionView: View {
         .padding(.horizontal, 24)
     }
 
+    /// Lightweight emoji avatar picker — always visible regardless of
+    /// whether the RPG immersive layer is enabled.
+    private var emojiGridSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Choose a Profile Emoji", systemImage: "face.smiling")
+                .font(.headline.weight(.bold))
+
+            if let selectedEmoji = viewModel.avatarEmoji {
+                HStack(spacing: 12) {
+                    Text(selectedEmoji)
+                        .font(.system(size: 48))
+                        .frame(width: 64, height: 64)
+                        .background(
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .overlay(
+                            Circle().strokeBorder(Color.gold.opacity(0.6), lineWidth: 2)
+                        )
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Your emoji avatar appears next to")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Text("your name throughout the app.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        viewModel.avatarEmoji = nil
+                    } label: {
+                        Text("Clear")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.secondary)
+                }
+            }
+
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(onboardingEmojiGrid, id: \.self) { emoji in
+                    let isSelected = viewModel.avatarEmoji == emoji
+                    Button {
+                        viewModel.avatarEmoji = isSelected ? nil : emoji
+                    } label: {
+                        Text(emoji)
+                            .font(.system(size: 28))
+                            .frame(width: 38, height: 38)
+                            .background(
+                                Circle()
+                                    .fill(isSelected ? Color.blue.opacity(0.25) : Color.clear)
+                            )
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(
+                                        isSelected ? Color.gold : Color.clear,
+                                        lineWidth: 2
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("avatar.emoji.\(emoji)")
+                }
+            }
+        }
+        .padding(16)
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+        )
+        .padding(.horizontal, 24)
+    }
+
+    /// RPG avatar customisation is hidden behind the feature flag so the
+    /// default onboarding path stays lightweight (name + emoji only).
     private var rpgDisclosureSection: some View {
         DisclosureGroup(
             isExpanded: $isRPGExpanded,

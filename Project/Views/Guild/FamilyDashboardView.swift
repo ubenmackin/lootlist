@@ -42,8 +42,6 @@ struct FamilyDashboardView: View {
         self.spending = spending
         self.familyRecordName = familyRecordName
 
-        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
-        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
@@ -87,17 +85,31 @@ struct FamilyDashboardView: View {
         )
     }
 
+    // MARK: - Transaction Sheet State
+
+    @State private var showDepositSheet = false
+    @State private var showWithdrawSheet = false
+    @State private var selectedChildForTransaction: ProfileCache?
+    @State private var transactionVM: HeroLedgerViewModel?
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    if let vm = viewModel {
-                        loadedContent(vm: vm)
-                    } else {
-                        loadingPlaceholder
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(spacing: 18) {
+                        if let vm = viewModel {
+                            parentHeaderView(vm: vm)
+                            statCardsRow(vm: vm, scrollProxy: scrollProxy)
+                            childAccountsSection(vm: vm)
+                            depositWithdrawSection(vm: vm)
+                            pendingApprovalQueueSection()
+                            weeklySummarySection(summary: vm.weekSummary)
+                        } else {
+                            loadingPlaceholder
+                        }
                     }
+                    .padding(.vertical, 14)
                 }
-                .padding(.vertical, 14)
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle(appState.family?.name ?? "Guild")
@@ -105,9 +117,6 @@ struct FamilyDashboardView: View {
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
                 await viewModel?.refresh()
-                // Probe the throwing wallet path so a failed CloudKit re-query
-                // surfaces "Could not load wallet totals" via `loadError` → toast
-                // instead of silently serving stale cached totals.
                 await viewModel?.refreshWeekSummary()
             }
             .task {
@@ -152,11 +161,33 @@ struct FamilyDashboardView: View {
                     toastManager.show(message: error, type: .error)
                 }
             }
+            // Deposit sheet: child picker → transaction form.
+            .sheet(isPresented: $showDepositSheet) {
+                if let child = selectedChildForTransaction,
+                   let vm = transactionVM
+                {
+                    HeroTransactionView(mode: .deposit, viewModel: vm, heroName: child.displayName)
+                }
+            }
+            .onChange(of: selectedChildForTransaction) { _, child in
+                guard let child else { return }
+                transactionVM = HeroLedgerViewModel(
+                    heroProfile: child,
+                    spending: spending,
+                    appState: appState
+                )
+            }
+            .sheet(isPresented: $showWithdrawSheet) {
+                if let child = selectedChildForTransaction,
+                   let vm = transactionVM
+                {
+                    HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: child.displayName)
+                }
+            }
         }
     }
 
     private func rebuild() {
-        // Rebuild view model lists directly from cached SwiftData rows.
         viewModel?.rebuildLists(
             profiles: cachedProfiles,
             quests: cachedQuests,
@@ -168,330 +199,118 @@ struct FamilyDashboardView: View {
         )
     }
 
-    @State private var isProcessingPayout: Bool = false
+    // MARK: - Header
 
-    private var pendingCompletions: [QuestCompletionCache] {
-        cachedCompletions.filter { $0.verificationStatus == VerificationStatus.pending.rawValue }
-    }
-
-    @ViewBuilder
-    private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
-        parentHeaderCard
-        if !pendingCompletions.isEmpty, appState.currentProfile?.role != .hero {
-            pendingApprovalsCard
-        }
-        weeklySummaryCard(summary: vm.weekSummary)
-        heroesSection(vm: vm)
-    }
-
-    private var parentHeaderCard: some View {
-        HStack(spacing: 12) {
-            if let profile = appState.currentProfile {
-                let preset = AvatarPreset.preset(forProfile: profile)
-                let spec = AvatarRenderSpec(
-                    preset: preset,
-                    customAvatarImageData: profile.customAvatarImageData,
-                    displayName: profile.displayName,
-                    levelTitle: profile.role.displayName,
-                    equippedAccessory: nil,
-                    avatarClass: profile.avatarClass,
-                    role: profile.role
-                )
-                AvatarView(spec: spec, size: .small, showsNameAndTitle: false)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(profile.displayName)
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(.primary)
-                    Text(profile.role.displayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Text("Guild Master")
-                    .font(.body.weight(.bold))
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-        .padding(.horizontal)
-    }
-
-    private var inviteButton: some View {
-        Button {
-            showRolePicker = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "person.badge.plus")
-                    .font(.caption.weight(.bold))
-                Text("Invite Members")
-                    .font(.caption.weight(.semibold))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(Color(.secondarySystemGroupedBackground))
-                    .overlay(
-                        Capsule().strokeBorder(Color.gold.opacity(0.45), lineWidth: 1)
-                    )
-            )
-        }
-        .accessibilityLabel("Invite Members. Tap to invite a Hero or Co-Parent.")
-    }
-
-    @MainActor
-    private func presentInviteShare(for role: UserRole) async {
-        guard let share = await viewModel?.prepareInviteShare(for: role) else {
-            toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
-            return
-        }
-        guard share.url != nil else {
-            toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
-            return
-        }
-        sharePresentation = CloudSharePresentation(share: share, container: cloudKitService.container)
-    }
-
-    private var pendingApprovalsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private func parentHeaderView(vm: FamilyDashboardViewModel) -> some View {
+        VStack(spacing: 8) {
             HStack {
-                Label("Pending Approvals (\(pendingCompletions.count))", systemImage: "hourglass")
-                    .font(.headline)
-                    .foregroundStyle(.orange)
-                Spacer()
-            }
-
-            VStack(spacing: 8) {
-                ForEach(pendingCompletions, id: \.recordName) { completion in
-                    let heroName = cachedProfiles.first { $0.recordName == completion.completerRecordName }?.displayName ?? "Hero"
-                    let questName = cachedQuests.first { $0.recordName == completion.questRecordName }?.questName ?? "Quest"
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(questName)
-                                .font(.subheadline.weight(.semibold))
-                            Text("Submitted by \(heroName)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-
-                        Button {
-                            Task {
-                                let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
-                                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-                                if let parent = appState.currentProfile {
-                                    do {
-                                        _ = try await questService.reject(questLog: domainLog, by: parent)
-                                        rebuild()
-                                    } catch {
-                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Text("Reject")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.red)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(Capsule().fill(Color.red.opacity(0.12)))
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            Task {
-                                let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
-                                let domainLog = completion.toQuestCompletion(zoneID: zoneID)
-                                if let parent = appState.currentProfile {
-                                    do {
-                                        _ = try await questService.verify(questLog: domainLog, by: parent)
-                                        rebuild()
-                                    } catch {
-                                        toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Text("Approve")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Capsule().fill(Color.green))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.tertiarySystemGroupedBackground)))
-                }
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.40), lineWidth: 1.5)
-        )
-        .padding(.horizontal)
-    }
-
-    private func weeklySummaryCard(summary: WeekendSummary?) -> some View {
-        let lootDayTitle = appState.family?.payoutDay.lootDayTitle ?? "Sunday Loot Day"
-        // Pending payout only applies to non-real-time heroes. Real-time heroes
-        // have their weekly gold disbursed immediately on each quest completion,
-        // so their earnings are never "pending" a weekly batch.
-        let isPending = (summary?.pendingPayoutAmount ?? 0) > 0
-        // All heroes use real-time payouts: their gold is already settled and
-        // ready in the wallet. No weekly batch payout applies.
-        let allRealTime = summary?.heroSummaries.allSatisfy {
-            ($0.profile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest) == .realTime
-        } ?? false
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("This Week's Haul")
-                        .font(.headline)
-                    if allRealTime, let summary, summary.totalEarned > 0 {
-                        Text("\(lootDayTitle) · Real-time Settled")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.green)
-                    } else {
-                        Text(isPending ? "\(lootDayTitle) · Pending Payout" : lootDayTitle)
-                            .font(.caption2.weight(.medium))
+                    Text("PARENT MODE")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                        .tracking(1.2)
+                    Text("Family Dashboard")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.primary)
+                }
+
+                Spacer()
+
+                // Bell icon with pending-review action count badge.
+                HStack(spacing: 16) {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "bell.fill")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+
+                        if vm.pendingReviewCount > 0 {
+                            Text("\(vm.pendingReviewCount)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(Color(DesignSystemConstants.Colors.dangerRed))
+                                )
+                                .offset(x: 10, y: -6)
+                        }
+                    }
+                    .accessibilityLabel("\(vm.pendingReviewCount) pending approvals")
+
+                    // Settings gear button.
+                    NavigationLink {
+                        SettingsView()
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.title3)
                             .foregroundStyle(.secondary)
                     }
-                }
-                Spacer()
-                if let summary {
-                    Text(summary.weekOf, format: .dateTime.month().day())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .accessibilityLabel("Settings")
                 }
             }
-
-            if let summary {
-                totalsRow(summary: summary, isPending: isPending)
-
-                if isPending, appState.currentProfile?.role != .hero {
-                    ProcessPayoutButtonView(
-                        summary: summary,
-                        isProcessingPayout: isProcessingPayout,
-                        onConfirmPayout: processPayout
-                    )
-                    .padding(.top, 4)
-                }
-            } else {
-                HStack(spacing: 12) {
-                    ProgressView()
-                    Text("Tallying the guild's loot…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
+            )
+            .padding(.horizontal)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
-        )
+    }
+
+    // MARK: - Stat Cards
+
+    private func statCardsRow(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
+        HStack(spacing: DesignSystemConstants.Padding.medium) {
+            StatCard(
+                title: "FAMILY OUTFLOW",
+                value: CurrencyFormatter.string(vm.familyOutflow),
+                icon: "banknote.fill",
+                tint: Color.gold
+            )
+
+            Button {
+                withAnimation {
+                    scrollProxy.scrollTo("pendingQueueAnchor", anchor: .top)
+                }
+                HapticsService.rigid()
+            } label: {
+                StatCard(
+                    title: "PENDING REVIEW",
+                    value: "\(vm.pendingReviewCount)",
+                    icon: "hourglass",
+                    tint: Color(DesignSystemConstants.Colors.pendingAmber)
+                )
+            }
+            .buttonStyle(.plain)
+        }
         .padding(.horizontal)
     }
 
-    private func totalsRow(summary: WeekendSummary, isPending: Bool) -> some View {
-        HStack(spacing: 12) {
-            statBlock(
-                icon: isPending ? "hourglass" : "banknote",
-                value: CurrencyFormatter.string(isPending ? summary.pendingPayoutAmount : summary.totalEarned),
-                label: isPending ? "Pending" : "Earned",
-                tint: isPending ? .orange : .gold
-            )
-            Divider()
-            statBlock(
-                icon: "checkmark.circle.fill",
-                value: "\(summary.totalQuestsCompleted)",
-                label: "Quests",
-                tint: .green
-            )
-            Divider()
-            statBlock(
-                icon: "person.2.fill",
-                value: "\(summary.heroSummaries.count)",
-                label: "Heroes",
-                tint: .purple
-            )
-        }
-        .frame(maxWidth: .infinity)
-    }
+    // MARK: - Child Accounts Grid
 
-    private func statBlock(icon: String,
-                           value: String,
-                           label: String,
-                           tint: Color) -> some View
-    {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.title3.weight(.bold).monospacedDigit())
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.caption2)
-                    .foregroundStyle(tint)
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func heroesSection(vm: FamilyDashboardViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Heroes")
-                    .font(.headline)
-                Spacer()
-                // Invites require the Guild Master role: only the zone owner can
-                // mint a share, so Rangers see no invite affordance.
+    private func childAccountsSection(vm: FamilyDashboardViewModel) -> some View {
+        VStack(spacing: 12) {
+            SectionHeader("CHILD ACCOUNTS") {
                 if appState.currentProfile?.role == .guildMaster {
                     inviteButton
                 }
             }
             .padding(.horizontal)
 
-            if vm.heroes.isEmpty {
-                emptyHeroesCard
+            if vm.childAccountCards.isEmpty {
+                emptyChildrenCard
             } else {
-                VStack(spacing: 12) {
-                    ForEach(vm.weekSummary?.heroSummaries ?? []) { summary in
-                        NavigationLink {
-                            HeroDetailView(hero: summary.profile, familyRecordName: familyRecordName, spending: spending)
-                                .environment(questService)
-                                .environment(familyService)
-                                .environment(appState)
-                                .environment(appSyncCoordinator)
-                        } label: {
-                            HeroStatusCard(summary: summary)
-                        }
-                        .buttonStyle(.plain)
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12)
+                    ],
+                    spacing: 12
+                ) {
+                    ForEach(vm.childAccountCards) { card in
+                        childAccountCard(card, vm: vm)
                     }
                 }
                 .padding(.horizontal)
@@ -499,7 +318,79 @@ struct FamilyDashboardView: View {
         }
     }
 
-    private var emptyHeroesCard: some View {
+    private func childAccountCard(_ card: ChildAccountCard, vm _: FamilyDashboardViewModel) -> some View {
+        NavigationLink {
+            HeroDetailView(
+                hero: card.profile,
+                familyRecordName: familyRecordName,
+                spending: spending
+            )
+            .environment(questService)
+            .environment(familyService)
+            .environment(appState)
+            .environment(appSyncCoordinator)
+        } label: {
+            VStack(spacing: 8) {
+                // Emoji avatar with fallback to ProfileAvatarView.
+                if let emoji = card.profile.avatarEmoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 36))
+                        .frame(width: 48, height: 48)
+                        .background(
+                            Circle()
+                                .fill(Color(.tertiarySystemGroupedBackground))
+                        )
+                } else {
+                    ProfileAvatarView(profileCache: card.profile)
+                        .frame(width: 48, height: 48)
+                }
+
+                Text(card.profile.displayName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text("\(CurrencyFormatter.string(card.balance)) available")
+                    .font(.caption2.weight(.medium).monospacedDigit())
+                    .foregroundStyle(Color.gold)
+
+                if card.pendingReviewCount > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .font(.caption2)
+                        Text("\(card.pendingReviewCount) pending")
+                            .font(.caption2.weight(.medium))
+                    }
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.15))
+                    )
+                }
+
+                Text("View Screen")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("View \(card.profile.displayName)'s account")
+    }
+
+    private var emptyChildrenCard: some View {
         VStack(spacing: 14) {
             ZStack {
                 Circle()
@@ -536,6 +427,401 @@ struct FamilyDashboardView: View {
         .padding(.horizontal)
     }
 
+    // MARK: - Deposit / Withdraw Shortcut
+
+    @ViewBuilder
+    private func depositWithdrawSection(vm: FamilyDashboardViewModel) -> some View {
+        if !vm.childAccountCards.isEmpty {
+            VStack(spacing: 12) {
+                SectionHeader("QUICK ACTIONS")
+
+                HStack(spacing: 12) {
+                    quickActionButton(
+                        title: "Deposit",
+                        icon: "plus.circle.fill",
+                        color: .green
+                    ) {
+                        selectedChildForTransaction = vm.childAccountCards.first?.profile
+                        showDepositSheet = true
+                    }
+
+                    quickActionButton(
+                        title: "Withdraw",
+                        icon: "minus.circle.fill",
+                        color: .orange
+                    ) {
+                        selectedChildForTransaction = vm.childAccountCards.first?.profile
+                        showWithdrawSheet = true
+                    }
+                }
+            }
+            .padding(.horizontal)
+        }
+    }
+
+    private func quickActionButton(
+        title: String,
+        icon: String,
+        color: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+                    .font(.subheadline.weight(.bold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .foregroundStyle(color)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(color.opacity(0.4), lineWidth: 1)
+            )
+        }
+        .accessibilityLabel(title)
+    }
+
+    // MARK: - Pending Approval Queue
+
+    @ViewBuilder
+    private func pendingApprovalQueueSection() -> some View {
+        let pending = pendingCompletions
+        if !pending.isEmpty, appState.currentProfile?.role != .hero {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader("PENDING APPROVAL QUEUE") {
+                    Text("\(pending.count)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule()
+                                .fill(Color(DesignSystemConstants.Colors.pendingAmber))
+                        )
+                }
+
+                VStack(spacing: 8) {
+                    ForEach(pending, id: \.recordName) { completion in
+                        pendingApprovalRow(completion)
+                    }
+                }
+            }
+            .padding(DesignSystemConstants.Padding.standard)
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.40), lineWidth: 1.5)
+            )
+            .padding(.horizontal)
+            .id("pendingQueueAnchor")
+        }
+    }
+
+    private var pendingCompletions: [QuestCompletionCache] {
+        cachedCompletions.filter { $0.verificationStatus == VerificationStatus.pending.rawValue }
+    }
+
+    @ViewBuilder
+    private func pendingApprovalRow(_ completion: QuestCompletionCache) -> some View {
+        let heroName = cachedProfiles.first { $0.recordName == completion.completerRecordName }?.displayName ?? "Hero"
+        let quest = cachedQuests.first { $0.recordName == completion.questRecordName }
+        let questName = quest?.questName ?? "Quest"
+        let goldAmount = quest?.goldReward ?? 0
+        // Category chip uses schedule type as a lightweight tag.
+        let scheduleLabel = quest?.scheduleTypeEnum?.displayName ?? ""
+
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(questName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text("Submitted by \(heroName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                // Category chip using schedule type.
+                if !scheduleLabel.isEmpty {
+                    Text(scheduleLabel)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(Color(.tertiarySystemGroupedBackground))
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
+                        )
+                }
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    Task {
+                        await rejectCompletion(completion)
+                    }
+                } label: {
+                    Text("Reject")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.12))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Reject \(questName)")
+
+                Button {
+                    Task {
+                        await approveCompletion(completion)
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text("Approve")
+                        if goldAmount > 0 {
+                            Text(CurrencyFormatter.string(goldAmount))
+                                .font(.caption.weight(.bold).monospacedDigit())
+                        }
+                    }
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(
+                        Capsule()
+                            .fill(Color(DesignSystemConstants.Colors.primaryGreen))
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Approve \(questName) for \(CurrencyFormatter.string(goldAmount))")
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small)
+                .fill(Color(.tertiarySystemGroupedBackground))
+        )
+    }
+
+    private func approveCompletion(_ completion: QuestCompletionCache) async {
+        let zoneID = appState.familyZoneID
+            ?? appState.family?.id.zoneID
+            ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+        guard let parent = appState.currentProfile else { return }
+        do {
+            _ = try await questService.verify(questLog: domainLog, by: parent)
+            HapticsService.success()
+            rebuild()
+        } catch {
+            toastManager.show(
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                type: .error
+            )
+        }
+    }
+
+    private func rejectCompletion(_ completion: QuestCompletionCache) async {
+        let zoneID = appState.familyZoneID
+            ?? appState.family?.id.zoneID
+            ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+        guard let parent = appState.currentProfile else { return }
+        do {
+            _ = try await questService.reject(questLog: domainLog, by: parent)
+            HapticsService.warning()
+            rebuild()
+        } catch {
+            toastManager.show(
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                type: .error
+            )
+        }
+    }
+
+    // MARK: - Weekly Summary & Payout
+
+    @ViewBuilder
+    private func weeklySummarySection(summary: WeekendSummary?) -> some View {
+        if let summary {
+            let lootDayTitle = appState.family?.payoutDay.lootDayTitle ?? "Sunday Allowance Day"
+            let isPending = summary.pendingPayoutAmount > 0
+            let allRealTime = summary.heroSummaries.allSatisfy {
+                ($0.profile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest) == .realTime
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("This Week's Earnings")
+                            .font(.headline)
+                        if allRealTime, summary.totalEarned > 0 {
+                            Text("\(lootDayTitle) · Real-time Settled")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.green)
+                        } else {
+                            Text(isPending ? "\(lootDayTitle) · Pending Payout" : lootDayTitle)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    Text(summary.weekOf, format: .dateTime.month().day())
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                totalsRow(summary: summary, isPending: isPending)
+
+                if isPending, appState.currentProfile?.role != .hero {
+                    ProcessPayoutButtonView(
+                        summary: summary,
+                        isProcessingPayout: isProcessingPayout,
+                        onConfirmPayout: processPayout
+                    )
+                    .padding(.top, 4)
+                }
+            }
+            .padding(DesignSystemConstants.Padding.standard)
+            .background(
+                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
+                    .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
+            )
+            .padding(.horizontal)
+        }
+    }
+
+    @State private var isProcessingPayout: Bool = false
+
+    private func totalsRow(summary: WeekendSummary, isPending: Bool) -> some View {
+        HStack(spacing: 12) {
+            statBlock(
+                icon: isPending ? "hourglass" : "banknote",
+                value: CurrencyFormatter.string(isPending ? summary.pendingPayoutAmount : summary.totalEarned),
+                label: isPending ? "Pending" : "Earned",
+                tint: isPending ? .orange : .gold
+            )
+            Divider()
+            statBlock(
+                icon: "checkmark.circle.fill",
+                value: "\(summary.totalQuestsCompleted)",
+                label: "Quests",
+                tint: .green
+            )
+            Divider()
+            statBlock(
+                icon: "person.2.fill",
+                value: "\(summary.heroSummaries.count)",
+                label: "Heroes",
+                tint: .purple
+            )
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func statBlock(icon: String, value: String, label: String, tint: Color) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.caption2)
+                    .foregroundStyle(tint)
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func processPayout() async {
+        isProcessingPayout = true
+        defer { isProcessingPayout = false }
+        guard appState.family != nil else { return }
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
+        let matchingPeriods = cachedAllowancePeriods.filter { period in
+            let status = period.statusEnum
+            return status == .active || status == .payoutPending
+        }
+        let activePeriods = matchingPeriods.map { $0.toAllowancePeriod(zoneID: zoneID) }
+        for period in activePeriods {
+            do {
+                _ = try await treasury.runPayout(period: period)
+            } catch {
+                toastManager.show(
+                    message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                    type: .error
+                )
+            }
+        }
+    }
+
+    // MARK: - Invite
+
+    private var inviteButton: some View {
+        Button {
+            showRolePicker = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "person.badge.plus")
+                    .font(.caption.weight(.bold))
+                Text("Invite")
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(Color(.secondarySystemGroupedBackground))
+                    .overlay(
+                        Capsule().strokeBorder(Color.gold.opacity(0.45), lineWidth: 1)
+                    )
+            )
+        }
+        .accessibilityLabel("Invite Members. Tap to invite a Hero or Co-Parent.")
+    }
+
+    @MainActor
+    private func presentInviteShare(for role: UserRole) async {
+        guard let share = await viewModel?.prepareInviteShare(for: role) else {
+            toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
+            return
+        }
+        guard share.url != nil else {
+            toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
+            return
+        }
+        sharePresentation = CloudSharePresentation(share: share, container: cloudKitService.container)
+    }
+
+    // MARK: - Loading Placeholder
+
     private var loadingPlaceholder: some View {
         VStack(spacing: 16) {
             Image(systemName: "house")
@@ -548,27 +834,9 @@ struct FamilyDashboardView: View {
         }
         .frame(maxWidth: .infinity)
     }
-
-    private func processPayout() async {
-        isProcessingPayout = true
-        defer { isProcessingPayout = false }
-        guard appState.family != nil else { return }
-        // Early payout marks open periods as paid without retiring active quests.
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
-        let matchingPeriods = cachedAllowancePeriods.filter { period in
-            let status = period.statusEnum
-            return status == .active || status == .payoutPending
-        }
-        let activePeriods = matchingPeriods.map { $0.toAllowancePeriod(zoneID: zoneID) }
-        for period in activePeriods {
-            do {
-                _ = try await treasury.runPayout(period: period)
-            } catch {
-                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
-            }
-        }
-    }
 }
+
+// MARK: - Process Payout Button
 
 private struct ProcessPayoutButtonView: View {
     let summary: WeekendSummary
@@ -600,8 +868,7 @@ private struct ProcessPayoutButtonView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             let amountStr = CurrencyFormatter.string(summary.pendingPayoutAmount)
-            let text = "Process payout of \(amountStr) across all heroes with completed quests? This will settle earnings for quests completed so far this week."
-            Text(text)
+            Text("Process payout of \(amountStr) across all heroes with completed quests? This will settle earnings for quests completed so far this week.")
         }
     }
 }

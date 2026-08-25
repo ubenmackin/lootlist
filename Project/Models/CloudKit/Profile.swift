@@ -68,6 +68,34 @@ struct Profile: Identifiable, Equatable, Sendable {
     /// The highest level the hero has viewed on the Journey Map; syncs across devices so progression animation is never duplicated.
     var journeyMapLastSeenLevel: Int
 
+    // MARK: - Savings config (V8)
+
+    /// Emoji rendered as the profile's lightweight avatar; nil falls back to
+    /// preset/sprite rendering so legacy records are unaffected.
+    var avatarEmoji: String?
+
+    /// Percentage splits applied to FUTURE payouts only — never rebalanced
+    /// retroactively. Defaults route everything to spend so profiles that
+    /// predate buckets keep their exact pre-V8 payout behavior.
+    var splitPercentSpend: Int
+    var splitPercentShort: Int
+    var splitPercentLong: Int
+
+    /// Monthly interest config. Disabled by default so no money moves until a
+    /// parent explicitly turns the engine on.
+    var interestEnabled: Bool
+    /// Raw value of `BucketKind`; which save bucket earns the interest.
+    var interestBucket: String?
+    var interestRateBps: Int
+    var interestIsCompound: Bool
+
+    /// Parent-matching config for long-term goal contributions. Disabled by
+    /// default for the same fail-safe reason as interest.
+    var matchEnabled: Bool
+    var matchRateBps: Int
+    /// Monthly cap in pennies on total matched amounts; nil means uncapped.
+    var matchMonthlyCapPennies: Int64?
+
     var effectiveClassDisplay: String {
         if let avatarClass {
             avatarClass.displayName
@@ -102,6 +130,17 @@ struct Profile: Identifiable, Equatable, Sendable {
         merged.dailyLoginStreakDays = cached.dailyLoginStreakDays
         merged.claimedBonusObjectives = cached.claimedBonusObjectives
         merged.journeyMapLastSeenLevel = cached.journeyMapLastSeenLevel
+        merged.avatarEmoji = cached.avatarEmoji
+        merged.splitPercentSpend = cached.splitPercentSpend
+        merged.splitPercentShort = cached.splitPercentShort
+        merged.splitPercentLong = cached.splitPercentLong
+        merged.interestEnabled = cached.interestEnabled
+        merged.interestBucket = cached.interestBucket
+        merged.interestRateBps = cached.interestRateBps
+        merged.interestIsCompound = cached.interestIsCompound
+        merged.matchEnabled = cached.matchEnabled
+        merged.matchRateBps = cached.matchRateBps
+        merged.matchMonthlyCapPennies = cached.matchMonthlyCapPennies
         return merged
     }
 
@@ -185,6 +224,24 @@ struct Profile: Identifiable, Equatable, Sendable {
         dailyLoginStreakDays = record.extractOptional("dailyLoginStreakDays") ?? 0
         claimedBonusObjectives = record.extractOptional("claimedBonusObjectives") ?? []
         journeyMapLastSeenLevel = record.extractOptional("journeyMapLastSeenLevel") ?? 1
+
+        // Savings config — Ints/Booleans default safely for legacy records
+        // that predate these fields (same pattern as the gamification block).
+        avatarEmoji = record.extractOptional("avatarEmoji")
+        splitPercentSpend = record.extractOptional("splitPercentSpend") ?? 100
+        splitPercentShort = record.extractOptional("splitPercentShort") ?? 0
+        splitPercentLong = record.extractOptional("splitPercentLong") ?? 0
+        interestEnabled = record.bool(forKey: "interestEnabled", default: false)
+        interestBucket = record.extractOptional("interestBucket")
+        interestRateBps = record.extractOptional("interestRateBps") ?? 0
+        interestIsCompound = record.bool(forKey: "interestIsCompound", default: false)
+        matchEnabled = record.bool(forKey: "matchEnabled", default: false)
+        matchRateBps = record.extractOptional("matchRateBps") ?? 0
+        if let capNumber = record["matchMonthlyCapPennies"] as? NSNumber {
+            matchMonthlyCapPennies = capNumber.int64Value
+        } else {
+            matchMonthlyCapPennies = nil
+        }
     }
 
     func toRecord() -> CKRecord {
@@ -259,6 +316,19 @@ struct Profile: Identifiable, Equatable, Sendable {
             record["claimedBonusObjectives"] = claimedBonusObjectives as CKRecordValue
         }
         record["journeyMapLastSeenLevel"] = journeyMapLastSeenLevel as CKRecordValue
+        // Savings config. CloudKit rejects initializing a field with an empty
+        // list, so optional bucket/cap values nil out explicitly instead.
+        record["avatarEmoji"] = avatarEmoji as CKRecordValue?
+        record["splitPercentSpend"] = splitPercentSpend as CKRecordValue
+        record["splitPercentShort"] = splitPercentShort as CKRecordValue
+        record["splitPercentLong"] = splitPercentLong as CKRecordValue
+        record["interestEnabled"] = interestEnabled as CKRecordValue
+        record["interestBucket"] = interestBucket as CKRecordValue?
+        record["interestRateBps"] = interestRateBps as CKRecordValue
+        record["interestIsCompound"] = interestIsCompound as CKRecordValue
+        record["matchEnabled"] = matchEnabled as CKRecordValue
+        record["matchRateBps"] = matchRateBps as CKRecordValue
+        record["matchMonthlyCapPennies"] = matchMonthlyCapPennies as CKRecordValue?
         return record
     }
 
@@ -282,6 +352,17 @@ struct Profile: Identifiable, Equatable, Sendable {
          dailyLoginStreakDays: Int = 0,
          claimedBonusObjectives: [String] = [],
          journeyMapLastSeenLevel: Int = 1,
+         avatarEmoji: String? = nil,
+         splitPercentSpend: Int = 100,
+         splitPercentShort: Int = 0,
+         splitPercentLong: Int = 0,
+         interestEnabled: Bool = false,
+         interestBucket: String? = nil,
+         interestRateBps: Int = 0,
+         interestIsCompound: Bool = false,
+         matchEnabled: Bool = false,
+         matchRateBps: Int = 0,
+         matchMonthlyCapPennies: Int64? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -308,6 +389,17 @@ struct Profile: Identifiable, Equatable, Sendable {
         self.dailyLoginStreakDays = dailyLoginStreakDays
         self.claimedBonusObjectives = claimedBonusObjectives
         self.journeyMapLastSeenLevel = journeyMapLastSeenLevel
+        self.avatarEmoji = avatarEmoji
+        self.splitPercentSpend = splitPercentSpend
+        self.splitPercentShort = splitPercentShort
+        self.splitPercentLong = splitPercentLong
+        self.interestEnabled = interestEnabled
+        self.interestBucket = interestBucket
+        self.interestRateBps = interestRateBps
+        self.interestIsCompound = interestIsCompound
+        self.matchEnabled = matchEnabled
+        self.matchRateBps = matchRateBps
+        self.matchMonthlyCapPennies = matchMonthlyCapPennies
     }
 
     /// Reconstructs the server-authenticated identity that CloudKit supplies
@@ -342,6 +434,17 @@ struct Profile: Identifiable, Equatable, Sendable {
             dailyLoginStreakDays: dailyLoginStreakDays,
             claimedBonusObjectives: claimedBonusObjectives,
             journeyMapLastSeenLevel: journeyMapLastSeenLevel,
+            avatarEmoji: avatarEmoji,
+            splitPercentSpend: splitPercentSpend,
+            splitPercentShort: splitPercentShort,
+            splitPercentLong: splitPercentLong,
+            interestEnabled: interestEnabled,
+            interestBucket: interestBucket,
+            interestRateBps: interestRateBps,
+            interestIsCompound: interestIsCompound,
+            matchEnabled: matchEnabled,
+            matchRateBps: matchRateBps,
+            matchMonthlyCapPennies: matchMonthlyCapPennies,
             id: id
         )
         stamped.xp = xp

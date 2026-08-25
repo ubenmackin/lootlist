@@ -89,6 +89,8 @@ final class CelebrationManager {
 
     init() {}
 
+    // MARK: - Toast presentation
+
     func enqueue(achievements: [Achievement], for _: Profile? = nil) {
         guard !achievements.isEmpty else { return }
         for achievement in achievements {
@@ -121,5 +123,29 @@ final class CelebrationManager {
             item.isStreakMilestone ? "🔥 Streak Milestone!" : "🏆 Trophy Unlocked!"
         }
         toastManager?.show(message: "\(prefix) \(item.name)", type: .success)
+    }
+
+    // MARK: - Confetti overlay
+
+    /// Drives the `CelebrationOverlay` canvas — observed by the
+    /// `.celebrationOverlay()` modifier attached to the root view.
+    var isConfettiShowing = false
+
+    /// Cancellable auto-dismiss so rapid successive triggers extend the
+    /// lifetime rather than stacking competing dismissal timers.
+    private var confettiDismissTask: Task<Void, Never>?
+
+    /// Shows the full-screen canvas confetti overlay and schedules an
+    /// auto-dismiss after the configured lifetime. Redeemable from any
+    /// service or view that holds the manager — goal completions, trophy
+    /// unlocks, payout celebrations, quest verifications.
+    func triggerConfetti() {
+        confettiDismissTask?.cancel()
+        isConfettiShowing = true
+        confettiDismissTask = Task {
+            try? await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+            guard !Task.isCancelled else { return }
+            isConfettiShowing = false
+        }
     }
 }

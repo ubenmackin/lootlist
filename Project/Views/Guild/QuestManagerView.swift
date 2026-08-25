@@ -141,7 +141,7 @@ struct QuestManagerView: View {
             }
             .sheet(isPresented: $showAssignSheet) {
                 if let vm = viewModel {
-                    QuestAssignmentView(viewModel: vm)
+                    QuestAssignmentView(viewModel: vm, familyRecordName: appState.family?.id.recordName)
                 }
             }
             .sheet(item: $editingTemplate) { template in
@@ -151,7 +151,7 @@ struct QuestManagerView: View {
             }
             .sheet(item: $editingQuest) { quest in
                 if let vm = viewModel {
-                    QuestAssignmentView(mode: .edit(questID: quest.id), viewModel: vm)
+                    QuestAssignmentView(mode: .edit(questID: quest.id), viewModel: vm, familyRecordName: appState.family?.id.recordName)
                 }
             }
             .sheet(isPresented: $showAddTemplateSheet) {
@@ -237,7 +237,9 @@ struct QuestManagerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(quest.questName)
                         .font(.subheadline.bold())
-                    Text("\(CurrencyFormatter.string(quest.goldReward)) · \(rarity.rawValue) (\(quest.xpReward) XP) · \(approvalMode.displayName)")
+                    // Rarity tiers render as plain effort labels while the
+                    // immersive layer is off; the XP figure stays hidden.
+                    Text("\(CurrencyFormatter.string(quest.goldReward)) · \(FlavorTextProvider.rewardTierName(for: rarity)) · \(approvalMode.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -299,7 +301,9 @@ struct QuestManagerView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(template.name)
                     .font(.subheadline.bold())
-                Text("\(CurrencyFormatter.string(template.goldReward)) · \(rarity.rawValue) (\(template.xpReward) XP) · \(scheduleType.displayName)")
+                // Rarity tiers render as plain effort labels while the
+                // immersive layer is off; the XP figure stays hidden.
+                Text("\(CurrencyFormatter.string(template.goldReward)) · \(FlavorTextProvider.rewardTierName(for: rarity)) · \(scheduleType.displayName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !template.isActive {

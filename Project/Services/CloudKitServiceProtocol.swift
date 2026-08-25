@@ -25,6 +25,7 @@ enum ParsedRecord: Sendable {
     case notificationPreference(NotificationPreference)
     case gemLedger(GemLedger)
     case rewardEvent(RewardEvent)
+    case goal(Goal)
     /// System record types (e.g. cloudkit.share) that should be skipped without counting as parse failures.
     case ignoredSystemRecord(recordType: String, recordName: String)
     /// Fallback for unknown record types or records that failed to parse.
@@ -44,6 +45,7 @@ enum ParsedRecord: Sendable {
         case let .notificationPreference(model): model.id.recordName
         case let .gemLedger(model): model.id.recordName
         case let .rewardEvent(model): model.id.recordName
+        case let .goal(model): model.id.recordName
         case let .ignoredSystemRecord(_, name): name
         case let .parseFailure(_, name): name
         }
@@ -63,6 +65,7 @@ enum ParsedRecord: Sendable {
         case .notificationPreference: .notificationPreference
         case .gemLedger: .gemLedger
         case .rewardEvent: .rewardEvent
+        case .goal: .goal
         case .ignoredSystemRecord: nil
         case .parseFailure: nil
         }
@@ -118,6 +121,8 @@ enum ParsedRecord: Sendable {
             try .gemLedger(GemLedger(record: record))
         case RewardEvent.recordType:
             try .rewardEvent(RewardEvent(record: record))
+        case Goal.recordType:
+            try .goal(Goal(record: record))
         default:
             nil
         }

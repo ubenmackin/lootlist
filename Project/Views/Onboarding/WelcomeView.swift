@@ -38,7 +38,7 @@ struct WelcomeView: View {
                 Text("Welcome,")
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Text("Adventurer!")
+                Text("Hero!")
                     .font(.system(size: 44, weight: .heavy,
                                   design: .rounded))
                     .foregroundStyle(
@@ -49,8 +49,8 @@ struct WelcomeView: View {
                     )
             }
 
-            Text("Your quest for glory begins here. "
-                + "Found a guild or join one to start earning loot.")
+            Text("Chores, allowance, and savings in one place. "
+                + "Found a guild or join one to get started.")
                 .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -122,7 +122,7 @@ struct OnboardingCompletionView: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Your party is ready — adventure calls!")
+                Text("You're all set — let's get started!")
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }

@@ -66,9 +66,16 @@ struct HeroStatusCard: View {
                 .font(.headline)
                 .lineLimit(1)
                 .minimumScaleFactor(0.80)
-            Text(XPService.title(forLevel: summary.profile.level))
-                .font(.caption)
-                .foregroundStyle(Color.gold)
+            if FeatureFlags.rpgImmersive {
+                // RPG-era level title; hidden while the immersive layer is off.
+                Text(XPService.title(forLevel: summary.profile.level))
+                    .font(.caption)
+                    .foregroundStyle(Color.gold)
+            } else {
+                Text(summary.profile.roleEnum?.displayName ?? summary.profile.role)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -187,6 +194,7 @@ struct HeroStatusCard: View {
         return AvatarRenderSpec(
             preset: preset,
             customAvatarImageData: profile.customAvatarImageData,
+            avatarEmoji: profileCache.avatarEmoji,
             displayName: profile.displayName,
             levelTitle: XPService.title(forLevel: profile.level),
             equippedAccessory: nil,

@@ -14,6 +14,7 @@ import SwiftData
 @Observable
 final class GemService {
     private let cloudKitService: any CloudKitServiceProtocol
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GemService")
     var cacheService: CacheService?
     var toastManager: ToastManager?
     var appState: AppState?
@@ -151,7 +152,6 @@ final class GemService {
             do {
                 updatedProfile.gems = try balance(for: profile.id.recordName, familyRecordName: profile.family.recordID.recordName)
             } catch {
-                let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GemService")
                 logger.warning("GemService.creditGems: failed to compute balance — aborting profile mutation: \(error, privacy: .private)")
                 return false
             }
@@ -209,7 +209,7 @@ final class GemService {
                         return false
                     }
                 } catch {
-                    // Balance fetch failure falls through to the server gate.
+                    logger.debug("Local gem balance fetch failed: \(error, privacy: .private); falling through to server gate")
                 }
             }
 

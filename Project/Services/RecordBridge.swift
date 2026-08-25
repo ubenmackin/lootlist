@@ -68,9 +68,24 @@ enum RecordBridge {
             && confirmedAbsent(NotificationPreferenceCache.self, predicate: #Predicate { $0.recordName == name })
             && confirmedAbsent(GemLedgerCache.self, predicate: #Predicate { $0.recordName == name })
             && confirmedAbsent(RewardEventCache.self, predicate: #Predicate { $0.recordName == name })
+            && confirmedAbsent(GoalCache.self, predicate: #Predicate { $0.recordName == name })
     }
 
     private static func resolvedRecord(
+        for type: CachedRecordType,
+        name: String,
+        zoneID: CKRecordZone.ID,
+        cacheService: CacheService,
+        expectedFamily: String,
+        expectedDatabase: CKDatabase.Scope
+    ) -> CKRecord? {
+        if let core = resolveCoreRecord(for: type, name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: expectedFamily, expectedDatabase: expectedDatabase) {
+            return core
+        }
+        return resolveExtendedRecord(for: type, name: name, zoneID: zoneID, cacheService: cacheService, expectedFamily: expectedFamily, expectedDatabase: expectedDatabase)
+    }
+
+    private static func resolveCoreRecord(
         for type: CachedRecordType,
         name: String,
         zoneID: CKRecordZone.ID,
@@ -140,6 +155,19 @@ enum RecordBridge {
                 fetch: { cacheService.fetchAllowancePeriod(recordName: $0, family: $1) },
                 toRecord: { $0.toAllowancePeriod(zoneID: $1).toRecord() }
             )
+        default: nil
+        }
+    }
+
+    private static func resolveExtendedRecord(
+        for type: CachedRecordType,
+        name: String,
+        zoneID: CKRecordZone.ID,
+        cacheService: CacheService,
+        expectedFamily: String,
+        expectedDatabase: CKDatabase.Scope
+    ) -> CKRecord? {
+        switch type {
         case .achievement: bridge(
                 AchievementCache.self,
                 name: name,
@@ -190,6 +218,17 @@ enum RecordBridge {
                 fetch: { cacheService.fetchRewardEvent(recordName: $0, family: $1) },
                 toRecord: { $0.toRewardEvent(zoneID: $1).toRecord() }
             )
+        case .goal: bridge(
+                GoalCache.self,
+                name: name,
+                zoneID: zoneID,
+                expectedFamily: expectedFamily,
+                expectedDatabase: expectedDatabase,
+                entity: "goal",
+                fetch: { cacheService.fetchGoal(recordName: $0, family: $1) },
+                toRecord: { $0.toGoal(zoneID: $1).toRecord() }
+            )
+        default: nil
         }
     }
 
@@ -274,7 +313,8 @@ enum RecordBridge {
         ProfileAchievement.recordType: ProfileAchievement.managedFieldKeys,
         NotificationPreference.recordType: NotificationPreference.managedFieldKeys,
         RewardEvent.recordType: RewardEvent.managedFieldKeys,
-        GemLedger.recordType: GemLedger.managedFieldKeys
+        GemLedger.recordType: GemLedger.managedFieldKeys,
+        Goal.recordType: Goal.managedFieldKeys
     ]
 
     private static func prepareRecord(_ record: CKRecord, in zoneID: CKRecordZone.ID) -> CKRecord {

@@ -20,7 +20,8 @@ final class OnboardingUITests: XCTestCase {
     }
 
     func testOnboardingWelcomeScreenDisplays() {
-        let welcomeTitle = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Adventurer' OR label CONTAINS[c] 'Loot List'")).firstMatch
+        let welcomeTitle = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS[c] 'Welcome' OR label CONTAINS[c] 'Hero' OR label CONTAINS[c] 'Quest' OR label CONTAINS[c] 'Loot List'")).firstMatch
         XCTAssertTrue(welcomeTitle.waitForExistence(timeout: 5.0), "Welcome screen title should appear")
     }
 
@@ -30,8 +31,9 @@ final class OnboardingUITests: XCTestCase {
             startButton.tap()
         }
 
-        let parentButton = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Parent' OR label CONTAINS[c] 'Guild Master'")).firstMatch
-        let heroButton = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hero' OR label CONTAINS[c] 'Kid'")).firstMatch
+        let parentButton = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Parent' OR label CONTAINS[c] 'Guild Master' OR label CONTAINS[c] 'Create a Family'"))
+            .firstMatch
+        let heroButton = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Hero' OR label CONTAINS[c] 'Kid' OR label CONTAINS[c] 'Join a Family'")).firstMatch
 
         XCTAssertTrue(parentButton.waitForExistence(timeout: 5.0) || heroButton.waitForExistence(timeout: 5.0), "Role selection options should be visible")
     }

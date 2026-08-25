@@ -50,9 +50,20 @@ struct AppLaunchSplashScreen: View {
                         .font(.system(size: 36, weight: .heavy, design: .rounded))
                         .foregroundStyle(.white)
 
-                    Text("Entering the Realm…")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color.gold.opacity(0.85))
+                    // The realm flavor line belongs to the immersive layer;
+                    // keeping the default launch plain preserves it for when
+                    // that layer is switched back on.
+                    if FeatureFlags.rpgImmersive {
+                        Text("Entering the Realm…")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.gold.opacity(0.85))
+                    } else {
+                        // Neutral branding for the default launch: says what
+                        // the app does, no fantasy framing.
+                        Text("Chores, allowance & savings")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
                 }
 
                 ProgressView()

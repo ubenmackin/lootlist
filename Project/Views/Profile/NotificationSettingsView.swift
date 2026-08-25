@@ -12,8 +12,7 @@ import UserNotifications
 @MainActor
 struct NotificationSettingsView: View {
     private let notificationService: NotificationService
-    private let profile: Profile
-    private let family: Family
+    private let profileCache: ProfileCache
 
     @Environment(ToastManager.self) private var toastManager
 
@@ -30,15 +29,13 @@ struct NotificationSettingsView: View {
     @State private var showClearedToast = false
 
     init(notificationService: NotificationService,
-         profile: Profile,
-         family: Family)
+         profileCache: ProfileCache)
     {
         self.notificationService = notificationService
-        self.profile = profile
-        self.family = family
+        self.profileCache = profileCache
 
-        let profileName = profile.id.recordName
-        let familyName = family.id.recordName
+        let profileName = profileCache.recordName
+        let familyName = profileCache.familyRecordName
         let filter = #Predicate<NotificationPreferenceCache> {
             $0.profileRecordName == profileName && $0.familyRecordName == familyName
         }
@@ -144,7 +141,7 @@ struct NotificationSettingsView: View {
             ForEach(NotificationCategory.allCases, id: \.self) { category in
                 let events = NotificationEventType.allCases
                     .filter { $0.category == category }
-                    .filter { profile.role.isParent ? $0.isRelevantForParent : $0.isRelevantForHero }
+                    .filter { (profileCache.roleEnum ?? .hero).isParent ? $0.isRelevantForParent : $0.isRelevantForHero }
 
                 if !events.isEmpty {
                     Section {

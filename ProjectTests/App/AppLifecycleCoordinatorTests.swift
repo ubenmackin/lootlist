@@ -321,6 +321,8 @@ struct AppLifecycleCoordinatorTests {
         let cloudKit = MockCloudKitService()
         let sync = CountingSyncCoordinator()
         let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: sync, defaults: defaults)
+        // Allow the async observer tasks to subscribe before testing notifications.
+        try? await Task.sleep(for: .milliseconds(20))
 
         lifecycle.setLastSynchronizedScopeKeyForTests("fam1|zoneA|owner|true")
         #expect(lifecycle.lastSynchronizedScopeKey == "fam1|zoneA|owner|true")

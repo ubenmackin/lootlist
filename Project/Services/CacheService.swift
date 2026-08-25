@@ -25,7 +25,7 @@ final class CacheService {
         var ledgerEntryFetchScopes: [String?] = []
     #endif
 
-    @ObservationIgnored private var didSaveToken: NotificationToken?
+    @ObservationIgnored private var didSaveTask: Task<Void, Never>?
 
     var context: ModelContext? {
         container?.mainContext
@@ -35,7 +35,7 @@ final class CacheService {
 
     init(inMemory: Bool = false, defaults: UserDefaults = .standard) throws {
         self.defaults = defaults
-        let schema = Schema(LootListSchemaV7.models)
+        let schema = Schema(LootListSchemaV8.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
             container = try ModelContainer(for: schema, configurations: config)
@@ -71,21 +71,27 @@ final class CacheService {
     }
 
     private func installDidSaveObserver() {
-        guard let container else { return }
-        let token = NotificationCenter.default.addObserver(
-            forName: ModelContext.didSave,
-            object: nil,
-            queue: nil
-        ) { [weak self, weak container] notification in
-            guard let container else { return }
-            guard let savedContext = notification.object as? ModelContext else { return }
-            guard savedContext.container === container else { return }
-            guard !Thread.isMainThread else { return }
-            Task { @MainActor [weak self] in
-                self?.refreshMainContextAfterBackgroundSave()
+        guard container != nil else { return }
+        didSaveTask = Task { [weak self] in
+            for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
+                guard !Task.isCancelled, let self else { break }
+                guard let container = self.container else { break }
+                // Avoid calling property getters on `notification.object` from @MainActor
+                // because accessing properties on a background ModelContext triggers SwiftData
+                // concurrency assertions. Pure pointer identity with `mainContext` safely
+                // distinguishes background saves from main-context saves.
+                guard let savedObject = notification.object as AnyObject?,
+                      savedObject !== (container.mainContext as AnyObject)
+                else {
+                    continue
+                }
+                self.refreshMainContextAfterBackgroundSave()
             }
         }
-        didSaveToken = NotificationToken(token)
+    }
+
+    deinit {
+        didSaveTask?.cancel()
     }
 
     private func refreshMainContextAfterBackgroundSave() {
@@ -480,6 +486,27 @@ final class CacheService {
         )
     }
 
+    func upsertGoal(_ goal: Goal, family familyRecordName: String? = nil, isServerSync: Bool = false) {
+        if let explicit = familyRecordName, explicit != goal.family.recordID.recordName {
+            logFamilyMismatch(
+                action: "Explicit family mismatch rejecting",
+                entityName: "Goal upsert",
+                recordName: goal.id.recordName,
+                requestedFamily: explicit,
+                actualFamily: goal.family.recordID.recordName
+            )
+            return
+        }
+        applyUpsert(
+            goal,
+            type: GoalCache.self,
+            recordName: goal.id.recordName,
+            familyRecordName: familyRecordName ?? goal.family.recordID.recordName,
+            isServerSync: isServerSync,
+            entityName: "Goal"
+        )
+    }
+
     func removePhantomRewardEvent(recordName: String, family: String) {
         deleteByNameAndFamily(RewardEventCache.self, recordName: recordName, familyRecordName: family)
     }
@@ -667,6 +694,10 @@ final class CacheService {
 
     func upsertRewardEvents(_ events: [RewardEvent], family: String? = nil) {
         batchUpsert(RewardEventCache.self, items: events, familyRecordName: family)
+    }
+
+    func upsertGoals(_ goals: [Goal], family: String? = nil) {
+        batchUpsert(GoalCache.self, items: goals, familyRecordName: family)
     }
 }
 

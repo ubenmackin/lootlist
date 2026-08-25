@@ -35,6 +35,15 @@ final class FamilyDashboardViewModel {
 
     private(set) var pastPayouts: [AllowancePeriodCache] = []
 
+    /// Sum of all child ledger balances across the family.
+    private(set) var familyOutflow: Double = 0
+
+    /// Count of quest completions awaiting parent verification.
+    private(set) var pendingReviewCount: Int = 0
+
+    /// Per-child card data for the dashboard grid.
+    private(set) var childAccountCards: [ChildAccountCard] = []
+
     private(set) var isLoading: Bool = false
 
     private(set) var isLoadingPayouts: Bool = false
@@ -44,7 +53,7 @@ final class FamilyDashboardViewModel {
     private let questService: QuestService
     private let treasury: TreasuryService
     private let achievements: AchievementService
-    private let familyService: FamilyProfileFetching
+    private let familyService: any FamilyProfileFetching
     private let appState: AppState
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboard")
 
@@ -77,7 +86,7 @@ final class FamilyDashboardViewModel {
     init(questService: QuestService,
          treasury: TreasuryService,
          achievementService: AchievementService,
-         familyService: FamilyProfileFetching,
+         familyService: any FamilyProfileFetching,
          appState: AppState)
     {
         self.questService = questService
@@ -115,35 +124,35 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    /// Resolves the family's `CKShare` for the given invite role, fetching the
-    /// existing share or creating a new one. Returns nil when the current user
-    /// is not the zone owner or the share cannot be resolved.
+    /// Resolves the family's `CKShare` for the given invite role. Only the zone
+    /// owner (Guild Master) may mint shares, enforced by the guard here.
+    /// CloudKit interaction is routed through `FamilyService` so the ViewModel
+    /// never holds a raw CloudKit reference.
     func prepareInviteShare(for role: UserRole) async -> CKShare? {
         guard appState.isZoneOwner,
               appState.familyZoneID != nil,
               let family = appState.family
         else { return nil }
-        let cloudKit = questService.cloudKitReference
         do {
-            return try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
+            return try await familyService.prepareInviteShare(for: family, role: role)
         } catch {
             logger.error("Failed to fetch or create invitation share: \(error, privacy: .private)")
             return nil
         }
     }
 
-    /// Reloads and classifies invitation statuses from the family's `CKShare` participants.
+    /// Reloads and classifies invitation statuses from the family's `CKShare`
+    /// participants. All CloudKit interaction is routed through `FamilyService`
+    /// so the ViewModel never holds a raw CloudKit reference.
     func refreshInvitations() async {
         guard appState.isZoneOwner, let family = appState.family else {
             invitations = []
             return
         }
-        let cloudKit = questService.cloudKitReference
         var currentUserRecordName: String
         do {
             // Resolve signed-in user identity to prevent rendering self as revocable row.
-            let currentUserRecordID = try await cloudKit.currentUserRecordID()
-            currentUserRecordName = currentUserRecordID.recordName
+            currentUserRecordName = try await familyService.currentUserRecordName()
         } catch {
             logger.warning("Failed to resolve current user record ID for invitation refresh: \(error, privacy: .private)")
             invitations = []
@@ -159,7 +168,7 @@ final class FamilyDashboardViewModel {
 
         let participants: [CKShare.Participant]
         do {
-            participants = try await cloudKit.fetchShareParticipants(for: family.id)
+            participants = try await familyService.fetchShareParticipants(for: family)
         } catch {
             logger.error("Failed to load share participants: \(error, privacy: .private)")
             invitations = []
@@ -174,7 +183,7 @@ final class FamilyDashboardViewModel {
         )
         let statuses: [ShareParticipantStatus]
         do {
-            statuses = try await cloudKit.fetchShareParticipantStatuses(for: family.id)
+            statuses = try await familyService.fetchShareParticipantStatuses(for: family)
         } catch {
             logger.error("Failed to load share participant statuses: \(error, privacy: .private)")
             invitations = []
@@ -182,7 +191,7 @@ final class FamilyDashboardViewModel {
         }
         let roleMap: [String: UserRole]
         do {
-            roleMap = try await cloudKit.fetchShareParticipantRoles(for: family.id)
+            roleMap = try await familyService.fetchShareParticipantRoles(for: family)
         } catch {
             logger.warning("Failed to fetch share participant roles: \(error, privacy: .private)")
             roleMap = [:]
@@ -359,9 +368,10 @@ final class FamilyDashboardViewModel {
     }
 
     /// Revokes a pending invitation or departed member's share access.
+    /// CloudKit interaction is routed through `FamilyService` so the ViewModel
+    /// never holds a raw CloudKit reference.
     func revokeInvitation(_ invitation: FamilyInvitation) async {
         guard appState.isZoneOwner, let family = appState.family else { return }
-        let cloudKit = questService.cloudKitReference
         // Guard against revoking owner, self, or already-removed identities.
         if invitation.kind == .removedIdentity {
             return
@@ -371,8 +381,8 @@ final class FamilyDashboardViewModel {
         }
         if let identityRecordName = invitation.identityRecordName {
             do {
-                let currentUserRecordID = try await cloudKit.currentUserRecordID()
-                if identityRecordName == currentUserRecordID.recordName {
+                let currentUserRecordName = try await familyService.currentUserRecordName()
+                if identityRecordName == currentUserRecordName {
                     logger.error("Refusing to revoke the current user's own share access")
                     return
                 }
@@ -384,9 +394,9 @@ final class FamilyDashboardViewModel {
 
         do {
             if let participant = invitation.participant {
-                try await cloudKit.removeParticipant(participant, from: family.id)
+                try await familyService.revokeInvitation(participant: participant, from: family)
             } else if let identityRecordName = invitation.identityRecordName {
-                try await cloudKit.removeParticipant(iCloudUserRecordName: identityRecordName, from: family.id)
+                try await familyService.revokeInvitation(identityRecordName: identityRecordName, from: family)
             } else {
                 logger.error("Failed to revoke invitation: no participant identity to revoke")
                 return
@@ -589,6 +599,25 @@ final class FamilyDashboardViewModel {
             .filter { familyName == nil || $0.familyRecordName == familyName }
             .sorted { $0.weekOf > $1.weekOf }
 
+        // Dashboard card computations — derived from the same cached rows
+        // the rest of rebuildLists already processes, so no extra query.
+        let heroRecordNames = Set(computedHeroes.map(\.recordName))
+        let heroLedgerEntries = ledgers.filter { heroRecordNames.contains($0.profileRecordName) }
+        familyOutflow = heroLedgerEntries.reduce(0.0) { $0 + $1.amount }
+
+        let pendingLogs = logs.filter { $0.verificationStatusEnum == .pending }
+        pendingReviewCount = pendingLogs.count
+
+        childAccountCards = computedHeroes.map { hero in
+            let heroBalance = heroLedgerEntries
+                .filter { $0.profileRecordName == hero.recordName }
+                .reduce(0.0) { $0 + $1.amount }
+            let heroPending = pendingLogs
+                .filter { $0.completerRecordName == hero.recordName }
+                .count
+            return ChildAccountCard(profile: hero, balance: heroBalance, pendingReviewCount: heroPending)
+        }
+
         heroes = computedHeroes
         parents = computedParents
         weekSummary = computedWeekSummary
@@ -771,4 +800,17 @@ enum FamilyInvitationKind: Equatable {
     /// on the share with `.removed` status until propagation completes.
     /// Read-only row.
     case removedIdentity
+}
+
+/// Per-child dashboard card data — balance and pending review count are
+/// computed from the same cached ledger/completion queries that feed the
+/// rest of the dashboard, so this is zero-additional-query metadata.
+struct ChildAccountCard: Identifiable, Equatable {
+    var id: String {
+        profile.recordName
+    }
+
+    let profile: ProfileCache
+    let balance: Double
+    let pendingReviewCount: Int
 }

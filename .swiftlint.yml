@@ -1,6 +1,9 @@
 excluded:
   - DerivedData
+  - .derivedData
   - Build
+  - build
+  - .build
   # Generated code — see tools/generate_hero_bases.py
   - Project/Resources/SpriteData/HeroAvatarSprites+PixelBases.swift
   - Project/Resources/SpriteData/HeroAvatarSprites+PixelGear.swift

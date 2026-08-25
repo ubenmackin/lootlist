@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import os
 import SwiftData
 import SwiftUI
@@ -143,7 +142,7 @@ struct HeroHomeView: View {
 
     private func mascotBanner(profile: Profile) -> some View {
         MascotBannerView(
-            profile: profile,
+            profileCache: ProfileCache(from: profile),
             quests: profileQuests,
             completions: profileLogs,
             showBonusCard: true
@@ -154,7 +153,7 @@ struct HeroHomeView: View {
     private var journeyMapCover: some View {
         if let profile = appState.currentProfile {
             let state = JourneyService.journeyState(for: profile, xpService: xpService)
-            JourneyMapView(journeyState: state, profile: profile)
+            JourneyMapView(journeyState: state, profileCache: ProfileCache(from: profile))
         }
     }
 
@@ -225,7 +224,7 @@ struct HeroHomeView: View {
 
     private func playerCardTopRow(profile: Profile, progress: LevelProgress) -> some View {
         HStack(spacing: 12) {
-            ProfileAvatarView(profile: profile)
+            ProfileAvatarView(profileCache: ProfileCache(from: profile))
                 .frame(width: 56, height: 56)
 
             VStack(alignment: .leading, spacing: 6) {

@@ -104,7 +104,9 @@ struct TemplateAssignmentFormView: View {
             }
 
             HStack {
-                Text("XP Override")
+                // XP still accrues invisibly behind the scenes; parents set it
+                // as an unshown "bonus" so no XP wording surfaces.
+                Text("Bonus Override")
                     .foregroundStyle(.secondary)
                 Spacer()
                 TextField(
@@ -126,7 +128,7 @@ struct TemplateAssignmentFormView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Toggle("All-or-Nothing", isOn: $isAllOrNothingOverride)
                     Text(
-                        "When enabled, the hero must complete all required days or times to earn any gold or XP. When disabled, rewards are earned incrementally per completion."
+                        "When enabled, the hero must complete all required days or times to earn the full reward. When disabled, rewards are earned incrementally per completion."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)

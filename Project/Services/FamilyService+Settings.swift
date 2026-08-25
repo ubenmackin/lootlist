@@ -108,6 +108,12 @@ extension FamilyService {
     }
 
     @discardableResult
+    func updateProfilePayoutPolicy(profileCache: ProfileCache, policy: PayoutPolicy?) async throws -> Profile {
+        guard let zoneID = appState.familyZoneID else { throw FamilyServiceError.unauthorized }
+        return try await updateProfilePayoutPolicy(profile: profileCache.toProfile(zoneID: zoneID), policy: policy)
+    }
+
+    @discardableResult
     func updateProfilePayoutPolicy(profile: Profile, policy: PayoutPolicy?) async throws -> Profile {
         try Task.checkCancellation()
         guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
@@ -134,6 +140,12 @@ extension FamilyService {
         let isOwner = cloudKit.activeIsOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
+    }
+
+    @discardableResult
+    func updateProfilePayoutDay(profileCache: ProfileCache, day: PayoutDay?) async throws -> Profile {
+        guard let zoneID = appState.familyZoneID else { throw FamilyServiceError.unauthorized }
+        return try await updateProfilePayoutDay(profile: profileCache.toProfile(zoneID: zoneID), day: day)
     }
 
     @discardableResult
@@ -194,10 +206,28 @@ extension FamilyService {
     }
 
     @discardableResult
+    func updateProfileAvatar(profileCache: ProfileCache,
+                             avatarClass: AvatarClass?,
+                             avatarPresetID: String?,
+                             customAvatarImageData: Data?,
+                             avatarEmoji: String? = nil) async throws -> Profile
+    {
+        guard let zoneID = appState.familyZoneID else { throw FamilyServiceError.unauthorized }
+        return try await updateProfileAvatar(
+            profile: profileCache.toProfile(zoneID: zoneID),
+            avatarClass: avatarClass,
+            avatarPresetID: avatarPresetID,
+            customAvatarImageData: customAvatarImageData,
+            avatarEmoji: avatarEmoji
+        )
+    }
+
+    @discardableResult
     func updateProfileAvatar(profile: Profile,
                              avatarClass: AvatarClass?,
                              avatarPresetID: String?,
-                             customAvatarImageData: Data?) async throws -> Profile
+                             customAvatarImageData: Data?,
+                             avatarEmoji: String? = nil) async throws -> Profile
     {
         guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized
@@ -213,6 +243,7 @@ extension FamilyService {
         updated.avatarClass = avatarClass
         updated.avatarPresetID = avatarPresetID
         updated.customAvatarImageData = customAvatarImageData
+        updated.avatarEmoji = avatarEmoji
 
         cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {

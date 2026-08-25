@@ -144,7 +144,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                     return .deadlineExpired
                 }
 
-                Task { @MainActor in
+                Task {
                     if let lifecycleCoordinator = AppDependencies.shared?.lifecycleCoordinator {
                         await lifecycleCoordinator.handleRemoteNotification()
                     }

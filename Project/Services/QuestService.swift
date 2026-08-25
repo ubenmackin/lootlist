@@ -225,6 +225,11 @@ final class QuestService {
     /// and encodedSystemFields) so subsequent reads stay fully local. The
     /// hydrated row is never re-enqueued for save: it originated from the
     /// server, and echoing it back would create a redundant write cycle.
+    func fetchTemplateCached(id: String, familyRecordName: String) async throws -> QuestTemplate? {
+        guard let zoneID = appState?.familyZoneID else { return nil }
+        return try await fetchTemplateCached(id: CKRecord.ID(recordName: id, zoneID: zoneID), familyRecordName: familyRecordName)
+    }
+
     func fetchTemplateCached(id: CKRecord.ID, familyRecordName: String) async throws -> QuestTemplate? {
         if let cached = cacheService?.fetchQuestTemplate(recordName: id.recordName, family: familyRecordName) {
             return cached.toQuestTemplate(zoneID: id.zoneID)
@@ -298,7 +303,7 @@ final class QuestService {
     }
 
     @discardableResult
-    func updateQuest(_ quest: Quest) async throws -> Quest {
+    func updateQuest(_ quest: Quest, newAssigneeRecordName: String? = nil) async throws -> Quest {
         guard let appState, let acting = appState.currentProfile,
               acting.role.isParent
         else {
@@ -311,10 +316,15 @@ final class QuestService {
             cloudKit: cloudKit
         )
 
-        cacheService?.upsertQuest(quest)
+        var updatedQuest = quest
+        if let newAssigneeRecordName {
+            updatedQuest.assignee = CKRecord.Reference(recordID: CKRecord.ID(recordName: newAssigneeRecordName, zoneID: quest.id.zoneID), action: .none)
+        }
+
+        cacheService?.upsertQuest(updatedQuest)
         let isOwner = appState.isZoneOwner
-        syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
-        return quest
+        syncCoordinator?.enqueueSave(recordID: updatedQuest.id, isOwner: isOwner)
+        return updatedQuest
     }
 
     @discardableResult

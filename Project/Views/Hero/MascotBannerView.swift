@@ -16,18 +16,18 @@ struct MascotBannerView: View {
     @Environment(SoundManager.self) private var soundManager
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
-    let profile: Profile
+    let profileCache: ProfileCache
     let quests: [QuestCache]
     let completions: [QuestCompletionCache]
     let showBonusCard: Bool
 
     init(
-        profile: Profile,
+        profileCache: ProfileCache,
         quests: [QuestCache],
         completions: [QuestCompletionCache],
         showBonusCard: Bool = true
     ) {
-        self.profile = profile
+        self.profileCache = profileCache
         self.quests = quests
         self.completions = completions
         self.showBonusCard = showBonusCard
@@ -38,10 +38,10 @@ struct MascotBannerView: View {
     @State private var showConfetti: Bool = false
 
     var body: some View {
-        let companion = MascotCompanion(rawValue: profile.mascotCompanion ?? "cat") ?? .cat
+        let companion = MascotCompanion(rawValue: profileCache.mascotCompanion ?? "cat") ?? .cat
         let state = currentMascotState()
-        let objective = bonusService.dailyObjective(for: profile)
-        let isClaimed = bonusService.isClaimed(objective: objective, profile: profile)
+        let objective = bonusService.dailyObjective(for: profileCache)
+        let isClaimed = bonusService.isClaimed(objective: objective, profileCache: profileCache)
         let eval = bonusService.evaluateProgress(objective: objective, todayQuests: quests, completions: completions)
 
         HStack(alignment: .top, spacing: 14) {
@@ -181,15 +181,15 @@ struct MascotBannerView: View {
 
         Task {
             do {
-                try await bonusService.claimObjective(objective: objective, profile: profile)
+                try await bonusService.claimObjective(objective: objective, profileCache: profileCache)
                 // Let confetti play
                 try await Task.sleep(for: .seconds(2))
             } catch {
                 Self.logger.error(
                     """
                     Failed to claim daily bonus objective '\(objective.title, privacy: .private)' \
-                    for hero '\(profile.displayName, privacy: .private)' \
-                    (profileID: \(profile.id.recordName, privacy: .private)): \(error, privacy: .private)
+                    for hero '\(profileCache.displayName, privacy: .private)' \
+                    (profileID: \(profileCache.recordName, privacy: .private)): \(error, privacy: .private)
                     """
                 )
                 toastManager?.show(

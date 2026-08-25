@@ -41,6 +41,20 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
     var dailyLoginStreakDays: Int = 0
     var claimedBonusObjectives: [String]?
     var journeyMapLastSeenLevel: Int = 1
+    // Savings config (V8) — CloudKit-backed mirrors of Profile fields.
+    // Split defaults route everything to spend so legacy rows keep their
+    // pre-bucket payout behavior; interest/match stay off until configured.
+    var avatarEmoji: String?
+    var splitPercentSpend: Int = 100
+    var splitPercentShort: Int = 0
+    var splitPercentLong: Int = 0
+    var interestEnabled: Bool = false
+    var interestBucket: String?
+    var interestRateBps: Int = 0
+    var interestIsCompound: Bool = false
+    var matchEnabled: Bool = false
+    var matchRateBps: Int = 0
+    var matchMonthlyCapPennies: Int64?
     var changeTag: String?
     /// Baseline server XP tracked to merge concurrent offline additions additively.
     var lastSyncedXP: Int = 0
@@ -63,6 +77,10 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
 
     var payoutDayEnum: PayoutDay? {
         payoutDay.flatMap { PayoutDay(rawValue: $0) }
+    }
+
+    var interestBucketEnum: BucketKind? {
+        interestBucket.flatMap { BucketKind(rawValue: $0) }
     }
 
     init(recordName: String,
@@ -88,6 +106,17 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
          dailyLoginStreakDays: Int = 0,
          claimedBonusObjectives: [String]? = nil,
          journeyMapLastSeenLevel: Int = 1,
+         avatarEmoji: String? = nil,
+         splitPercentSpend: Int = 100,
+         splitPercentShort: Int = 0,
+         splitPercentLong: Int = 0,
+         interestEnabled: Bool = false,
+         interestBucket: String? = nil,
+         interestRateBps: Int = 0,
+         interestIsCompound: Bool = false,
+         matchEnabled: Bool = false,
+         matchRateBps: Int = 0,
+         matchMonthlyCapPennies: Int64? = nil,
          changeTag: String? = nil,
          lastSyncedXP: Int = 0,
          encodedSystemFields: Data? = nil,
@@ -118,6 +147,17 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         self.dailyLoginStreakDays = dailyLoginStreakDays
         self.claimedBonusObjectives = claimedBonusObjectives
         self.journeyMapLastSeenLevel = journeyMapLastSeenLevel
+        self.avatarEmoji = avatarEmoji
+        self.splitPercentSpend = splitPercentSpend
+        self.splitPercentShort = splitPercentShort
+        self.splitPercentLong = splitPercentLong
+        self.interestEnabled = interestEnabled
+        self.interestBucket = interestBucket
+        self.interestRateBps = interestRateBps
+        self.interestIsCompound = interestIsCompound
+        self.matchEnabled = matchEnabled
+        self.matchRateBps = matchRateBps
+        self.matchMonthlyCapPennies = matchMonthlyCapPennies
         self.changeTag = changeTag
         self.lastSyncedXP = lastSyncedXP
         self.encodedSystemFields = encodedSystemFields
@@ -151,6 +191,17 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
             dailyLoginStreakDays: profile.dailyLoginStreakDays,
             claimedBonusObjectives: profile.claimedBonusObjectives.isEmpty ? nil : profile.claimedBonusObjectives,
             journeyMapLastSeenLevel: profile.journeyMapLastSeenLevel,
+            avatarEmoji: profile.avatarEmoji,
+            splitPercentSpend: profile.splitPercentSpend,
+            splitPercentShort: profile.splitPercentShort,
+            splitPercentLong: profile.splitPercentLong,
+            interestEnabled: profile.interestEnabled,
+            interestBucket: profile.interestBucket,
+            interestRateBps: profile.interestRateBps,
+            interestIsCompound: profile.interestIsCompound,
+            matchEnabled: profile.matchEnabled,
+            matchRateBps: profile.matchRateBps,
+            matchMonthlyCapPennies: profile.matchMonthlyCapPennies,
             changeTag: profile.changeTag,
             lastSyncedXP: profile.xp,
             encodedSystemFields: profile.encodedSystemFields,
@@ -185,6 +236,17 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         dailyLoginStreakDays = profile.dailyLoginStreakDays
         claimedBonusObjectives = profile.claimedBonusObjectives.isEmpty ? nil : profile.claimedBonusObjectives
         journeyMapLastSeenLevel = profile.journeyMapLastSeenLevel
+        avatarEmoji = profile.avatarEmoji
+        splitPercentSpend = profile.splitPercentSpend
+        splitPercentShort = profile.splitPercentShort
+        splitPercentLong = profile.splitPercentLong
+        interestEnabled = profile.interestEnabled
+        interestBucket = profile.interestBucket
+        interestRateBps = profile.interestRateBps
+        interestIsCompound = profile.interestIsCompound
+        matchEnabled = profile.matchEnabled
+        matchRateBps = profile.matchRateBps
+        matchMonthlyCapPennies = profile.matchMonthlyCapPennies
         changeTag = profile.changeTag
         sourceZoneName = profile.id.zoneID.zoneName
         sourceZoneOwnerName = profile.id.zoneID.ownerName

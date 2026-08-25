@@ -129,6 +129,11 @@ struct AvatarRenderSpec: Equatable, Sendable {
 
     let customAvatarImageData: Data?
 
+    /// Single emoji character displayed as a lightweight avatar in a tinted
+    /// circle.  Rendered when no custom photo is set, before falling back to
+    /// sprite presets or the default person icon.
+    let avatarEmoji: String?
+
     let displayName: String
 
     let levelTitle: String
@@ -165,6 +170,30 @@ final class AvatarService {
         cls.presetPrefix + "_01"
     }
 
+    func renderSpec(for cache: ProfileCache) -> AvatarRenderSpec {
+        let preset: AvatarPreset? = if let id = cache.avatarName {
+            AvatarPreset(rawValue: id) ?? AvatarPreset.resolve(cache.avatarClassEnum, id: id)
+        } else if let cls = cache.avatarClassEnum {
+            Self.presets(for: cls).first
+        } else {
+            nil
+        }
+
+        let title = XPService.title(forLevel: cache.level)
+        let unlocked = xp.unlockedAccessories(profileCache: cache)
+        let equipped = unlocked.last
+        return AvatarRenderSpec(
+            preset: preset,
+            customAvatarImageData: cache.customAvatarImageData,
+            avatarEmoji: cache.avatarEmoji,
+            displayName: cache.displayName,
+            levelTitle: title,
+            equippedAccessory: equipped,
+            avatarClass: cache.avatarClassEnum,
+            role: cache.roleEnum ?? .hero
+        )
+    }
+
     func renderSpec(for profile: Profile) -> AvatarRenderSpec {
         let preset = AvatarPreset.preset(forProfile: profile)
         let title = XPService.title(forLevel: profile.level)
@@ -173,6 +202,7 @@ final class AvatarService {
         return AvatarRenderSpec(
             preset: preset,
             customAvatarImageData: profile.customAvatarImageData,
+            avatarEmoji: profile.avatarEmoji,
             displayName: profile.displayName,
             levelTitle: title,
             equippedAccessory: equipped,

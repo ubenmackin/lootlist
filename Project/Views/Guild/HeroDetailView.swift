@@ -31,6 +31,32 @@ struct HeroDetailView: View {
             .padding(.top, 8)
             .background(Color(.systemGroupedBackground))
 
+            NavigationLink(destination: KidsSavingsGoalsView(familyRecordName: familyRecordName, focusedProfileRecordName: hero.recordName)) {
+                HStack(spacing: 8) {
+                    Image(systemName: "target")
+                        .font(.subheadline.weight(.bold))
+                    Text("Savings Goals")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(.secondarySystemGroupedBackground))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+            .padding(.top, 10)
+            .accessibilityLabel("View savings goals for \(hero.displayName)")
+
             switch selectedSegment {
             case .quests:
                 QuestLogView(initialHero: hero, familyRecordName: familyRecordName)

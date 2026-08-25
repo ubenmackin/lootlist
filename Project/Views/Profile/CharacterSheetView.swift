@@ -5,11 +5,10 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import SwiftUI
 
 struct CharacterSheetView: View {
-    let profile: Profile
+    let profileCache: ProfileCache
 
     private let avatarService: AvatarService
 
@@ -27,7 +26,7 @@ struct CharacterSheetView: View {
 
     @State private var draftName: String = ""
 
-    init(profile: Profile,
+    init(profileCache: ProfileCache,
          avatarService: AvatarService,
          xpService: XPService,
          streak: Int?,
@@ -35,7 +34,7 @@ struct CharacterSheetView: View {
          earnedAchievements: [Achievement],
          onSaveDisplayName: ((String) -> Void)?)
     {
-        self.profile = profile
+        self.profileCache = profileCache
         self.avatarService = avatarService
         self.xpService = xpService
         self.streak = streak
@@ -50,7 +49,7 @@ struct CharacterSheetView: View {
                 header()
                 statsGrid()
                 achievementSection
-                if profile.role == .hero, onSaveDisplayName != nil {
+                if (profileCache.roleEnum ?? .hero) == .hero, onSaveDisplayName != nil {
                     renameSection
                 }
             }
@@ -62,16 +61,17 @@ struct CharacterSheetView: View {
     }
 
     private func header() -> some View {
-        let spec = avatarService.renderSpec(for: profile)
+        let spec = avatarService.renderSpec(for: profileCache)
+        let classDisplay = profileCache.avatarClassEnum?.displayName ?? (profileCache.roleEnum ?? .hero).genericRoleName
         return VStack(spacing: 12) {
             AvatarView(spec: spec, size: .large, showsNameAndTitle: false)
-            Text(profile.displayName)
+            Text(profileCache.displayName)
                 .font(.title2.bold())
                 .foregroundStyle(.primary)
             Text(spec.levelTitle)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.gold)
-            Text("\(profile.effectiveClassDisplay) · \(profile.role.displayName)")
+            Text("\(classDisplay) · \((profileCache.roleEnum ?? .hero).displayName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -98,19 +98,19 @@ struct CharacterSheetView: View {
     }
 
     private func statsGrid() -> some View {
-        let progress = xpService.levelProgress(profile: profile)
+        let progress = xpService.levelProgress(profileCache: profileCache)
         return VStack(spacing: 16) {
             statTile(symbol: "number",
                      title: "Level",
-                     value: "\(profile.level)",
+                     value: "\(profileCache.level)",
                      accent: .blue)
             statTile(symbol: "crown.fill",
                      title: "Title",
-                     value: XPService.title(forLevel: profile.level),
+                     value: XPService.title(forLevel: profileCache.level),
                      accent: .orange)
             statTile(symbol: "star.fill",
                      title: "XP Total",
-                     value: "\(profile.xp)",
+                     value: "\(profileCache.xpTotal)",
                      accent: .yellow)
             statTile(symbol: "arrow.up.right.circle.fill",
                      title: "XP to Next Level",
@@ -256,11 +256,11 @@ struct CharacterSheetView: View {
                 renameEditor
             } else {
                 HStack {
-                    Text(profile.displayName)
+                    Text(profileCache.displayName)
                         .font(.body.weight(.semibold))
                     Spacer()
                     Button {
-                        draftName = profile.displayName
+                        draftName = profileCache.displayName
                         isEditingName = true
                     } label: {
                         Label("Edit", systemImage: "pencil")

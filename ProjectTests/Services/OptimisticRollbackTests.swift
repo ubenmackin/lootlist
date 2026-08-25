@@ -522,6 +522,7 @@ final class OptimisticRollbackTests: XCTestCase {
         state.family = family
         state.familyZoneID = lootZone
         state.currentProfile = hero
+        state.isZoneOwner = true
 
         let gemService = GemService(cloudKitService: mock, cacheService: cache, appState: state)
 

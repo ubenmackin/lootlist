@@ -21,6 +21,7 @@ enum CachedRecordType: String, CaseIterable, Sendable {
     case notificationPreference
     case gemLedger
     case rewardEvent
+    case goal
 
     // MARK: - Scope Split
 
@@ -64,6 +65,7 @@ enum CachedRecordType: String, CaseIterable, Sendable {
         case .notificationPreference: NotificationPreference.recordType
         case .gemLedger: GemLedger.recordType
         case .rewardEvent: RewardEvent.recordType
+        case .goal: Goal.recordType
         }
     }
 

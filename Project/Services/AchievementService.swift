@@ -9,19 +9,45 @@ import CloudKit
 import Foundation
 import os
 
+/// V1 Trophy Spec (12) — canonical source for AchievementRequirement.
+/// Trophy Room and ProfileAchievement pipeline remain visible; criteria are
+/// now quest-completion counts plus goal-based milestones. Requirement text
+/// is computed at render time; stored descriptions may be stale on legacy records.
+/// AchievementRequirement must stay in sync with this spec:
+///
+///  1 firstQuest        — complete 1 quest (cumulative verified)
+///  2 questCount10      — 10 cumulative quest completions
+///  3 questCount25      — 25 cumulative quest completions (replaces former gold100 tier)
+///  4 questCount50      — 50 cumulative quest completions
+///  5 questCount100     — 100 cumulative quest completions
+///  6 weekly100         — complete all active quests in a single week (100%)
+///  7 streak7           — 7-day combo streak
+///  8 streak30          — 30-day combo streak
+///  9 firstGoalCreated  — created ≥1 savings goal
+/// 10 goalGetter        — reached/completed ≥1 savings goal (completedAt != nil, non-archived or archived)
+/// 11 ledgerCount10     — log 10 ledger/spending entries
+/// 12 earlyBird9am     — complete a quest before 9 AM
+///
+/// Total defaults remain 12; legacy gold100/gold500/ledgerWeeks4 records are no
+/// longer seeded but remain decodable for migration.
+///
 enum AchievementRequirement: String, CaseIterable, Codable, Sendable {
     case firstQuest
     case questCount10
+    case questCount25
     case questCount50
     case questCount100
     case weekly100
     case streak7
     case streak30
+    case firstGoalCreated
+    case goalGetter
+    case ledgerCount10
+    case earlyBird9am
+    // Legacy — retained for decode of pre-pivot CloudKit records; not seeded in V1.
     case gold100
     case gold500
-    case ledgerCount10
     case ledgerWeeks4
-    case earlyBird9am
 }
 
 enum AchievementCategory: String, Codable, Sendable {
@@ -29,6 +55,7 @@ enum AchievementCategory: String, Codable, Sendable {
     case streak
     case gold
     case special
+    case goal
 }
 
 enum AchievementServiceError: Error, LocalizedError, Equatable, Sendable {
@@ -41,18 +68,36 @@ enum AchievementServiceError: Error, LocalizedError, Equatable, Sendable {
 
 struct ProfileStats: Sendable {
     let questCount: Int
-
     let bestWeeklyCompletion: Double
-
     let longestStreakDays: Int
-
     let totalGoldEarned: Double
-
     let ledgerCount: Int
-
     let ledgerWeeksCount: Int
-
     let earlyBirdQualified: Bool
+    let goalsCreated: Int
+    let goalsCompleted: Int
+
+    init(
+        questCount: Int,
+        bestWeeklyCompletion: Double,
+        longestStreakDays: Int,
+        totalGoldEarned: Double = 0,
+        ledgerCount: Int,
+        ledgerWeeksCount: Int = 0,
+        earlyBirdQualified: Bool,
+        goalsCreated: Int = 0,
+        goalsCompleted: Int = 0
+    ) {
+        self.questCount = questCount
+        self.bestWeeklyCompletion = bestWeeklyCompletion
+        self.longestStreakDays = longestStreakDays
+        self.totalGoldEarned = totalGoldEarned
+        self.ledgerCount = ledgerCount
+        self.ledgerWeeksCount = ledgerWeeksCount
+        self.earlyBirdQualified = earlyBirdQualified
+        self.goalsCreated = goalsCreated
+        self.goalsCompleted = goalsCompleted
+    }
 }
 
 @MainActor
@@ -127,7 +172,7 @@ final class AchievementService {
     private func defaultAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         questAchievements(for: familyRef)
             + streakAchievements(for: familyRef)
-            + financialAchievements(for: familyRef)
+            + goalAchievements(for: familyRef)
             + specialAchievements(for: familyRef)
     }
 
@@ -152,6 +197,16 @@ final class AchievementService {
                 category: AchievementCategory.quest,
                 requirementType: AchievementRequirement.questCount10,
                 requirementValue: 10,
+                family: familyRef
+            ),
+            Achievement(
+                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.questCount25.rawValue)", zoneID: zoneID),
+                name: "Questing Apprentice",
+                description: "Complete 25 quests",
+                iconSystemName: "flag.2.crossed.fill",
+                category: AchievementCategory.quest,
+                requirementType: AchievementRequirement.questCount25,
+                requirementValue: 25,
                 family: familyRef
             ),
             Achievement(
@@ -203,27 +258,27 @@ final class AchievementService {
         ]
     }
 
-    private func financialAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+    private func goalAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         let zoneID = familyRef.recordID.zoneID
         return [
             Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.gold100.rawValue)", zoneID: zoneID),
-                name: "Fortune Hoarder",
-                description: "Earn 100 gold lifetime",
-                iconSystemName: "banknote.fill",
-                category: AchievementCategory.gold,
-                requirementType: AchievementRequirement.gold100,
-                requirementValue: 100,
+                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.firstGoalCreated.rawValue)", zoneID: zoneID),
+                name: "First Goal Created",
+                description: "Create your first savings goal",
+                iconSystemName: "target",
+                category: AchievementCategory.goal,
+                requirementType: AchievementRequirement.firstGoalCreated,
+                requirementValue: 1,
                 family: familyRef
             ),
             Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.gold500.rawValue)", zoneID: zoneID),
-                name: "Fortune Magnate",
-                description: "Earn 500 gold lifetime",
-                iconSystemName: "banknote",
-                category: AchievementCategory.gold,
-                requirementType: AchievementRequirement.gold500,
-                requirementValue: 500,
+                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.goalGetter.rawValue)", zoneID: zoneID),
+                name: "Goal Getter",
+                description: "Reach a savings goal",
+                iconSystemName: "star.circle.fill",
+                category: AchievementCategory.goal,
+                requirementType: AchievementRequirement.goalGetter,
+                requirementValue: 1,
                 family: familyRef
             )
         ]
@@ -250,16 +305,6 @@ final class AchievementService {
                 category: AchievementCategory.special,
                 requirementType: AchievementRequirement.ledgerCount10,
                 requirementValue: 10,
-                family: familyRef
-            ),
-            Achievement(
-                id: CKRecord.ID(recordName: "\(familyRef.recordID.recordName)-\(AchievementRequirement.ledgerWeeks4.rawValue)", zoneID: zoneID),
-                name: "Wise Spender",
-                description: "Log spending for 4 weeks",
-                iconSystemName: "book.closed.fill",
-                category: AchievementCategory.special,
-                requirementType: AchievementRequirement.ledgerWeeks4,
-                requirementValue: 4,
                 family: familyRef
             ),
             Achievement(
@@ -387,7 +432,37 @@ final class AchievementService {
         // `CelebrationItem.isStreakMilestone` from `requirementType`.
         celebrationManager?.enqueue(achievements: awarded, for: profile)
 
+        // Centralized haptic + overlay feedback for unlocks — parallel task
+        // owns the concrete HapticsService/CelebrationOverlay types; builder
+        // reconciles exact API.
+        if !awarded.isEmpty {
+            triggerUnlockFeedback(for: awarded)
+        }
+
         return awarded
+    }
+
+    /// Quest-completion hook — re-evaluates trophies after a verified completion.
+    @discardableResult
+    func handleQuestCompleted(for profile: Profile, family: Family) async throws -> [Achievement] {
+        try await evaluateAll(for: profile, family: family)
+    }
+
+    /// Goal creation hook — award First Goal Created and re-check Goal Getter.
+    @discardableResult
+    func handleGoalCreated(for profile: Profile, family: Family) async throws -> [Achievement] {
+        try await evaluateAll(for: profile, family: family)
+    }
+
+    /// Goal completion hook — award Goal Getter when a savings goal is reached.
+    @discardableResult
+    func handleGoalCompleted(for profile: Profile, family: Family) async throws -> [Achievement] {
+        try await evaluateAll(for: profile, family: family)
+    }
+
+    private func triggerUnlockFeedback(for _: [Achievement]) {
+        HapticsService.success()
+        celebrationManager?.triggerConfetti()
     }
 
     func award(_ achievement: Achievement,
@@ -468,6 +543,26 @@ final class AchievementService {
         return ledger
     }
 
+    private func fetchGoals(for profile: Profile) async throws -> [Goal] {
+        let profileName = profile.id.recordName
+        let zoneID = profile.id.zoneID
+        let familyName = profile.family.recordID.recordName
+
+        if let cache = cacheService,
+           cache.isCacheFresh(familyRecordName: familyName, type: .goal)
+        {
+            let cached = cache.fetchGoals(family: familyName)
+                .filter { $0.profileRecordName == profileName }
+            return cached.map { $0.toGoal(zoneID: zoneID) }
+        }
+
+        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+        let predicate = NSPredicate(format: "profile == %@", profileRef)
+        let results = try await cloudKit.query(Goal.self, predicate: predicate, in: zoneID)
+        cacheService?.upsertGoals(results)
+        return results
+    }
+
     private func fetchQuestCache(
         for completedLogs: [QuestCompletion],
         profileID: CKRecord.ID,
@@ -519,6 +614,7 @@ final class AchievementService {
     private func computeStats(for profile: Profile, family _: Family) async throws -> ProfileStats {
         let completedLogs = try await fetchCompletedLogs(for: profile)
         let ledger = try await fetchLedgerEntries(for: profile)
+        let goals = try await fetchGoals(for: profile)
         let questCache = try await fetchQuestCache(
             for: completedLogs,
             profileID: profile.id,
@@ -566,6 +662,9 @@ final class AchievementService {
             ledgerWeekRoots.insert(monday)
         }
 
+        let goalsCreated = goals.count
+        let goalsCompleted = goals.filter { $0.completedAt != nil }.count
+
         return ProfileStats(
             questCount: completedLogs.count,
             bestWeeklyCompletion: bestWeekly,
@@ -573,7 +672,9 @@ final class AchievementService {
             totalGoldEarned: totalGold,
             ledgerCount: ledger.count,
             ledgerWeeksCount: ledgerWeekRoots.count,
-            earlyBirdQualified: earlyBird
+            earlyBirdQualified: earlyBird,
+            goalsCreated: goalsCreated,
+            goalsCompleted: goalsCompleted
         )
     }
 
@@ -631,6 +732,9 @@ final class AchievementService {
         case AchievementRequirement.questCount10:
             stats.questCount >= 10
 
+        case AchievementRequirement.questCount25:
+            stats.questCount >= 25
+
         case AchievementRequirement.questCount50:
             stats.questCount >= 50
 
@@ -646,20 +750,27 @@ final class AchievementService {
         case AchievementRequirement.streak30:
             stats.longestStreakDays >= 30
 
+        case AchievementRequirement.firstGoalCreated:
+            stats.goalsCreated >= 1
+
+        case AchievementRequirement.goalGetter:
+            stats.goalsCompleted >= 1
+
+        case AchievementRequirement.ledgerCount10:
+            stats.ledgerCount >= 10
+
+        case AchievementRequirement.earlyBird9am:
+            stats.earlyBirdQualified
+
+        // Legacy evaluation — keeps previously earned gold/ledger trophies decoding correctly.
         case AchievementRequirement.gold100:
             stats.totalGoldEarned >= 100
 
         case AchievementRequirement.gold500:
             stats.totalGoldEarned >= 500
 
-        case AchievementRequirement.ledgerCount10:
-            stats.ledgerCount >= 10
-
         case AchievementRequirement.ledgerWeeks4:
             stats.ledgerWeeksCount >= 4
-
-        case AchievementRequirement.earlyBird9am:
-            stats.earlyBirdQualified
         }
     }
 }

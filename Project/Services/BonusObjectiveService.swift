@@ -88,6 +88,26 @@ final class BonusObjectiveService {
         self.syncCoordinator = syncCoordinator
     }
 
+    func dailyObjective(for profileCache: ProfileCache, date: Date = Date()) -> BonusObjective {
+        let calendar = Calendar.iso8601UTC
+        let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        let dateString = "\(dateComponents.year ?? 0)-\(dateComponents.month ?? 0)-\(dateComponents.day ?? 0)"
+        let hashString = "\(profileCache.recordName)-\(dateString)"
+        let digest = SHA256.hash(data: Data(hashString.utf8))
+        let hash = digest.prefix(8).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+        let templates = Self.templates
+        let index = Int(hash % UInt64(templates.count))
+        let selection = templates[index]
+
+        return BonusObjective(
+            id: "\(dateString)-\(selection.type.rawValue)",
+            title: selection.title,
+            description: selection.description,
+            gemReward: selection.reward,
+            type: selection.type
+        )
+    }
+
     func dailyObjective(for profile: Profile, date: Date = Date()) -> BonusObjective {
         let calendar = Calendar.iso8601UTC
         let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
@@ -159,6 +179,20 @@ final class BonusObjectiveService {
             let isComplete = completedCount >= 2
             return (isComplete, "\(min(completedCount, 2))/2")
         }
+    }
+
+    func isClaimed(objective: BonusObjective, profileCache: ProfileCache) -> Bool {
+        profileCache.claimedBonusObjectives?.contains(objective.id) ?? false
+    }
+
+    func claimObjective(
+        objective: BonusObjective,
+        profileCache: ProfileCache,
+        gemService customGemService: GemService? = nil,
+        soundManager customSoundManager: SoundManager? = nil
+    ) async throws {
+        guard let zoneID = appState?.familyZoneID else { throw BonusObjectiveServiceError.unauthorizedProfile }
+        try await claimObjective(objective: objective, profile: profileCache.toProfile(zoneID: zoneID), gemService: customGemService, soundManager: customSoundManager)
     }
 
     func claimObjective(

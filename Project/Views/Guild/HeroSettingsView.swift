@@ -5,12 +5,11 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import os
 import SwiftUI
 
 struct HeroSettingsView: View {
-    let hero: Profile
+    let hero: ProfileCache
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroSettings")
 
@@ -26,10 +25,10 @@ struct HeroSettingsView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var saveDayTask: Task<Void, Never>?
 
-    init(hero: Profile) {
+    init(hero: ProfileCache) {
         self.hero = hero
-        _selectedPolicy = State(initialValue: hero.payoutPolicy)
-        _selectedDayOverride = State(initialValue: hero.payoutDay)
+        _selectedPolicy = State(initialValue: hero.payoutPolicyEnum)
+        _selectedDayOverride = State(initialValue: hero.payoutDayEnum)
     }
 
     var body: some View {
@@ -57,10 +56,10 @@ struct HeroSettingsView: View {
                     }
                 }
             }
-            .onChange(of: hero.payoutPolicy) { _, newPolicy in
+            .onChange(of: hero.payoutPolicyEnum) { _, newPolicy in
                 selectedPolicy = newPolicy
             }
-            .onChange(of: hero.payoutDay) { _, newDay in
+            .onChange(of: hero.payoutDayEnum) { _, newDay in
                 selectedDayOverride = newDay
             }
             .onChange(of: actionError) { _, newError in
@@ -84,16 +83,15 @@ struct HeroSettingsView: View {
                     .font(.title3.weight(.bold))
 
                 HStack(spacing: 6) {
-                    Text("Level \(hero.level)")
+                    // Level pill and class name stay unrendered while the
+                    // immersive layer is off; the sanctioned role label takes
+                    // their place.
+                    Text(hero.roleEnum?.displayName ?? "Hero")
                         .font(.caption.weight(.bold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(Color.accentColor.opacity(0.15)))
                         .foregroundStyle(Color.accentColor)
-
-                    Text(hero.effectiveClassDisplay)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -105,7 +103,7 @@ struct HeroSettingsView: View {
     }
 
     private var avatarView: some View {
-        ProfileAvatarView(profile: hero)
+        ProfileAvatarView(profileCache: hero)
     }
 
     // MARK: - Payout Day Override Section
@@ -133,7 +131,7 @@ struct HeroSettingsView: View {
                             do {
                                 try await Task.sleep(nanoseconds: 350_000_000)
                                 try Task.checkCancellation()
-                                _ = try await familyService.updateProfilePayoutDay(profile: hero, day: newDay)
+                                _ = try await familyService.updateProfilePayoutDay(profileCache: hero, day: newDay)
                             } catch {
                                 guard !Task.isCancelled else { return }
                                 withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
@@ -207,7 +205,7 @@ struct HeroSettingsView: View {
                     do {
                         try await Task.sleep(nanoseconds: 350_000_000)
                         try Task.checkCancellation()
-                        _ = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: policy)
+                        _ = try await familyService.updateProfilePayoutPolicy(profileCache: hero, policy: policy)
                     } catch {
                         guard !Task.isCancelled else { return }
                         withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {

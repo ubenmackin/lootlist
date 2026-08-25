@@ -22,12 +22,22 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     var entryDescription: String
     var location: String?
     var date: Date
+    /// Free-form movement tag; allowed values mirror `LedgerEntry.source`
+    /// ("manual", "quest", "interest", "match", "transfer", import-tagged).
     var source: String
+    // Bucket attribution (V8) — raw `BucketKind` strings; nil for legacy rows.
+    var bucketKind: String?
+    var fromBucket: String?
+    var toBucket: String?
     var changeTag: String?
     var encodedSystemFields: Data?
     var sourceZoneName: String?
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?
+
+    var bucketKindEnum: BucketKind? {
+        bucketKind.flatMap { BucketKind(rawValue: $0) }
+    }
 
     init(recordName: String,
          profileRecordName: String,
@@ -37,6 +47,9 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
          location: String? = nil,
          date: Date,
          source: String,
+         bucketKind: String? = nil,
+         fromBucket: String? = nil,
+         toBucket: String? = nil,
          changeTag: String? = nil,
          encodedSystemFields: Data? = nil,
          sourceZoneName: String? = nil,
@@ -51,6 +64,9 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         self.location = location
         self.date = date
         self.source = source
+        self.bucketKind = bucketKind
+        self.fromBucket = fromBucket
+        self.toBucket = toBucket
         self.changeTag = changeTag
         self.encodedSystemFields = encodedSystemFields
         self.sourceZoneName = sourceZoneName
@@ -68,6 +84,9 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
             location: entry.location,
             date: entry.date,
             source: entry.source,
+            bucketKind: entry.bucketKind,
+            fromBucket: entry.fromBucket,
+            toBucket: entry.toBucket,
             changeTag: entry.changeTag,
             encodedSystemFields: entry.encodedSystemFields,
             sourceZoneName: entry.id.zoneID.zoneName,
@@ -86,6 +105,9 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         location = entry.location
         date = entry.date
         source = entry.source
+        bucketKind = entry.bucketKind
+        fromBucket = entry.fromBucket
+        toBucket = entry.toBucket
         changeTag = entry.changeTag
         sourceZoneName = entry.id.zoneID.zoneName
         sourceZoneOwnerName = entry.id.zoneID.ownerName

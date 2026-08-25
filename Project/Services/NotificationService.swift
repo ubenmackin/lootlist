@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 import SwiftData
 import UIKit
 import UserNotifications
@@ -26,6 +27,8 @@ enum NotificationServiceError: Error, LocalizedError, Equatable, Sendable {
 @MainActor
 @Observable
 final class NotificationService {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "NotificationService")
+
     static let verificationCategoryID = "questLog.verification"
     static let verificationApproveActionID = "questLog.verification.approve"
     static let verificationRejectActionID = "questLog.verification.reject"
@@ -252,11 +255,11 @@ final class NotificationService {
     {
         guard isNotificationEnabled(for: .goldEarned, profileRecordName: profile.id.recordName, familyRecordName: family.id.recordName) else { return }
 
-        let title = "🎁 Sunday Loot Day"
+        let title = "🎁 Allowance Day"
         let body: String = if let provider = weeklySummaryProvider {
-            await (provider(profile, family, weekOf)) ?? "Your weekly loot awaits!"
+            await (provider(profile, family, weekOf)) ?? "Your weekly allowance is ready!"
         } else {
-            "Your weekly loot awaits!"
+            "Your weekly allowance is ready!"
         }
 
         try await send(.goldEarned, to: profile, title: title, body: body)
@@ -358,7 +361,11 @@ final class NotificationService {
     }
 
     func updateAppBadgeCount(pendingCount: Int) async {
-        try? await UNUserNotificationCenter.current().setBadgeCount(max(0, pendingCount))
+        do {
+            try await UNUserNotificationCenter.current().setBadgeCount(max(0, pendingCount))
+        } catch {
+            logger.warning("Failed to update app badge count to \(pendingCount): \(error, privacy: .private)")
+        }
     }
 }
 

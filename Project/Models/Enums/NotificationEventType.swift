@@ -24,7 +24,7 @@ enum NotificationCategory: String, CaseIterable, Sendable {
         switch self {
         case .quests: "Alerts for quest lifecycle — assignments, reviews, and outcomes."
         case .rewards: "Celebrate milestones, achievements, and streaks."
-        case .treasury: "Weekly loot payouts and spending activity."
+        case .treasury: "Allowance payouts and spending activity."
         }
     }
 }
@@ -48,8 +48,10 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         case .questNeedsReview: "Quest Needs Review"
         case .questRejected: "Quest Rejected"
         case .questMissed: "Quest Missed"
-        case .levelUp: "Level Up"
-        case .goldEarned: "Sunday Loot Day"
+        // `levelUp`/`goldEarned` are legacy case names; their display copy
+        // stays free of level/loot wording while the immersive layer is off.
+        case .levelUp: "Milestone Reached"
+        case .goldEarned: "Allowance Day"
         case .spendingLogged: "Spending Logged"
         case .trophyEarned: "Trophy Earned"
         case .streakMilestone: "Streak Milestone"

@@ -52,9 +52,11 @@ struct AvatarView: View {
     }
 
     private var avatarCircle: some View {
-        // Stock presets render in a squircle frame; custom uploaded photos and the
-        // default placeholder keep the original circular frame.
-        let isStockPreset = spec.customAvatarImageData == nil && spec.preset != nil
+        // Stock presets render in a squircle frame; custom uploaded photos, emoji,
+        // and the default placeholder keep the original circular frame.
+        let isStockPreset = spec.customAvatarImageData == nil
+            && spec.avatarEmoji == nil
+            && spec.preset != nil
         let squircleRadius = size.diameter * 0.22
 
         return ZStack {
@@ -75,6 +77,11 @@ struct AvatarView: View {
                     .aspectRatio(contentMode: .fill)
                     .frame(width: size.diameter, height: size.diameter)
                     .clipShape(Circle())
+            } else if let emoji = spec.avatarEmoji, !emoji.isEmpty {
+                // Lightweight emoji avatar renders in a tinted circle before
+                // falling back to pixel sprites or the default person icon.
+                Text(emoji)
+                    .font(.system(size: size.glyphSize * 1.4))
             } else if let preset = spec.preset {
                 let gear = spec.equippedAccessory.map { [$0] } ?? []
                 let sprite = HeroAvatarSprites.sprite(for: preset, equippedGear: gear)

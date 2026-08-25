@@ -88,7 +88,7 @@ struct FamilyCreationView: View {
                 )
             Text("Found Your Guild")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
-            Text("As Guild Master you'll forge a shared realm "
+            Text("As Guild Master you'll set up a shared space "
                 + "for the whole family.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)

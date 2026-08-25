@@ -173,6 +173,20 @@ final class XPService {
         return updated
     }
 
+    func levelProgress(profileCache: ProfileCache) -> LevelProgress {
+        let currentLevel = profileCache.level
+        let levelFloor = Self.cumulativeXPForLevel(currentLevel)
+        let levelCeil = Self.cumulativeXPForLevel(currentLevel + 1)
+        let stepSize = levelCeil - levelFloor
+        let progressIntoLevel = max(0, profileCache.xpTotal - levelFloor)
+        return LevelProgress(
+            currentLevel: currentLevel,
+            xpIntoCurrentLevel: progressIntoLevel,
+            xpForNextLevel: stepSize,
+            progress: stepSize > 0 ? Double(progressIntoLevel) / Double(stepSize) : 1.0
+        )
+    }
+
     func levelProgress(profile: Profile) -> LevelProgress {
         let currentLevel = profile.level
         let levelFloor = Self.cumulativeXPForLevel(currentLevel)
@@ -237,6 +251,12 @@ final class XPService {
             }
         }
         return out
+    }
+
+    func unlockedAccessories(profileCache: ProfileCache) -> [String] {
+        let maxUnlocked = profileCache.level / Self.accessoryCadence
+        guard maxUnlocked >= 1 else { return [] }
+        return (1 ... maxUnlocked).map { "accessory.level.\($0 * Self.accessoryCadence)" }
     }
 
     func unlockedAccessories(profile: Profile) -> [String] {

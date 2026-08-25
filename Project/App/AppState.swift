@@ -132,6 +132,7 @@ final class AppState {
 
     var isZoneOwner: Bool = false
     var cacheService: CacheService?
+    var backgroundCacheActor: BackgroundCacheActor?
     var cacheInitError: AppStateError?
 
     @ObservationIgnored
@@ -246,6 +247,9 @@ final class AppState {
 
         if let previousFamilyRecordName {
             cacheService?.purgeFamily(recordName: previousFamilyRecordName)
+            Task {
+                await backgroundCacheActor?.purgeFamily(recordName: previousFamilyRecordName)
+            }
         }
 
         defaults.removeObject(forKey: Self.profileIDKey)
@@ -825,6 +829,17 @@ final class AppState {
         }
     }
 
+    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
+        let zoneID = CKRecordZone.ID(zoneName: zoneIDString, ownerName: CKCurrentUserDefaultName)
+        await acceptDetectedFamily(
+            family: familyCache.toFamily(zoneID: zoneID),
+            profile: profileCache.toProfile(zoneID: zoneID),
+            zoneID: zoneID,
+            isOwner: isOwner,
+            cloudKit: cloudKit
+        )
+    }
+
     func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
         do {
             try await ActiveFamilyScopeGuard.requireServerAuthenticatedIdentity(
@@ -847,6 +862,17 @@ final class AppState {
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = isOwner
         authStatus = .authenticated
+    }
+
+    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
+        let zoneID = CKRecordZone.ID(zoneName: zoneIDString, ownerName: CKCurrentUserDefaultName)
+        await rejectDetectedFamily(
+            family: familyCache.toFamily(zoneID: zoneID),
+            profile: profileCache.toProfile(zoneID: zoneID),
+            zoneID: zoneID,
+            isOwner: isOwner,
+            cloudKit: cloudKit
+        )
     }
 
     func rejectDetectedFamily(family _: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {

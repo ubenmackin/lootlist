@@ -75,7 +75,7 @@ struct GuildRosterSectionView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This member will lose access to all guild quests, loot history, and weekly allowances.")
+                Text("This member will lose access to all quests, earnings history, and weekly allowances.")
             }
         }
     }
@@ -235,8 +235,7 @@ struct GuildRosterSectionView: View {
     }
 
     private func memberAvatarView(_ member: ProfileCache) -> some View {
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? member.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
-        return ProfileAvatarView(profile: member.toProfile(zoneID: zoneID))
+        ProfileAvatarView(profileCache: member)
     }
 
     @ViewBuilder

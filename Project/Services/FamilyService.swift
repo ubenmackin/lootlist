@@ -54,6 +54,13 @@ enum FamilyKickResult: Equatable, Sendable {
 @MainActor
 protocol FamilyProfileFetching: Sendable {
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile]
+    func currentUserRecordName() async throws -> String
+    func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare
+    func fetchShareParticipants(for family: Family) async throws -> [CKShare.Participant]
+    func fetchShareParticipantStatuses(for family: Family) async throws -> [ShareParticipantStatus]
+    func fetchShareParticipantRoles(for family: Family) async throws -> [String: UserRole]
+    func revokeInvitation(participant: CKShare.Participant, from family: Family) async throws
+    func revokeInvitation(identityRecordName: String, from family: Family) async throws
 }
 
 /// The owner-family session result consumed by the onboarding flow: the
@@ -239,7 +246,7 @@ final class FamilyService: FamilyProfileFetching {
 
         do {
             family = try await cloudKit.save(family, in: zoneID, using: pvtDB)
-            cacheService?.upsertFamily(family)
+            cacheService?.upsertFamily(family, isServerSync: true)
         } catch {
             throw FamilyServiceError.creationFailed
         }
@@ -252,7 +259,7 @@ final class FamilyService: FamilyProfileFetching {
         let savedOwner: Profile
         do {
             savedOwner = try await cloudKit.save(owner, in: zoneID, using: pvtDB)
-            cacheService?.upsertProfile(savedOwner)
+            cacheService?.upsertProfile(savedOwner, isServerSync: true)
         } catch {
             throw FamilyServiceError.creationFailed
         }
@@ -371,7 +378,7 @@ final class FamilyService: FamilyProfileFetching {
 
         do {
             family = try await cloudKit.fetch(Family.self, id: sharedFamilyID, using: sharedDB)
-            cacheService?.upsertFamily(family)
+            cacheService?.upsertFamily(family, isServerSync: true)
         } catch {
             throw FamilyServiceError.joinFailed
         }
@@ -444,7 +451,7 @@ final class FamilyService: FamilyProfileFetching {
             }
             didReuseActiveProfile = false
         }
-        cacheService?.upsertProfile(savedProfile)
+        cacheService?.upsertProfile(savedProfile, isServerSync: true)
 
         appState.familyZoneID = zoneID
         appState.isZoneOwner = false
@@ -457,7 +464,7 @@ final class FamilyService: FamilyProfileFetching {
         await refreshProfilesFromCloudKit(for: family)
 
         // Re-upsert locally saved profile to ensure fresh joiner metadata is not overwritten by stale sync query.
-        cacheService?.upsertProfile(savedProfile)
+        cacheService?.upsertProfile(savedProfile, isServerSync: true)
 
         // Hero bootstrap: seed per-hero defaults so the new member has a
         // complete local state before the first sync round trips.

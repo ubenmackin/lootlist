@@ -45,6 +45,7 @@ extension CacheService {
         case .notificationPreference: deleteByIdentity(NotificationPreferenceCache.self, identity: identity, in: context)
         case .gemLedger: deleteByIdentity(GemLedgerCache.self, identity: identity, in: context)
         case .rewardEvent: deleteByIdentity(RewardEventCache.self, identity: identity, in: context)
+        case .goal: deleteByIdentity(GoalCache.self, identity: identity, in: context)
         }
         _ = saveContext()
     }
@@ -55,14 +56,7 @@ extension CacheService {
         case .profile:
             deleteByNameAndFamily(ProfileCache.self, recordName: recordName, familyRecordName: family)
         case .family:
-            do {
-                if let match = try context.fetch(FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })).first {
-                    context.delete(match)
-                }
-            } catch {
-                logger.warning("Failed to fetch FamilyCache for invalidation: \(error, privacy: .private)")
-            }
-            _ = saveContext()
+            deleteFamilyCache(recordName: recordName, in: context)
         case .quest:
             deleteByNameAndFamily(QuestCache.self, recordName: recordName, familyRecordName: family)
         case .questTemplate:
@@ -83,7 +77,20 @@ extension CacheService {
             deleteByNameAndFamily(GemLedgerCache.self, recordName: recordName, familyRecordName: family)
         case .rewardEvent:
             deleteByNameAndFamily(RewardEventCache.self, recordName: recordName, familyRecordName: family)
+        case .goal:
+            deleteByNameAndFamily(GoalCache.self, recordName: recordName, familyRecordName: family)
         }
+    }
+
+    private func deleteFamilyCache(recordName: String, in context: ModelContext) {
+        do {
+            if let match = try context.fetch(FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })).first {
+                context.delete(match)
+            }
+        } catch {
+            logger.warning("Failed to fetch FamilyCache for invalidation: \(error, privacy: .private)")
+        }
+        _ = saveContext()
     }
 
     private func deleteByIdentity(_ type: (some CacheMergeable).Type, identity: ScopedRecordIdentity, in context: ModelContext) {
@@ -213,6 +220,7 @@ extension CacheService {
         deleteAll(from: context, where: #Predicate<NotificationPreferenceCache> { $0.familyRecordName == recordName })
         deleteAll(from: context, where: #Predicate<GemLedgerCache> { $0.familyRecordName == recordName })
         deleteAll(from: context, where: #Predicate<RewardEventCache> { $0.familyRecordName == recordName })
+        deleteAll(from: context, where: #Predicate<GoalCache> { $0.familyRecordName == recordName })
         invalidateFreshness(forFamilyRecordName: recordName)
         saveContext()
     }
@@ -233,6 +241,7 @@ extension CacheService {
         try context.delete(model: NotificationPreferenceCache.self)
         try context.delete(model: GemLedgerCache.self)
         try context.delete(model: RewardEventCache.self)
+        try context.delete(model: GoalCache.self)
         do { try trySaveContext() } catch {
             logger.error("Failed to save after clearing cache: \(error, privacy: .private)")
             throw error

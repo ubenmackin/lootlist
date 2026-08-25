@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/17/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -86,8 +85,8 @@ struct QuestsView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    if let profile = appState.currentProfile {
-                        MascotBannerView(profile: profile, quests: profileQuests, completions: profileLogs, showBonusCard: false)
+                    if FeatureFlags.rpgImmersive, let profile = appState.currentProfile {
+                        MascotBannerView(profileCache: ProfileCache(from: profile), quests: profileQuests, completions: profileLogs, showBonusCard: false)
                     }
 
                     questBoard
@@ -280,12 +279,11 @@ struct QuestsView: View {
     // MARK: - Quest Card Builder
 
     private func questCard(quest: QuestCache, vm: HeroDashboardViewModel, isOverdue: Bool = false) -> some View {
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? quest.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         let questLogs = vm.logs(for: quest)
         let logCache = vm.logsByQuestRecordName[quest.recordName]
 
         return NavigationLink {
-            QuestDetailView(quest: quest.toQuest(zoneID: zoneID), initialLog: logCache?.toQuestCompletion(zoneID: zoneID))
+            QuestDetailView(quest: quest, initialLog: logCache)
         } label: {
             QuestCardView(
                 quest: quest,
@@ -299,7 +297,7 @@ struct QuestsView: View {
                         defer { submittingQuestIDs.remove(qID) }
                         guard let profile = appState.currentProfile else { return }
                         do {
-                            _ = try await questService.markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile)
+                            _ = try await questService.markComplete(quest: quest, by: profile)
                         } catch {
                             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                         }
@@ -319,7 +317,7 @@ struct QuestsView: View {
                 .foregroundStyle(.green)
             Text("All Quests Complete! 🎉")
                 .font(.title3.bold())
-            Text("Great work, adventurer!")
+            Text("Great work!")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -334,7 +332,7 @@ struct QuestsView: View {
                 .foregroundStyle(.tint)
             Text(text)
                 .font(.title3.bold())
-            Text("Claim your loot!")
+            Text("Check the Hero Board to claim one!")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
