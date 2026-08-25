@@ -264,7 +264,7 @@ extension QuestServiceTests {
                 id: parentID
             )
 
-            appState = AppState()
+            appState = AppState(defaults: .ephemeral())
             appState.familyZoneID = zoneID
             appState.isZoneOwner = resolvedCloudKit.activeIsOwner
             appState.family = Family(

@@ -87,7 +87,7 @@ struct QuestsView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if let profile = appState.currentProfile {
-                        MascotBannerView(profile: profile, quests: profileQuests, completions: profileLogs, showBonusCard: true)
+                        MascotBannerView(profile: profile, quests: profileQuests, completions: profileLogs, showBonusCard: false)
                     }
 
                     questBoard

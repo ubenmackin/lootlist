@@ -54,6 +54,7 @@ struct QuestAssignmentView: View {
     @State private var goldOverrideText: String = ""
     @State private var xpOverrideText: String = ""
     @State private var approvalOverride: ApprovalModeSelection = .useTemplate
+    @State private var templateIsAllOrNothing: Bool = false
     @State private var weekOf: Date = defaultWeekOf()
 
     @State private var quickName: String = ""
@@ -63,6 +64,7 @@ struct QuestAssignmentView: View {
     @State private var quickSchedule: QuestSchedule = .weeklyFlexible
     @State private var quickSpecificDays: Set<String> = []
     @State private var quickTargetCount: Int = 1
+    @State private var quickIsAllOrNothing: Bool = false
     @State private var quickApproval: ApprovalMode = .autoApprove
 
     @State private var editQuestName: String = ""
@@ -212,7 +214,8 @@ struct QuestAssignmentView: View {
             selectedHero: $selectedHero,
             goldOverrideText: $goldOverrideText,
             xpOverrideText: $xpOverrideText,
-            approvalOverride: $approvalOverride
+            approvalOverride: $approvalOverride,
+            isAllOrNothingOverride: $templateIsAllOrNothing
         )
     }
 
@@ -229,11 +232,20 @@ struct QuestAssignmentView: View {
             quickSchedule: $quickSchedule,
             quickSpecificDays: $quickSpecificDays,
             quickTargetCount: $quickTargetCount,
+            quickIsAllOrNothing: $quickIsAllOrNothing,
             quickApproval: $quickApproval
         )
     }
 
     // MARK: - Edit sections
+
+    private var isEditMultiOccurrence: Bool {
+        QuestSchedule.isMultiOccurrence(
+            schedule: editSchedule,
+            targetCount: editTargetCount,
+            specificDaysCount: editSpecificDays.count
+        )
+    }
 
     @ViewBuilder
     private var editSections: some View {
@@ -265,7 +277,7 @@ struct QuestAssignmentView: View {
             }
         }
 
-        Section("Rewards") {
+        Section {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Reward")
                     .foregroundStyle(editHasLogs ? .secondary : .primary)
@@ -299,7 +311,20 @@ struct QuestAssignmentView: View {
                     .disabled(editHasLogs)
             }
 
-            Toggle("All-or-Nothing", isOn: $editIsAllOrNothing)
+            if isEditMultiOccurrence {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("All-or-Nothing", isOn: $editIsAllOrNothing)
+                        .disabled(editHasLogs)
+                    Text(
+                        "When enabled, the hero must complete all required days or times to earn any gold or XP. When disabled, rewards are earned incrementally per completion."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Text("Rewards")
         }
 
         Section("Schedule & Approval") {
@@ -410,8 +435,9 @@ struct QuestAssignmentView: View {
                 selectedHero = viewModel.heroes.first
             }
             userEditedQuestName = false
-            // Pre-fill template name
+            // Pre-fill template name and All-or-Nothing
             editQuestName = selectedTemplate?.name ?? ""
+            templateIsAllOrNothing = selectedTemplate?.isAllOrNothing ?? false
         case .quickCreate:
             if selectedHero == nil {
                 selectedHero = viewModel.heroes.first
@@ -429,7 +455,7 @@ struct QuestAssignmentView: View {
         userEditedQuestName = true
         editQuestName = quest.questName
         editQuestDescription = quest.descriptionText ?? ""
-        editGoldText = String(quest.goldReward)
+        editGoldText = String(format: "%.2f", quest.goldReward)
         editXpText = "\(quest.xpReward)"
         editSchedule = quest.scheduleTypeEnum ?? .weeklyFlexible
         editTargetCount = quest.targetCount
@@ -480,6 +506,13 @@ struct QuestAssignmentView: View {
         case .parentVerifyOverride: .parentVerify
         }
 
+        let isTemplateMultiOccurrence = QuestSchedule.isMultiOccurrence(
+            schedule: template.scheduleTypeEnum ?? .weeklyFlexible,
+            targetCount: template.targetCount,
+            specificDays: template.specificDays
+        )
+        let allOrNothingOverride: Bool? = isTemplateMultiOccurrence ? templateIsAllOrNothing : false
+
         // Template name override: use editQuestName if non-empty, else nil (falls back to template.name)
         let nameOverride = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
 
@@ -493,6 +526,7 @@ struct QuestAssignmentView: View {
                     goldOverride: gold,
                     xpOverride: xp,
                     approvalOverride: approval,
+                    isAllOrNothingOverride: allOrNothingOverride,
                     nameOverride: nameOverride,
                     weekOf: weekOf
                 )
@@ -528,6 +562,13 @@ struct QuestAssignmentView: View {
             return
         }
 
+        let isQuickMultiOccurrence = QuestSchedule.isMultiOccurrence(
+            schedule: quickSchedule,
+            targetCount: quickTargetCount,
+            specificDaysCount: quickSpecificDays.count
+        )
+        let effectiveAllOrNothing = isQuickMultiOccurrence ? quickIsAllOrNothing : false
+
         let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? hero.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
         isSubmitting = true
         let input = QuestManagerViewModel.QuickQuestInput(
@@ -539,6 +580,7 @@ struct QuestAssignmentView: View {
             scheduleType: quickSchedule,
             specificDays: Array(quickSpecificDays),
             targetCount: quickSchedule == .weeklyFlexible ? max(1, quickTargetCount) : 1,
+            isAllOrNothing: effectiveAllOrNothing,
             approvalMode: quickApproval,
             weekOf: weekOf
         )
@@ -582,6 +624,8 @@ struct QuestAssignmentView: View {
         let name = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
         let description = editQuestDescription.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestDescription
 
+        let effectiveAllOrNothing = isEditMultiOccurrence ? editIsAllOrNothing : false
+
         let zoneID = quest.id.zoneID
         isSubmitting = true
         let input = QuestManagerViewModel.UpdateQuestInput(
@@ -592,7 +636,7 @@ struct QuestAssignmentView: View {
             scheduleType: editSchedule,
             specificDays: Array(editSpecificDays),
             targetCount: editSchedule == .weeklyFlexible ? max(1, editTargetCount) : 1,
-            isAllOrNothing: editIsAllOrNothing,
+            isAllOrNothing: effectiveAllOrNothing,
             approvalMode: editApproval,
             assignee: hero.toProfile(zoneID: zoneID),
             allowLockedFieldsOverride: allowLockedFieldsOverride,

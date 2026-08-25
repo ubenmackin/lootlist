@@ -29,7 +29,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
     var mascotCompanion: String?
     var iCloudUserRecordName: String
     var avatarClass: String?
-    var payoutPolicy: String
+    var payoutPolicy: String?
     var payoutDay: String?
     // Gamification claim state — CloudKit-backed mirrors of Profile fields.
     // Optional arrays mirror the `specificDays` pattern so legacy rows
@@ -40,6 +40,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
     var dailyLoginCycleDay: Int = 1
     var dailyLoginStreakDays: Int = 0
     var claimedBonusObjectives: [String]?
+    var journeyMapLastSeenLevel: Int = 1
     var changeTag: String?
     /// Baseline server XP tracked to merge concurrent offline additions additively.
     var lastSyncedXP: Int = 0
@@ -57,7 +58,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
     }
 
     var payoutPolicyEnum: PayoutPolicy? {
-        PayoutPolicy(rawValue: payoutPolicy)
+        payoutPolicy.flatMap { PayoutPolicy(rawValue: $0) }
     }
 
     var payoutDayEnum: PayoutDay? {
@@ -78,7 +79,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
          mascotCompanion: String? = nil,
          iCloudUserRecordName: String,
          avatarClass: String?,
-         payoutPolicy: String,
+         payoutPolicy: String? = nil,
          payoutDay: String? = nil,
          ownedEquipment: [String]? = nil,
          equippedItems: [String]? = nil,
@@ -86,6 +87,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
          dailyLoginCycleDay: Int = 1,
          dailyLoginStreakDays: Int = 0,
          claimedBonusObjectives: [String]? = nil,
+         journeyMapLastSeenLevel: Int = 1,
          changeTag: String? = nil,
          lastSyncedXP: Int = 0,
          encodedSystemFields: Data? = nil,
@@ -115,6 +117,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         self.dailyLoginCycleDay = dailyLoginCycleDay
         self.dailyLoginStreakDays = dailyLoginStreakDays
         self.claimedBonusObjectives = claimedBonusObjectives
+        self.journeyMapLastSeenLevel = journeyMapLastSeenLevel
         self.changeTag = changeTag
         self.lastSyncedXP = lastSyncedXP
         self.encodedSystemFields = encodedSystemFields
@@ -139,7 +142,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
             mascotCompanion: profile.mascotCompanion,
             iCloudUserRecordName: profile.iCloudUserID.recordName,
             avatarClass: profile.avatarClass?.rawValue,
-            payoutPolicy: profile.payoutPolicy.rawValue,
+            payoutPolicy: profile.payoutPolicy?.rawValue,
             payoutDay: profile.payoutDay?.rawValue,
             ownedEquipment: profile.ownedEquipment.isEmpty ? nil : profile.ownedEquipment,
             equippedItems: profile.equippedItems.isEmpty ? nil : profile.equippedItems,
@@ -147,6 +150,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
             dailyLoginCycleDay: profile.dailyLoginCycleDay,
             dailyLoginStreakDays: profile.dailyLoginStreakDays,
             claimedBonusObjectives: profile.claimedBonusObjectives.isEmpty ? nil : profile.claimedBonusObjectives,
+            journeyMapLastSeenLevel: profile.journeyMapLastSeenLevel,
             changeTag: profile.changeTag,
             lastSyncedXP: profile.xp,
             encodedSystemFields: profile.encodedSystemFields,
@@ -172,7 +176,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         mascotCompanion = profile.mascotCompanion
         iCloudUserRecordName = profile.iCloudUserID.recordName
         avatarClass = profile.avatarClass?.rawValue
-        payoutPolicy = profile.payoutPolicy.rawValue
+        payoutPolicy = profile.payoutPolicy?.rawValue
         payoutDay = profile.payoutDay?.rawValue
         ownedEquipment = profile.ownedEquipment.isEmpty ? nil : profile.ownedEquipment
         equippedItems = profile.equippedItems.isEmpty ? nil : profile.equippedItems
@@ -180,6 +184,7 @@ final class ProfileCache: FamilyScopedCache, CacheMergeable {
         dailyLoginCycleDay = profile.dailyLoginCycleDay
         dailyLoginStreakDays = profile.dailyLoginStreakDays
         claimedBonusObjectives = profile.claimedBonusObjectives.isEmpty ? nil : profile.claimedBonusObjectives
+        journeyMapLastSeenLevel = profile.journeyMapLastSeenLevel
         changeTag = profile.changeTag
         sourceZoneName = profile.id.zoneID.zoneName
         sourceZoneOwnerName = profile.id.zoneID.ownerName

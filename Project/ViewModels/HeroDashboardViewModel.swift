@@ -186,7 +186,7 @@ final class HeroDashboardViewModel {
         let heroLogs = logs.filter { $0.completerRecordName == profileName }
         streak = StreakCalculator.computeStreak(from: heroLogs)
         let profileRecordName = appState.currentProfile?.id.recordName ?? ""
-        let payoutPolicy = appState.currentProfile?.payoutPolicy
+        let payoutPolicy = appState.currentProfile?.payoutPolicy ?? appState.family?.payoutPolicy
         earnedThisWeek = Self.earnedThisWeek(
             logs: heroLogs,
             quests: quests,

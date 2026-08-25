@@ -22,6 +22,7 @@ struct HeroHomeView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     @State private var viewModel: HeroDashboardViewModel?
+    @State private var showingJourneyMap = false
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroHomeView")
 
@@ -79,37 +80,17 @@ struct HeroHomeView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: DesignSystemConstants.Padding.standard) {
-                    DailyLoginBannerView(compactMode: true)
-
-                    compactPlayerCard
-
-                    if let profile = appState.currentProfile {
-                        MascotBannerView(profile: profile, quests: profileQuests, completions: profileLogs, showBonusCard: false)
-                    }
-                }
-                .padding(.horizontal, DesignSystemConstants.Padding.standard)
-                .padding(.bottom, DesignSystemConstants.Padding.standard - 4)
+                scrollContent
             }
             .background(Color(.systemGroupedBackground))
             .scrollContentBackground(.hidden)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        GemShopView()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "diamond.fill")
-                                .foregroundStyle(Color.gold)
-                            Text(gemsBalance.map(String.init) ?? "–")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(Color.gold)
-                        }
-                    }
-                    .accessibilityLabel(gemsBalance.map { "Gem Shop, \($0) gems available" } ?? "Gem Shop, gem balance unavailable")
-                }
+                toolbarContent
+            }
+            .fullScreenCover(isPresented: $showingJourneyMap) {
+                journeyMapCover
             }
             .task {
                 if viewModel == nil {
@@ -135,56 +116,99 @@ struct HeroHomeView: View {
         }
     }
 
-    // MARK: - Compact Player Card
+    // MARK: - Subviews
+
+    private var scrollContent: some View {
+        VStack(spacing: DesignSystemConstants.Padding.standard) {
+            DailyLoginBannerView(compactMode: true)
+
+            playerCard
+
+            if let profile = appState.currentProfile {
+                journeyMapCard(profile: profile)
+                mascotBanner(profile: profile)
+            }
+        }
+        .padding(.horizontal, DesignSystemConstants.Padding.standard)
+        .padding(.bottom, DesignSystemConstants.Padding.standard - 4)
+    }
 
     @ViewBuilder
-    private var compactPlayerCard: some View {
+    private func journeyMapCard(profile: Profile) -> some View {
+        let state = JourneyService.journeyState(for: profile, xpService: xpService)
+        JourneyMapCardView(journeyState: state) {
+            showingJourneyMap = true
+        }
+    }
+
+    private func mascotBanner(profile: Profile) -> some View {
+        MascotBannerView(
+            profile: profile,
+            quests: profileQuests,
+            completions: profileLogs,
+            showBonusCard: true
+        )
+    }
+
+    @ViewBuilder
+    private var journeyMapCover: some View {
+        if let profile = appState.currentProfile {
+            let state = JourneyService.journeyState(for: profile, xpService: xpService)
+            JourneyMapView(journeyState: state, profile: profile)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            NavigationLink {
+                GemShopView()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "diamond.fill")
+                        .foregroundStyle(Color.gold)
+                    Text(gemBalanceText)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Color.gold)
+                }
+            }
+            .accessibilityLabel(gemShopAccessibilityLabel)
+        }
+    }
+
+    private var gemBalanceText: String {
+        gemsBalance.map(String.init) ?? "–"
+    }
+
+    private var gemShopAccessibilityLabel: String {
+        gemsBalance.map { "Gem Shop, \($0) gems available" } ?? "Gem Shop, gem balance unavailable"
+    }
+
+    // MARK: - Integrated Player Card
+
+    @ViewBuilder
+    private var playerCard: some View {
         if let profile = appState.currentProfile {
             let progress = xpService.levelProgress(profile: profile)
-            HStack(spacing: 12) {
-                ProfileAvatarView(profile: profile)
-                    .frame(width: 64, height: 64)
+            let earned = viewModel?.earnedThisWeek ?? 0
+            let streak = profile.dailyLoginStreakDays
+            let shields = profile.streakShields
+            let completed = viewModel?.completedQuestCount ?? 0
+            let total = profileQuests.count
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(profile.displayName)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
+            VStack(spacing: 12) {
+                playerCardTopRow(profile: profile, progress: progress)
 
-                        Text("Lv. \(progress.currentLevel)")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule().fill(Color.accentColor)
-                            )
-                    }
+                Divider()
+                    .overlay(Color.secondary.opacity(0.15))
 
-                    HStack(spacing: 8) {
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color(.tertiarySystemFill))
-
-                                Capsule()
-                                    .fill(LinearGradient(
-                                        colors: [.blue, .purple],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    ))
-                                    .frame(width: max(0, geo.size.width * CGFloat(progress.progress)))
-                                    .animation(.spring(response: 0.6, dampingFraction: 0.8), value: progress.progress)
-                            }
-                        }
-                        .frame(height: 6)
-
-                        if let familyName = appState.family?.name, !familyName.isEmpty {
-                            familyNamePill(familyName)
-                        }
-                    }
-                }
+                playerCardStatsRow(
+                    earned: earned,
+                    streak: streak,
+                    shields: shields,
+                    completed: completed,
+                    total: total
+                )
             }
             .padding(DesignSystemConstants.Padding.standard)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -196,6 +220,124 @@ struct HeroHomeView: View {
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
                     .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
             )
+        }
+    }
+
+    private func playerCardTopRow(profile: Profile, progress: LevelProgress) -> some View {
+        HStack(spacing: 12) {
+            ProfileAvatarView(profile: profile)
+                .frame(width: 56, height: 56)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(profile.displayName)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+
+                    Text("Lv. \(progress.currentLevel)")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule().fill(Color.accentColor)
+                        )
+
+                    Spacer(minLength: 0)
+
+                    if let familyName = appState.family?.name, !familyName.isEmpty {
+                        familyNamePill(familyName)
+                    }
+                }
+
+                xpProgressBar(progress: progress.progress)
+            }
+        }
+    }
+
+    private func xpProgressBar(progress: Double) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color(.tertiarySystemFill))
+
+                Capsule()
+                    .fill(LinearGradient(
+                        colors: [.blue, .purple],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ))
+                    .frame(width: max(0, geo.size.width * CGFloat(progress)))
+                    .animation(.spring(response: 0.6, dampingFraction: 0.8), value: progress)
+            }
+        }
+        .frame(height: 6)
+    }
+
+    private func playerCardStatsRow(
+        earned: Double,
+        streak: Int,
+        shields: Int,
+        completed: Int,
+        total: Int
+    ) -> some View {
+        HStack(spacing: 0) {
+            // Weekly Haul
+            HStack(spacing: 6) {
+                Image(systemName: "banknote.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.gold)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("This Week")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(CurrencyFormatter.string(earned))
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            Spacer()
+
+            // Streak & Shields
+            HStack(spacing: 6) {
+                Image(systemName: "flame.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Streak")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text("\(streak)d")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                        if shields > 0 {
+                            Text("🛡️\(shields)")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+            }
+
+            Spacer()
+
+            // Quests Progress
+            HStack(spacing: 6) {
+                Image(systemName: "checklist")
+                    .font(.subheadline)
+                    .foregroundStyle(.blue)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Quests")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("\(completed)/\(total)")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                }
+            }
         }
     }
 

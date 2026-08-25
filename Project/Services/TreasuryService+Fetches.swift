@@ -391,10 +391,10 @@ extension TreasuryService {
     // MARK: - Helpers
 
     func effectivePayoutPolicy(for profile: Profile, family: Family? = nil) -> PayoutPolicy {
-        if profile.payoutPolicy != .perQuest {
-            return profile.payoutPolicy
+        if let policy = profile.payoutPolicy {
+            return policy
         }
-        return family?.payoutPolicy ?? profile.payoutPolicy
+        return family?.payoutPolicy ?? .perQuest
     }
 
     static func isCompleted(_ log: QuestCompletion) -> Bool {

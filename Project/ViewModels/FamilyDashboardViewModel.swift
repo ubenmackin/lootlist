@@ -541,11 +541,12 @@ final class FamilyDashboardViewModel {
                 questGold = 0.0
                 bonusGold = 0.0
             } else {
+                let effectivePolicy = hero.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
                 questGold = GoldCalculation.netWeeklyGold(
                     quests: quests,
                     logs: logs,
                     profileRecordName: hero.recordName,
-                    payoutPolicy: hero.payoutPolicyEnum,
+                    payoutPolicy: effectivePolicy,
                     weekRange: heroWeekRange
                 )
 
@@ -656,7 +657,7 @@ struct WeekendSummary: Equatable {
     /// each quest completion, so it is never "pending" a weekly batch.
     var pendingPayoutAmount: Double {
         heroSummaries.reduce(into: 0.0) { acc, hero in
-            if hero.profile.payoutPolicyEnum != .realTime {
+            if (hero.profile.payoutPolicyEnum ?? .perQuest) != .realTime {
                 acc += hero.weeklyQuestGold
             }
         }

@@ -37,26 +37,6 @@ struct NotificationServiceTests {
 
     // MARK: - Fixtures
 
-    private static let userDefaultsKeysToReset = [
-        "masterNotificationsEnabled",
-        "questAssignedNotificationsEnabled",
-        "questNeedsReviewNotificationsEnabled",
-        "questVerifiedNotificationsEnabled",
-        "questRejectedNotificationsEnabled",
-        "questMissedNotificationsEnabled",
-        "levelUpNotificationsEnabled",
-        "weeklySummaryNotificationsEnabled",
-        "spendingLoggedNotificationsEnabled",
-        "trophyEarnedNotificationsEnabled",
-        "streakMilestoneNotificationsEnabled"
-    ]
-
-    private func resetUserDefaults() {
-        for key in Self.userDefaultsKeysToReset {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-
     private func makeProfile(zoneID: CKRecordZone.ID) -> Profile {
         let familyRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
@@ -90,16 +70,16 @@ struct NotificationServiceTests {
             return
         }
 
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         app.currentProfile = makeProfile(zoneID: zoneID)
         app.family = makeFamily(zoneID: zoneID)
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         // Cache is empty pre-toggle and defaults unset → default-false fallback.
         #expect(service.isNotificationEnabled(for: .questAssigned) == false)
@@ -125,7 +105,7 @@ struct NotificationServiceTests {
         #expect(service.isNotificationEnabled(for: .questAssigned) == true)
 
         // The UserDefaults mirror was also written for fallback continuity.
-        #expect(UserDefaults.standard.object(forKey: "questAssignedNotificationsEnabled") as? Bool == true)
+        #expect(defaults.object(forKey: "questAssignedNotificationsEnabled") as? Bool == true)
     }
 
     @Test
@@ -135,16 +115,16 @@ struct NotificationServiceTests {
             return
         }
 
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         app.currentProfile = makeProfile(zoneID: zoneID)
         app.family = makeFamily(zoneID: zoneID)
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         // Empty cache and defaults unset → default-false fallback for level-up.
         #expect(service.isNotificationEnabled(for: .levelUp) == false)
@@ -177,31 +157,31 @@ struct NotificationServiceTests {
 
     @Test
     func `isNotificationEnabled falls back to userDefaults when cache is empty`() throws {
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         app.currentProfile = makeProfile(zoneID: zoneID)
         app.family = makeFamily(zoneID: zoneID)
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         // No cache rows, no UserDefaults entry → default-false fallback.
         #expect(service.isNotificationEnabled(for: .questAssigned) == false)
 
         // Set UserDefaults master + event enabled
-        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
-        UserDefaults.standard.set(true, forKey: "questAssignedNotificationsEnabled")
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questAssignedNotificationsEnabled")
         #expect(service.isNotificationEnabled(for: .questAssigned) == true,
                 "first-launch fallback must honor the UserDefaults mirror write")
 
         // Master toggle gates the fallback.
-        UserDefaults.standard.set(false, forKey: "masterNotificationsEnabled")
+        defaults.set(false, forKey: "masterNotificationsEnabled")
         #expect(service.isNotificationEnabled(for: .questAssigned) == false,
                 "master toggle off must disable all events via the fallback path")
-        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "masterNotificationsEnabled")
         #expect(service.isNotificationEnabled(for: .questAssigned) == true,
                 "master back on restores the per-event fallback value")
     }
@@ -215,20 +195,20 @@ struct NotificationServiceTests {
             return
         }
 
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
         // Inject save conflict error for verification.
         ck.saveError = CloudKitServiceError.serverRecordChanged
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         let profile = makeProfile(zoneID: zoneID)
         let family = makeFamily(zoneID: zoneID)
         app.currentProfile = profile
         app.family = family
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         // Seed existing cached preference record name for in-place update.
         let existingID = CKRecord.ID(recordName: "pref-hero1-fam1-questAssigned", zoneID: zoneID)
@@ -307,16 +287,16 @@ struct NotificationServiceTests {
             return
         }
 
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         let profile = makeProfile(zoneID: zoneID)
         app.currentProfile = profile
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         // deliverSyncNotification with matching profileID should return early without throwing
         try await service.deliverSyncNotification(
@@ -335,20 +315,20 @@ struct NotificationServiceTests {
             print("⏭️ Skipped: no iCloud account on simulator (sync engine would hang)")
             return
         }
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
         ck.activeFamilyZoneID = zoneID
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         // The viewer is the receiver of the notification on this device.
         let viewer = makeProfile(zoneID: zoneID)
         app.currentProfile = viewer
 
-        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
-        UserDefaults.standard.set(true, forKey: "questVerifiedNotificationsEnabled")
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questVerifiedNotificationsEnabled")
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         // The authoring peer is the family member whose action triggered the
         // sync event (creator/completer/spender/verifier recordName).
@@ -394,20 +374,20 @@ struct NotificationServiceTests {
             return
         }
 
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         let hero = makeProfile(zoneID: zoneID)
         let family = makeFamily(zoneID: zoneID)
         app.currentProfile = hero
         app.family = family
 
-        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
-        UserDefaults.standard.set(true, forKey: "questRejectedNotificationsEnabled")
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questRejectedNotificationsEnabled")
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
@@ -444,11 +424,11 @@ struct NotificationServiceTests {
             return
         }
 
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         let hero = makeProfile(zoneID: zoneID)
         let family = makeFamily(zoneID: zoneID)
         app.currentProfile = hero
@@ -475,7 +455,7 @@ struct NotificationServiceTests {
         cache.upsertNotificationPreference(pref)
         cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
@@ -506,20 +486,20 @@ struct NotificationServiceTests {
             return
         }
 
-        resetUserDefaults()
+        let defaults = UserDefaults.ephemeral()
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let ck = MockCloudKitService()
-        let cache = try CacheService(inMemory: true)
-        let app = AppState()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
         let hero = makeProfile(zoneID: zoneID)
         let family = makeFamily(zoneID: zoneID)
         app.currentProfile = hero
         app.family = family
 
-        UserDefaults.standard.set(true, forKey: "masterNotificationsEnabled")
-        UserDefaults.standard.set(true, forKey: "questAssignedNotificationsEnabled")
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "questAssignedNotificationsEnabled")
 
-        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache)
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }

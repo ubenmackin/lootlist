@@ -43,15 +43,16 @@ final class HeroLedgerViewModel {
         let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
         let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
 
+        let effectivePolicy = heroProfile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
         let hasPaidQuestThisWeek = heroLedgers.contains { $0.source == "quest" && weekRange.contains($0.date) }
-        if hasPaidQuestThisWeek || heroProfile.payoutPolicyEnum == .realTime {
+        if hasPaidQuestThisWeek || effectivePolicy == .realTime {
             pendingQuestGold = 0.0
         } else {
             pendingQuestGold = GoldCalculation.netWeeklyGold(
                 quests: quests,
                 logs: completions,
                 profileRecordName: heroProfile.recordName,
-                payoutPolicy: heroProfile.payoutPolicyEnum,
+                payoutPolicy: effectivePolicy,
                 weekRange: weekRange
             )
         }

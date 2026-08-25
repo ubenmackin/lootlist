@@ -354,7 +354,7 @@ struct FamilyDashboardView: View {
         // All heroes use real-time payouts: their gold is already settled and
         // ready in the wallet. No weekly batch payout applies.
         let allRealTime = summary?.heroSummaries.allSatisfy {
-            $0.profile.payoutPolicyEnum == .realTime
+            ($0.profile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest) == .realTime
         } ?? false
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {

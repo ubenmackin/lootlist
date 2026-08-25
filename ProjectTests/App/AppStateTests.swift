@@ -38,11 +38,12 @@ struct AppStateTests {
         )
 
         // Seed the cache with the offline-rehydration source rows.
-        let cache = try CacheService(inMemory: true)
+        let defaults = UserDefaults.ephemeral()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
         cache.upsertFamily(family)
         cache.upsertProfile(profile)
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         appState.cacheService = cache
         appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: true)
 
@@ -113,7 +114,8 @@ struct AppStateTests {
             id: CKRecord.ID(recordName: "profC", zoneID: zoneC)
         )
 
-        let cache = try CacheService(inMemory: true)
+        let defaults = UserDefaults.ephemeral()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
         cache.upsertFamily(familyA)
         cache.upsertFamily(familyB)
         cache.upsertFamily(familyC)
@@ -121,7 +123,7 @@ struct AppStateTests {
         cache.upsertProfile(profileB)
         cache.upsertProfile(profileC)
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         appState.cacheService = cache
         appState.saveSession(profile: profileA, family: familyA, zoneID: zoneA, isOwner: true)
 
@@ -160,11 +162,12 @@ struct AppStateTests {
             id: profileID
         )
 
-        let cache = try CacheService(inMemory: true)
+        let defaults = UserDefaults.ephemeral()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
         cache.upsertFamily(family)
         cache.upsertProfile(profile)
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         appState.cacheService = cache
         appState.familyZoneID = zoneID
         appState.currentProfile = profile
@@ -217,32 +220,12 @@ struct AppStateTests {
         }
     }
 
-    /// The UserDefaults session keys `AppState` persists. Cleared before each
-    /// test so a `hasSessionKey` (or sibling session key) left behind by an
-    /// earlier test can never bleed into a later one — keeping sign-out/
-    /// sign-in transitions deterministic.
-    private func resetSessionDefaults() {
-        let keys = [
-            "session_hasActiveSession",
-            "session_profileRecordName",
-            "session_familyRecordName",
-            "session_familyZoneName",
-            "session_familyZoneOwnerName",
-            "session_isZoneOwner",
-            "session_hasOnboarded",
-            "session_abandonedFamilyZoneNames"
-        ]
-        for key in keys {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-    }
-
     @Test
     func `signOutAndDiscover routes through discover and lands on detectedPreviousFamily`() async {
-        resetSessionDefaults()
+        let defaults = UserDefaults.ephemeral()
         // Simulate a signed-in session first so `signOutAndDiscover` demonstrably
         // wipes it during the transition.
-        UserDefaults.standard.set(true, forKey: "session_hasActiveSession")
+        defaults.set(true, forKey: "session_hasActiveSession")
 
         let zoneID = CKRecordZone.ID(zoneName: "SharedHeroZone", ownerName: "HeroOwner")
         let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
@@ -266,7 +249,7 @@ struct AppStateTests {
         // No private owner zones — only a recoverable shared hero zone.
         cloudKit.sharedZones = [CKRecordZone(zoneID: zoneID)]
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         await appState.signOutAndDiscover(cloudKit: cloudKit)
 
         guard case let .detectedPreviousFamily(family: detectedFamily,
@@ -284,12 +267,12 @@ struct AppStateTests {
         #expect(detectedZoneID == zoneID)
         #expect(isOwner == false)
         // The pre-existing signed-in session was cleared by sign-out.
-        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession") == false)
+        #expect(defaults.bool(forKey: "session_hasActiveSession") == false)
     }
 
     @Test
     func `shared discovery retries once within a bounded pass and ignores a later duplicate`() async {
-        resetSessionDefaults()
+        let defaults = UserDefaults.ephemeral()
 
         let zoneID = CKRecordZone.ID(zoneName: "BoundedSharedZone", ownerName: "SharedOwner")
         let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
@@ -310,7 +293,7 @@ struct AppStateTests {
         cloudKit.seedMockRecords([family, hero])
         cloudKit.sharedZoneResponses = [[], [], [CKRecordZone(zoneID: zoneID)]]
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         await appState.discoverExistingCloudState(cloudKit: cloudKit)
 
         guard case .detectedPreviousFamily = appState.authStatus else {
@@ -325,7 +308,7 @@ struct AppStateTests {
 
     @Test
     func `accepting a detected family activates the persisted session`() async {
-        resetSessionDefaults()
+        let defaults = UserDefaults.ephemeral()
 
         let zoneID = CKRecordZone.ID(zoneName: "AcceptZone", ownerName: "AcceptOwner")
         let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
@@ -346,7 +329,7 @@ struct AppStateTests {
         cloudKit.seedMockRecords([family, hero])
         cloudKit.sharedZones = [CKRecordZone(zoneID: zoneID)]
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         await appState.discoverExistingCloudState(cloudKit: cloudKit)
         guard case let .detectedPreviousFamily(
             family: detectedFamily,
@@ -370,12 +353,12 @@ struct AppStateTests {
         #expect(appState.currentProfile?.id == hero.id)
         #expect(appState.familyZoneID == zoneID)
         #expect(cloudKit.activeFamilyZoneID == zoneID)
-        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession"))
+        #expect(defaults.bool(forKey: "session_hasActiveSession"))
     }
 
     @Test
     func `identity mismatch falls back to cache before discovery`() async throws {
-        resetSessionDefaults()
+        let defaults = UserDefaults.ephemeral()
 
         let zoneID = CKRecordZone.ID(zoneName: "CacheFallbackZone", ownerName: "Owner")
         let familyID = CKRecord.ID(recordName: "cache-fallback-fam", zoneID: zoneID)
@@ -398,11 +381,11 @@ struct AppStateTests {
         let cloudKit = MockCloudKitService()
         cloudKit.seedMockRecords([family, profile], creatorUserRecordName: "stale-creator")
 
-        let cache = try CacheService(inMemory: true)
+        let cache = try CacheService(inMemory: true, defaults: defaults)
         cache.upsertFamily(family)
         cache.upsertProfile(profile)
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         appState.cacheService = cache
         appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: false)
 
@@ -414,23 +397,23 @@ struct AppStateTests {
         #expect(appState.family?.id == family.id)
         #expect(appState.currentProfile?.id == profile.id)
         #expect(appState.familyZoneID == zoneID)
-        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession"))
+        #expect(defaults.bool(forKey: "session_hasActiveSession"))
     }
 
     @Test
     func `signOutAndDiscover falls through to onboarding when no recoverable family exists`() async {
-        resetSessionDefaults()
-        UserDefaults.standard.set(true, forKey: "session_hasActiveSession")
+        let defaults = UserDefaults.ephemeral()
+        defaults.set(true, forKey: "session_hasActiveSession")
 
         // No private owner zones and no shared hero zones → nothing recoverable.
         let cloudKit = DiscoveryCloudKitService()
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         await appState.signOutAndDiscover(cloudKit: cloudKit)
 
         #expect(appState.authStatus == .onboarding)
         // The signed-in session was cleared by sign-out.
-        #expect(UserDefaults.standard.bool(forKey: "session_hasActiveSession") == false)
+        #expect(defaults.bool(forKey: "session_hasActiveSession") == false)
     }
 
     @Test
@@ -440,11 +423,10 @@ struct AppStateTests {
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = true
 
-        let suite = "AppStateTests_Scope_\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = UserDefaults.ephemeral()
         let appState = AppState(defaults: defaults)
 
-        let cache = try CacheService(inMemory: true)
+        let cache = try CacheService(inMemory: true, defaults: defaults)
         appState.cacheService = cache
 
         let conflictResolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
@@ -467,7 +449,8 @@ struct AppStateTests {
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = true
 
-        let appState = AppState()
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
         let family = Family(name: "Reject Family", createdBy: CKRecord.ID(recordName: "owner"), id: CKRecord.ID(recordName: "RejectZone", zoneID: zoneID))
         let profile = Profile(
             displayName: "Reject Hero",
@@ -485,8 +468,8 @@ struct AppStateTests {
 
     @Test
     func `GM legacy family creator fallback recovers family via createdBy record`() async {
-        resetSessionDefaults()
-        UserDefaults.standard.set(true, forKey: "session_hasOnboarded")
+        let defaults = UserDefaults.ephemeral()
+        defaults.set(true, forKey: "session_hasOnboarded")
 
         let zoneID = CKRecordZone.ID(zoneName: "LegacyGMZone", ownerName: "LegacyOwner")
         let familyID = CKRecord.ID(recordName: "legacy-gm-fam", zoneID: zoneID)
@@ -512,7 +495,7 @@ struct AppStateTests {
         cloudKit.seedMockRecords([gMProfile], creatorUserRecordName: MockCloudKitService.mockUserRecordName)
         cloudKit.privateZones = [CKRecordZone(zoneID: zoneID)]
 
-        let appState = AppState()
+        let appState = AppState(defaults: defaults)
         await appState.discoverExistingCloudState(cloudKit: cloudKit)
 
         guard case let .detectedPreviousFamily(family: detectedFamily,

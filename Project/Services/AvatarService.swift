@@ -55,28 +55,7 @@ enum AvatarPreset: String, CaseIterable, Sendable {
     }
 
     var displayName: String {
-        switch self {
-        case .knightV1: "Sir Valorous (M)"
-        case .knightV2: "Sir Galahad (M)"
-        case .knightV3: "Lady Clara (F)"
-        case .knightV4: "Lady Joan (F)"
-        case .mageV1: "Archmage Ignis (M)"
-        case .mageV2: "Sorcerer Zephyr (M)"
-        case .mageV3: "Enchantress Astra (F)"
-        case .mageV4: "Pyromancer Ember (F)"
-        case .rogueV1: "Shadowblade (M)"
-        case .rogueV2: "Scout Fox (M)"
-        case .rogueV3: "Nightstalker (F)"
-        case .rogueV4: "Bandit Ruby (F)"
-        case .guardianV1: "Ironclad Aegis (M)"
-        case .guardianV2: "Sentinel Titan (M)"
-        case .guardianV3: "Defender Freya (F)"
-        case .guardianV4: "Warden Briar (F)"
-        case .healerV1: "High Priest Sol (M)"
-        case .healerV2: "Monk Chen (M)"
-        case .healerV3: "Cleric Lumina (F)"
-        case .healerV4: "Druid Willow (F)"
-        }
+        "Look \(variationNumber)"
     }
 
     var iconSystemName: String {
@@ -101,7 +80,7 @@ enum AvatarPreset: String, CaseIterable, Sendable {
         case .mageV1, .mageV2: nil
         case .mageV3, .mageV4: "moon.stars.fill"
         case .rogueV1, .rogueV2: nil
-        case .rogueV3, .rogueV4: "hood.fill"
+        case .rogueV3, .rogueV4: "theatermasks.fill"
         case .guardianV1, .guardianV2: nil
         case .guardianV3, .guardianV4: "shield.lefthalf.filled"
         case .healerV1, .healerV2: nil
