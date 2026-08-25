@@ -20,6 +20,11 @@ struct HeroLedgerView: View {
     @State private var isShowingDeposit: Bool = false
     @State private var isShowingWithdraw: Bool = false
 
+    @State private var showExportPicker = false
+    @State private var showShareSheet = false
+    @State private var shareURL: URL?
+    private let exportService = LedgerExportService()
+
     /// Persisted date-range scope for this hero's ledger screen.
     @AppStorage("heroLedger.calendarScope") private var scope: CalendarScope = .thisWeek
 
@@ -101,6 +106,27 @@ struct HeroLedgerView: View {
                 HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: hero.displayName)
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showExportPicker = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                // Disable the export button when the acting user is not a parent.
+                .disabled(appState.currentProfile?.role.isParent != true)
+            }
+        }
+        .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
+            Button("Export as CSV") { exportEntries(as: .csv) }
+            Button("Export as JSON") { exportEntries(as: .json) }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let url = shareURL {
+                ShareSheet(items: [url])
+            }
+        }
     }
 
     private func rebuild() {
@@ -110,6 +136,40 @@ struct HeroLedgerView: View {
             completions: cachedCompletions,
             scope: scope
         )
+    }
+
+    // MARK: - Export
+
+    private enum ExportFormat { case csv, json }
+
+    private func exportEntries(as format: ExportFormat) {
+        let heroLedgers = cachedLedgers.filter { $0.profileRecordName == hero.recordName }
+        let payoutDay = hero.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
+        let filtered = heroLedgers.filter { scope.contains($0.date, payoutDay: payoutDay) }
+
+        let data: Data
+        switch format {
+        case .csv:
+            data = exportService.buildCSV(entries: filtered, childName: hero.displayName)
+        case .json:
+            do {
+                data = try exportService.buildJSON(entries: filtered)
+            } catch {
+                toastManager?.show(message: "Could not build JSON export.", type: .error)
+                return
+            }
+        }
+
+        let ext = format == .csv ? "csv" : "json"
+        let name = LedgerExportService.filename(child: hero.displayName, date: Date(), ext: ext)
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        do {
+            try data.write(to: tempURL, options: .atomic)
+            shareURL = tempURL
+            showShareSheet = true
+        } catch {
+            toastManager?.show(message: "Could not write export file.", type: .error)
+        }
     }
 
     private var depositButton: some View {

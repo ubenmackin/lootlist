@@ -210,7 +210,7 @@ struct WeeklyBreakdownCard: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("This Week's Loot")
+                Text("This Week's Earnings")
                     .font(.headline)
                 Spacer()
             }
@@ -224,7 +224,7 @@ struct WeeklyBreakdownCard: View {
                              value: GoldFormat.signed(breakdown.goldFromQuests),
                              icon: "banknote",
                              tint: .gold)
-                BreakdownRow(label: "Bonus Loot Drop",
+                BreakdownRow(label: "Extra Bonus",
                              value: GoldFormat.signed(breakdown.bonusGold),
                              icon: "gift.fill",
                              tint: .purple)
@@ -250,7 +250,7 @@ struct WeeklyBreakdownCard: View {
                 HStack {
                     Spacer()
                     ProgressView()
-                    Text("Tallying your loot…")
+                    Text("Tallying your earnings…")
                         .foregroundStyle(.secondary)
                     Spacer()
                 }

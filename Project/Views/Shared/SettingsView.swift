@@ -8,6 +8,43 @@
 import CloudKit
 import SwiftUI
 
+private enum AppIconLock: String, CaseIterable {
+    case standard
+    case week1 = "AppIcon-Week1"
+    case week2 = "AppIcon-Week2"
+    case week4 = "AppIcon-Week4"
+    case week8 = "AppIcon-Week8"
+    case week12 = "AppIcon-Week12"
+    case week26 = "AppIcon-Week26"
+
+    var displayName: String {
+        switch self {
+        case .standard: "Default"
+        case .week1: "Fresh Start"
+        case .week2: "Getting Going"
+        case .week4: "Monthly Saver"
+        case .week8: "Dedicated Saver"
+        case .week12: "Quarter Champion"
+        case .week26: "Half-Year Hero"
+        }
+    }
+
+    /// The StreakCalculator.StreakMilestone raw value required to unlock this icon.
+    /// Standard is always unlocked; others require reaching that many weeks
+    /// of savings streak.
+    var requiredStreakWeeks: Int {
+        switch self {
+        case .standard: 0
+        case .week1: 1
+        case .week2: 2
+        case .week4: 4
+        case .week8: 8
+        case .week12: 12
+        case .week26: 26
+        }
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationService.self) private var notificationService
@@ -15,6 +52,11 @@ struct SettingsView: View {
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
 
     @AppStorage("preferredAppearance") private var preferredAppearance: String = "system"
+    @AppStorage("featureflags.rpgImmersive") private var rpgImmersive: Bool = false
+
+    @State private var selectedIcon: AppIconLock = .standard
+    @State private var unlockedIconMilestones: Set<AppIconLock> = []
+    @State private var activeIconName: String?
 
     var body: some View {
         NavigationStack {
@@ -73,12 +115,11 @@ struct SettingsView: View {
                     }
 
                     // Notifications
-                    if let profile = appState.currentProfile, let family = appState.family {
+                    if let profile = appState.currentProfile, appState.family != nil {
                         NavigationLink {
                             NotificationSettingsView(
                                 notificationService: notificationService,
-                                profile: profile,
-                                family: family
+                                profileCache: ProfileCache(from: profile)
                             )
                         } label: {
                             Label("Notifications", systemImage: "bell.badge.fill")
@@ -87,13 +128,75 @@ struct SettingsView: View {
                     }
                 }
 
+                // Alternate App Icons — unlocked by savings-streak milestones.
+                // Eligibility is device-local via UserDefaults, keyed to streak
+                // weeks reached. setAlternateIconName is guarded by
+                // UIApplication.shared.supportsAlternateIcons.
+                if UIApplication.shared.supportsAlternateIcons {
+                    Section("App Icon") {
+                        ForEach(AppIconLock.allCases, id: \.rawValue) { icon in
+                            let isUnlocked = icon == .standard
+                                || unlockedIconMilestones.contains(icon)
+
+                            Button {
+                                setAppIcon(icon)
+                            } label: {
+                                HStack {
+                                    Text(icon.displayName)
+                                        .font(.body)
+                                        .foregroundStyle(isUnlocked ? .primary : .secondary)
+
+                                    Spacer()
+
+                                    if icon == selectedIcon {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+
+                                    if !isUnlocked {
+                                        Image(systemName: "lock.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .disabled(!isUnlocked)
+                        }
+                    }
+                }
+
+                // Classic Mode (Experimental) — RPG-era toggles gated behind
+                // the immersive feature flag. When the flag is off, none of
+                // these surfaces render.
+                if FeatureFlags.rpgImmersive {
+                    Section {
+                        Toggle("RPG Immersive Mode", isOn: $rpgImmersive)
+                            .onChange(of: rpgImmersive) { _, newValue in
+                                FeatureFlags.rpgImmersive = newValue
+                            }
+                    } header: {
+                        Text("Classic Mode (Experimental)")
+                    } footer: {
+                        Text("""
+                        Toggles the fantasy-RPG presentation layer: sprite avatars, \
+                        Hero classes, leveling, quest rarity, journey path, mascots, \
+                        gems, and more. Underlying services keep running — only the UI changes.
+                        """)
+                    }
+                }
+
                 // Section: Developer Tools
-                Section("Developer") {
-                    NavigationLink {
-                        SpriteGalleryView()
-                    } label: {
-                        Label("Sprite Gallery", systemImage: "square.grid.2x2.fill")
-                            .foregroundStyle(.indigo)
+                // The sprite gallery renders the immersive avatar/mascot
+                // artwork; it stays one flag away from reappearing rather
+                // than being removed outright.
+                if FeatureFlags.rpgImmersive {
+                    Section("Developer") {
+                        NavigationLink {
+                            SpriteGalleryView()
+                        } label: {
+                            Label("Sprite Gallery", systemImage: "square.grid.2x2.fill")
+                                .foregroundStyle(.indigo)
+                        }
                     }
                 }
 
@@ -109,7 +212,7 @@ struct SettingsView: View {
                     }
 
                     HStack {
-                        Label("Realm", systemImage: "shield.fill")
+                        Label("Family", systemImage: "shield.fill")
                             .foregroundStyle(.yellow)
                         Spacer()
                         Text("\(Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ?? "LootList") for Families")
@@ -122,6 +225,50 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.large)
         }
         .preferredColorScheme(colorScheme)
+        .task {
+            refreshAppIconState()
+        }
+    }
+
+    // MARK: - App Icon Management
+
+    private func refreshAppIconState() {
+        activeIconName = UIApplication.shared.alternateIconName
+        if let name = activeIconName, let icon = AppIconLock.allCases.first(where: { $0.rawValue == name }) {
+            selectedIcon = icon
+        } else {
+            selectedIcon = .standard
+        }
+        reconcileUnlockedMilestones()
+    }
+
+    /// Reads the highest savings-streak milestone reached (device-local
+    /// UserDefaults) and marks all icons up to that tier as unlocked.
+    private func reconcileUnlockedMilestones() {
+        let maxWeeks = UserDefaults.standard.integer(forKey: "appicon.maxSavingsStreakWeeks")
+        var unlocked: Set<AppIconLock> = []
+        for icon in AppIconLock.allCases where icon.requiredStreakWeeks <= maxWeeks {
+            unlocked.insert(icon)
+        }
+        unlockedIconMilestones = unlocked
+    }
+
+    private func setAppIcon(_ icon: AppIconLock) {
+        let name: String? = icon == .standard ? nil : icon.rawValue
+        let currentName = UIApplication.shared.alternateIconName
+        guard name != currentName else { return }
+        UIApplication.shared.setAlternateIconName(name) { error in
+            // Completion runs off the main actor; hop back to mutate @State.
+            Task { @MainActor in
+                if error != nil {
+                    // Icon change failed — silently ignore; the picker stays on the
+                    // last successfully set icon.
+                    return
+                }
+                activeIconName = name
+                selectedIcon = icon
+            }
+        }
     }
 
     private var appVersionString: String {

@@ -96,6 +96,7 @@ extension Family: DomainSystemFields {}
 extension NotificationPreference: DomainSystemFields {}
 extension GemLedger: DomainSystemFields {}
 extension RewardEvent: DomainSystemFields {}
+extension Goal: DomainSystemFields {}
 
 extension QuestCache: CacheSystemFields {}
 extension QuestCompletionCache: CacheSystemFields {}
@@ -109,6 +110,7 @@ extension FamilyCache: CacheSystemFields {}
 extension NotificationPreferenceCache: CacheSystemFields {}
 extension GemLedgerCache: CacheSystemFields {}
 extension RewardEventCache: CacheSystemFields {}
+extension GoalCache: CacheSystemFields {}
 
 extension QuestCache {
     func toQuest(zoneID: CKRecordZone.ID) -> Quest {
@@ -128,6 +130,8 @@ extension QuestCache {
                 name: questName,
                 descriptionText: descriptionText,
                 xpBanked: xpBanked,
+                claimedByProfileRecordName: claimedByProfileRecordName,
+                claimedAt: claimedAt,
                 id: CKRecord.ID(recordName: recordName, zoneID: zid)
             )
         }
@@ -227,6 +231,17 @@ extension ProfileCache {
                 dailyLoginStreakDays: dailyLoginStreakDays,
                 claimedBonusObjectives: claimedBonusObjectives ?? [],
                 journeyMapLastSeenLevel: journeyMapLastSeenLevel,
+                avatarEmoji: avatarEmoji,
+                splitPercentSpend: splitPercentSpend,
+                splitPercentShort: splitPercentShort,
+                splitPercentLong: splitPercentLong,
+                interestEnabled: interestEnabled,
+                interestBucket: interestBucket,
+                interestRateBps: interestRateBps,
+                interestIsCompound: interestIsCompound,
+                matchEnabled: matchEnabled,
+                matchRateBps: matchRateBps,
+                matchMonthlyCapPennies: matchMonthlyCapPennies,
                 id: CKRecord.ID(recordName: recordName, zoneID: zid)
             )
             profile.xp = xpTotal
@@ -251,6 +266,9 @@ extension LedgerEntryCache {
                 location: location,
                 date: date,
                 source: source,
+                bucketKind: bucketKind,
+                fromBucket: fromBucket,
+                toBucket: toBucket,
                 family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zid), action: .none),
                 id: CKRecord.ID(recordName: recordName, zoneID: zid)
             )
@@ -259,6 +277,30 @@ extension LedgerEntryCache {
 
     func toDomain(zoneID: CKRecordZone.ID) -> LedgerEntry {
         toLedgerEntry(zoneID: zoneID)
+    }
+}
+
+extension GoalCache {
+    func toGoal(zoneID: CKRecordZone.ID) -> Goal {
+        domain(zoneID: zoneID) { zid in
+            Goal(
+                profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zid), action: .none),
+                family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zid), action: .none),
+                bucketKind: bucketKindEnum ?? .spend,
+                name: name,
+                category: category,
+                emojiIcon: emojiIcon,
+                targetAmountPennies: targetAmountPennies,
+                createdAt: createdAt,
+                completedAt: completedAt,
+                isArchived: isArchived,
+                id: CKRecord.ID(recordName: recordName, zoneID: zid)
+            )
+        }
+    }
+
+    func toDomain(zoneID: CKRecordZone.ID) -> Goal {
+        toGoal(zoneID: zoneID)
     }
 }
 

@@ -151,7 +151,7 @@ struct ProfileView: View {
             }
             .sheet(isPresented: $showingEditAvatar) {
                 if let profile = appState.currentProfile {
-                    EditAvatarSheet(profile: profile)
+                    EditAvatarSheet(profileCache: ProfileCache(from: profile))
                 }
             }
             .task {
@@ -184,19 +184,13 @@ struct ProfileView: View {
         )
     }
 
-    @ViewBuilder
     private func characterCard(profile: Profile) -> some View {
-        let spec = avatarService.renderSpec(for: profile)
-        let progress = xpService.levelProgress(profile: profile)
-
         VStack(spacing: 14) {
-            AvatarView(spec: spec, size: .large, showsNameAndTitle: false)
-
-            nameBlock(profile: profile, spec: spec)
-
-            levelBadge(profile: profile, spec: spec)
-
-            xpBlock(profile: profile, progress: progress)
+            if FeatureFlags.rpgImmersive {
+                rpgCharacterCard(profile: profile)
+            } else {
+                utilityCharacterCard(profile: profile)
+            }
 
             HStack(spacing: 12) {
                 Button {
@@ -251,6 +245,81 @@ struct ProfileView: View {
         )
         .padding(.horizontal)
         .padding(.top, 4)
+    }
+
+    /// Utility-first card: emoji avatar, name, role, and savings streak.
+    @ViewBuilder
+    private func utilityCharacterCard(profile: Profile) -> some View {
+        Text(profile.avatarEmoji ?? "🧑")
+            .font(.system(size: 56))
+
+        Text(profile.displayName)
+            .font(.title2.bold())
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+
+        Text(profile.role.displayName)
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.85))
+
+        // Savings-streak badge strip: shows quest streak and savings streak.
+        savingsStreakStrip
+    }
+
+    /// RPG-era card: sprite avatar, class, level, title, XP bar.
+    @ViewBuilder
+    private func rpgCharacterCard(profile: Profile) -> some View {
+        let spec = avatarService.renderSpec(for: profile)
+        let progress = xpService.levelProgress(profile: profile)
+
+        AvatarView(spec: spec, size: .large, showsNameAndTitle: false)
+        nameBlock(profile: profile, spec: spec)
+        levelBadge(profile: profile, spec: spec)
+        xpBlock(profile: profile, progress: progress)
+    }
+
+    /// Streak badges: quest-completion streak and weekly savings-split streak.
+    private var savingsStreakStrip: some View {
+        let questStreak = viewModel.streak ?? 0
+        let savingsStreak = viewModel.savingsStreak ?? 0
+
+        return HStack(spacing: 10) {
+            streakBadge(
+                icon: "flame.fill",
+                color: .orange,
+                count: questStreak,
+                label: questStreak == 1 ? "day" : "days"
+            )
+            streakBadge(
+                icon: "banknote.fill",
+                color: Color(DesignSystemConstants.Colors.primaryGreen),
+                count: savingsStreak,
+                label: savingsStreak == 1 ? "wk saving" : "wks saving"
+            )
+        }
+    }
+
+    private func streakBadge(icon: String,
+                             color: Color,
+                             count: Int,
+                             label: String) -> some View
+    {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(color)
+            Text("\(count) \(label)")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.18))
+        )
     }
 
     private func nameBlock(profile: Profile, spec: AvatarRenderSpec) -> some View {
@@ -321,55 +390,66 @@ struct ProfileView: View {
 
     private func actionsSection(profile: Profile) -> some View {
         VStack(spacing: 0) {
-            NavigationLink {
-                CharacterSheetView(
-                    profile: profile,
-                    avatarService: avatarService,
-                    xpService: xpService,
-                    streak: viewModel.streak,
-                    goldBalance: viewModel.goldBalance,
-                    earnedAchievements: viewModel.earnedAchievements,
-                    onSaveDisplayName: { newName in
-                        guard profile.role == .hero,
-                              var updated = appState.currentProfile else { return }
-                        updated.displayName = newName
-                        appState.currentProfile = updated
-                        Task {
-                            do {
-                                try await familyService.updateProfileDisplayName(profile: updated, newName: newName)
-                            } catch {
-                                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+            // Character Sheet is an RPG-era detail screen; hidden while the
+            // immersive layer is off.
+            if FeatureFlags.rpgImmersive {
+                NavigationLink {
+                    CharacterSheetView(
+                        profileCache: ProfileCache(from: profile),
+                        avatarService: avatarService,
+                        xpService: xpService,
+                        streak: viewModel.streak,
+                        goldBalance: viewModel.goldBalance,
+                        earnedAchievements: viewModel.earnedAchievements,
+                        onSaveDisplayName: { newName in
+                            guard profile.role == .hero,
+                                  var updated = appState.currentProfile else { return }
+                            updated.displayName = newName
+                            appState.currentProfile = updated
+                            Task {
+                                do {
+                                    try await familyService.updateProfileDisplayName(profile: updated, newName: newName)
+                                } catch {
+                                    toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+                                }
                             }
                         }
-                    }
-                )
-            } label: {
-                actionRow(
-                    icon: "doc.text.magnifyingglass",
-                    title: "Open Character Sheet",
-                    subtitle: "Detailed stats, accessories, and trophies"
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("profile.openCharacterSheet")
-
-            if profile.role == .hero {
-                Divider().padding(.leading, 56)
-
-                NavigationLink {
-                    GemShopView()
+                    )
                 } label: {
                     actionRow(
-                        icon: "sparkles",
-                        title: "Gem Shop",
-                        subtitle: "Cosmetics, gear, and companion pets",
-                        tint: Color.gold
+                        icon: "doc.text.magnifyingglass",
+                        title: "Open Character Sheet",
+                        subtitle: "Detailed stats, accessories, and trophies"
                     )
                 }
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("profile.gemShop")
+                .accessibilityIdentifier("profile.openCharacterSheet")
+            }
 
-                Divider().padding(.leading, 56)
+            if profile.role == .hero {
+                // Gem Shop is an RPG-era surface; hidden while the immersive layer is off.
+                if FeatureFlags.rpgImmersive {
+                    Divider().padding(.leading, 56)
+
+                    NavigationLink {
+                        GemShopView()
+                    } label: {
+                        actionRow(
+                            icon: "sparkles",
+                            title: "Gem Shop",
+                            subtitle: "Cosmetics, gear, and companion pets",
+                            tint: Color.gold
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("profile.gemShop")
+                }
+
+                // Only show the divider before Trophy Room when there is
+                // preceding content (Character Sheet or Gem Shop).
+                if FeatureFlags.rpgImmersive {
+                    Divider().padding(.leading, 56)
+                }
 
                 NavigationLink {
                     TrophyRoomView(familyRecordName: familyRecordName)
@@ -383,16 +463,19 @@ struct ProfileView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("profile.trophies")
+
+                Divider().padding(.leading, 56)
+            } else {
+                Divider().padding(.leading, 56)
             }
 
             Divider().padding(.leading, 56)
 
             NavigationLink {
-                if let family = appState.family {
+                if appState.family != nil {
                     NotificationSettingsView(
                         notificationService: notificationService,
-                        profile: profile,
-                        family: family
+                        profileCache: ProfileCache(from: profile)
                     )
                 }
             } label: {
@@ -466,7 +549,7 @@ struct ProfileView: View {
             Divider().padding(.leading, 56)
             aboutRow(label: "Build", value: buildNumber)
             Divider().padding(.leading, 56)
-            aboutRow(label: "Loot List", value: "Family chore tracker · RPG mode")
+            aboutRow(label: "Loot List", value: "Family chore tracker")
         }
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -567,11 +650,13 @@ struct ProfileView: View {
 @Observable
 final class ProfileViewModel {
     var streak: Int?
+    var savingsStreak: Int?
     var goldBalance: Double?
     var earnedAchievements: [Achievement] = []
 
     func reset() {
         streak = nil
+        savingsStreak = nil
         goldBalance = nil
         earnedAchievements = []
     }
@@ -593,6 +678,21 @@ final class ProfileViewModel {
 
         let heroCompletions = completions.filter { $0.completerRecordName == profileName }
         streak = StreakCalculator.computeStreak(from: heroCompletions)
+
+        // Savings streak: weeks where the hero contributed to save buckets.
+        savingsStreak = StreakCalculator.computeSavingsStreak(
+            from: ledgers,
+            profileRecordName: profileName
+        )
+
+        // Persist the highest savings-streak milestone reached so alternate app
+        // icon eligibility can be read from Settings (device-local UserDefaults).
+        if let streak = savingsStreak {
+            let stored = UserDefaults.standard.integer(forKey: "appicon.maxSavingsStreakWeeks")
+            if streak > stored {
+                UserDefaults.standard.set(streak, forKey: "appicon.maxSavingsStreakWeeks")
+            }
+        }
 
         // Balance is derived directly from ledger entry sum.
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }

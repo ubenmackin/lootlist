@@ -106,7 +106,7 @@ struct GuildDangerZoneSectionView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(
-                "This will permanently delete your family zone, quest history, loot, and member profiles from iCloud, returning you to the onboarding screen. This cannot be undone."
+                "This will permanently delete your family's iCloud data, quest history, earnings history, and member profiles, returning you to the onboarding screen. This cannot be undone."
             )
         }
         .alert("Final Confirmation", isPresented: $showDisbandFinalConfirm) {

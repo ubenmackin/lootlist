@@ -283,18 +283,16 @@ struct FamilyJoinView: View {
                 Spacer()
             }
 
+            // Leveling and XP stats stay unrendered while the immersive layer
+            // is off; the name and role above identify the member.
             Divider()
 
             HStack {
-                Label("Level \(hero.profile.level)", systemImage: "star.fill")
+                Label(hero.profile.role.displayName, systemImage: "person.fill")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
-
-                Text("\(hero.profile.xp) Total XP")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(20)

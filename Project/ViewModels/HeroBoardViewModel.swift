@@ -1,0 +1,145 @@
+//
+//  HeroBoardViewModel.swift
+//  LootList
+//
+//  Created by Ben Mackin on 8/24/26.
+//
+
+import Foundation
+import Observation
+
+@MainActor
+@Observable
+final class HeroBoardViewModel {
+    struct BoardRow: Identifiable, Equatable {
+        let quest: Quest
+        let claimantName: String?
+        let isClaimedByCurrentUser: Bool
+
+        var id: String {
+            quest.id.recordName
+        }
+    }
+
+    private(set) var availableRows: [BoardRow] = []
+    private(set) var claimedRows: [BoardRow] = []
+
+    /// Record names of quests this device has optimistically claimed but whose
+    /// save has not yet been acknowledged. If ingest later reveals another
+    /// claimer for one of these, the child sees the lost-race toast.
+    private var pendingClaims: Set<String> = []
+
+    /// Record names with a claim save currently in flight on this device.
+    private var inFlightClaims: Set<String> = []
+
+    private let boardService: HeroBoardService
+    private let appState: AppState
+
+    var isParent: Bool {
+        appState.currentProfile?.role.isParent ?? false
+    }
+
+    private var currentUserRecordName: String? {
+        appState.currentProfile?.id.recordName
+    }
+
+    init(boardService: HeroBoardService, appState: AppState) {
+        self.boardService = boardService
+        self.appState = appState
+    }
+
+    // MARK: - Load
+
+    /// Rebuilds board rows from the SwiftData cache the view observes via
+    /// `@Query`. Also settles optimistic claims: if a pending claim now shows
+    /// another claimer (their server-wins ingest landed), surface the toast.
+    func rebuildLists(quests: [QuestCache], profiles: [ProfileCache]) {
+        guard let family = appState.family else {
+            availableRows = []
+            claimedRows = []
+            pendingClaims = []
+            return
+        }
+
+        let profileByName = Dictionary(uniqueKeysWithValues: profiles.map { ($0.recordName, $0) })
+        let currentUser = currentUserRecordName
+
+        let rows: [BoardRow] = quests.compactMap { cached in
+            let zoneID = cached.validatedZoneID(requestedZoneID: family.id.zoneID)
+            let quest = cached.toQuest(zoneID: zoneID)
+            guard cached.isActive, HeroBoardService.isBoardQuest(quest) else { return nil }
+            let claimer = quest.claimedByProfileRecordName
+            return BoardRow(
+                quest: quest,
+                claimantName: claimer.flatMap { profileByName[$0]?.displayName },
+                isClaimedByCurrentUser: claimer == currentUser
+            )
+        }
+        .sorted { $0.quest.displayName.localizedCaseInsensitiveCompare($1.quest.displayName) == .orderedAscending }
+
+        availableRows = rows.filter { $0.quest.claimedByProfileRecordName == nil }
+        claimedRows = rows.filter { $0.quest.claimedByProfileRecordName != nil }
+
+        settlePendingClaims()
+    }
+
+    /// Detects lost claim races against ingested server state. The lists are
+    /// already rebuilt from cache at this point — the refresh itself is free.
+    private func settlePendingClaims() {
+        let currentUser = currentUserRecordName
+        let settled = pendingClaims
+        pendingClaims = []
+        for recordName in settled {
+            if let row = claimedRows.first(where: { $0.id == recordName }),
+               let claimer = row.quest.claimedByProfileRecordName,
+               claimer != currentUser
+            {
+                boardService.toastManager?.show(
+                    message: "Someone grabbed it first!",
+                    type: .warning
+                )
+            }
+        }
+    }
+
+    func isClaiming(_ row: BoardRow) -> Bool {
+        inFlightClaims.contains(row.id)
+    }
+
+    // MARK: - Actions
+
+    func claim(_ row: BoardRow) async {
+        guard let hero = appState.currentProfile else { return }
+        guard !inFlightClaims.contains(row.id) else { return }
+        inFlightClaims.insert(row.id)
+        defer { inFlightClaims.remove(row.id) }
+        pendingClaims.insert(row.id)
+
+        do {
+            switch try await boardService.claim(row.quest, by: hero) {
+            case .claimed:
+                break
+            case .lostToAnotherHero:
+                pendingClaims.remove(row.id)
+                boardService.toastManager?.show(message: "Someone grabbed it first!", type: .warning)
+            }
+        } catch {
+            pendingClaims.remove(row.id)
+            boardService.toastManager?.show(
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                type: .error
+            )
+        }
+    }
+
+    func revoke(_ row: BoardRow) async {
+        do {
+            try await boardService.revoke(row.quest)
+        } catch {
+            boardService.toastManager?.show(
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                type: .error
+            )
+        }
+    }
+}

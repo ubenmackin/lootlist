@@ -114,6 +114,7 @@ struct TrophyCardView: View {
 
     /// Currency trophies render from requirementValue via CurrencyFormatter so
     /// stale stored descriptions on legacy CloudKit records never surface.
+    /// Quest and goal trophies render stored description directly.
     private var displayDescription: String {
         guard let req = achievement.requirementTypeEnum else {
             return achievement.achievementDescription
@@ -137,12 +138,16 @@ struct TrophyCardView: View {
         switch req {
         case .firstQuest:
             return "Completed your first quest"
-        case .questCount10, .questCount50, .questCount100:
+        case .questCount10, .questCount25, .questCount50, .questCount100:
             return "\(achievement.requirementValue) quests completed"
         case .weekly100:
             return "100% of a week completed"
         case .streak7, .streak30:
             return "\(achievement.requirementValue)-day combo streak"
+        case .firstGoalCreated:
+            return "Create a savings goal"
+        case .goalGetter:
+            return "Reach a savings goal"
         case .gold100, .gold500:
             return "\(CurrencyFormatter.string(Double(achievement.requirementValue))) earned"
         case .ledgerCount10:

@@ -40,8 +40,9 @@ final class HeroDashboardUITests: XCTestCase {
 
         // Tap Money tab (now index 2 in the [Home, Quests, Money, Profile] order)
         tabBar.buttons["Money"].tap()
-        let treasuryHeader = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Scroll' OR label CONTAINS[c] 'Treasury' OR label CONTAINS[c] 'Money'")).firstMatch
-        XCTAssertTrue(treasuryHeader.waitForExistence(timeout: 3.0), "Treasury view header should appear after switching tabs")
+        let treasuryHeader = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS[c] 'Wishlist' OR label CONTAINS[c] 'Savings' OR label CONTAINS[c] 'Money' OR label CONTAINS[c] 'Short Save'")).firstMatch
+        XCTAssertTrue(treasuryHeader.waitForExistence(timeout: 3.0), "Treasury/Goals view header should appear after switching tabs")
 
         // Navigate to Trophies via Profile tab → Trophies cell
         tabBar.buttons["Profile"].tap()

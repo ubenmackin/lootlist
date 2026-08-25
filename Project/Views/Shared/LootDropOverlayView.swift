@@ -153,7 +153,7 @@ struct LootDropOverlayView: View {
             phase = .poppingIn
         }
 
-        animationTask = Task { @MainActor in
+        animationTask = Task {
             // 2. Wobble
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }

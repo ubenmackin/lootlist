@@ -15,14 +15,23 @@ struct PayoutHistoryView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedLedgers: [LedgerEntryCache]
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var selectedPeriod: AllowancePeriodCache?
+
+    @State private var showExportPicker = false
+    @State private var showExportSheet = false
+    @State private var showShareSheet = false
+    @State private var shareURL: URL?
+    @State private var exportFormat: ExportFormat?
+    private let exportService = LedgerExportService()
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -39,6 +48,7 @@ struct PayoutHistoryView: View {
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
             sort: \AllowancePeriodCache.weekOf,
@@ -57,6 +67,11 @@ struct PayoutHistoryView: View {
             sort: \ProfileAchievementCache.earnedDate,
             order: .reverse
         )
+        _cachedLedgers = Query(
+            filter: ledgerFilter,
+            sort: \LedgerEntryCache.date,
+            order: .reverse
+        )
     }
 
     var body: some View {
@@ -65,6 +80,40 @@ struct PayoutHistoryView: View {
                 .background(Color(.systemGroupedBackground).ignoresSafeArea())
                 .navigationTitle("Payout History")
                 .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showExportPicker = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .disabled(appState.currentProfile?.role.isParent != true)
+                    }
+                }
+                .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
+                    Button("Export as CSV") {
+                        exportFormat = .csv
+                        showExportSheet = true
+                    }
+                    Button("Export as JSON") {
+                        exportFormat = .json
+                        showExportSheet = true
+                    }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .sheet(isPresented: $showExportSheet) {
+                    ExportChildPickerSheet(
+                        heroes: heroProfiles,
+                        onExport: { child, startDate, endDate in
+                            performExport(for: child, startDate: startDate, endDate: endDate)
+                        }
+                    )
+                }
+                .sheet(isPresented: $showShareSheet) {
+                    if let url = shareURL {
+                        ShareSheet(items: [url])
+                    }
+                }
                 .task {
                     if viewModel == nil {
                         viewModel = FamilyDashboardViewModel(
@@ -208,6 +257,49 @@ struct PayoutHistoryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
     }
+
+    // MARK: - Export
+
+    private enum ExportFormat { case csv, json }
+
+    /// Hero-role profiles for the child picker during export.
+    private var heroProfiles: [ProfileCache] {
+        cachedProfiles.filter { $0.roleEnum == .hero }
+    }
+
+    private func performExport(for child: ProfileCache, startDate: Date, endDate: Date) {
+        guard let format = exportFormat else { return }
+
+        let range = startDate ... endDate
+        let childLedgers = cachedLedgers.filter {
+            $0.profileRecordName == child.recordName && range.contains($0.date)
+        }
+
+        let data: Data
+        switch format {
+        case .csv:
+            data = exportService.buildCSV(entries: childLedgers, childName: child.displayName)
+        case .json:
+            do {
+                data = try exportService.buildJSON(entries: childLedgers)
+            } catch {
+                toastManager?.show(message: "Could not build JSON export.", type: .error)
+                return
+            }
+        }
+
+        let ext = format == .csv ? "csv" : "json"
+        let name = LedgerExportService.filename(child: child.displayName, date: Date(), ext: ext)
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        do {
+            try data.write(to: tempURL, options: .atomic)
+            shareURL = tempURL
+            showExportSheet = false
+            showShareSheet = true
+        } catch {
+            toastManager?.show(message: "Could not write export file.", type: .error)
+        }
+    }
 }
 
 private struct PayoutDetailSheet: View {
@@ -235,6 +327,77 @@ private struct PayoutDetailSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Export Child Picker
+
+/// Sheet that lets a parent pick a child, optionally set a date range, and
+/// confirm the export. All-time range is the default; a toggle reveals the
+/// start/end date pickers.
+private struct ExportChildPickerSheet: View {
+    let heroes: [ProfileCache]
+    let onExport: (ProfileCache, Date, Date) -> Void
+
+    @State private var selectedChild: ProfileCache?
+    @State private var useDateFilter = false
+    @State private var startDate = Date.distantPast
+    @State private var endDate = Date()
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Select Child") {
+                    if heroes.isEmpty {
+                        Text("No children in this family.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Child", selection: $selectedChild) {
+                            Text("Choose a child…").tag(nil as ProfileCache?)
+                            ForEach(heroes, id: \.recordName) { hero in
+                                Text(hero.displayName).tag(hero as ProfileCache?)
+                            }
+                        }
+                    }
+                }
+
+                Section("Date Range (Optional)") {
+                    Toggle("Filter by date range", isOn: $useDateFilter)
+                    if useDateFilter {
+                        DatePicker("Start", selection: $startDate, displayedComponents: .date)
+                        DatePicker("End", selection: $endDate, displayedComponents: .date)
+                    } else {
+                        Text("All-time (no date filtering)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("Export Ledger")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Export") {
+                        guard let child = selectedChild else { return }
+                        dismiss()
+                        let effectiveStart = useDateFilter ? startDate : Date.distantPast
+                        let effectiveEnd = useDateFilter ? endDate : Date.distantFuture
+                        onExport(child, effectiveStart, effectiveEnd)
+                    }
+                    .disabled(selectedChild == nil)
+                }
+            }
+        }
+        .onAppear {
+            // Pre-select the first hero if none is chosen yet.
+            if selectedChild == nil, let first = heroes.first {
+                selectedChild = first
             }
         }
     }

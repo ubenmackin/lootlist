@@ -25,6 +25,7 @@ final class AppDependencies {
     let avatarService: AvatarService
     let notificationService: NotificationService
     let spendingService: SpendingService
+    let interestService: InterestService
     let appSyncCoordinator: AppSyncCoordinator
     let dataMigrationsCoordinator: DataMigrationsCoordinator
     let autoPayoutCoordinator: AutoPayoutCoordinator
@@ -41,6 +42,8 @@ final class AppDependencies {
     let dailyLoginService: DailyLoginService
     let bonusObjectiveService: BonusObjectiveService
     let equipmentService: EquipmentService
+    let goalService: GoalService
+    let bucketService: BucketService
     let familyShareReconciler: FamilyShareReconciler
     let lifecycleCoordinator: AppLifecycleCoordinator
 
@@ -62,6 +65,7 @@ final class AppDependencies {
         networkMonitor = network
 
         let sharedBgActor = cache.flatMap { $0.container.map { BackgroundCacheActor(container: $0) } }
+        app.backgroundCacheActor = sharedBgActor
 
         let conflict = CKSyncConflictResolver(cacheService: cache, backgroundCache: sharedBgActor, toastManager: toast, appState: app)
         conflictResolver = conflict
@@ -109,6 +113,18 @@ final class AppDependencies {
         let manualSpending = SpendingService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         manualSpending.toastManager = toast
         spendingService = manualSpending
+
+        let interest = InterestService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+
+        let bucket = BucketService(cacheService: cache, syncCoordinator: syncCoord, appState: app)
+        let goal = GoalService(
+            cloudKit: ck,
+            cacheService: cache,
+            appState: app,
+            syncCoordinator: syncCoord,
+            achievementService: achievement,
+            celebrationManager: celebration
+        )
 
         let appSync = AppSyncCoordinator()
         app.cacheService = cache
@@ -163,6 +179,9 @@ final class AppDependencies {
         dailyLoginService = dailyLogin
         bonusObjectiveService = bonusObjective
         equipmentService = equipment
+        interestService = interest
+        goalService = goal
+        bucketService = bucket
         familyShareReconciler = reconciler
         lifecycleCoordinator = lifecycle
 
@@ -327,6 +346,10 @@ struct LootListApp: App {
         dependencies.spendingService
     }
 
+    private var interestService: InterestService {
+        dependencies.interestService
+    }
+
     var body: some Scene {
         WindowGroup {
             rootViewContent
@@ -395,6 +418,9 @@ struct LootListApp: App {
                 .environment(bonusObjectiveService)
                 .environment(equipmentService)
                 .environment(spendingService)
+                .environment(interestService)
+                .environment(dependencies.goalService)
+                .environment(dependencies.bucketService)
 
             if let container = cacheService?.container {
                 baseRoot.modelContainer(container)
@@ -431,7 +457,7 @@ struct LootListApp: App {
         guard !TestEnvironment.isRunningUnitOrUITests else { return }
         logger.info("Handling incoming share URL: \(String(describing: url), privacy: .private)")
         let container = cloudKitService.container
-        Task { @MainActor in
+        Task {
             do {
                 let metadata = try await container.shareMetadata(for: url)
                 let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
@@ -471,10 +497,12 @@ private struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemBackground))
             case let .detectedPreviousFamily(family, profile, zoneID, isOwner):
+                // Pre-cache bootstrapping path: AppState holds the authoritative CloudKit domain models
+                // but we map them to Cache models to keep DetectedFamilyView decoupled from CloudKit structs.
                 DetectedFamilyView(
-                    family: family,
-                    profile: profile,
-                    zoneID: zoneID,
+                    familyCache: FamilyCache(from: family),
+                    profileCache: ProfileCache(from: profile),
+                    zoneIDString: zoneID.zoneName,
                     isOwner: isOwner
                 )
             case .onboarding:
@@ -487,6 +515,7 @@ private struct RootView: View {
                 }
             case .authenticated:
                 TabBarView(spending: spendingService, familyRecordName: appState.family?.id.recordName)
+                    .id(appState.family?.id.recordName ?? "none")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(.systemBackground))
             case .offlineEmptyCache:

@@ -75,7 +75,18 @@ extension Profile: CloudKitRecord {
             "dailyLoginCycleDay",
             "dailyLoginStreakDays",
             "claimedBonusObjectives",
-            "journeyMapLastSeenLevel"
+            "journeyMapLastSeenLevel",
+            "avatarEmoji",
+            "splitPercentSpend",
+            "splitPercentShort",
+            "splitPercentLong",
+            "interestEnabled",
+            "interestBucket",
+            "interestRateBps",
+            "interestIsCompound",
+            "matchEnabled",
+            "matchRateBps",
+            "matchMonthlyCapPennies"
         ]
     }
 }
@@ -116,7 +127,9 @@ extension Quest: CloudKitRecord {
             "createdBy",
             "family",
             "name",
-            "descriptionText"
+            "descriptionText",
+            "claimedByProfileRecordName",
+            "claimedAt"
         ]
     }
 }
@@ -162,6 +175,9 @@ extension LedgerEntry: CloudKitRecord {
             "location",
             "date",
             "source",
+            "bucketKind",
+            "fromBucket",
+            "toBucket",
             "family"
         ]
     }
@@ -227,6 +243,7 @@ extension Achievement: CacheMergeableDomain {}
 extension ProfileAchievement: CacheMergeableDomain {}
 extension NotificationPreference: CacheMergeableDomain {}
 extension RewardEvent: CacheMergeableDomain {}
+extension Goal: CacheMergeableDomain {}
 
 enum CKDecodingError: Error, Equatable, Sendable {
     case unexpectedRecordType(expected: String, actual: String)

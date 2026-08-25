@@ -58,6 +58,16 @@ struct Quest: Identifiable, Equatable, Sendable {
     var name: String?
     var descriptionText: String?
 
+    // MARK: - Hero Board claim state (V8)
+
+    /// Record name of the profile that claimed this unassigned quest from the
+    /// Hero Board. Stored as a plain record name (not a reference) so the
+    /// claim survives even if the claiming profile is later removed. First
+    /// claim wins via server conflict resolution; parents may revoke back to
+    /// the board by clearing both fields.
+    var claimedByProfileRecordName: String?
+    var claimedAt: Date?
+
     var displayName: String {
         if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty {
             return name
@@ -131,6 +141,8 @@ struct Quest: Identifiable, Equatable, Sendable {
 
         name = record.extractOptional("name")
         descriptionText = record.extractOptional("descriptionText")
+        claimedByProfileRecordName = record.extractOptional("claimedByProfileRecordName")
+        claimedAt = record["claimedAt"] as? Date
     }
 
     func toRecord() -> CKRecord {
@@ -150,6 +162,8 @@ struct Quest: Identifiable, Equatable, Sendable {
         record["family"] = family as CKRecordValue
         record["name"] = name as CKRecordValue?
         record["descriptionText"] = descriptionText as CKRecordValue?
+        record["claimedByProfileRecordName"] = claimedByProfileRecordName as CKRecordValue?
+        record["claimedAt"] = claimedAt as CKRecordValue?
         return record
     }
 
@@ -167,6 +181,8 @@ struct Quest: Identifiable, Equatable, Sendable {
          name: String? = nil,
          descriptionText: String? = nil,
          xpBanked: Int = 0,
+         claimedByProfileRecordName: String? = nil,
+         claimedAt: Date? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -185,5 +201,7 @@ struct Quest: Identifiable, Equatable, Sendable {
         self.family = family
         self.name = name
         self.descriptionText = descriptionText
+        self.claimedByProfileRecordName = claimedByProfileRecordName
+        self.claimedAt = claimedAt
     }
 }

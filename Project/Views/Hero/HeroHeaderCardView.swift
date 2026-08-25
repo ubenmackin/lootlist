@@ -5,11 +5,11 @@
 //  Created by Ben Mackin on 8/8/26.
 //
 
-import CloudKit
+import SwiftData
 import SwiftUI
 
 struct HeroHeaderCardView: View {
-    let profile: Profile?
+    let profileCache: ProfileCache?
     let familyName: String?
     let streak: Int
     let earnedThisWeek: Double
@@ -44,12 +44,12 @@ struct HeroHeaderCardView: View {
             avatarView
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(profile?.displayName ?? "Hero")
+                Text(profileCache?.displayName ?? "Hero")
                     .font(.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
 
-                Text(XPService.title(forLevel: profile?.level ?? 1))
+                Text(XPService.title(forLevel: profileCache?.level ?? 1))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(Color.gold)
             }
@@ -69,7 +69,7 @@ struct HeroHeaderCardView: View {
     }
 
     private var avatarView: some View {
-        ProfileAvatarView(profile: profile)
+        ProfileAvatarView(profileCache: profileCache)
     }
 
     private func familyNamePill(_ name: String) -> some View {
@@ -125,7 +125,7 @@ struct HeroHeaderCardView: View {
                     Text("Gems")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("\(profile?.gems ?? 0)")
+                    Text("\(profileCache?.gemsTotal ?? 0)")
                         .font(.title3.bold())
                         .monospacedDigit()
                         .foregroundStyle(Color.gold)
@@ -148,7 +148,7 @@ struct HeroHeaderCardView: View {
     private var xpProgressBarSection: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                Text("Lv. \(levelProgress?.currentLevel ?? profile?.level ?? 1)")
+                Text("Lv. \(levelProgress?.currentLevel ?? profileCache?.level ?? 1)")
                     .font(.caption.bold())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
@@ -179,7 +179,7 @@ struct HeroHeaderCardView: View {
                     .monospacedDigit()
             }
 
-            Text(XPService.title(forLevel: levelProgress?.currentLevel ?? profile?.level ?? 1))
+            Text(XPService.title(forLevel: levelProgress?.currentLevel ?? profileCache?.level ?? 1))
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
         }

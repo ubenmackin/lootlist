@@ -35,6 +35,10 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
     var approvalMode: String
     var descriptionText: String?
     var createdByRecordName: String
+    // Hero Board claim state (V8) — mirrors of the Quest CK fields. A non-nil
+    // claimer means the quest is off the board; nil on both means claimable.
+    var claimedByProfileRecordName: String?
+    var claimedAt: Date?
     var changeTag: String?
     var encodedSystemFields: Data?
     var sourceZoneName: String?
@@ -96,6 +100,8 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
          descriptionText: String?,
          createdByRecordName: String,
          xpBanked: Int = 0,
+         claimedByProfileRecordName: String? = nil,
+         claimedAt: Date? = nil,
          changeTag: String? = nil,
          encodedSystemFields: Data? = nil,
          sourceZoneName: String? = nil,
@@ -119,6 +125,8 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         self.approvalMode = approvalMode
         self.descriptionText = descriptionText
         self.createdByRecordName = createdByRecordName
+        self.claimedByProfileRecordName = claimedByProfileRecordName
+        self.claimedAt = claimedAt
         self.changeTag = changeTag
         self.encodedSystemFields = encodedSystemFields
         self.sourceZoneName = sourceZoneName
@@ -145,6 +153,8 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
             descriptionText: quest.descriptionText,
             createdByRecordName: quest.createdBy.recordID.recordName,
             xpBanked: quest.xpBanked,
+            claimedByProfileRecordName: quest.claimedByProfileRecordName,
+            claimedAt: quest.claimedAt,
             changeTag: quest.changeTag,
             encodedSystemFields: quest.encodedSystemFields,
             sourceZoneName: quest.id.zoneID.zoneName,
@@ -177,6 +187,8 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         descriptionText = quest.descriptionText
         targetCount = max(1, quest.targetCount)
         createdByRecordName = quest.createdBy.recordID.recordName
+        claimedByProfileRecordName = quest.claimedByProfileRecordName
+        claimedAt = quest.claimedAt
         changeTag = quest.changeTag
         if isServerSync, quest.encodedSystemFields != nil {
             encodedSystemFields = quest.encodedSystemFields

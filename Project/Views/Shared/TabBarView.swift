@@ -117,7 +117,7 @@ struct TabBarView: View {
             }
         case .addTransaction:
             if roleKind == .hero {
-                selectedTab = .gold
+                selectedTab = .ledger
             }
         case .manageQuests:
             selectedTab = (roleKind == .parent) ? .manage : .quests
@@ -153,12 +153,14 @@ struct TabBarView: View {
         let familyName = appState.family?.id.recordName
 
         FamilyDashboardView(spending: spending, familyRecordName: familyName)
+            .id("parent-family-\(familyName ?? "")")
             .tabItem {
                 Label("Family", systemImage: "house.fill")
             }
             .tag(RootTab.family)
 
         QuestManagerView(familyRecordName: familyName)
+            .id("parent-manage-\(familyName ?? "")")
             .tabItem {
                 Label("Manage", systemImage: "rectangle.stack.fill")
             }
@@ -166,6 +168,7 @@ struct TabBarView: View {
             .tag(RootTab.manage)
 
         PayoutHistoryView(familyRecordName: familyName)
+            .id("parent-payouts-\(familyName ?? "")")
             .tabItem {
                 Label("Payouts", systemImage: "calendar.badge.checkmark")
             }
@@ -182,28 +185,39 @@ struct TabBarView: View {
     private var heroTabs: some View {
         let familyName = appState.family?.id.recordName
 
-        HeroHomeView(familyRecordName: familyName)
+        ChildHubView(spending: spending, familyRecordName: familyName)
+            .id("hero-home-\(familyName ?? "")")
             .tabItem {
                 Label("Home", systemImage: "house.fill")
             }
             .tag(RootTab.home)
 
-        QuestsView(familyRecordName: familyName)
+        MyChoresView(familyRecordName: familyName)
+            .id("hero-quests-\(familyName ?? "")")
             .tabItem {
                 Label("Quests", systemImage: "list.bullet.clipboard")
             }
             .tag(RootTab.quests)
 
-        TreasuryView(spending: spending, familyRecordName: familyName)
+        ChildLedgerView(familyRecordName: familyName)
+            .id("hero-ledger-\(familyName ?? "")")
             .tabItem {
-                Label("Money", systemImage: "banknote")
+                Label("Money", systemImage: "dollarsign.circle.fill")
             }
-            .tag(RootTab.gold)
+            .tag(RootTab.ledger)
+
+        MyGoalsView(familyRecordName: familyName)
+            .id("hero-goals-\(familyName ?? "")")
+            .tabItem {
+                Label("Goals", systemImage: "target")
+            }
+            .tag(RootTab.goals)
 
         ProfileView(avatarService: avatarService,
                     xpService: xpService,
                     notificationService: notificationService,
                     familyRecordName: familyName)
+            .id("hero-profile-\(familyName ?? "")")
             .tabItem {
                 Label("Profile", systemImage: "person.crop.circle.fill")
             }
@@ -234,7 +248,8 @@ private enum RootTab: Hashable {
     case settings
 
     case quests
-    case gold
+    case ledger
+    case goals
     case profile
 
     case home
@@ -243,5 +258,5 @@ private enum RootTab: Hashable {
 
     static let parentTabs: Set<RootTab> = [.family, .manage, .payouts, .settings]
 
-    static let heroTabs: Set<RootTab> = [.home, .quests, .gold, .profile]
+    static let heroTabs: Set<RootTab> = [.home, .quests, .ledger, .goals, .profile]
 }

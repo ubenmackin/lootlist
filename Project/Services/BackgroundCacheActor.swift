@@ -169,6 +169,11 @@ actor BackgroundCacheActor {
         await batchUpsert(RewardEventCache.self, events, familyRecordName: familyRecordName)
     }
 
+    @discardableResult
+    func batchUpsertGoals(_ goals: [Goal], familyRecordName: String? = nil) async -> Bool {
+        await batchUpsert(GoalCache.self, goals, familyRecordName: familyRecordName)
+    }
+
     private struct ParsedBatch: Sendable {
         var families: [Family] = []
         var profiles: [Profile] = []
@@ -182,6 +187,7 @@ actor BackgroundCacheActor {
         var notificationPrefs: [NotificationPreference] = []
         var rewardEvents: [RewardEvent] = []
         var gemLedgers: [GemLedger] = []
+        var goals: [Goal] = []
 
         mutating func append(_ record: ParsedRecord) {
             switch record {
@@ -197,6 +203,7 @@ actor BackgroundCacheActor {
             case let .notificationPreference(item): notificationPrefs.append(item)
             case let .rewardEvent(item): rewardEvents.append(item)
             case let .gemLedger(item): gemLedgers.append(item)
+            case let .goal(item): goals.append(item)
             case .ignoredSystemRecord, .parseFailure: break
             }
         }
@@ -273,6 +280,9 @@ actor BackgroundCacheActor {
         if !batch.rewardEvents.isEmpty {
             success = await batchUpsertWithoutSave(RewardEventCache.self, batch.rewardEvents, familyRecordName: nil) && success
             success = await reconcileRewardEventsWithoutSave(batch.rewardEvents) && success
+        }
+        if !batch.goals.isEmpty {
+            success = await batchUpsertWithoutSave(GoalCache.self, batch.goals, familyRecordName: nil) && success
         }
         return success
     }
@@ -491,6 +501,10 @@ actor BackgroundCacheActor {
         await purgeMissing(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
+    func purgeMissingGoals(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
+        await purgeMissing(GoalCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+    }
+
     func purgeFamily(recordName: String) async {
         do {
             if let match = try modelContext.fetch(FamilyCache.fetchDescriptor(recordName: recordName)).first {
@@ -508,6 +522,7 @@ actor BackgroundCacheActor {
         await purgeFamilyRows(NotificationPreferenceCache.self, familyRecordName: recordName)
         await purgeFamilyRows(GemLedgerCache.self, familyRecordName: recordName)
         await purgeFamilyRows(RewardEventCache.self, familyRecordName: recordName)
+        await purgeFamilyRows(GoalCache.self, familyRecordName: recordName)
         saveContext()
     }
 
@@ -574,6 +589,7 @@ actor BackgroundCacheActor {
         case .notificationPreference: await deleteRecordByIdentity(NotificationPreferenceCache.self, identity: identity)
         case .gemLedger: await deleteRecordByIdentity(GemLedgerCache.self, identity: identity)
         case .rewardEvent: await deleteRecordByIdentity(RewardEventCache.self, identity: identity)
+        case .goal: await deleteRecordByIdentity(GoalCache.self, identity: identity)
         }
         saveContext()
     }
@@ -764,6 +780,14 @@ actor BackgroundCacheActor {
                     changeTag: refresh.changeTag,
                     encodedSystemFields: refresh.encodedSystemFields
                 )
+            case .goal:
+                await updateSystemFields(
+                    GoalCache.self,
+                    recordName: refresh.recordName,
+                    familyRecordName: familyRecordName,
+                    changeTag: refresh.changeTag,
+                    encodedSystemFields: refresh.encodedSystemFields
+                )
             }
             if updated {
                 didUpdate = true
@@ -840,3 +864,4 @@ extension ProfileAchievementCache: SystemFieldUpdatable {}
 extension NotificationPreferenceCache: SystemFieldUpdatable {}
 extension GemLedgerCache: SystemFieldUpdatable {}
 extension RewardEventCache: SystemFieldUpdatable {}
+extension GoalCache: SystemFieldUpdatable {}

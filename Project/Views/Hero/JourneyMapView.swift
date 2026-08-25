@@ -12,7 +12,7 @@ import UIKit
 /// through seamlessly blended themed zones with milestone nodes along a winding path.
 struct JourneyMapView: View {
     let journeyState: JourneyState
-    let profile: Profile
+    let profileCache: ProfileCache
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState: AppState?
@@ -107,14 +107,14 @@ struct JourneyMapView: View {
 
     private func handleInitialLoad(proxy: ScrollViewProxy) {
         let targetLevel = journeyState.currentLevel
-        let stored = profile.journeyMapLastSeenLevel
+        let stored = profileCache.journeyMapLastSeenLevel
 
         if stored < targetLevel {
             // Player leveled up since last view! Start at previous level and step forward.
             animatedHeroLevel = stored
             proxy.scrollTo(stored, anchor: .center)
 
-            Task { @MainActor in
+            Task {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 for stepLevel in (stored + 1) ... targetLevel {
                     withAnimation(.easeInOut(duration: 0.85)) {
@@ -129,7 +129,7 @@ struct JourneyMapView: View {
                 // syncing across all devices via CloudKit/SwiftData.
                 JourneyService.acknowledgeJourneyLevel(
                     targetLevel,
-                    profile: profile,
+                    profileCache: profileCache,
                     appState: appState,
                     cacheService: appState?.cacheService,
                     syncCoordinator: syncCoordinator
@@ -374,10 +374,18 @@ struct JourneyMapView: View {
         {
             let pos = positions[currentIndex]
             let zone = JourneyZone.zone(forLevel: animatedHeroLevel)
-            let companion = MascotCompanion(rawValue: profile.mascotCompanion ?? "cat") ?? .cat
+            let companion = MascotCompanion(rawValue: profileCache.mascotCompanion ?? "cat") ?? .cat
             let mascotSprite = MascotSpriteRenderer.sprite(for: companion, state: .idle, frameIndex: 0)
-            let preset = AvatarPreset.preset(forProfile: profile)
-            let heroSprite = HeroAvatarSprites.sprite(for: preset ?? .knightV1, equippedGear: profile.equippedItems)
+
+            let preset: AvatarPreset? = if let id = profileCache.avatarName {
+                AvatarPreset(rawValue: id) ?? AvatarPreset.resolve(profileCache.avatarClassEnum, id: id)
+            } else if let cls = profileCache.avatarClassEnum {
+                AvatarPreset.presets(for: cls).first
+            } else {
+                nil
+            }
+
+            let heroSprite = HeroAvatarSprites.sprite(for: preset ?? .knightV1, equippedGear: profileCache.equippedItems ?? [])
 
             VStack(spacing: 3) {
                 HStack(alignment: .bottom, spacing: -4) {

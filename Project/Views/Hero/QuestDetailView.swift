@@ -5,14 +5,13 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import os
 import SwiftData
 import SwiftUI
 
 struct QuestDetailView: View {
-    let quest: Quest
-    let initialLog: QuestCompletion?
+    let quest: QuestCache
+    let initialLog: QuestCompletionCache?
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestDetail")
 
@@ -30,17 +29,16 @@ struct QuestDetailView: View {
         max(1, quest.targetCount)
     }
 
-    private var allLogs: [QuestCompletion] {
-        let zoneID = quest.id.zoneID
-        return cachedCompletions.map { $0.toQuestCompletion(zoneID: zoneID) }
+    private var allLogs: [QuestCompletionCache] {
+        cachedCompletions
     }
 
-    private var latestLog: QuestCompletion? {
+    private var latestLog: QuestCompletionCache? {
         allLogs.first ?? initialLog
     }
 
-    private var approvedLogs: [QuestCompletion] {
-        allLogs.filter { $0.verificationStatus == .autoApproved || $0.verificationStatus == .verified }
+    private var approvedLogs: [QuestCompletionCache] {
+        allLogs.filter { $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified }
     }
 
     private var approvedCount: Int {
@@ -51,11 +49,11 @@ struct QuestDetailView: View {
         GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
     }
 
-    init(quest: Quest, initialLog: QuestCompletion? = nil) {
+    init(quest: QuestCache, initialLog: QuestCompletionCache? = nil) {
         self.quest = quest
         self.initialLog = initialLog
 
-        let questName = quest.id.recordName
+        let questName = quest.recordName
         let filter = #Predicate<QuestCompletionCache> {
             $0.questRecordName == questName
         }
@@ -93,8 +91,12 @@ struct QuestDetailView: View {
     }
 
     private var header: some View {
-        let titleText = quest.displayName == "Quest" ? (template?.name ?? "Quest") : quest.displayName
-        let descText = quest.displayDescription.isEmpty ? (template?.description ?? "") : quest.displayDescription
+        let titleText = quest.questName == "Quest" ? (template?.name ?? "Quest") : quest.questName
+        let descText = if let desc = quest.descriptionText, !desc.isEmpty {
+            desc
+        } else {
+            template?.description ?? ""
+        }
 
         return VStack(alignment: .leading, spacing: 8) {
             Text(titleText)
@@ -118,9 +120,11 @@ struct QuestDetailView: View {
             rewardPill(icon: "banknote",
                        label: CurrencyFormatter.string(quest.goldReward),
                        tint: .yellow)
-            rewardPill(icon: quest.rarity.iconSystemName,
-                       label: "\(quest.rarity.rawValue) (\(quest.xpReward) XP)",
-                       tint: quest.rarity.color)
+            // Rarity renders as a plain effort label while the immersive
+            // layer is off; the XP figure stays hidden.
+            rewardPill(icon: "sparkles",
+                       label: FlavorTextProvider.rewardTierName(for: quest.rarityEnum ?? .common),
+                       tint: (quest.rarityEnum ?? .common).color)
             Spacer()
         }
         .padding(16)
@@ -142,14 +146,14 @@ struct QuestDetailView: View {
 
     private var approvalCard: some View {
         HStack(spacing: 8) {
-            Image(systemName: quest.approvalMode.iconSystemName)
-                .foregroundStyle(quest.approvalMode == .parentVerify ? .indigo : .green)
-            Text(quest.approvalMode.displayName)
+            Image(systemName: (quest.approvalModeEnum ?? .autoApprove).iconSystemName)
+                .foregroundStyle((quest.approvalModeEnum ?? .autoApprove) == .parentVerify ? .indigo : .green)
+            Text((quest.approvalModeEnum ?? .autoApprove).displayName)
                 .font(.subheadline)
             Spacer()
-            Image(systemName: quest.scheduleType.iconSystemName)
+            Image(systemName: (quest.scheduleTypeEnum ?? .weeklyFlexible).iconSystemName)
                 .foregroundStyle(.secondary)
-            Text(quest.scheduleType.displayName)
+            Text((quest.scheduleTypeEnum ?? .weeklyFlexible).displayName)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -196,12 +200,13 @@ struct QuestDetailView: View {
         }
     }
 
-    private func statusCard(log: QuestCompletion) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: log.verificationStatus.iconSystemName)
-                .foregroundStyle(log.verificationStatus.tintColor)
+    private func statusCard(log: QuestCompletionCache) -> some View {
+        let status = log.verificationStatusEnum ?? .autoApproved
+        return HStack(spacing: 8) {
+            Image(systemName: status.iconSystemName)
+                .foregroundStyle(status.tintColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(log.verificationStatus.detailedDescription)
+                Text(status.detailedDescription)
                     .font(.subheadline.bold())
                 Text(log.completedDate, style: .date)
                     .font(.caption)
@@ -212,16 +217,16 @@ struct QuestDetailView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(log.verificationStatus.tintColor.opacity(0.12))
+                .fill(status.tintColor.opacity(0.12))
         )
     }
 
     private var hasPendingLog: Bool {
-        quest.approvalMode == .parentVerify && allLogs.contains(where: { $0.verificationStatus == .pending })
+        (quest.approvalModeEnum ?? .autoApprove) == .parentVerify && allLogs.contains(where: { $0.verificationStatusEnum == .pending })
     }
 
-    private var pendingLog: QuestCompletion? {
-        allLogs.first(where: { $0.verificationStatus == .pending })
+    private var pendingLog: QuestCompletionCache? {
+        allLogs.first(where: { $0.verificationStatusEnum == .pending })
     }
 
     private var completeButton: some View {
@@ -260,14 +265,14 @@ struct QuestDetailView: View {
             return "Completed"
         }
         if targetCount > 1 {
-            let pending = allLogs.filter { $0.verificationStatus == .pending }.count
+            let pending = allLogs.filter { $0.verificationStatusEnum == .pending }.count
             if pending > 0 {
                 return "Awaiting Verification (\(approvedCount)/\(targetCount))"
             }
             return "Log Completion (\(approvedCount + 1)/\(targetCount))"
         }
         if let log = latestLog {
-            switch log.verificationStatus {
+            switch log.verificationStatusEnum ?? .autoApproved {
             case .autoApproved, .verified: return "Completed"
             case .pending: return "Awaiting Verification"
             case .rejected, .withdrawn: return "Complete (Try Again)"
@@ -287,7 +292,7 @@ struct QuestDetailView: View {
             return canSubmitAnotherCompletion
         }
         if let log = latestLog {
-            switch log.verificationStatus {
+            switch log.verificationStatusEnum ?? .autoApproved {
             case .autoApproved, .verified, .pending: return true
             case .rejected, .withdrawn: return isCompleting
             }
@@ -304,7 +309,7 @@ struct QuestDetailView: View {
     }
 
     private var nonRejected: Int {
-        allLogs.filter(\.verificationStatus.countsTowardCompletion).count
+        allLogs.filter { ($0.verificationStatusEnum ?? .autoApproved).countsTowardCompletion }.count
     }
 
     private func load() async {
@@ -313,8 +318,8 @@ struct QuestDetailView: View {
 
         do {
             template = try await questService.fetchTemplateCached(
-                id: quest.template.recordID,
-                familyRecordName: quest.family.recordID.recordName
+                id: quest.templateRecordName,
+                familyRecordName: quest.familyRecordName
             )
         } catch {
             template = nil
@@ -338,7 +343,7 @@ struct QuestDetailView: View {
         }
     }
 
-    private func withdrawCompletion(_ log: QuestCompletion) async {
+    private func withdrawCompletion(_ log: QuestCompletionCache) async {
         guard let profile = appState.currentProfile else { return }
         isCompleting = true
         defer { isCompleting = false }

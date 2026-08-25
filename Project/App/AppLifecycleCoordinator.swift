@@ -118,8 +118,8 @@ final class AppLifecycleCoordinator {
     /// Injected scheduler so tests can simulate a failing `scheduleWeeklyPayoutRefresh`.
     private let payoutScheduler: (PayoutDay) -> Bool
 
-    @ObservationIgnored private var sessionClearToken: NotificationToken?
-    @ObservationIgnored private var zoneChangeToken: NotificationToken?
+    @ObservationIgnored private var sessionClearTask: Task<Void, Never>?
+    @ObservationIgnored private var zoneChangeTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -147,28 +147,27 @@ final class AppLifecycleCoordinator {
         // `resetState` on the sync coordinator clears engines, but without clearing
         // `lastSynchronizedScopeKey` a subsequent sign-in to a different family
         // whose scope string collides could skip `initializeEngines`.
-        sessionClearToken = NotificationToken(NotificationCenter.default.addObserver(
-            forName: .didClearSession,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.invalidateScopeStateForSessionClear()
+        sessionClearTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .didClearSession) {
+                guard !Task.isCancelled, let self else { break }
+                self.invalidateScopeStateForSessionClear()
             }
-        })
+        }
 
         // Observe zone identity changes that occur without an engine reset so a
         // stale `lastSynchronizedScopeKey` does not make a new zone appear
         // already synchronized.
-        zoneChangeToken = NotificationToken(NotificationCenter.default.addObserver(
-            forName: .didChangeFamilyZoneID,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.invalidateScopeForZoneChange()
+        zoneChangeTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .didChangeFamilyZoneID) {
+                guard !Task.isCancelled, let self else { break }
+                self.invalidateScopeForZoneChange()
             }
-        })
+        }
+    }
+
+    deinit {
+        sessionClearTask?.cancel()
+        zoneChangeTask?.cancel()
     }
 
     /// Convenience initializer preserving the existing `CKSyncEngineCoordinator` call site.

@@ -18,6 +18,12 @@ extension QuestService {
     }
 
     @discardableResult
+    func markComplete(quest: QuestCache, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
+        guard let zoneID = appState?.familyZoneID else { throw FamilyServiceError.unauthorized }
+        return try await markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile, at: completedDate)
+    }
+
+    @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
         guard let appState, let acting = appState.currentProfile,
               acting.id == profile.id
@@ -112,6 +118,11 @@ extension QuestService {
         cacheService?.upsertQuestCompletion(updated)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+    }
+
+    func withdrawCompletion(questLog: QuestCompletionCache, by profile: Profile) async throws {
+        guard let zoneID = appState?.familyZoneID else { throw FamilyServiceError.unauthorized }
+        try await withdrawCompletion(questLog: questLog.toQuestCompletion(zoneID: zoneID), by: profile)
     }
 
     @discardableResult

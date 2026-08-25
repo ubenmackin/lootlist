@@ -32,8 +32,10 @@ enum PayoutDay: String, Codable, CaseIterable, Sendable, Identifiable {
         }
     }
 
+    /// User-facing payout-day title; the `lootDay` property name is a legacy
+    /// identifier and stays as-is.
     var lootDayTitle: String {
-        "\(displayName) Loot Day"
+        "\(displayName) Allowance Day"
     }
 
     /// Calendar weekday integer value (Sunday = 1, Monday = 2, ..., Saturday = 7).

@@ -11,7 +11,7 @@ import SwiftData
 import SwiftUI
 
 struct QuestAssignmentView: View {
-    var mode: Mode = .fromTemplate
+    var mode: Mode
     @Bindable var viewModel: QuestManagerViewModel
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestAssignment")
@@ -22,6 +22,18 @@ struct QuestAssignmentView: View {
     @Environment(AppState.self) private var appState
 
     @Query private var cachedCompletions: [QuestCompletionCache]
+
+    private let familyRecordName: String?
+
+    init(mode: Mode = .fromTemplate, viewModel: QuestManagerViewModel, familyRecordName: String? = nil) {
+        self.mode = mode
+        self.viewModel = viewModel
+        self.familyRecordName = familyRecordName
+
+        let targetFamily = familyRecordName ?? ""
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        _cachedCompletions = Query(filter: completionFilter)
+    }
 
     enum Mode: Equatable, Identifiable {
         case fromTemplate
@@ -66,6 +78,7 @@ struct QuestAssignmentView: View {
     @State private var quickTargetCount: Int = 1
     @State private var quickIsAllOrNothing: Bool = false
     @State private var quickApproval: ApprovalMode = .autoApprove
+    @State private var quickPostToBoard: Bool = false
 
     @State private var editQuestName: String = ""
     @State private var editQuestDescription: String = ""
@@ -79,7 +92,7 @@ struct QuestAssignmentView: View {
     @State private var editAssignee: ProfileCache?
     @State private var allowLockedFieldsOverride: Bool = false
     @State private var propagateToTemplate: Bool = false
-    @State private var editQuest: Quest?
+    @State private var editQuestCache: QuestCache?
     @State private var editHasLogs: Bool = false
     @State private var showOverrideAlert: Bool = false
 
@@ -131,7 +144,7 @@ struct QuestAssignmentView: View {
                     editSections
                 }
 
-                if mode.isCreateMode {
+                if mode.isCreateMode, !(displayMode == .quickCreate && quickPostToBoard) {
                     Section("Week Of") {
                         DatePicker("Week Starting Monday",
                                    selection: $weekOf,
@@ -233,7 +246,8 @@ struct QuestAssignmentView: View {
             quickSpecificDays: $quickSpecificDays,
             quickTargetCount: $quickTargetCount,
             quickIsAllOrNothing: $quickIsAllOrNothing,
-            quickApproval: $quickApproval
+            quickApproval: $quickApproval,
+            postToBoard: $quickPostToBoard
         )
     }
 
@@ -301,7 +315,9 @@ struct QuestAssignmentView: View {
             }
 
             HStack {
-                Text("XP Reward")
+                // XP still accrues invisibly behind the scenes; parents set it
+                // as an unshown "bonus" so no XP wording surfaces.
+                Text("Bonus Reward")
                     .foregroundStyle(editHasLogs ? .secondary : .primary)
                 Spacer()
                 TextField("0", text: $editXpText)
@@ -316,7 +332,7 @@ struct QuestAssignmentView: View {
                     Toggle("All-or-Nothing", isOn: $editIsAllOrNothing)
                         .disabled(editHasLogs)
                     Text(
-                        "When enabled, the hero must complete all required days or times to earn any gold or XP. When disabled, rewards are earned incrementally per completion."
+                        "When enabled, the hero must complete all required days or times to earn the full reward. When disabled, rewards are earned incrementally per completion."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -417,7 +433,7 @@ struct QuestAssignmentView: View {
         case .fromTemplate:
             return selectedHero == nil || selectedTemplate == nil
         case .quickCreate:
-            return selectedHero == nil || quickName.trimmingCharacters(in: .whitespaces).isEmpty
+            return (selectedHero == nil && !quickPostToBoard) || quickName.trimmingCharacters(in: .whitespaces).isEmpty
         case .edit:
             return editAssignee == nil
         }
@@ -449,8 +465,7 @@ struct QuestAssignmentView: View {
 
     private func loadQuestForEditing(questID: CKRecord.ID) {
         guard let quest = viewModel.activeAssignments.first(where: { $0.recordName == questID.recordName }) else { return }
-        let zoneID = questID.zoneID
-        editQuest = quest.toQuest(zoneID: zoneID)
+        editQuestCache = quest
         // Edited quest name must not be clobbered by template selection
         userEditedQuestName = true
         editQuestName = quest.questName
@@ -541,6 +556,10 @@ struct QuestAssignmentView: View {
     }
 
     private func submitQuickCreate() {
+        guard !quickPostToBoard else {
+            submitPostToBoard()
+            return
+        }
         guard let hero = selectedHero else {
             toastManager.show(message: "Select a hero.", type: .error)
             return
@@ -597,8 +616,41 @@ struct QuestAssignmentView: View {
         }
     }
 
+    /// Board posts skip assignee and due-date concerns entirely — the first
+    /// hero to claim owns the quest from that moment on.
+    private func submitPostToBoard() {
+        let trimmedName = quickName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else {
+            toastManager.show(message: "Quest name is required.", type: .error)
+            return
+        }
+        guard let gold = Double(quickGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
+            toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
+            return
+        }
+
+        isSubmitting = true
+        Task {
+            do {
+                try await viewModel.postQuestToBoard(
+                    name: trimmedName,
+                    description: quickDescription,
+                    goldReward: gold,
+                    xpReward: quickRarity.xpReward,
+                    approvalMode: quickApproval
+                )
+                isSubmitting = false
+                dismiss()
+            } catch {
+                isSubmitting = false
+                logger.error("Failed to post quest to Hero Board: \(error, privacy: .private)")
+                toastManager.show(message: "Could not post the quest to the Hero Board. Please try again.", type: .error)
+            }
+        }
+    }
+
     private func submitEdit() {
-        guard let quest = editQuest else {
+        guard let questCache = editQuestCache else {
             toastManager.show(message: "No quest to edit.", type: .error)
             return
         }
@@ -612,7 +664,7 @@ struct QuestAssignmentView: View {
             return
         }
         guard let xp = Int(editXpText.trimmingCharacters(in: .whitespaces)), xp >= 0 else {
-            toastManager.show(message: "XP reward must be a valid non-negative number.", type: .error)
+            toastManager.show(message: "Bonus reward must be a valid non-negative number.", type: .error)
             return
         }
 
@@ -626,7 +678,8 @@ struct QuestAssignmentView: View {
 
         let effectiveAllOrNothing = isEditMultiOccurrence ? editIsAllOrNothing : false
 
-        let zoneID = quest.id.zoneID
+        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? questCache.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let quest = questCache.toQuest(zoneID: zoneID)
         isSubmitting = true
         let input = QuestManagerViewModel.UpdateQuestInput(
             name: name,

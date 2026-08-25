@@ -103,6 +103,17 @@ enum JourneyService {
     /// persisting the update to local cache and enqueueing CloudKit sync.
     static func acknowledgeJourneyLevel(
         _ level: Int,
+        profileCache: ProfileCache,
+        appState: AppState?,
+        cacheService: CacheService?,
+        syncCoordinator: CKSyncEngineCoordinator?
+    ) {
+        guard let zoneID = appState?.familyZoneID else { return }
+        acknowledgeJourneyLevel(level, profile: profileCache.toProfile(zoneID: zoneID), appState: appState, cacheService: cacheService, syncCoordinator: syncCoordinator)
+    }
+
+    static func acknowledgeJourneyLevel(
+        _ level: Int,
         profile: Profile,
         appState: AppState?,
         cacheService: CacheService?,

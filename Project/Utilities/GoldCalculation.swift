@@ -190,6 +190,11 @@ enum GoldCalculation: Sendable {
     /// occupy every completion slot — the gate `QuestService.markComplete`
     /// uses to reject a new completion before the hero logs more. Guarded
     /// against `targetCount == 0` like every sibling completion check.
+    static func nonRejectedLogsReachTarget(quest: QuestCache, nonRejectedCount: Int) -> Bool {
+        let target = max(1, quest.targetCount)
+        return nonRejectedCount >= target
+    }
+
     static func nonRejectedLogsReachTarget(quest: Quest, nonRejectedCount: Int) -> Bool {
         let target = max(1, quest.targetCount)
         return nonRejectedCount >= target

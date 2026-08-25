@@ -5,13 +5,12 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftUI
 
 struct DetectedFamilyView: View {
-    let family: Family
-    let profile: Profile
-    let zoneID: CKRecordZone.ID
+    let familyCache: FamilyCache
+    let profileCache: ProfileCache
+    let zoneIDString: String
     let isOwner: Bool
 
     @Environment(AppState.self) private var appState
@@ -56,9 +55,9 @@ struct DetectedFamilyView: View {
                 Task {
                     isProcessing = true
                     await appState.rejectDetectedFamily(
-                        family: family,
-                        profile: profile,
-                        zoneID: zoneID,
+                        familyCache: familyCache,
+                        profileCache: profileCache,
+                        zoneIDString: zoneIDString,
                         isOwner: isOwner,
                         cloudKit: cloudKitService
                     )
@@ -68,9 +67,9 @@ struct DetectedFamilyView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if isOwner {
-                Text("This will permanently remove '\(family.name)' and all quest data from iCloud. You can then create a new guild.")
+                Text("This will permanently remove '\(familyCache.name)' and all quest data from iCloud. You can then create a new guild.")
             } else {
-                Text("This will mark your character profile inactive in '\(family.name)'. You can then join a new guild.")
+                Text("This will mark your character profile inactive in '\(familyCache.name)'. You can then join a new guild.")
             }
         }
         .accessibilityIdentifier("detectedFamily.view")
@@ -90,7 +89,7 @@ struct DetectedFamilyView: View {
             Text("Guild Discovered!")
                 .font(.system(size: 34, weight: .heavy, design: .rounded))
 
-            Text("We found an active family realm linked to your iCloud account.")
+            Text("We found an active family account linked to your iCloud account.")
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -101,7 +100,7 @@ struct DetectedFamilyView: View {
     private var familyCard: some View {
         VStack(spacing: 16) {
             HStack(spacing: 16) {
-                Image(systemName: profile.avatarClass?.iconSystemName ?? profile.role.iconSystemName)
+                Image(systemName: profileCache.avatarClassEnum?.iconSystemName ?? (profileCache.roleEnum ?? .hero).iconSystemName)
                     .font(.system(size: 32))
                     .foregroundStyle(.orange)
                     .frame(width: 56, height: 56)
@@ -109,22 +108,22 @@ struct DetectedFamilyView: View {
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(family.name)
+                    Text(familyCache.name)
                         .font(.title2.weight(.bold))
 
                     HStack(spacing: 8) {
-                        Text(profile.displayName)
+                        Text(profileCache.displayName)
                             .font(.subheadline.weight(.semibold))
 
                         Text("•")
                             .foregroundStyle(.secondary)
 
-                        Text(profile.role == .guildMaster ? "Guild Master" : "Hero")
+                        Text(profileCache.roleEnum == .guildMaster ? "Guild Master" : "Hero")
                             .font(.caption.weight(.bold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(profile.role == .guildMaster ? Color.yellow.opacity(0.2) : Color.blue.opacity(0.2))
-                            .foregroundStyle(profile.role == .guildMaster ? Color.orange : Color.blue)
+                            .background(profileCache.roleEnum == .guildMaster ? Color.yellow.opacity(0.2) : Color.blue.opacity(0.2))
+                            .foregroundStyle(profileCache.roleEnum == .guildMaster ? Color.orange : Color.blue)
                             .clipShape(Capsule())
                     }
                 }
@@ -132,18 +131,16 @@ struct DetectedFamilyView: View {
                 Spacer()
             }
 
+            // Leveling and XP stats stay unrendered while the immersive layer
+            // is off; the name and role above identify the member.
             Divider()
 
             HStack {
-                Label("Level \(profile.level)", systemImage: "star.fill")
+                Label((profileCache.roleEnum ?? .hero).displayName, systemImage: "person.fill")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
-
-                Text("\(profile.xp) Total XP")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(20)
@@ -160,9 +157,9 @@ struct DetectedFamilyView: View {
             Button {
                 Task {
                     await appState.acceptDetectedFamily(
-                        family: family,
-                        profile: profile,
-                        zoneID: zoneID,
+                        familyCache: familyCache,
+                        profileCache: profileCache,
+                        zoneIDString: zoneIDString,
                         isOwner: isOwner,
                         cloudKit: cloudKitService
                     )

@@ -53,7 +53,11 @@ struct QuestCompletionEffectView: View {
                 // Text
                 ZStack {
                     VStack(spacing: 4) {
-                        Text("+\(xpEarned) XP")
+                        // XP accrues invisibly while the immersive layer is
+                        // off, so the celebration headline leads with plain
+                        // praise and lets the real money amount below do the
+                        // counting.
+                        Text("Quest Complete!")
                             .font(.headline.bold())
                             .foregroundColor(.white)
 
@@ -104,13 +108,14 @@ struct QuestCompletionEffectView: View {
         // Play sound & haptic
         soundManager.play(.questComplete)
 
-        // Setup flavor text — inlined (was FlavorTextProvider, single call site)
+        // Setup flavor text — inlined (was FlavorTextProvider, single call site).
+        // Plain-warm options; the rarity only sizes how big the moment feels.
         flavorText = {
             let options: [String] = switch rarity {
-            case .common: ["Another task vanquished!", "The kingdom thanks you.", "Well done, adventurer."]
-            case .rare: ["A worthy challenge, conquered!", "Your skills grow stronger."]
-            case .epic: ["A legendary feat of bravery!", "Tales will be told of this deed!"]
-            case .legendary: ["THE REALM TREMBLES AT YOUR POWER!", "You have achieved the impossible!"]
+            case .common: ["Nice work — that's done!", "One more thing checked off.", "Well done!"]
+            case .rare: ["That took real effort. Way to go!", "You're on a roll!"]
+            case .epic: ["That was a big one — amazing!", "Something to be really proud of!"]
+            case .legendary: ["Wow — you did it!", "What an accomplishment!"]
             }
             return options.randomElement() ?? options[0]
         }()

@@ -17,7 +17,7 @@ enum PayoutStatus: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .active: "Active"
-        case .payoutPending: "Loot Day Pending"
+        case .payoutPending: "Payout Pending"
         case .paid: "Paid"
         }
     }

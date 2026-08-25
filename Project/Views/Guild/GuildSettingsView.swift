@@ -20,6 +20,8 @@ struct GuildSettingsView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
+    @Environment(InterestService.self) private var interestService
+    @Environment(MatchService.self) private var matchService
 
     @State private var viewModel: FamilyDashboardViewModel?
 
@@ -131,8 +133,7 @@ struct GuildSettingsView: View {
                 CloudSharingControllerWrapper(share: presentation.share, container: presentation.container)
             }
             .sheet(item: $heroToEdit) { hero in
-                let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? hero.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
-                HeroSettingsView(hero: hero.toProfile(zoneID: zoneID))
+                HeroSettingsView(hero: hero)
                     .onDisappear {
                         Task { await viewModel?.refresh() }
                     }
@@ -204,6 +205,12 @@ struct GuildSettingsView: View {
         )
         if appState.currentProfile?.role == .guildMaster {
             GuildPayoutDefaultsSectionView(isPayoutPolicyExpanded: $isPayoutPolicyExpanded)
+        }
+        // Savings automation section. Interest config lives here; the
+        // parent-match config composes alongside it in the same area.
+        if appState.currentProfile?.role == .guildMaster {
+            GuildInterestSectionView(heroes: cachedProfiles.filter { $0.roleEnum == .hero && $0.isActive })
+            GuildMatchSectionView(heroes: cachedProfiles.filter { $0.roleEnum == .hero && $0.isActive })
         }
         GuildDangerZoneSectionView(isSigningOut: $isSigningOut)
     }

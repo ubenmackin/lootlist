@@ -64,10 +64,13 @@ struct TemplateManagerView: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("Quest Rarity & XP")
+                            // Rarity tiers still size rewards internally;
+                            // parents pick them by plain effort label while
+                            // the XP figure stays hidden.
+                            Text("Bonus Tier")
                                 .font(.subheadline)
                             Spacer()
-                            Text("\(selectedRarity.xpReward) XP")
+                            Text("\(selectedRarity.xpReward) bonus")
                                 .font(.subheadline.bold())
                                 .foregroundStyle(selectedRarity.color)
                         }
@@ -76,7 +79,7 @@ struct TemplateManagerView: View {
                             HStack(spacing: 8) {
                                 ForEach(QuestRarity.allCases) { rarity in
                                     PresetPill(
-                                        text: "\(rarity.rawValue) (\(rarity.xpReward) XP)",
+                                        text: "\(FlavorTextProvider.rewardTierName(for: rarity)) (\(rarity.xpReward) bonus)",
                                         isSelected: selectedRarity == rarity,
                                         action: { selectedRarity = rarity },
                                         systemImage: rarity.iconSystemName,
@@ -129,7 +132,7 @@ struct TemplateManagerView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Toggle("All-or-Nothing", isOn: $isAllOrNothing)
                             Text(
-                                "When enabled, the hero must complete all required days or times to earn any gold or XP. When disabled, rewards are earned incrementally per completion."
+                                "When enabled, the hero must complete all required days or times to earn the full reward. When disabled, rewards are earned incrementally per completion."
                             )
                             .font(.caption)
                             .foregroundStyle(.secondary)

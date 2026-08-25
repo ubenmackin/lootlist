@@ -16,7 +16,7 @@ enum QuestEditLockedError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .lockedFields:
-            "This quest has log entries. Reward, XP, schedule, and assignee are locked."
+            "This quest has log entries. Reward, bonus, schedule, and assignee are locked."
         }
     }
 }
@@ -36,11 +36,13 @@ final class QuestManagerViewModel {
     private let questService: QuestService
     private let familyService: FamilyService
     private let appState: AppState
+    private let heroBoardService: HeroBoardService
 
     init(questService: QuestService, familyService: FamilyService, appState: AppState) {
         self.questService = questService
         self.familyService = familyService
         self.appState = appState
+        heroBoardService = HeroBoardService(questService: questService)
     }
 
     func load() async {
@@ -211,9 +213,9 @@ final class QuestManagerViewModel {
         updated.targetCount = input.targetCount
         updated.isAllOrNothing = input.isAllOrNothing
         updated.approvalMode = input.approvalMode
-        updated.assignee = CKRecord.Reference(recordID: input.assignee.id, action: .none)
+        // Assignee is updated by passing the record name to the service
 
-        _ = try await questService.updateQuest(updated)
+        _ = try await questService.updateQuest(updated, newAssigneeRecordName: input.assignee.id.recordName)
 
         let zoneID = quest.id.zoneID
         if input.propagateToTemplate, let templateCache = templates.first(where: { $0.recordName == quest.template.recordID.recordName }) {
@@ -231,6 +233,30 @@ final class QuestManagerViewModel {
     func unassignQuest(_ quest: Quest) async throws {
         try await questService.unassignQuest(quest)
         activeAssignments.removeAll { $0.recordName == quest.id.recordName }
+    }
+
+    /// Posts an unassigned quest to the Hero Board — any hero can claim it,
+    /// and it carries no due date.
+    func postQuestToBoard(name: String,
+                          description: String,
+                          goldReward: Double,
+                          xpReward: Int,
+                          approvalMode: ApprovalMode) async throws
+    {
+        guard let parent = appState.currentProfile,
+              let family = appState.family
+        else {
+            throw QuestServiceError.missingSession
+        }
+        _ = try await heroBoardService.postToBoard(
+            name: name,
+            description: description,
+            goldReward: goldReward,
+            xpReward: xpReward,
+            approvalMode: approvalMode,
+            createdBy: parent,
+            family: family
+        )
     }
 
     func fetchPendingQuestLogs() async throws -> [QuestCompletion] {

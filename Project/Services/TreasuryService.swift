@@ -349,11 +349,11 @@ final class TreasuryService {
 
         let effectivePolicy = resolvedProfile.map { effectivePayoutPolicy(for: $0, family: resolvedFamily) } ?? resolvedFamily?.payoutPolicy ?? .perQuest
         if effectivePolicy != .realTime {
-            await mintPayoutLedgerEntry(
+            await mintBucketSplitPayout(
                 periodRecordName: period.id.recordName,
                 amount: updated.paidAmount ?? questGoldToPayout,
                 weekOf: period.weekOf,
-                profile: period.profile,
+                profile: resolvedProfile,
                 family: period.family,
                 date: updated.paidDate ?? Date(),
                 isOwner: appState.isZoneOwner
@@ -456,52 +456,6 @@ final class TreasuryService {
     }
 
     // MARK: - Ledger Minting
-
-    /// Idempotent payout ledger mint using "payout-<periodRecordName>" as the record name.
-    private func mintPayoutLedgerEntry(
-        periodRecordName: String,
-        amount: Double,
-        weekOf: Date,
-        profile: CKRecord.Reference,
-        family: CKRecord.Reference,
-        date: Date,
-        isOwner: Bool
-    ) async {
-        guard amount > 0 else { return }
-        let entryRecordName = "payout-\(periodRecordName)"
-        let rtRecordName = "rt-\(periodRecordName)"
-        if let cache = cacheService {
-            let cachedEntries = cache.fetchLedgerEntries(profileRecordName: profile.recordID.recordName, family: family.recordID.recordName)
-            if cachedEntries.first(where: { $0.recordName == entryRecordName }) != nil {
-                return
-            }
-            if cachedEntries.first(where: { $0.recordName == rtRecordName }) != nil {
-                return
-            }
-
-            if let cachedPeriod = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName) {
-                guard cachedPeriod.statusEnum == .paid, abs((cachedPeriod.paidAmount ?? 0.0) - amount) < 0.001 else {
-                    logger.warning("Skipping payout ledger minting: period \(periodRecordName) status is not paid or amount mismatch")
-                    return
-                }
-            }
-        }
-
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        let entry = LedgerEntry(
-            profile: profile,
-            amount: abs(amount),
-            description: "Quest earnings (week of \(formatter.string(from: weekOf)))",
-            date: date,
-            source: "quest",
-            family: family,
-            id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
-        )
-        cacheService?.upsertLedgerEntry(entry)
-        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
-    }
 
     private func mintRealTimeLedgerEntry(
         periodRecordName: String,

@@ -8,11 +8,23 @@
 import PhotosUI
 import SwiftUI
 
+/// Curated emoji set shared with onboarding for profile avatar selection.
+private let profileEmojiGrid: [String] = [
+    "😀", "😃", "😄", "😁", "😆", "😊", "😇", "🙂", "😉", "😍",
+    "🥰", "😎", "🤩", "😋", "🤓", "🧐",
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯",
+    "🦁", "🐮", "🐷", "🐸", "🐵", "🦄",
+    "⭐", "🌟", "🔥", "🌈", "🌸", "🍀", "🌙", "💫",
+    "🎨", "🎵", "🚀", "💎", "🎯"
+]
+
 /// Full visual avatar and class editor for heroes, featuring a live interactive preview
 /// with equipped gear, visual RPG class selection cards, and a sprite variant grid.
+/// Emoji avatar selection is always visible; RPG class/sprite pickers are gated
+/// behind `FeatureFlags.rpgImmersive`.
 @MainActor
 struct EditAvatarSheet: View {
-    let profile: Profile
+    let profileCache: ProfileCache
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
@@ -23,7 +35,10 @@ struct EditAvatarSheet: View {
     @State private var selectedPresetID: String?
     @State private var customData: Data?
     @State private var photoItem: PhotosPickerItem?
+    @State private var selectedEmoji: String?
     @State private var isSaving: Bool = false
+
+    private let emojiColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 8)
 
     var body: some View {
         NavigationStack {
@@ -32,17 +47,22 @@ struct EditAvatarSheet: View {
                     // 1. Live Hero Preview
                     livePreviewCard
 
-                    // 2. Class Selection Grid
-                    classSelectionSection
+                    // 2. Emoji avatar grid — always visible
+                    emojiGridSection
 
-                    // 3. Look / Variant Sprite Grid
-                    presetSelectionSection
+                    if FeatureFlags.rpgImmersive {
+                        // 3. Class Selection Grid
+                        classSelectionSection
 
-                    // 4. Custom Device Photo Option
-                    customPhotoSection
+                        // 4. Look / Variant Sprite Grid
+                        presetSelectionSection
 
-                    // 5. Reset Option
-                    resetSection
+                        // 5. Custom Device Photo Option
+                        customPhotoSection
+
+                        // 6. Reset Option
+                        resetSection
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
@@ -73,7 +93,7 @@ struct EditAvatarSheet: View {
                 }
             }
             .onChange(of: photoItem) { _, newItem in
-                Task { @MainActor in
+                Task {
                     guard let newItem else { return }
                     if let data = try? await newItem.loadTransferable(type: Data.self) {
                         customData = AvatarService.resizeImageData(data, maxDimension: 400)
@@ -81,9 +101,10 @@ struct EditAvatarSheet: View {
                 }
             }
             .onAppear {
-                selectedClass = profile.avatarClass
-                selectedPresetID = profile.avatarPresetID
-                customData = profile.customAvatarImageData
+                selectedClass = profileCache.avatarClassEnum
+                selectedPresetID = profileCache.avatarName
+                customData = profileCache.customAvatarImageData
+                selectedEmoji = profileCache.avatarEmoji
             }
         }
     }
@@ -115,23 +136,49 @@ struct EditAvatarSheet: View {
                         .clipShape(Circle())
                         .overlay(Circle().stroke(Color.gold, lineWidth: 2.5))
                         .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4)
-                } else {
+                } else if let emoji = selectedEmoji, !emoji.isEmpty {
+                    // Emoji avatar preview — lightweight, always available path
+                    Text(emoji)
+                        .font(.system(size: 56))
+                        .frame(width: 84, height: 84)
+                        .background(
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .overlay(
+                            Circle().strokeBorder(Color.gold, lineWidth: 2.5)
+                        )
+                        .shadow(color: Color.black.opacity(0.4), radius: 8, x: 0, y: 4)
+                } else if FeatureFlags.rpgImmersive {
+                    // RPG sprite rendering — only when no emoji or photo is set
                     let resolvedPreset = currentResolvedPreset
                     let sprite = HeroAvatarSprites.sprite(
                         for: resolvedPreset ?? .knightV1,
-                        equippedGear: profile.equippedItems
+                        equippedGear: profileCache.equippedItems ?? []
                     )
 
                     PixelCanvasView(sprite: sprite, animated: true)
                         .frame(width: 84, height: 84)
                         .shadow(color: Color.black.opacity(0.5), radius: 8, x: 0, y: 4)
+                } else {
+                    // When RPG is off and no emoji/photo, show fallback
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 64))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(Color.gold)
                 }
             }
             .frame(height: 94)
 
             // Character Name & Selected Look Tagline
             VStack(spacing: 3) {
-                Text(profile.displayName)
+                Text(profileCache.displayName)
                     .font(.title3.bold())
                     .foregroundStyle(.primary)
 
@@ -139,7 +186,11 @@ struct EditAvatarSheet: View {
                     Text("Custom Photo Avatar")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.gold)
-                } else if let selectedClass {
+                } else if let emoji = selectedEmoji, !emoji.isEmpty {
+                    Text("Emoji Avatar \(emoji)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.gold)
+                } else if FeatureFlags.rpgImmersive, let selectedClass {
                     let presetName = currentResolvedPreset?.displayName ?? selectedClass.displayName
                     Text("\(selectedClass.displayName) • \(presetName)")
                         .font(.subheadline.weight(.semibold))
@@ -150,8 +201,8 @@ struct EditAvatarSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if !profile.equippedItems.isEmpty {
-                    Text("\(profile.equippedItems.count) equipped gear visible")
+                if !(profileCache.equippedItems ?? []).isEmpty {
+                    Text("\((profileCache.equippedItems ?? []).count) equipped gear visible")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -169,7 +220,69 @@ struct EditAvatarSheet: View {
         )
     }
 
+    // MARK: - Emoji Grid Section
+
+    private var emojiGridSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Choose an Emoji Avatar", systemImage: "face.smiling")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.primary)
+
+            LazyVGrid(columns: emojiColumns, spacing: 8) {
+                ForEach(profileEmojiGrid, id: \.self) { emoji in
+                    let isSelected = selectedEmoji == emoji
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            selectedEmoji = isSelected ? nil : emoji
+                            // Choosing an emoji clears RPG selections so the
+                            // emoji takes priority in the avatar render chain.
+                            if selectedEmoji != nil {
+                                customData = nil
+                                photoItem = nil
+                            }
+                        }
+                    } label: {
+                        Text(emoji)
+                            .font(.system(size: 28))
+                            .frame(width: 38, height: 38)
+                            .background(
+                                Circle()
+                                    .fill(isSelected ? Color.blue.opacity(0.25) : Color.clear)
+                            )
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(
+                                        isSelected ? Color.gold : Color.clear,
+                                        lineWidth: 2
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if selectedEmoji != nil {
+                HStack {
+                    Spacer()
+                    Button("Clear Emoji") {
+                        withAnimation {
+                            selectedEmoji = nil
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .tint(.secondary)
+                    Spacer()
+                }
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
     // MARK: - Class Selection Section
+
+    // Gated behind FeatureFlags.rpgImmersive because this is the legacy RPG
+    // avatar layer; the default profile path uses emoji-only avatars.
 
     private var classSelectionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -281,7 +394,7 @@ struct EditAvatarSheet: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } label: {
             VStack(spacing: 4) {
-                let sprite = HeroAvatarSprites.sprite(for: preset, equippedGear: profile.equippedItems)
+                let sprite = HeroAvatarSprites.sprite(for: preset, equippedGear: profileCache.equippedItems ?? [])
                 PixelCanvasView(sprite: sprite, animated: false)
                     .frame(width: 48, height: 48)
 
@@ -414,13 +527,15 @@ struct EditAvatarSheet: View {
         let targetClass = selectedClass
         let targetPresetID = selectedPresetID
         let targetCustomData = customData
-        Task { @MainActor in
+        let targetEmoji = selectedEmoji
+        Task {
             do {
                 try await familyService.updateProfileAvatar(
-                    profile: profile,
+                    profileCache: profileCache,
                     avatarClass: targetClass,
                     avatarPresetID: targetPresetID,
-                    customAvatarImageData: targetCustomData
+                    customAvatarImageData: targetCustomData,
+                    avatarEmoji: targetEmoji
                 )
                 dismiss()
             } catch {

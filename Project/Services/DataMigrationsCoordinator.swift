@@ -402,4 +402,21 @@ extension DataMigrationsCoordinator {
             }
         }
     }
+
+    /// Marker step for the V8 cache-schema bump. The schema change itself
+    /// (GoalCache plus savings-config/claim/bucket fields) is an incompatible
+    /// SwiftData change, so the destructive store reset + CKSyncEngine
+    /// rehydration happens automatically when the container opens with V8 —
+    /// this step exists so the version transition is tracked per account and
+    /// family, and so any future backfill has a stable anchor to extend.
+    static func schemaV8SavingsResetMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
+        MigrationStep(id: "SchemaV8SavingsResetMarker", version: 8) {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            guard cloudKit.activeFamilyZoneID != nil else {
+                logger.info("No active family zone; nothing to record for schema V8.")
+                return
+            }
+            logger.info("Schema V8 destructive cache reset handled by SwiftData container open.")
+        }
+    }
 }

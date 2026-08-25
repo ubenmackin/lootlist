@@ -312,4 +312,31 @@ extension CacheService {
         guard let family = identity.familyRecordName else { return nil }
         return fetchRewardEvent(recordName: identity.recordID.recordName, family: family)
     }
+
+    func fetchGoals(family: String?) -> [GoalCache] {
+        familyScopedFetch(GoalCache.self, family: family)
+    }
+
+    /// FIFO fill order for a single bucket: oldest incomplete non-archived
+    /// goal first, matching the bucket cascade rules.
+    func fetchGoals(profileRecordName: String, bucketKind: String, familyRecordName: String) -> [GoalCache] {
+        fetch(
+            GoalCache.self,
+            predicate: #Predicate {
+                $0.familyRecordName == familyRecordName
+                    && $0.profileRecordName == profileRecordName
+                    && $0.bucketKind == bucketKind
+            },
+            sortBy: [SortDescriptor(\GoalCache.createdAt)]
+        )
+    }
+
+    func fetchGoal(recordName: String, family: String) -> GoalCache? {
+        fetch(GoalCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
+    }
+
+    func fetchGoal(identity: ScopedRecordIdentity) -> GoalCache? {
+        guard let family = identity.familyRecordName else { return nil }
+        return fetchGoal(recordName: identity.recordID.recordName, family: family)
+    }
 }

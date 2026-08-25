@@ -15,10 +15,39 @@ import Testing
 @MainActor
 private final class MockFamilyProfileFetcher: FamilyProfileFetching {
     private(set) var fetchCallCount = 0
+    private let cloudKit = MockCloudKitService()
 
     func fetchAllProfilesForFamily(_: Family) async throws -> [Profile] {
         fetchCallCount += 1
         return []
+    }
+
+    func currentUserRecordName() async throws -> String {
+        try await cloudKit.currentUserRecordID().recordName
+    }
+
+    func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare {
+        try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
+    }
+
+    func fetchShareParticipants(for family: Family) async throws -> [CKShare.Participant] {
+        try await cloudKit.fetchShareParticipants(for: family.id)
+    }
+
+    func fetchShareParticipantStatuses(for family: Family) async throws -> [ShareParticipantStatus] {
+        try await cloudKit.fetchShareParticipantStatuses(for: family.id)
+    }
+
+    func fetchShareParticipantRoles(for family: Family) async throws -> [String: UserRole] {
+        try await cloudKit.fetchShareParticipantRoles(for: family.id)
+    }
+
+    func revokeInvitation(participant: CKShare.Participant, from family: Family) async throws {
+        try await cloudKit.removeParticipant(participant, from: family.id)
+    }
+
+    func revokeInvitation(identityRecordName: String, from family: Family) async throws {
+        try await cloudKit.removeParticipant(iCloudUserRecordName: identityRecordName, from: family.id)
     }
 }
 

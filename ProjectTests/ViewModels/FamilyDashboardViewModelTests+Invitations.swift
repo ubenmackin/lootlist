@@ -15,26 +15,86 @@ import Testing
 @MainActor
 final class StubFamilyProfileFetcher: FamilyProfileFetching {
     private let profiles: [Profile]
+    let cloudKit: MockCloudKitService
 
-    init(profiles: [Profile] = []) {
+    init(profiles: [Profile] = [], cloudKit: MockCloudKitService = MockCloudKitService()) {
         self.profiles = profiles
+        self.cloudKit = cloudKit
     }
 
     func fetchAllProfilesForFamily(_: Family) async throws -> [Profile] {
         profiles
+    }
+
+    func currentUserRecordName() async throws -> String {
+        try await cloudKit.currentUserRecordID().recordName
+    }
+
+    func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare {
+        try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
+    }
+
+    func fetchShareParticipants(for family: Family) async throws -> [CKShare.Participant] {
+        try await cloudKit.fetchShareParticipants(for: family.id)
+    }
+
+    func fetchShareParticipantStatuses(for family: Family) async throws -> [ShareParticipantStatus] {
+        try await cloudKit.fetchShareParticipantStatuses(for: family.id)
+    }
+
+    func fetchShareParticipantRoles(for family: Family) async throws -> [String: UserRole] {
+        try await cloudKit.fetchShareParticipantRoles(for: family.id)
+    }
+
+    func revokeInvitation(participant: CKShare.Participant, from family: Family) async throws {
+        try await cloudKit.removeParticipant(participant, from: family.id)
+    }
+
+    func revokeInvitation(identityRecordName: String, from family: Family) async throws {
+        try await cloudKit.removeParticipant(iCloudUserRecordName: identityRecordName, from: family.id)
     }
 }
 
 @MainActor
 final class MutableStubFamilyProfileFetcher: FamilyProfileFetching {
     var profiles: [Profile]
+    let cloudKit: MockCloudKitService
 
-    init(profiles: [Profile] = []) {
+    init(profiles: [Profile] = [], cloudKit: MockCloudKitService = MockCloudKitService()) {
         self.profiles = profiles
+        self.cloudKit = cloudKit
     }
 
     func fetchAllProfilesForFamily(_: Family) async throws -> [Profile] {
         profiles
+    }
+
+    func currentUserRecordName() async throws -> String {
+        try await cloudKit.currentUserRecordID().recordName
+    }
+
+    func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare {
+        try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
+    }
+
+    func fetchShareParticipants(for family: Family) async throws -> [CKShare.Participant] {
+        try await cloudKit.fetchShareParticipants(for: family.id)
+    }
+
+    func fetchShareParticipantStatuses(for family: Family) async throws -> [ShareParticipantStatus] {
+        try await cloudKit.fetchShareParticipantStatuses(for: family.id)
+    }
+
+    func fetchShareParticipantRoles(for family: Family) async throws -> [String: UserRole] {
+        try await cloudKit.fetchShareParticipantRoles(for: family.id)
+    }
+
+    func revokeInvitation(participant: CKShare.Participant, from family: Family) async throws {
+        try await cloudKit.removeParticipant(participant, from: family.id)
+    }
+
+    func revokeInvitation(identityRecordName: String, from family: Family) async throws {
+        try await cloudKit.removeParticipant(iCloudUserRecordName: identityRecordName, from: family.id)
     }
 }
 
@@ -45,7 +105,16 @@ extension FamilyDashboardViewModelTests {
         fetcher: FamilyProfileFetching,
         family: Family
     ) -> (vm: FamilyDashboardViewModel, cloudKit: MockCloudKitService) {
-        let cloudKit = MockCloudKitService()
+        // Reuse the fetcher's backing mock so simulateParticipation state
+        // written via the returned cloudKit is visible to the fetcher's
+        // invitation methods — both must share the same MockRecordStore.
+        let cloudKit: MockCloudKitService = if let stub = fetcher as? StubFamilyProfileFetcher {
+            stub.cloudKit
+        } else if let mutable = fetcher as? MutableStubFamilyProfileFetcher {
+            mutable.cloudKit
+        } else {
+            MockCloudKitService()
+        }
         cloudKit.activeFamilyZoneID = family.id.zoneID
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)

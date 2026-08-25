@@ -94,7 +94,18 @@ extension View {
     }
 
     func celebrationOverlay() -> some View {
-        self
+        modifier(CelebrationOverlayModifier())
+    }
+}
+
+struct CelebrationOverlayModifier: ViewModifier {
+    @Environment(CelebrationManager.self) private var celebrationManager
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                CelebrationOverlay(isPresented: celebrationManager.isConfettiShowing)
+            }
     }
 }
 

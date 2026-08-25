@@ -225,11 +225,11 @@ struct QuestLogView: View {
                     HStack {
                         completionBadge(row.completionStatus)
                         Spacer()
-                        Text(
-                            "\(CurrencyFormatter.string(row.quest.goldReward)) / ⭐ \(row.quest.xpReward)"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        // XP stays invisible while the immersive layer is
+                        // off, so rows show only the real money reward.
+                        Text(CurrencyFormatter.string(row.quest.goldReward))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     if case .pending = row.completionStatus, appState.currentProfile?.role != .hero {
