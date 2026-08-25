@@ -136,9 +136,15 @@ struct HeroBoardView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isSubmitting)
+                .accessibilityIdentifier("board.claimButton-\(row.id)")
             }
         }
         .contentShape(Rectangle())
+        // A bare identifier on a List row collapses it into one opaque
+        // accessibility element, which hides the Claim button from XCUITest;
+        // .contain keeps the row addressable while exposing its children.
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("board.availableRow-\(row.id)")
     }
 
     /// Parent-facing row for unclaimed quests (read-only).
@@ -150,6 +156,7 @@ struct HeroBoardView: View {
             Spacer()
         }
         .contentShape(Rectangle())
+        .accessibilityIdentifier("board.parentRow-\(row.id)")
     }
 
     /// Parent-facing row for claimed quests with the release-back-to-board action.
@@ -167,6 +174,7 @@ struct HeroBoardView: View {
             Spacer()
         }
         .contentShape(Rectangle())
+        .accessibilityIdentifier("board.claimedRow-\(row.id)")
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 guard !isSubmitting else { return }
@@ -179,6 +187,7 @@ struct HeroBoardView: View {
                 Label("Revoke", systemImage: "arrow.uturn.backward")
             }
             .disabled(isSubmitting)
+            .accessibilityIdentifier("board.revokeAction-\(row.id)")
         }
     }
 

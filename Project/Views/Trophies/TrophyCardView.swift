@@ -23,7 +23,9 @@ struct TrophyCardView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("TrophyCard.\(achievement.name)")
         .accessibilityLabel(achievement.name)
-        .accessibilityHint(isEarned ? "Trophy earned" : "Trophy locked")
+        // Earned/locked rides accessibilityValue so assistive tech and XCUITest
+        // both read state from the same attribute; hint stays free for actions.
+        .accessibilityValue(isEarned ? "Trophy earned" : "Trophy locked")
         .accessibilityAddTraits(isEarned ? [.isButton] : [])
         .alert(achievement.name, isPresented: $showingDetail) {
             Button("OK", role: .cancel) {}

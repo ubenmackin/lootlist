@@ -131,7 +131,7 @@ struct EditAvatarSheet: View {
                 if let customData, let uiImage = UIImage(data: customData) {
                     Image(uiImage: uiImage)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .scaledToFill()
                         .frame(width: 84, height: 84)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(Color.gold, lineWidth: 2.5))
@@ -447,7 +447,7 @@ struct EditAvatarSheet: View {
                 if let customData, let uiImage = UIImage(data: customData) {
                     Image(uiImage: uiImage)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .scaledToFill()
                         .frame(width: 50, height: 50)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(Color.gold, lineWidth: 2))

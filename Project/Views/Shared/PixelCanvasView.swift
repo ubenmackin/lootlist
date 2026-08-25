@@ -88,6 +88,7 @@ struct PixelCanvasView: View {
             let originY = (size.height - CGFloat(spriteRows) * pixelSize) / 2
 
             Canvas { ctx, _ in
+                guard size.width > 0, size.height > 0, pixelSize > 0 else { return }
                 let sortedLayers = sprite.layers.sorted { $0.zIndex < $1.zIndex }
 
                 for layer in sortedLayers {

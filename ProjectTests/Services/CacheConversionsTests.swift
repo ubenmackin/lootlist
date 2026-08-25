@@ -351,6 +351,278 @@ struct CacheConversionsTests {
         #expect(period.paidAmount == 25.0)
     }
 
+    // MARK: - Schema V8 conversions
+
+    @Test
+    func `goalCache captures all goal fields and toGoal restores them`() {
+        let createdAt = Date(timeIntervalSince1970: 1_750_000_000)
+        let completedAt = Date(timeIntervalSince1970: 1_750_100_000)
+        var goal = Goal(
+            profile: ref("hero_1"),
+            family: ref("fam_1"),
+            bucketKind: .shortTermSave,
+            name: "New Bike",
+            category: "Ride",
+            emojiIcon: "🚲",
+            targetAmountPennies: 25000,
+            createdAt: createdAt,
+            completedAt: completedAt,
+            isArchived: true,
+            id: id("goal_1")
+        )
+        goal.changeTag = "ct_1"
+
+        let cache = GoalCache(from: goal)
+
+        #expect(cache.recordName == "goal_1")
+        #expect(cache.profileRecordName == "hero_1")
+        #expect(cache.familyRecordName == "fam_1")
+        #expect(cache.bucketKindEnum == .shortTermSave)
+        #expect(cache.name == "New Bike")
+        #expect(cache.category == "Ride")
+        #expect(cache.emojiIcon == "🚲")
+        #expect(cache.targetAmountPennies == 25000)
+        #expect(cache.createdAt == createdAt)
+        #expect(cache.completedAt == completedAt)
+        #expect(cache.isArchived == true)
+
+        let restored = cache.toGoal(zoneID: zoneID)
+        #expect(restored == goal)
+    }
+
+    @Test
+    func `goalCache upsert path applies archive transitions and clears completion`() {
+        let createdAt = Date(timeIntervalSince1970: 1_750_000_000)
+        let cache = GoalCache(from: Goal(
+            profile: ref("hero_1"),
+            family: ref("fam_1"),
+            bucketKind: .longTermSave,
+            name: "Rainy Day",
+            targetAmountPennies: 10000,
+            createdAt: createdAt,
+            id: id("goal_2")
+        ))
+        #expect(cache.isArchived == false)
+        #expect(cache.completedAt == nil)
+
+        // Completing + archiving must stamp both fields.
+        let completedAt = Date(timeIntervalSince1970: 1_750_200_000)
+        var completedGoal = Goal(
+            profile: ref("hero_1"),
+            family: ref("fam_1"),
+            bucketKind: .longTermSave,
+            name: "Rainy Day",
+            targetAmountPennies: 10000,
+            createdAt: createdAt,
+            completedAt: completedAt,
+            isArchived: true,
+            id: id("goal_2")
+        )
+        completedGoal.changeTag = "ct_9"
+        cache.update(from: completedGoal)
+        #expect(cache.completedAt == completedAt)
+        #expect(cache.isArchived == true)
+        #expect(cache.changeTag == "ct_9")
+
+        // Un-archiving must clear completedAt back to nil, not leave it stale —
+        // FIFO filling skips rows whose completedAt survives a revoke.
+        cache.update(from: Goal(
+            profile: ref("hero_1"),
+            family: ref("fam_1"),
+            bucketKind: .longTermSave,
+            name: "Rainy Day",
+            targetAmountPennies: 10000,
+            createdAt: createdAt,
+            id: id("goal_2")
+        ))
+        #expect(cache.completedAt == nil)
+        #expect(cache.isArchived == false)
+    }
+
+    @Test
+    func `ledgerEntryCache preserves bucket attribution through conversion`() {
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        let transfer = LedgerEntry(
+            profile: ref("hero_1"),
+            amount: -5.00,
+            description: "Moved savings",
+            location: "App",
+            date: date,
+            source: "transfer",
+            fromBucket: BucketKind.spend.rawValue,
+            toBucket: BucketKind.shortTermSave.rawValue,
+            family: ref("fam_1"),
+            id: id("led_t1")
+        )
+
+        let cache = LedgerEntryCache(from: transfer)
+        #expect(cache.bucketKind == nil)
+        #expect(cache.fromBucket == BucketKind.spend.rawValue)
+        #expect(cache.toBucket == BucketKind.shortTermSave.rawValue)
+
+        let restored = cache.toLedgerEntry(zoneID: zoneID)
+        #expect(restored == transfer)
+
+        // Interest credits exactly one bucket; from/to stay unset.
+        let interest = LedgerEntry(
+            profile: ref("hero_1"),
+            amount: 1.25,
+            description: "Monthly interest",
+            date: date,
+            source: "interest",
+            bucketKind: BucketKind.longTermSave.rawValue,
+            family: ref("fam_1"),
+            id: id("led_i1")
+        )
+
+        let interestCache = LedgerEntryCache(from: interest)
+        #expect(interestCache.bucketKindEnum == .longTermSave)
+        #expect(interestCache.fromBucket == nil)
+        #expect(interestCache.toBucket == nil)
+        #expect(interestCache.toLedgerEntry(zoneID: zoneID) == interest)
+
+        // Legacy pre-bucket row keeps all three attribution fields nil.
+        let legacyCache = LedgerEntryCache(
+            recordName: "led_l1",
+            profileRecordName: "hero_1",
+            familyRecordName: "fam_1",
+            amount: 12.5,
+            entryDescription: "Old payout",
+            date: date,
+            source: "manual"
+        )
+        #expect(legacyCache.bucketKindEnum == nil)
+        #expect(legacyCache.toLedgerEntry(zoneID: zoneID).bucketKind == nil)
+        #expect(legacyCache.toLedgerEntry(zoneID: zoneID).fromBucket == nil)
+        #expect(legacyCache.toLedgerEntry(zoneID: zoneID).toBucket == nil)
+    }
+
+    @Test
+    func `questCache round-trips hero board claim state and revoke clears it`() {
+        let weekOf = Date(timeIntervalSince1970: 1_749_950_000)
+        let claimedAt = Date(timeIntervalSince1970: 1_750_010_000)
+        let claimed = Quest(
+            template: ref("tpl_1"),
+            assignee: ref("hero_1"),
+            goldReward: 5.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            weekOf: weekOf,
+            createdBy: ref("creator_1"),
+            family: ref("fam_1"),
+            claimedByProfileRecordName: "hero_9",
+            claimedAt: claimedAt,
+            id: id("quest_9")
+        )
+
+        let cache = QuestCache(from: claimed)
+        #expect(cache.claimedByProfileRecordName == "hero_9")
+        #expect(cache.claimedAt == claimedAt)
+
+        let restored = cache.toQuest(zoneID: zoneID)
+        #expect(restored.claimedByProfileRecordName == "hero_9")
+        #expect(restored.claimedAt == claimedAt)
+
+        // Parent revoking the claim must clear BOTH fields on the upsert path;
+        // a stale claimer with a nil timestamp would corrupt board rendering.
+        var revoked = claimed
+        revoked.claimedByProfileRecordName = nil
+        revoked.claimedAt = nil
+        cache.update(from: revoked)
+        #expect(cache.claimedByProfileRecordName == nil)
+        #expect(cache.claimedAt == nil)
+        #expect(cache.toQuest(zoneID: zoneID).claimedByProfileRecordName == nil)
+    }
+
+    @Test
+    func `profileCache preserves savings config and avatarEmoji through conversion`() {
+        let profile = Profile(
+            displayName: "Saver",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user1", zoneID: zoneID),
+            family: ref("fam_1"),
+            avatarEmoji: "🦊",
+            splitPercentSpend: 50,
+            splitPercentShort: 30,
+            splitPercentLong: 20,
+            interestEnabled: true,
+            interestBucket: BucketKind.longTermSave.rawValue,
+            interestRateBps: 250,
+            interestIsCompound: true,
+            matchEnabled: true,
+            matchRateBps: 100,
+            matchMonthlyCapPennies: 50000,
+            id: id("hero_saver")
+        )
+
+        let cache = ProfileCache(from: profile)
+
+        #expect(cache.avatarEmoji == "🦊")
+        #expect(cache.splitPercentSpend == 50)
+        #expect(cache.splitPercentShort == 30)
+        #expect(cache.splitPercentLong == 20)
+        #expect(cache.interestEnabled == true)
+        #expect(cache.interestBucketEnum == .longTermSave)
+        #expect(cache.interestRateBps == 250)
+        #expect(cache.interestIsCompound == true)
+        #expect(cache.matchEnabled == true)
+        #expect(cache.matchRateBps == 100)
+        #expect(cache.matchMonthlyCapPennies == 50000)
+
+        let restored = cache.toProfile(zoneID: zoneID)
+        #expect(restored.avatarEmoji == "🦊")
+        #expect(restored.splitPercentSpend == 50)
+        #expect(restored.splitPercentShort == 30)
+        #expect(restored.splitPercentLong == 20)
+        #expect(restored.interestEnabled == true)
+        #expect(restored.interestBucket == BucketKind.longTermSave.rawValue)
+        #expect(restored.interestRateBps == 250)
+        #expect(restored.interestIsCompound == true)
+        #expect(restored.matchEnabled == true)
+        #expect(restored.matchRateBps == 100)
+        #expect(restored.matchMonthlyCapPennies == 50000)
+    }
+
+    @Test
+    func `profileCache defaults route everything to spend with interest and match off`() {
+        // A row written before the savings fields existed must convert back to
+        // the exact pre-bucket payout behavior: full spend split, engines off.
+        let cache = ProfileCache(
+            recordName: "hero_legacy",
+            familyRecordName: "fam_1",
+            displayName: "Legacy Hero",
+            role: UserRole.hero.rawValue,
+            xpTotal: 120,
+            avatarName: nil,
+            isActive: true,
+            level: 3,
+            iCloudUserRecordName: "user1",
+            avatarClass: nil
+        )
+
+        #expect(cache.avatarEmoji == nil)
+        #expect(cache.splitPercentSpend == 100)
+        #expect(cache.splitPercentShort == 0)
+        #expect(cache.splitPercentLong == 0)
+        #expect(cache.interestEnabled == false)
+        #expect(cache.interestBucketEnum == nil)
+        #expect(cache.interestRateBps == 0)
+        #expect(cache.interestIsCompound == false)
+        #expect(cache.matchEnabled == false)
+        #expect(cache.matchRateBps == 0)
+        #expect(cache.matchMonthlyCapPennies == nil)
+
+        let restored = cache.toProfile(zoneID: zoneID)
+        #expect(restored.avatarEmoji == nil)
+        #expect(restored.splitPercentSpend == 100)
+        #expect(restored.splitPercentShort == 0)
+        #expect(restored.splitPercentLong == 0)
+        #expect(restored.interestEnabled == false)
+        #expect(restored.interestBucket == nil)
+        #expect(restored.matchEnabled == false)
+        #expect(restored.matchMonthlyCapPennies == nil)
+    }
+
     // MARK: - Fixture helpers
 
     @Test

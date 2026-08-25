@@ -84,6 +84,7 @@ struct BucketTransferView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(isSaving)
+                        .accessibilityIdentifier("transfer.cancelButton")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
@@ -96,6 +97,7 @@ struct BucketTransferView: View {
                         }
                     }
                     .disabled(!canTransfer || isSaving)
+                    .accessibilityIdentifier("transfer.confirmButton")
                 }
             }
             .interactiveDismissDisabled(isSaving)
@@ -125,6 +127,10 @@ struct BucketTransferView: View {
                             .foregroundStyle(.secondary)
                     }
                     .tag(kind)
+                    // The rendered balance makes each option's combined
+                    // label locale-dependent, so tests key off stable ids
+                    // scoped per section instead.
+                    .accessibilityIdentifier("transfer.fromOption-\(kind.rawValue)")
                 }
             }
             .pickerStyle(.inline)
@@ -147,6 +153,7 @@ struct BucketTransferView: View {
                             .foregroundStyle(.secondary)
                     }
                     .tag(kind)
+                    .accessibilityIdentifier("transfer.toOption-\(kind.rawValue)")
                 }
             }
             .pickerStyle(.inline)
@@ -166,6 +173,7 @@ struct BucketTransferView: View {
                     .keyboardType(.decimalPad)
                     .font(.body.monospacedDigit())
                     .accessibilityLabel("Transfer amount in dollars")
+                    .accessibilityIdentifier("transfer.amountField")
             }
         } header: {
             Text("Amount")

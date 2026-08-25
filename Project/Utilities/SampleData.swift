@@ -103,7 +103,7 @@ enum SampleData {
         let approval: ApprovalMode
     }
 
-    static func createTemplatesAndQuests() -> SampleQuestData {
+    static func createTemplatesAndQuests(boardClaims: Int = 0) -> SampleQuestData {
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
 
         let templatesData: [TemplateSeed] = [
@@ -160,7 +160,7 @@ enum SampleData {
             }
         }
 
-        let (boardTemplates, boardQuests) = createBoardQuests(currentWeek: currentWeek)
+        let (boardTemplates, boardQuests) = createBoardQuests(currentWeek: currentWeek, claims: boardClaims)
         templates.append(contentsOf: boardTemplates)
         quests.append(contentsOf: boardQuests)
 
@@ -177,7 +177,9 @@ enum SampleData {
         let xp: Int
     }
 
-    private static func createBoardQuests(currentWeek: Date) -> ([QuestTemplate], [Quest]) {
+    /// The first `claims` board quests are pre-claimed by the primary hero so
+    /// HeroBoardView renders claimed and unclaimed sections deterministically.
+    private static func createBoardQuests(currentWeek: Date, claims: Int = 0) -> ([QuestTemplate], [Quest]) {
         let seeds: [BoardQuestSeed] = [
             BoardQuestSeed(recordSuffix: "dog", name: "Walk the Dog", desc: "Take the dog for a walk around the block", gold: 3.00, xp: 30),
             BoardQuestSeed(recordSuffix: "vacuum", name: "Vacuum Living Room", desc: "Vacuum the living room carpet and corners", gold: 4.00, xp: 40),
@@ -187,7 +189,7 @@ enum SampleData {
         var templates: [QuestTemplate] = []
         var quests: [Quest] = []
 
-        for seed in seeds {
+        for (index, seed) in seeds.enumerated() {
             let tID = CKRecord.ID(recordName: "template_board_\(seed.recordSuffix)", zoneID: zoneID)
             let templateRef = CKRecord.Reference(recordID: tID, action: .none)
             let template = QuestTemplate(
@@ -198,13 +200,24 @@ enum SampleData {
             )
             templates.append(template)
 
+            // Board quests carry the placeholder assignee so isBoardQuest
+            // recognizes them; ownership rides the claim fields only.
+            let boardAssigneeRef = CKRecord.Reference(
+                recordID: CKRecord.ID(
+                    recordName: HeroBoardService.boardAssigneeRecordName,
+                    zoneID: zoneID
+                ),
+                action: .none
+            )
+            let isClaimed = index < claims
             let quest = Quest(
-                template: templateRef, assignee: parentRef,
+                template: templateRef, assignee: boardAssigneeRef,
                 goldReward: seed.gold, xpReward: seed.xp,
                 scheduleType: .weeklyFlexible, weekOf: currentWeek,
                 createdBy: parentRef, family: familyRef,
                 name: seed.name, descriptionText: seed.desc,
-                claimedByProfileRecordName: nil, claimedAt: nil,
+                claimedByProfileRecordName: isClaimed ? hero1ID.recordName : nil,
+                claimedAt: isClaimed ? currentWeek.addingTimeInterval(86400) : nil,
                 id: CKRecord.ID(recordName: "quest_board_\(seed.recordSuffix)", zoneID: zoneID)
             )
             quests.append(quest)
@@ -309,6 +322,16 @@ enum SampleData {
                 family: familyRef,
                 id: CKRecord.ID(recordName: "ledger_qst_leo_long", zoneID: zoneID)
             ),
+            LedgerEntry(
+                profile: hero1Ref,
+                amount: 4.00,
+                description: "Quest reward — Long-Term Save",
+                date: now.addingTimeInterval(-86400 * 1),
+                source: "quest",
+                bucketKind: BucketKind.longTermSave.rawValue,
+                family: familyRef,
+                id: CKRecord.ID(recordName: "ledger_qst_maya_long", zoneID: zoneID)
+            ),
             // Manual spending entries with bucket attribution
             LedgerEntry(
                 profile: hero1Ref,
@@ -355,10 +378,80 @@ enum SampleData {
         ]
     }
 
-    // MARK: - Allowance Periods (seeded on demand via DataMigrationsCoordinator)
-
     static func createAllowancePeriods() -> [AllowancePeriod] {
-        []
+        let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
+        let week1Ago = Calendar.iso8601UTC.date(byAdding: .day, value: -7, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 7)
+        let week2Ago = Calendar.iso8601UTC.date(byAdding: .day, value: -14, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 14)
+        let week3Ago = Calendar.iso8601UTC.date(byAdding: .day, value: -21, to: currentWeek) ?? currentWeek.addingTimeInterval(-86400 * 21)
+
+        let paid1 = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: week1Ago) ?? week1Ago.addingTimeInterval(86400 * 6)
+        let paid2 = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: week2Ago) ?? week2Ago.addingTimeInterval(86400 * 6)
+        let paid3 = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: week3Ago) ?? week3Ago.addingTimeInterval(86400 * 6)
+
+        return [
+            // Maya's past payouts
+            AllowancePeriod(
+                weekOf: week1Ago,
+                profile: hero1Ref,
+                status: .paid,
+                totalEarned: 12.50,
+                questsCompleted: 5,
+                questsTotal: 5,
+                paidDate: paid1,
+                paidAmount: 12.50,
+                family: familyRef,
+                id: CKRecord.ID(recordName: "allowance_maya_w1", zoneID: zoneID)
+            ),
+            AllowancePeriod(
+                weekOf: week2Ago,
+                profile: hero1Ref,
+                status: .paid,
+                totalEarned: 10.00,
+                questsCompleted: 4,
+                questsTotal: 5,
+                paidDate: paid2,
+                paidAmount: 10.00,
+                family: familyRef,
+                id: CKRecord.ID(recordName: "allowance_maya_w2", zoneID: zoneID)
+            ),
+            AllowancePeriod(
+                weekOf: week3Ago,
+                profile: hero1Ref,
+                status: .paid,
+                totalEarned: 15.00,
+                questsCompleted: 6,
+                questsTotal: 6,
+                paidDate: paid3,
+                paidAmount: 15.00,
+                family: familyRef,
+                id: CKRecord.ID(recordName: "allowance_maya_w3", zoneID: zoneID)
+            ),
+            // Leo's past payouts
+            AllowancePeriod(
+                weekOf: week1Ago,
+                profile: hero2Ref,
+                status: .paid,
+                totalEarned: 8.00,
+                questsCompleted: 3,
+                questsTotal: 4,
+                paidDate: paid1,
+                paidAmount: 8.00,
+                family: familyRef,
+                id: CKRecord.ID(recordName: "allowance_leo_w1", zoneID: zoneID)
+            ),
+            AllowancePeriod(
+                weekOf: week2Ago,
+                profile: hero2Ref,
+                status: .paid,
+                totalEarned: 10.00,
+                questsCompleted: 4,
+                questsTotal: 4,
+                paidDate: paid2,
+                paidAmount: 10.00,
+                family: familyRef,
+                id: CKRecord.ID(recordName: "allowance_leo_w2", zoneID: zoneID)
+            )
+        ]
     }
 
     // MARK: - Achievements
@@ -524,8 +617,8 @@ enum SampleData {
 
     // MARK: - Populate
 
-    static func populate(cacheService: CacheService? = nil) {
-        let questData = createTemplatesAndQuests()
+    static func populate(cacheService: CacheService? = nil, boardClaims: Int = 0) {
+        let questData = createTemplatesAndQuests(boardClaims: boardClaims)
         let ledger = createLedgerEntries()
         let periods = createAllowancePeriods()
         let (achs, profileAchs) = createAchievements()

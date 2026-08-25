@@ -126,6 +126,7 @@ struct MyGoalsView: View {
                                 .labelStyle(.iconOnly)
                         }
                         .accessibilityLabel("Add Goal")
+                        .accessibilityIdentifier("goals.addGoalButton")
                     }
                 }
             }
@@ -230,7 +231,7 @@ struct MyGoalsView: View {
                                 ? Color(DesignSystemConstants.Colors.primaryGreen)
                                 : Color(DesignSystemConstants.Colors.primaryGreen)
                         )
-                        .frame(width: geometry.size.width * progress, height: 8)
+                        .frame(width: max(0, geometry.size.width * progress), height: 8)
                 }
             }
             .frame(height: 8)
@@ -267,6 +268,7 @@ struct MyGoalsView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel(for: goal, saved: saved, target: target))
+        .accessibilityIdentifier("goals.card-\(goal.recordName)")
     }
 
     private func accessibilityLabel(for goal: GoalCache, saved: Double, target: Double) -> String {
@@ -300,8 +302,6 @@ struct MyGoalsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer().frame(height: 64)
-
             Image(systemName: "star.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
@@ -328,10 +328,12 @@ struct MyGoalsView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(Color(DesignSystemConstants.Colors.primaryGreen))
                 .padding(.top, 8)
+                .accessibilityIdentifier("goals.emptyAddButton")
             }
 
             Spacer()
         }
+        .padding(.top, 64)
         .frame(maxWidth: .infinity)
     }
 }

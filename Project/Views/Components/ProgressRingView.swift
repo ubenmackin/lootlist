@@ -17,6 +17,8 @@ struct ProgressRingView: View {
 
     var lineWidth: CGFloat = 8
 
+    var identifier: String?
+
     private var clampedProgress: Double {
         min(max(progress, 0), 1)
     }
@@ -47,5 +49,6 @@ struct ProgressRingView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Progress")
         .accessibilityValue(percentText)
+        .accessibilityIdentifierIfSet(identifier)
     }
 }

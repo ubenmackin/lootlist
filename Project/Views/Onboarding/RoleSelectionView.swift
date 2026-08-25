@@ -45,12 +45,12 @@ struct RoleSelectionView: View {
 
             Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.purple.opacity(0.1)],
                 startPoint: .top, endPoint: .bottom
             )
+            .ignoresSafeArea()
         )
         .navigationBarBackButtonHidden(true)
         .toolbar {

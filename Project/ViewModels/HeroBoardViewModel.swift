@@ -118,7 +118,19 @@ final class HeroBoardViewModel {
         do {
             switch try await boardService.claim(row.quest, by: hero) {
             case .claimed:
-                break
+                if let index = availableRows.firstIndex(where: { $0.id == row.id }) {
+                    var claimedQuest = row.quest
+                    claimedQuest.claimedByProfileRecordName = hero.id.recordName
+                    claimedQuest.claimedAt = Date()
+                    let updatedRow = BoardRow(
+                        quest: claimedQuest,
+                        claimantName: hero.displayName,
+                        isClaimedByCurrentUser: true
+                    )
+                    availableRows.remove(at: index)
+                    claimedRows.append(updatedRow)
+                    claimedRows.sort { $0.quest.displayName.localizedCaseInsensitiveCompare($1.quest.displayName) == .orderedAscending }
+                }
             case .lostToAnotherHero:
                 pendingClaims.remove(row.id)
                 boardService.toastManager?.show(message: "Someone grabbed it first!", type: .warning)
@@ -135,6 +147,19 @@ final class HeroBoardViewModel {
     func revoke(_ row: BoardRow) async {
         do {
             try await boardService.revoke(row.quest)
+            if let index = claimedRows.firstIndex(where: { $0.id == row.id }) {
+                var revokedQuest = row.quest
+                revokedQuest.claimedByProfileRecordName = nil
+                revokedQuest.claimedAt = nil
+                let updatedRow = BoardRow(
+                    quest: revokedQuest,
+                    claimantName: nil,
+                    isClaimedByCurrentUser: false
+                )
+                claimedRows.remove(at: index)
+                availableRows.append(updatedRow)
+                availableRows.sort { $0.quest.displayName.localizedCaseInsensitiveCompare($1.quest.displayName) == .orderedAscending }
+            }
         } catch {
             boardService.toastManager?.show(
                 message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,

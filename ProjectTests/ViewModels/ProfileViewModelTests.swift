@@ -164,4 +164,49 @@ struct ProfileViewModelTests {
 
         #expect(viewModel.goldBalance == 20.0)
     }
+
+    // MARK: - Avatar Emoji Selection
+
+    private func makeProfile(emoji: String?) -> Profile {
+        Profile(
+            displayName: "Maya",
+            role: .hero,
+            iCloudUserID: SampleData.hero1UserID,
+            family: SampleData.familyRef,
+            avatarEmoji: emoji,
+            id: SampleData.hero1ID
+        )
+    }
+
+    @Test
+    func `sample fixtures select a distinct emoji per family member`() {
+        #expect(SampleData.heroProfile.avatarEmoji == "🦊")
+        #expect(SampleData.secondHeroProfile.avatarEmoji == "🐯")
+        #expect(SampleData.parentProfile.avatarEmoji == "🧔")
+    }
+
+    @Test
+    func `emoji selection survives the domain-cache-domain round trip`() {
+        let selected = makeProfile(emoji: "🐉")
+
+        let cached = ProfileCache(from: selected)
+        #expect(cached.avatarEmoji == "🐉")
+        #expect(cached.toProfile(zoneID: SampleData.zoneID).avatarEmoji == "🐉")
+    }
+
+    @Test
+    func `cache merge keeps the locally selected emoji over a stale server copy`() {
+        let staleServer = makeProfile(emoji: "🧔")
+
+        let merged = staleServer.mergingCacheValues(from: makeProfile(emoji: "🐉"))
+        #expect(merged.avatarEmoji == "🐉")
+    }
+
+    @Test
+    func `clearing the emoji propagates through the cache merge so deselection sticks`() {
+        let staleServer = makeProfile(emoji: "🦊")
+
+        let deselected = staleServer.mergingCacheValues(from: makeProfile(emoji: nil))
+        #expect(deselected.avatarEmoji == nil)
+    }
 }

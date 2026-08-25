@@ -676,4 +676,142 @@ struct FamilyDashboardViewModelTests {
         let heroSummary = try #require(summary.heroSummaries.first(where: { $0.profile.recordName == "hero_std" }))
         #expect(heroSummary.weeklyGoldEarned == 0.0)
     }
+
+    // MARK: - Dashboard aggregates
+
+    private func makeHero(_ recordName: String, displayName: String) -> ProfileCache {
+        ProfileCache(
+            recordName: recordName,
+            familyRecordName: "fam1",
+            displayName: displayName,
+            role: UserRole.hero.rawValue,
+            xpTotal: 100,
+            avatarName: nil,
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 1,
+            iCloudUserRecordName: "u_\(recordName)",
+            avatarClass: nil,
+            payoutPolicy: PayoutPolicy.perQuest.rawValue
+        )
+    }
+
+    private func makeParent() -> ProfileCache {
+        ProfileCache(
+            recordName: "parent1",
+            familyRecordName: "fam1",
+            displayName: "Dad",
+            role: UserRole.guildMaster.rawValue,
+            xpTotal: 100,
+            avatarName: nil,
+            customAvatarImageData: nil,
+            isActive: true,
+            level: 1,
+            iCloudUserRecordName: "u_parent1",
+            avatarClass: nil
+        )
+    }
+
+    @Test
+    func `familyOutflow combines every child ledger balance and skips parent rows`() {
+        let sut = makeSUT()
+        let ava = makeHero("hero1", displayName: "Ava")
+        let ben = makeHero("hero2", displayName: "Ben")
+        let dad = makeParent()
+        let ledgers = [
+            LedgerEntryCache(
+                recordName: "l_ava_quest", profileRecordName: "hero1", familyRecordName: "fam1",
+                amount: 12.25, entryDescription: "Quest reward", date: Date(), source: "quest"
+            ),
+            LedgerEntryCache(
+                recordName: "l_ava_snack", profileRecordName: "hero1", familyRecordName: "fam1",
+                amount: -4.00, entryDescription: "Snack", date: Date(), source: "manual"
+            ),
+            LedgerEntryCache(
+                recordName: "l_ben_deposit", profileRecordName: "hero2", familyRecordName: "fam1",
+                amount: 8.50, entryDescription: "Deposit", date: Date(), source: "deposit"
+            ),
+            // Parent wallet rows are not child outflow.
+            LedgerEntryCache(
+                recordName: "l_dad_wallet", profileRecordName: "parent1", familyRecordName: "fam1",
+                amount: 500.00, entryDescription: "Parent wallet", date: Date(), source: "deposit"
+            )
+        ]
+
+        sut.vm.rebuildLists(
+            profiles: [ava, ben, dad],
+            quests: [],
+            logs: [],
+            ledgers: ledgers,
+            allowancePeriods: [],
+            profileAchievements: [],
+            achievements: []
+        )
+
+        // 12.25 - 4.00 + 8.50, parent's 500.00 excluded
+        #expect(sut.vm.familyOutflow == 16.75)
+    }
+
+    @Test
+    func `pending review count splits into per-child account cards`() throws {
+        let sut = makeSUT()
+        let ava = makeHero("hero1", displayName: "Ava")
+        let ben = makeHero("hero2", displayName: "Ben")
+        let currentWeek = WeekMath.weekOf(date: Date())
+
+        func log(_ name: String, hero: String, status: VerificationStatus) -> QuestCompletionCache {
+            QuestCompletionCache(
+                recordName: name,
+                questRecordName: "quest_\(name)",
+                familyRecordName: "fam1",
+                completerRecordName: hero,
+                completedDate: Date(),
+                weekOf: currentWeek,
+                verificationStatus: status.rawValue,
+                approvalMode: ApprovalMode.autoApprove.rawValue,
+                verifiedByRecordName: nil,
+                verifiedDate: nil
+            )
+        }
+
+        let logs = [
+            log("p1", hero: "hero1", status: .pending),
+            log("p2", hero: "hero1", status: .pending),
+            log("a1", hero: "hero1", status: .autoApproved),
+            log("p3", hero: "hero2", status: .pending)
+        ]
+        let ledgers = [
+            LedgerEntryCache(
+                recordName: "l_ava", profileRecordName: "hero1", familyRecordName: "fam1",
+                amount: 10.00, entryDescription: "Quest reward", date: Date(), source: "quest"
+            ),
+            LedgerEntryCache(
+                recordName: "l_ben", profileRecordName: "hero2", familyRecordName: "fam1",
+                amount: 2.50, entryDescription: "Deposit", date: Date(), source: "deposit"
+            )
+        ]
+
+        sut.vm.rebuildLists(
+            profiles: [ava, ben],
+            quests: [],
+            logs: logs,
+            ledgers: ledgers,
+            allowancePeriods: [],
+            profileAchievements: [],
+            achievements: []
+        )
+
+        #expect(sut.vm.pendingReviewCount == 3)
+
+        // Cards are sorted by display name: Ava before Ben.
+        #expect(sut.vm.childAccountCards.map(\.profile.recordName) == ["hero1", "hero2"])
+
+        let avaCard = try #require(sut.vm.childAccountCards.first { $0.profile.recordName == "hero1" })
+        #expect(avaCard.balance == 10.00)
+        #expect(avaCard.pendingReviewCount == 2)
+
+        let benCard = try #require(sut.vm.childAccountCards.first { $0.profile.recordName == "hero2" })
+        #expect(benCard.balance == 2.50)
+        #expect(benCard.pendingReviewCount == 1)
+    }
 }

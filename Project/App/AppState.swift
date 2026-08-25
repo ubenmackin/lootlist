@@ -170,6 +170,12 @@ final class AppState {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // Screenshot and assertion suites depend on the utility surface
+        // rendering deterministically; a flag toggled manually on a shared
+        // simulator must never leak the immersive layer into a test run.
+        if TestEnvironment.isRunningUITests {
+            FeatureFlags.rpgImmersive = false
+        }
         let hasSession = defaults.bool(forKey: Self.hasSessionKey)
         // A completed onboarding that lacks a session means we should probe
         // for a recoverable family (restore / reconnect); a brand-new install

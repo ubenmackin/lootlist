@@ -1,0 +1,3 @@
+Transaction Date,Description,Merchant,Amount,Purchased By
+{{DATE_1}},Art supplies run,Michaels,$4.25,
+{{DATE_2}},Movie rental refund,Big Screen,(2.25),

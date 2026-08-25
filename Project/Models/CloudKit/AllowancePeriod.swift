@@ -90,19 +90,24 @@ struct AllowancePeriod: Identifiable, Equatable, Sendable {
 
     init(weekOf: Date,
          profile: CKRecord.Reference,
+         status: PayoutStatus = .active,
+         totalEarned: Double = 0,
+         questsCompleted: Int = 0,
          questsTotal: Int,
+         paidDate: Date? = nil,
+         paidAmount: Double? = nil,
          family: CKRecord.Reference,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
         self.weekOf = weekOf
         self.profile = profile
-        status = .active
-        totalEarned = 0
-        questsCompleted = 0
+        self.status = status
+        self.totalEarned = totalEarned
+        self.questsCompleted = questsCompleted
         self.questsTotal = questsTotal
-        paidDate = nil
-        paidAmount = nil
+        self.paidDate = paidDate
+        self.paidAmount = paidAmount
         self.family = family
     }
 }

@@ -112,6 +112,9 @@ struct CelebrationOverlay: View {
             }
             .allowsHitTesting(false)
             .ignoresSafeArea()
+            // UI tests assert the overlay's presence through this identifier;
+            // hit-testing stays disabled so it never intercepts taps.
+            .accessibilityIdentifier("celebration.overlay")
             .onAppear { startTime = nil }
         }
     }

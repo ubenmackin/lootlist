@@ -49,13 +49,25 @@ struct LedgerImportView: View {
         }
         .task {
             if viewModel == nil {
-                viewModel = LedgerImportViewModel(
+                let vm = LedgerImportViewModel(
                     importService: importService,
                     appState: appState,
                     familyRecordName: familyRecordName
                 )
+                viewModel = vm
+                // UI tests cannot drive the system document picker, so a
+                // staged CSV path short-circuits straight into the normal
+                // review flow; production launches never set it.
+                if let csvPath = TestEnvironment.uiTestImportCSVPath {
+                    stageForUITests(path: csvPath, viewModel: vm)
+                }
             }
         }
+    }
+
+    private func stageForUITests(path: String, viewModel vm: LedgerImportViewModel) {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        vm.stage(csvText: text)
     }
 
     @ViewBuilder
@@ -86,6 +98,7 @@ struct LedgerImportView: View {
                     .padding(.horizontal, 18)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.accentColor.opacity(0.15)))
             }
+            .accessibilityIdentifier("import.chooseFileButton")
             if let message = viewModel?.errorMessage {
                 Text(message)
                     .font(.caption)
@@ -140,6 +153,7 @@ struct LedgerImportView: View {
                     Image(systemName: "doc.badge.plus")
                 }
                 .accessibilityLabel("Choose another CSV file")
+                .accessibilityIdentifier("import.chooseAnotherFileButton")
             }
         }
         .onChange(of: vm.didComplete) { _, completed in
@@ -180,6 +194,7 @@ struct LedgerImportView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!vm.canFinalize)
+            .accessibilityIdentifier("import.confirmButton")
             if let message = vm.errorMessage {
                 Text(message)
                     .font(.caption)

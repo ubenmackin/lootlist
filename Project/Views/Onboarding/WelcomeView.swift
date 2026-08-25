@@ -38,7 +38,7 @@ struct WelcomeView: View {
                 Text("Welcome,")
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Text("Hero!")
+                Text("Adventurer!")
                     .font(.system(size: 44, weight: .heavy,
                                   design: .rounded))
                     .foregroundStyle(
@@ -70,16 +70,15 @@ struct WelcomeView: View {
             .buttonStyle(.borderedProminent)
             .tint(.yellow)
             .padding(.horizontal, 32)
+            .padding(.bottom, 24)
             .accessibilityIdentifier("welcome.startButton")
-
-            Spacer().frame(height: 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.purple.opacity(0.15)],
                 startPoint: .top, endPoint: .bottom
             )
+            .ignoresSafeArea()
         )
     }
 
@@ -143,19 +142,18 @@ struct OnboardingCompletionView: View {
             .buttonStyle(.borderedProminent)
             .tint(.green)
             .padding(.horizontal, 32)
+            .padding(.bottom, 24)
             // Both builtFamily and builtProfile must be non-nil to proceed,
             // matching the `guard let family, let profile` in completeOnboarding.
             .disabled(viewModel.builtFamily == nil || viewModel.builtProfile == nil)
             .accessibilityIdentifier("onboarding.continueButton")
-
-            Spacer().frame(height: 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.green.opacity(0.12)],
                 startPoint: .top, endPoint: .bottom
             )
+            .ignoresSafeArea()
         )
         .accessibilityIdentifier("onboarding.done")
     }

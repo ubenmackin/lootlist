@@ -28,10 +28,11 @@ struct AvatarSelectionView: View {
 
     @Environment(ToastManager.self) private var toastManager
 
+    @FocusState private var isNameFocused: Bool
     @State private var isRPGExpanded: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 8)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 7)
 
     var body: some View {
         ScrollView {
@@ -50,17 +51,18 @@ struct AvatarSelectionView: View {
             }
             .padding(.vertical, 24)
         }
+        .scrollDismissesKeyboard(.interactively)
         .onChange(of: viewModel.error) { _, newError in
             if let error = newError {
                 toastManager.show(message: error, type: .error)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.purple.opacity(0.1)],
                 startPoint: .top, endPoint: .bottom
             )
+            .ignoresSafeArea()
         )
         .navigationBarBackButtonHidden(true)
         .toolbar {
@@ -101,6 +103,11 @@ struct AvatarSelectionView: View {
             TextField("Alex", text: $viewModel.displayName)
                 .textInputAutocapitalization(.words)
                 .font(.title3)
+                .focused($isNameFocused)
+                .submitLabel(.done)
+                .onSubmit {
+                    isNameFocused = false
+                }
                 .padding(16)
                 .background(.thinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -123,8 +130,8 @@ struct AvatarSelectionView: View {
             if let selectedEmoji = viewModel.avatarEmoji {
                 HStack(spacing: 12) {
                     Text(selectedEmoji)
-                        .font(.system(size: 48))
-                        .frame(width: 64, height: 64)
+                        .font(.system(size: 44))
+                        .frame(width: 56, height: 56)
                         .background(
                             Circle()
                                 .fill(
@@ -139,16 +146,10 @@ struct AvatarSelectionView: View {
                             Circle().strokeBorder(Color.gold.opacity(0.6), lineWidth: 2)
                         )
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Your emoji avatar appears next to")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Text("your name throughout the app.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
+                    Text("Your emoji avatar appears next to your name throughout the app.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         viewModel.avatarEmoji = nil
@@ -161,15 +162,16 @@ struct AvatarSelectionView: View {
                 }
             }
 
-            LazyVGrid(columns: columns, spacing: 10) {
+            LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(onboardingEmojiGrid, id: \.self) { emoji in
                     let isSelected = viewModel.avatarEmoji == emoji
                     Button {
+                        isNameFocused = false
                         viewModel.avatarEmoji = isSelected ? nil : emoji
                     } label: {
                         Text(emoji)
-                            .font(.system(size: 28))
-                            .frame(width: 38, height: 38)
+                            .font(.system(size: 24))
+                            .frame(width: 36, height: 36)
                             .background(
                                 Circle()
                                     .fill(isSelected ? Color.blue.opacity(0.25) : Color.clear)
@@ -181,6 +183,7 @@ struct AvatarSelectionView: View {
                                         lineWidth: 2
                                     )
                             )
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("avatar.emoji.\(emoji)")
@@ -237,7 +240,7 @@ struct AvatarSelectionView: View {
                 {
                     Image(uiImage: uiImage)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .scaledToFill()
                         .frame(width: 54, height: 54)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(Color.gold, lineWidth: 2))

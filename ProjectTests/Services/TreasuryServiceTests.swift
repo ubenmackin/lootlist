@@ -404,4 +404,214 @@ struct TreasuryServiceTests {
         defaultProfile.payoutPolicy = nil
         #expect(treasury.effectivePayoutPolicy(for: defaultProfile, family: nil) == .perQuest)
     }
+
+    // MARK: - Bucket-split money flow
+
+    /// Scaffold for treasury money-flow coverage: a Guild Master closes a week
+    /// whose earnings live in the fresh cache, then the hero moves money
+    /// between buckets.
+    @MainActor
+    struct SplitMoneyFlowFixture {
+        let zoneID: CKRecordZone.ID
+        let mockCloudKit: MockCloudKitService
+        let cache: CacheService
+        let appState: AppState
+        let treasury: TreasuryService
+        let buckets: BucketService
+        let hero: Profile
+        let guildMaster: Profile
+        let family: Family
+        let weekOf: Date
+
+        init(spendPercent: Int, shortPercent: Int, longPercent: Int) throws {
+            zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+            let mock = MockCloudKitService()
+            mock.activeFamilyZoneID = zoneID
+            mock.activeIsOwner = true
+            mockCloudKit = mock
+
+            cache = try CacheService(inMemory: true)
+            appState = AppState.testState()
+            appState.cacheService = cache
+
+            let familyRef = CKRecord.Reference(
+                recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+            )
+            let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            hero = Profile(
+                displayName: "Hero",
+                role: .hero,
+                iCloudUserID: heroID,
+                family: familyRef,
+                payoutPolicy: .perQuest,
+                splitPercentSpend: spendPercent,
+                splitPercentShort: shortPercent,
+                splitPercentLong: longPercent,
+                id: heroID
+            )
+            let gmID = CKRecord.ID(recordName: "gm1", zoneID: zoneID)
+            guildMaster = Profile(
+                displayName: "Guild Master",
+                role: .guildMaster,
+                iCloudUserID: gmID,
+                family: familyRef,
+                id: gmID
+            )
+            family = Family(
+                name: "Split Guild",
+                createdBy: gmID,
+                payoutDay: .sunday,
+                id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            )
+            weekOf = WeekMath.mondayOfWeek(for: Date())
+
+            appState.family = family
+            appState.familyZoneID = zoneID
+            appState.isZoneOwner = true
+            appState.currentProfile = guildMaster
+
+            treasury = TreasuryService(cloudKit: mock, cacheService: cache, appState: appState)
+
+            // Bucket transfers require every dependency non-nil, including the
+            // sync coordinator; engines stay inert under the unit-test gate.
+            let conflictResolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+            let delegateHandler = CKSyncEngineDelegateHandler(
+                conflictResolver: conflictResolver,
+                cacheService: cache,
+                appState: appState
+            )
+            let syncCoordinator = CKSyncEngineCoordinator(
+                cloudKitService: mock,
+                delegateHandler: delegateHandler,
+                appState: appState,
+                defaults: UserDefaults.ephemeral()
+            )
+            buckets = BucketService(cacheService: cache, syncCoordinator: syncCoordinator, appState: appState)
+
+            mock.seedMockRecords([hero, guildMaster, family])
+            cache.upsertProfile(hero)
+            cache.upsertProfile(guildMaster)
+            cache.upsertFamily(family)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
+        }
+
+        /// Seeds one completed quest in the fixture week so a payout settles.
+        func seedWeekEarnings(goldReward: Double) {
+            let templateRef = CKRecord.Reference(
+                recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
+            )
+            let quest = Quest(
+                template: templateRef,
+                assignee: CKRecord.Reference(recordID: hero.id, action: .none),
+                goldReward: goldReward,
+                xpReward: 50,
+                scheduleType: .weeklyFlexible,
+                targetCount: 1,
+                isAllOrNothing: false,
+                approvalMode: .autoApprove,
+                weekOf: weekOf,
+                createdBy: CKRecord.Reference(recordID: family.id, action: .none),
+                family: CKRecord.Reference(recordID: family.id, action: .none),
+                name: "Split Quest",
+                id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+            )
+            let completion = QuestCompletion(
+                quest: CKRecord.Reference(recordID: quest.id, action: .none),
+                completedBy: CKRecord.Reference(recordID: hero.id, action: .none),
+                approvalMode: .autoApprove,
+                weekOf: weekOf,
+                family: CKRecord.Reference(recordID: family.id, action: .none)
+            )
+            cache.upsertQuest(quest)
+            cache.upsertQuestCompletions([completion])
+            for type in [CachedRecordType.quest, .questCompletion, .allowancePeriod, .ledgerEntry] {
+                cache.markCacheFresh(familyRecordName: family.id.recordName, type: type)
+            }
+        }
+
+        @discardableResult
+        func payOutWeek() async throws -> AllowancePeriod {
+            appState.currentProfile = guildMaster
+            let period = try await treasury.getOrCreateAllowancePeriod(
+                profile: hero,
+                weekOf: weekOf,
+                family: family
+            )
+            try await treasury.runPayout(period: period)
+            return try #require(
+                cache.fetchAllowancePeriod(recordName: period.id.recordName, family: family.id.recordName)?
+                    .toAllowancePeriod(zoneID: zoneID)
+            )
+        }
+
+        func ledgerEntries() -> [LedgerEntryCache] {
+            cache.fetchLedgerEntries(
+                profileRecordName: hero.id.recordName,
+                family: family.id.recordName
+            )
+        }
+    }
+
+    @Test
+    func `payout deposits split across buckets following the child percentages`() async throws {
+        let fixture = try SplitMoneyFlowFixture(spendPercent: 60, shortPercent: 25, longPercent: 15)
+        fixture.seedWeekEarnings(goldReward: 12.34)
+
+        let paid = try await fixture.payOutWeek()
+        #expect(paid.status == .paid)
+        #expect(paid.paidAmount == 12.34)
+
+        let entries = fixture.ledgerEntries().sorted { $0.recordName < $1.recordName }
+        #expect(entries.count == 3)
+
+        let base = "payout-\(paid.id.recordName)"
+        let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
+        // Largest-remainder rounding of 1234 pennies at 60/25/15: the stray
+        // penny lands on Short-Term Save (largest fractional remainder).
+        #expect(byName["\(base)-spend"]?.amount == 7.40)
+        #expect(byName["\(base)-shortTermSave"]?.amount == 3.09)
+        #expect(byName["\(base)-longTermSave"]?.amount == 1.85)
+        #expect(byName["\(base)-spend"]?.bucketKind == BucketKind.spend.rawValue)
+        #expect(byName["\(base)-shortTermSave"]?.bucketKind == BucketKind.shortTermSave.rawValue)
+        #expect(byName["\(base)-longTermSave"]?.bucketKind == BucketKind.longTermSave.rawValue)
+        #expect(entries.allSatisfy { $0.source == "quest" })
+
+        let totalPennies = entries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        #expect(totalPennies == 1234)
+    }
+
+    @Test
+    func `withdrawal from a bucket debits only that bucket`() async throws {
+        let fixture = try SplitMoneyFlowFixture(spendPercent: 60, shortPercent: 25, longPercent: 15)
+        fixture.seedWeekEarnings(goldReward: 20.00)
+        _ = try await fixture.payOutWeek()
+
+        // Deposit settled as spend 12.00 / short 5.00 / long 3.00. The child
+        // then withdraws 8.00 out of Spend into Short-Term Save.
+        fixture.appState.currentProfile = fixture.hero
+        let entry = try await fixture.buckets.transfer(
+            from: .spend,
+            to: .shortTermSave,
+            amount: 8.00,
+            profile: fixture.hero,
+            family: fixture.family
+        )
+        #expect(entry.amount == 8.00)
+        #expect(entry.source == "transfer")
+        #expect(entry.bucketKind == BucketKind.shortTermSave.rawValue)
+        #expect(entry.fromBucket == BucketKind.spend.rawValue)
+        #expect(entry.toBucket == BucketKind.shortTermSave.rawValue)
+
+        let balances = fixture.buckets.bucketBalances(
+            profileRecordName: fixture.hero.id.recordName,
+            familyRecordName: fixture.family.id.recordName
+        )
+        #expect(balances[.spend] == 4.00)
+        #expect(balances[.shortTermSave] == 13.00)
+        #expect(balances[.longTermSave] == 3.00)
+
+        // One ledger row carries both sides of the movement.
+        #expect(fixture.ledgerEntries().count == 4)
+    }
 }
