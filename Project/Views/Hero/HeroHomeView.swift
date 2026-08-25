@@ -22,6 +22,7 @@ struct HeroHomeView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     @State private var viewModel: HeroDashboardViewModel?
+    @State private var showingJourneyMap = false
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroHomeView")
 
@@ -82,10 +83,22 @@ struct HeroHomeView: View {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
                     DailyLoginBannerView(compactMode: true)
 
-                    compactPlayerCard
+                    playerCard
 
                     if let profile = appState.currentProfile {
-                        MascotBannerView(profile: profile, quests: profileQuests, completions: profileLogs, showBonusCard: false)
+                        let state = JourneyService.journeyState(for: profile, xpService: xpService)
+                        JourneyMapCardView(journeyState: state) {
+                            showingJourneyMap = true
+                        }
+                    }
+
+                    if let profile = appState.currentProfile {
+                        MascotBannerView(
+                            profile: profile,
+                            quests: profileQuests,
+                            completions: profileLogs,
+                            showBonusCard: true
+                        )
                     }
                 }
                 .padding(.horizontal, DesignSystemConstants.Padding.standard)
@@ -109,6 +122,12 @@ struct HeroHomeView: View {
                         }
                     }
                     .accessibilityLabel(gemsBalance.map { "Gem Shop, \($0) gems available" } ?? "Gem Shop, gem balance unavailable")
+                }
+            }
+            .fullScreenCover(isPresented: $showingJourneyMap) {
+                if let profile = appState.currentProfile {
+                    let state = JourneyService.journeyState(for: profile, xpService: xpService)
+                    JourneyMapView(journeyState: state, profile: profile)
                 }
             }
             .task {
@@ -135,34 +154,48 @@ struct HeroHomeView: View {
         }
     }
 
-    // MARK: - Compact Player Card
+    // MARK: - Integrated Player Card
 
     @ViewBuilder
-    private var compactPlayerCard: some View {
+    private var playerCard: some View {
         if let profile = appState.currentProfile {
             let progress = xpService.levelProgress(profile: profile)
-            HStack(spacing: 12) {
-                ProfileAvatarView(profile: profile)
-                    .frame(width: 64, height: 64)
+            let earned = viewModel?.earnedThisWeek ?? 0
+            let streak = profile.dailyLoginStreakDays
+            let shields = profile.streakShields
+            let completed = viewModel?.completedQuestCount ?? 0
+            let total = profileQuests.count
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 6) {
-                        Text(profile.displayName)
-                            .font(.headline)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.85)
+            VStack(spacing: 12) {
+                // Top Row: Avatar + Name + Level + Guild Pill
+                HStack(spacing: 12) {
+                    ProfileAvatarView(profile: profile)
+                        .frame(width: 56, height: 56)
 
-                        Text("Lv. \(progress.currentLevel)")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(
-                                Capsule().fill(Color.accentColor)
-                            )
-                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text(profile.displayName)
+                                .font(.headline)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
 
-                    HStack(spacing: 8) {
+                            Text("Lv. \(progress.currentLevel)")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(Color.accentColor)
+                                )
+
+                            Spacer(minLength: 0)
+
+                            if let familyName = appState.family?.name, !familyName.isEmpty {
+                                familyNamePill(familyName)
+                            }
+                        }
+
+                        // XP Progress Bar
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
                                 Capsule()
@@ -179,9 +212,67 @@ struct HeroHomeView: View {
                             }
                         }
                         .frame(height: 6)
+                    }
+                }
 
-                        if let familyName = appState.family?.name, !familyName.isEmpty {
-                            familyNamePill(familyName)
+                Divider()
+                    .overlay(Color.secondary.opacity(0.15))
+
+                // Bottom Row: Integrated Stats (Weekly Haul, Streak & Shields, Quest Count)
+                HStack(spacing: 0) {
+                    // Weekly Haul
+                    HStack(spacing: 6) {
+                        Image(systemName: "banknote.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(Color.gold)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("This Week")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text(CurrencyFormatter.string(earned))
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
+                    Spacer()
+
+                    // Streak & Shields
+                    HStack(spacing: 6) {
+                        Image(systemName: "flame.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Streak")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 4) {
+                                Text("\(streak)d")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(.primary)
+                                if shields > 0 {
+                                    Text("🛡️\(shields)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    // Quests Progress
+                    HStack(spacing: 6) {
+                        Image(systemName: "checklist")
+                            .font(.subheadline)
+                            .foregroundStyle(.blue)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Quests")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("\(completed)/\(total)")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
                         }
                     }
                 }

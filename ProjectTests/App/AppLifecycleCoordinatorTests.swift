@@ -135,15 +135,16 @@ private func makeLifecycle(
     appState: AppState,
     cloudKit: MockCloudKitService,
     sync: any SyncCoordinating,
-    payoutScheduler: ((PayoutDay) -> Bool)? = nil
+    payoutScheduler: ((PayoutDay) -> Bool)? = nil,
+    defaults: UserDefaults? = nil
 ) throws -> AppLifecycleCoordinator {
-    let cache = try CacheService(inMemory: true)
+    let resolvedDefaults = defaults ?? UserDefaults.ephemeral()
+    let cache = try CacheService(inMemory: true, defaults: resolvedDefaults)
     appState.cacheService = cache
     let appSync = AppSyncCoordinator()
-    let defaults = UserDefaults.standard
-    let migrations = DataMigrationsCoordinator(defaults: defaults)
+    let migrations = DataMigrationsCoordinator(defaults: resolvedDefaults)
     let toast = ToastManager()
-    let notification = NotificationService(cloudKit: cloudKit, appState: appState, cacheService: cache)
+    let notification = NotificationService(cloudKit: cloudKit, appState: appState, cacheService: cache, defaults: resolvedDefaults)
     let xp = XPService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
     let treasury = TreasuryService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
     let quest = QuestService(
@@ -176,10 +177,11 @@ struct AppLifecycleCoordinatorTests {
 
     @Test
     func `coordinatorState atomic check-and-set via withLock cycles through all cases`() throws {
-        let appState = AppState()
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
         let cloudKit = MockCloudKitService()
         let sync = CountingSyncCoordinator()
-        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: sync)
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: sync, defaults: defaults)
 
         #expect(lifecycle.coordinatorStateForTests == .idle)
 
@@ -213,7 +215,8 @@ struct AppLifecycleCoordinatorTests {
 
     @Test
     func `performForegroundSync and handleRemoteNotification cannot both enter at first await`() async throws {
-        let appState = AppState()
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "MutexZone", ownerName: "Owner")
         let (family, profile) = makeFamilyAndProfile(zoneID: zoneID)
         appState.family = family
@@ -225,7 +228,7 @@ struct AppLifecycleCoordinatorTests {
         let cloudKit = MockCloudKitService()
         cloudKit.seedMockRecords([family, profile])
         let gated = GatedSyncCoordinator()
-        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated)
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated, defaults: defaults)
         lifecycle.setHasCompletedInitialBootstrapForTests(true)
 
         // Park a foreground sync in its first await (fetchChanges).
@@ -245,7 +248,7 @@ struct AppLifecycleCoordinatorTests {
 
         // After the first completes, a subsequent remote sync can proceed.
         let counting = CountingSyncCoordinator()
-        let lifecycle2 = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: counting)
+        let lifecycle2 = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: counting, defaults: defaults)
         lifecycle2.setHasCompletedInitialBootstrapForTests(true)
         await lifecycle2.handleRemoteNotification()
         #expect(counting.fetchCount == 1)
@@ -255,7 +258,8 @@ struct AppLifecycleCoordinatorTests {
 
     @Test
     func `performManualSync uses independent isManualSyncing and is not starved by foreground sync`() async throws {
-        let appState = AppState()
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "ManualZone", ownerName: "Owner")
         let (family, profile) = makeFamilyAndProfile(zoneID: zoneID)
         appState.family = family
@@ -267,27 +271,16 @@ struct AppLifecycleCoordinatorTests {
         let cloudKit = MockCloudKitService()
         cloudKit.seedMockRecords([family, profile])
         let gated = GatedSyncCoordinator()
-        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated)
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated, defaults: defaults)
         lifecycle.setHasCompletedInitialBootstrapForTests(true)
 
         let fgTask = Task { await lifecycle.performForegroundSync() }
         await gated.waitForParked(count: 1)
         #expect(lifecycle.coordinatorStateForTests == .syncing)
 
-        // Manual sync must not be blocked by the syncing state — it uses its
-        // own `isManualSyncing` mutex, so it should enter even while foreground is parked.
-        let manualCounting = CountingSyncCoordinator()
-        // Use a separate coordinator for the manual call to isolate fetch counting
-        // while still proving the guard is independent: a second lifecycle sharing
-        // the same manual mutex state would still allow entry. Instead we directly
-        // verify the mutex is independent by checking `isManualSyncing` remains false
-        // until manual starts and foreground state does not affect it.
         #expect(lifecycle.isManualSyncingForTests == false)
 
         // Park foreground, then attempt manual on same lifecycle — should still run.
-        // We use a second gated coordinator to observe manual execution without
-        // conflating counts: swap sync is not possible mid-flight, so verify via
-        // mutex independence and then execute manual after releasing foreground.
         let manualTask = Task { await lifecycle.performManualSync() }
         // Manual sync should enter immediately (independent guard), so it will
         // block on its own fetch (second parked count).
@@ -304,7 +297,7 @@ struct AppLifecycleCoordinatorTests {
         // Verify manual sync collapses on its own mutex: two concurrent manual syncs
         // allow only one execution.
         let gated2 = GatedSyncCoordinator()
-        let lifecycle3 = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated2)
+        let lifecycle3 = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated2, defaults: defaults)
         lifecycle3.setHasCompletedInitialBootstrapForTests(true)
         let firstManualTask = Task { await lifecycle3.performManualSync() }
         await gated2.waitForParked(count: 1)
@@ -317,18 +310,17 @@ struct AppLifecycleCoordinatorTests {
         await secondManualTask.value
         #expect(gated2.fetchCount == 1)
         #expect(lifecycle3.isManualSyncingForTests == false)
-
-        _ = manualCounting
     }
 
     // MARK: lastSynchronizedScopeKey Mutex
 
     @Test
     func `lastSynchronizedScopeKey is Mutex-protected and cleared on session and zone change`() async throws {
-        let appState = AppState()
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
         let cloudKit = MockCloudKitService()
         let sync = CountingSyncCoordinator()
-        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: sync)
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: sync, defaults: defaults)
 
         lifecycle.setLastSynchronizedScopeKeyForTests("fam1|zoneA|owner|true")
         #expect(lifecycle.lastSynchronizedScopeKey == "fam1|zoneA|owner|true")
@@ -409,7 +401,8 @@ struct AppLifecycleCoordinatorTests {
 
     @Test
     func `ten concurrent foreground sync attempts collapse to one execution`() async throws {
-        let appState = AppState()
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "CollapseZone", ownerName: "Owner")
         let (family, profile) = makeFamilyAndProfile(zoneID: zoneID)
         appState.family = family
@@ -421,7 +414,7 @@ struct AppLifecycleCoordinatorTests {
         let cloudKit = MockCloudKitService()
         cloudKit.seedMockRecords([family, profile])
         let gated = GatedSyncCoordinator()
-        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated)
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: gated, defaults: defaults)
         lifecycle.setHasCompletedInitialBootstrapForTests(true)
 
         var tasks: [Task<Void, Never>] = []
@@ -444,7 +437,7 @@ struct AppLifecycleCoordinatorTests {
 
         // A subsequent sync after collapse should succeed.
         let counting = CountingSyncCoordinator()
-        let lifecycle2 = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: counting)
+        let lifecycle2 = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: counting, defaults: defaults)
         lifecycle2.setHasCompletedInitialBootstrapForTests(true)
         await lifecycle2.performForegroundSync()
         #expect(counting.fetchCount == 1)
@@ -454,9 +447,7 @@ struct AppLifecycleCoordinatorTests {
 
     @Test
     func `performInitialBootstrap runs only once and sets completed flag`() async throws {
-        let suite = "AppLifecycle_Bootstrap_\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
+        let defaults = UserDefaults.ephemeral()
 
         let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "BootstrapZone", ownerName: "Owner")
@@ -473,7 +464,7 @@ struct AppLifecycleCoordinatorTests {
         cloudKit.seedMockRecords([family, profile])
         appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: true)
 
-        let cache = try CacheService(inMemory: true)
+        let cache = try CacheService(inMemory: true, defaults: defaults)
         appState.cacheService = cache
 
         let appSync = AppSyncCoordinator()
@@ -482,7 +473,7 @@ struct AppLifecycleCoordinatorTests {
         migrations.register(DataMigrationsCoordinator.MigrationStep(id: "TestStep", version: 1) { migrationRunCount += 1 })
 
         let toast = ToastManager()
-        let notification = NotificationService(cloudKit: cloudKit, appState: appState, cacheService: cache)
+        let notification = NotificationService(cloudKit: cloudKit, appState: appState, cacheService: cache, defaults: defaults)
         let xp = XPService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
         let treasury = TreasuryService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
         let quest = QuestService(
@@ -512,16 +503,15 @@ struct AppLifecycleCoordinatorTests {
 
         await lifecycle.performInitialBootstrap()
         #expect(migrationRunCount == 1)
-
-        defaults.removePersistentDomain(forName: suite)
     }
 
     @Test
     func `performForegroundSync is lightweight and handles in-flight guards`() async throws {
-        let appState = AppState()
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
         let cloudKit = MockCloudKitService()
         let sync = CountingSyncCoordinator()
-        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: sync)
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: sync, defaults: defaults)
 
         await lifecycle.performForegroundSync()
         await lifecycle.handleRemoteNotification()
@@ -536,9 +526,7 @@ struct AppLifecycleCoordinatorTests {
 
     @Test
     func `performFamilyZoneChange executes migrations and subscription registration`() async throws {
-        let suite = "AppLifecycle_ZoneChange_\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defaults.removePersistentDomain(forName: suite)
+        let defaults = UserDefaults.ephemeral()
 
         let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "NewFamilyZone", ownerName: "Owner")
@@ -553,7 +541,7 @@ struct AppLifecycleCoordinatorTests {
 
         let cloudKit = MockCloudKitService()
         cloudKit.seedMockRecords([family, profile])
-        let cache = try CacheService(inMemory: true)
+        let cache = try CacheService(inMemory: true, defaults: defaults)
         appState.cacheService = cache
         appState.family = family
         appState.currentProfile = profile
@@ -567,7 +555,7 @@ struct AppLifecycleCoordinatorTests {
         migrations.register(DataMigrationsCoordinator.MigrationStep(id: "ZoneChangeStep", version: 1) {})
 
         let toast = ToastManager()
-        let notification = NotificationService(cloudKit: cloudKit, appState: appState, cacheService: cache)
+        let notification = NotificationService(cloudKit: cloudKit, appState: appState, cacheService: cache, defaults: defaults)
         let xp = XPService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
         let treasury = TreasuryService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
         let quest = QuestService(
@@ -599,7 +587,5 @@ struct AppLifecycleCoordinatorTests {
 
         let refreshSuccess = await lifecycle.handleWeeklyPayoutBackgroundRefresh()
         #expect(refreshSuccess == true)
-
-        defaults.removePersistentDomain(forName: suite)
     }
 }

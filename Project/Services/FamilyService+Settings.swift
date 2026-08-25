@@ -108,7 +108,7 @@ extension FamilyService {
     }
 
     @discardableResult
-    func updateProfilePayoutPolicy(profile: Profile, policy: PayoutPolicy) async throws -> Profile {
+    func updateProfilePayoutPolicy(profile: Profile, policy: PayoutPolicy?) async throws -> Profile {
         try Task.checkCancellation()
         guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
             throw FamilyServiceError.unauthorized

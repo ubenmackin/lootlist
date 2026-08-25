@@ -102,7 +102,9 @@ extension QuestService {
             .toFamily(zoneID: questFamilyID.zoneID)
 
         let effectivePolicy = treasuryService?.effectivePayoutPolicy(for: hero, family: resolvedFamily)
-            ?? (hero.payoutPolicy != .perQuest ? hero.payoutPolicy : (resolvedFamily?.payoutPolicy ?? hero.payoutPolicy))
+            ?? hero.payoutPolicy
+            ?? resolvedFamily?.payoutPolicy
+            ?? .perQuest
 
         if effectivePolicy == .realTime, creditedGold > 0, let treasuryService, let resolvedFamily {
             do {

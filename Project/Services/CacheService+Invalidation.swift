@@ -11,7 +11,6 @@ import SwiftData
 
 extension CacheService {
     private var currentActiveFamilyZoneID: CKRecordZone.ID? {
-        let defaults = UserDefaults.standard
         guard let zoneName = defaults.string(forKey: "session_familyZoneName"),
               let ownerName = defaults.string(forKey: "session_familyZoneOwnerName")
         else { return nil }

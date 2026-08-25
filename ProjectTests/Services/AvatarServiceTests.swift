@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 @testable import LootList
 import Testing
+import UIKit
 
 @MainActor
 struct AvatarServiceTests {
@@ -30,6 +31,8 @@ struct AvatarServiceTests {
         #expect(knights.count == 4)
         #expect(knights.contains(.knightV1))
         #expect(knights.contains(.knightV4))
+        #expect(AvatarPreset.knightV1.displayName == "Look 1")
+        #expect(AvatarPreset.healerV3.displayName == "Look 3")
     }
 
     @Test
@@ -69,5 +72,15 @@ struct AvatarServiceTests {
         #expect(AvatarService.accessoryGlyph(for: "accessory.level.15") == "star.fill")
         #expect(AvatarService.accessoryGlyph(for: "accessory.level.20") == "flame.fill")
         #expect(AvatarService.accessoryGlyph(for: "invalid.key") == nil)
+    }
+
+    @Test
+    func `accessoryIconSystemName returns valid non empty symbols`() {
+        for preset in AvatarPreset.allCases {
+            if let icon = preset.accessoryIconSystemName {
+                #expect(!icon.isEmpty)
+                #expect(UIImage(systemName: icon) != nil, "Invalid system icon: \(icon) on preset \(preset.rawValue)")
+            }
+        }
     }
 }

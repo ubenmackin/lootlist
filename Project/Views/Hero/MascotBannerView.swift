@@ -44,15 +44,15 @@ struct MascotBannerView: View {
         let isClaimed = bonusService.isClaimed(objective: objective, profile: profile)
         let eval = bonusService.evaluateProgress(objective: objective, todayQuests: quests, completions: completions)
 
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: 14) {
             // Mascot Sprite
             VStack {
                 mascotSprite(companion: companion, state: isClaimed ? .bonusClaimed : state)
-                    .frame(width: 64, height: 64)
-                    .offset(y: frameIndex == 0 ? 0 : -4)
+                    .frame(width: 100, height: 100)
+                    .offset(y: frameIndex == 0 ? 0 : -6)
                     .animation(.easeInOut(duration: 0.5), value: frameIndex)
             }
-            .padding(.top, 8)
+            .padding(.top, 4)
 
             VStack(alignment: .leading, spacing: 12) {
                 // Speech Bubble

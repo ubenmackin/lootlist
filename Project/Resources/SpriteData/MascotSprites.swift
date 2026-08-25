@@ -89,14 +89,14 @@ struct MascotSpriteRenderer {
         case .dragon:
             [
                 ".": .clear,
-                "D": color(hex: 0x3A0D0D),
-                "R": color(hex: 0xC62828),
-                "S": color(hex: 0x8E1B1B),
-                "H": color(hex: 0xEF5350),
-                "O": color(hex: 0xE8732A),
-                "Y": color(hex: 0xF9D423),
-                "W": .white,
-                "P": color(hex: 0x1A1A1A)
+                "D": color(hex: 0x101010),
+                "R": color(hex: 0x28292E),
+                "S": color(hex: 0x515256),
+                "H": color(hex: 0x62646A),
+                "O": color(hex: 0xF97316),
+                "Y": color(hex: 0x5E8C2E),
+                "W": color(hex: 0xF2F2F2),
+                "P": color(hex: 0x101010)
             ]
         case .fairy:
             [

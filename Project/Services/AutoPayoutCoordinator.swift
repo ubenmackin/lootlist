@@ -87,7 +87,8 @@ final class AutoPayoutCoordinator {
                 // settled via runPayout's real-time guard on each quest completion.
                 // Skip them here to avoid creating a no-op allowance period and
                 // emitting misleading logs.
-                guard hero.payoutPolicy != .realTime else { continue }
+                let effectivePolicy = hero.payoutPolicy ?? family.payoutPolicy
+                guard effectivePolicy != .realTime else { continue }
 
                 let payoutDay = hero.payoutDay ?? family.payoutDay
                 let currentWeekStart = WeekMath.startOfWeek(for: now, payoutDay: payoutDay)

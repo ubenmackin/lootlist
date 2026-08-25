@@ -94,45 +94,165 @@ def owl(frame):
 
 
 # ---------------------------------------------------------------- dragon
+def trace_dragon():
+    """Trace assets/mascot/dragon.jpg: 21px graph-paper grid on brown bg,
+    keeping the source's own colors (black outline, charcoal body, gray
+    shading, white, green iris) mapped to the dragon palette chars."""
+    from PIL import Image
+    img = Image.open("assets/mascot/dragon.jpg").convert("RGB")
+    w, h = img.size
+    px = img.load()
+    P = 21
+
+    def is_brown(c):
+        r, g, b = c
+        return r > 70 and r > b + 25 and abs(r - g) < 60 and g > 40
+
+    from collections import deque
+    bg = [[False] * w for _ in range(h)]
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if is_brown(px[x, y]):
+                bg[y][x] = True; q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if is_brown(px[x, y]):
+                bg[y][x] = True; q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < w and 0 <= ny < h and not bg[ny][nx] and is_brown(px[nx, ny]):
+                bg[ny][nx] = True; q.append((nx, ny))
+    xs = [x for x in range(w) for y in range(h) if not bg[y][x]]
+    ys = [y for y in range(h) for x in range(w) if not bg[y][x]]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+
+    # snap grid origin to the paper lines
+    best, best_off = None, None
+    for off in range(P):
+        centers = list(range(x0 + off, x1 + 1, P))
+        if len(centers) < 8:
+            continue
+        score = sum(1 for cx in centers if is_brown(px[cx, max(0, y0 - 3)]))
+        if best is None or score > best:
+            best, best_off = score, off
+    cols = list(range(x0 + (best_off or 0), x1 + 1, P))
+    rows = list(range(y0 + ((best_off or 0) % P), y1 + 1, P))
+
+    def g_ok(c):
+        r, g, b = c
+        return not is_brown(c) and g > r + 10 and g > 60 and g > b
+
+    def classify(c):
+        r, g, b = c
+        if is_brown(c):
+            return "."
+        if g > r + 10 and g > 60 and g > b:  # green iris (66,97,37)
+            return "Y"
+        v = (r + g + b) / 3
+        if v > 200:
+            return "W"   # eye whites (242)
+        if v > 60:
+            return "S"   # gray shading (81)
+        if v > 28:
+            return "R"   # body charcoal (40)
+        return "D"       # outline black (16)
+
+    grid = []
+    for cy in rows:
+        row = []
+        for cx in cols:
+            # dense sample: every pixel in the cell
+            cell_samples = []
+            green_hits = 0
+            for y in range(max(0, cy - P // 2), min(h, cy + P // 2 + 1)):
+                for x in range(max(0, cx - P // 2), min(w, cx + P // 2 + 1)):
+                    c = px[x, y]
+                    if g_ok(c):
+                        green_hits += 1
+                    cell_samples.append(c)
+            cell_samples.sort(key=lambda c: sum(c))
+            cell = classify(cell_samples[len(cell_samples) // 2])
+            # green exists only in the irises: a few hits claim the cell
+            if green_hits >= 3:
+                cell = "Y"
+            row.append(cell)
+        grid.append(row)
+
+    def neighbors(x, y):
+        return [grid[y + dy][x + dx]
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                if 0 <= x + dx < len(grid[0]) and 0 <= y + dy < len(grid)]
+
+    # despeckle: drop cells with <=1 art neighbor (protect the green iris)
+    for _ in range(3):
+        removals = [(x, y)
+                    for y in range(len(grid))
+                    for x in range(len(grid[0]))
+                    if grid[y][x] not in (".", "Y")
+                    and sum(1 for n in neighbors(x, y) if n != ".") <= 1]
+        for x, y in removals:
+            grid[y][x] = "."
+    # hole fill
+    for y in range(len(grid)):
+        for x in range(len(grid[0])):
+            if grid[y][x] == ".":
+                ns = neighbors(x, y)
+                if len(ns) == 4 and all(n != "." for n in ns):
+                    grid[y][x] = [n for n in ns if n != "."][0]
+    # keep only the largest connected component (drops floating edge fragments)
+    gh, gw = len(grid), len(grid[0])
+    seen = [[False] * gw for _ in range(gh)]
+    comps = []
+    for sy in range(gh):
+        for sx in range(gw):
+            if grid[sy][sx] != "." and not seen[sy][sx]:
+                comp = []
+                dq = deque([(sx, sy)])
+                seen[sy][sx] = True
+                while dq:
+                    x, y = dq.popleft()
+                    comp.append((x, y))
+                    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < gw and 0 <= ny < gh and not seen[ny][nx] and grid[ny][nx] != ".":
+                            seen[ny][nx] = True
+                            dq.append((nx, ny))
+                comps.append(comp)
+    if comps:
+        biggest = max(comps, key=len)
+        keep = set(biggest)
+        for comp in comps:
+            if comp is not biggest:
+                for x, y in comp:
+                    if (x, y) not in keep:
+                        grid[y][x] = "."
+    # trim
+    while grid and all(c == "." for c in grid[0]):
+        grid.pop(0)
+    while grid and all(c == "." for c in grid[-1]):
+        grid.pop()
+    if grid:
+        while all(r[0] == "." for r in grid):
+            [r.pop(0) for r in grid]
+        while all(r[-1] == "." for r in grid):
+            [r.pop() for r in grid]
+    return grid
+
+
+_DRAGON_ART = None
+
+
 def dragon(frame):
+    """Traced from assets/mascot/dragon.jpg in its own colors."""
+    global _DRAGON_ART
+    if _DRAGON_ART is None:
+        _DRAGON_ART = trace_dragon()
     g = Grid()
     dy = 1 if frame == 1 else 0
-    # tail: curls right and up; frame 1 raises the tip
-    tail = [(42, 44), (46, 46), (50, 47), (53, 46), (55, 44), (56, 41)]
-    if frame == 1:
-        tail = [(42, 44), (46, 46), (50, 47), (53, 45), (54, 42), (54, 39)]
-    for i, (x, y) in enumerate(tail):
-        g.set(x, y + dy, "R")
-        g.set(x, y + 1 + dy, "S")
-    tx, ty = tail[-1]
-    g.set(tx, ty - 1 + dy, "Y")  # arrow tip
-    g.set(tx + (-1), ty - 1 + dy, "Y")
-    # body
-    g.ellipse(34, 40 + dy, 10, 9, "R", "D")
-    # belly plates
-    for y in range(35, 48, 2):
-        g.hline(y + dy, 28, 38, "Y")
-    # head (facing left)
-    g.ellipse(23, 28 + dy, 8, 6, "R", "D")
-    # snout
-    g.rect(14, 29 + dy, 18, 32 + dy, "R")
-    g.hline(32 + dy, 14, 18, "D")
-    g.set(14, 30 + dy, "D")  # nostril
-    # horns
-    g.set(20, 22 + dy, "Y"); g.set(20, 21 + dy, "Y")
-    g.set(26, 22 + dy, "Y"); g.set(26, 21 + dy, "Y")
-    # eye
-    g.set(21, 27 + dy, "W"); g.set(21, 27 + dy, "P"); g.set(20, 26 + dy, "W")
-    # wing (on the back)
-    wing_dy = -2 if frame == 1 else 0
-    for i, (x, y) in enumerate([(36, 30), (39, 27), (42, 25), (44, 24)]):
-        g.set(x, y + dy + wing_dy, "R")
-        g.set(x, y + 1 + dy + wing_dy, "S")
-        g.set(x - 1, y + dy + wing_dy, "D")
-    # legs
-    for lx in (28, 38):
-        g.rect(lx, 47 + dy, lx + 3, 52 + dy, "R")
-        g.hline(53 + dy, lx, lx + 3, "D")
+    stamp(g, _DRAGON_ART, bottom=55 + dy)
     return g
 
 
@@ -173,92 +293,321 @@ def fairy(frame):
     return g
 
 
+# ---------------------------------------------------------------- tracer
+def trace_image(path, classify, target_w=26, bg_pred=None):
+    """Trace a chunky pixel-art JPG into palette chars.
+
+    1) flood-fill background from the borders (bg_pred decides what spreads)
+    2) crop to the art bounding box
+    3) mode-sample each cell of a target_w-wide grid
+    4) classify each cell color to a palette character
+    """
+    from PIL import Image
+    from collections import Counter
+    img = Image.open(path).convert("RGB")
+    w, h = img.size
+    px = img.load()
+    if bg_pred is None:
+        bg_pred = lambda c: all(v > 235 for v in c)
+    # flood fill from borders
+    from collections import deque
+    bg = [[False] * w for _ in range(h)]
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if not bg[y][x] and bg_pred(px[x, y]):
+                bg[y][x] = True
+                q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if not bg[y][x] and bg_pred(px[x, y]):
+                bg[y][x] = True
+                q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < w and 0 <= ny < h and not bg[ny][nx] and bg_pred(px[nx, ny]):
+                bg[ny][nx] = True
+                q.append((nx, ny))
+    # bbox of art
+    xs = [x for x in range(w) for y in range(h) if not bg[y][x]]
+    ys = [y for y in range(h) for x in range(w) if not bg[y][x]]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    bw, bh = x1 - x0 + 1, y1 - y0 + 1
+    cell = bw / target_w
+    target_h = max(1, round(bh / cell))
+    rows = []
+    for gy in range(target_h):
+        row = []
+        for gx in range(target_w):
+            cx0 = x0 + int(gx * cell)
+            cx1 = min(x0 + int((gx + 1) * cell) + 1, x1 + 1)
+            cy0 = y0 + int(gy * cell)
+            cy1 = min(y0 + int((gy + 1) * cell) + 1, y1 + 1)
+            cnt = Counter()
+            for y in range(cy0, cy1):
+                for x in range(cx0, cx1):
+                    if not bg[y][x]:
+                        cnt[px[x, y]] += 1
+            if not cnt:
+                row.append(".")
+            else:
+                row.append(classify(cnt.most_common(1)[0][0]))
+        rows.append(row)
+    # trim empty rows top/bottom
+    while rows and all(c == "." for c in rows[0]):
+        rows.pop(0)
+    while rows and all(c == "." for c in rows[-1]):
+        rows.pop()
+    return rows
+
+
+def stamp(g, rows, bottom=55, cx=31):
+    for gy, row in enumerate(rows):
+        y = bottom - len(rows) + 1 + gy
+        for gx, c in enumerate(row):
+            if c != ".":
+                g.set(cx - len(row) // 2 + gx, y, c)
+
+
+FOX_MAP = None  # classifier defined below
+
+
+def fox_classify(c):
+    r, gr, b = c
+    if max(r, gr, b) < 75:
+        return "D"
+    if r > 140 and r > gr + 30:  # orange family
+        return "o" if (r + gr + b) < 330 else "O"
+    if r > 200 and gr > 200 and b > 200:
+        return "W"
+    return "O"
+
+
+def cat_classify(c):
+    r, gr, b = c
+    v = (r + gr + b) / 3
+    if r > 200 and 140 < gr < 225 and 140 < b < 225 and r - gr > 40:
+        return "P"   # blush / inner ear pink (254,200,200)
+    if v < 35:
+        return "D"   # black outline
+    if v < 87:
+        return "S"   # shadow gray (75)
+    if v < 125:
+        return "G"   # body gray (99)
+    if v < 170:
+        return "H"   # light gray (144-165)
+    return "C"       # whites / cream
+
+
 # ---------------------------------------------------------------- fox
+def trace_fox1(frame_dy=0):
+    """Trace fox1.jpg via its own graph paper: 24px pitch, lines at x~=5 (mod 24).
+    Paper cells flood away as transparent; the fox's enclosed white stays."""
+    from PIL import Image
+    img = Image.open("assets/mascot/fox1.jpg").convert("RGB")
+    w, h = img.size
+    px = img.load()
+    P = 24
+    ox, oy = 17, 17  # cell centers (lines at 5 mod 24)
+    cols = list(range(ox, w - P // 2, P))
+    rows = list(range(oy, h - P // 2, P))
+
+    def classify(c):
+        r, g, b = c
+        if max(r, g, b) < 80:
+            return "D"
+        if r > 140 and r > g + 40:
+            return "o" if (r + g + b) < 400 else "O"
+        return "W"  # paper or fox-white (resolved by flood below)
+
+    grid = []
+    for cy in rows:
+        row = []
+        for cx in cols:
+            samples = []
+            for ddy in (-4, 0, 4):
+                for ddx in (-4, 0, 4):
+                    x, y = cx + ddx, cy + ddy
+                    if 0 <= x < w and 0 <= y < h:
+                        samples.append(px[x, y])
+            samples.sort(key=lambda c: sum(c))
+            med = samples[len(samples) // 2]
+            row.append(classify(med))
+        grid.append(row)
+
+    # flood from grid borders through W cells (paper + attached white) -> "."
+    from collections import deque
+    gh, gw = len(grid), len(grid[0])
+    q = deque()
+    for x in range(gw):
+        for y in (0, gh - 1):
+            if grid[y][x] == "W":
+                grid[y][x] = "."
+                q.append((x, y))
+    for y in range(gh):
+        for x in (0, gw - 1):
+            if grid[y][x] == "W":
+                grid[y][x] = "."
+                q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        for dx, dy2 in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy2
+            if 0 <= nx < gw and 0 <= ny < gh and grid[ny][nx] == "W":
+                grid[ny][nx] = "."
+                q.append((nx, ny))
+    # trim empty rows/cols
+    while grid and all(c == "." for c in grid[0]):
+        grid.pop(0)
+    while grid and all(c == "." for c in grid[-1]):
+        grid.pop()
+    if any(grid):
+        while all(r[0] == "." for r in grid):
+            [r.pop(0) for r in grid]
+        while all(r[-1] == "." for r in grid):
+            [r.pop() for r in grid]
+    return grid
+
+
 def fox(frame):
+    """Traced from assets/mascot/fox1.jpg via its graph-paper grid.
+    Frame 1 wags the tail (right-side columns pivot 1px right/down)."""
     g = Grid()
-    dy = 1 if frame == 1 else 0
-    tail_up = -3 if frame == 1 else 0
-    # tail: bushy sweep along the ground, white tip; frame 1 lifts tip
-    tail = [(22, 50), (20, 48), (19, 46), (20, 44), (23, 43)]
-    for i, (x, y) in enumerate(tail):
-        g.set(x, y + dy, "O")
-        g.set(x + 1, y + dy, "o")
-    tip_y = 41 + dy + tail_up
-    g.set(24, tip_y, "W"); g.set(25, tip_y, "W"); g.set(24, tip_y + 1, "W")
-    # ears
-    for ex in (25, 37):
-        g.set(ex, 22 + dy, "O"); g.set(ex, 23 + dy, "O")
-        g.set(ex + (1 if ex > 31 else -1), 23 + dy, "D")
-        g.set(ex + (2 if ex > 31 else -2), 24 + dy, "O")
-    # head
-    g.ellipse(31, 29 + dy, 8, 6, "O", "D")
-    # muzzle + nose
-    g.ellipse(31, 33 + dy, 4, 2, "W")
-    g.set(31, 32 + dy, "D"); g.set(31, 33 + dy, "D")
-    # eyes: green
-    g.set(26, 29 + dy, "G"); g.set(36, 29 + dy, "G")
-    g.set(26, 28 + dy, "W") if frame == 0 else g.hline(29 + dy, 25, 27, "D")
-    g.set(36, 28 + dy, "W") if frame == 0 else g.hline(29 + dy, 35, 37, "D")
-    # chest fluff
-    g.ellipse(31, 40 + dy, 4, 5, "C")
-    # body
-    g.ellipse(31, 43 + dy, 8, 7, "O", "D")
-    for y in range(40, 50):
-        g.set(24, y + dy, "o"); g.set(38, y + dy, "o")
-    # front legs
-    g.rect(26, 48 + dy, 28, 54 + dy, "O")
-    g.rect(34, 48 + dy, 36, 54 + dy, "O")
-    g.hline(54 + dy, 26, 28, "D")
-    g.hline(54 + dy, 34, 36, "D")
+    art = [row[:] for row in trace_fox1()]
+    if frame == 1 and art:
+        # hinge pivot: rotate the tail ~10 deg around a hinge point that is
+        # 2px left and 2px down from the region corner (where tail meets body)
+        import math
+        cut = max(0, len(art[0]) - 10)
+        hinge_x = cut
+        hinge_y = int(len(art) * 0.72) + 2
+        theta = math.radians(-10)
+        cos_t, sin_t = math.cos(theta), math.sin(theta)
+        tail_cells = {}
+        for y in range(len(art)):
+            for x in range(cut, len(art[0])):
+                c = art[y][x]
+                if c != "." and y < hinge_y:   # only cells above the hinge swing
+                    tail_cells[(x, y)] = c
+                    art[y][x] = "."
+        for (x, y), c in tail_cells.items():
+            dx, dyy = x - hinge_x, y - hinge_y
+            nx = hinge_x + (dx * cos_t - dyy * sin_t)
+            ny = hinge_y + (dx * sin_t + dyy * cos_t)
+            g_x, g_y = int(round(nx)), int(round(ny))
+            if 0 <= g_x < len(art[0]) and 0 <= g_y < len(art):
+                art[g_y][g_x] = c
+        # fill rotation-rounding holes: empty cells with 3+ tail neighbors
+        for y in range(len(art)):
+            for x in range(cut, len(art[0])):
+                if art[y][x] == "." and y < hinge_y:
+                    ns = [art[y + d2y][x + d2x]
+                          for d2x, d2y in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                          if 0 <= x + d2x < len(art[0]) and 0 <= y + d2y < len(art)]
+                    solid = [n for n in ns if n != "."]
+                    if len(solid) >= 3:
+                        art[y][x] = solid[0]
+    stamp(g, art, bottom=55)
     return g
 
 
+FOX_ART = None
+
+
 # ---------------------------------------------------------------- cat
+def detect_pitch(img, px, bg_pred, bbox=None):
+    """Median ART-pixel size: run lengths of non-background runs only."""
+    from itertools import groupby
+    import statistics
+    w, h = img.size
+    x0, x1, y0, y1 = bbox or (0, w - 1, 0, h - 1)
+    runs = []
+    for y in range(y0, y1 + 1, 3):
+        current = 0
+        for x in range(x0, x1 + 1):
+            if not bg_pred(px[x, y]):
+                current += 1
+            else:
+                if 3 <= current <= 60:
+                    runs.append(current)
+                current = 0
+        if 3 <= current <= 60:
+            runs.append(current)
+    if not runs:
+        return max(4, (x1 - x0 + 1) // 12)
+    return max(4, int(statistics.median(runs)))
+
+
+def trace_cat1():
+    """Per-cell average trace of assets/mascot/cat1.jpg at 26 cells wide."""
+    from PIL import Image
+    from collections import deque
+    img = Image.open("assets/mascot/cat1.jpg").convert("RGB")
+    w, h = img.size
+    px = img.load()
+    bg_pred = lambda c: all(v > 235 for v in c)
+    bg = [[False] * w for _ in range(h)]
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if bg_pred(px[x, y]):
+                bg[y][x] = True; q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if bg_pred(px[x, y]):
+                bg[y][x] = True; q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < w and 0 <= ny < h and not bg[ny][nx] and bg_pred(px[nx, ny]):
+                bg[ny][nx] = True; q.append((nx, ny))
+    xs = [x for x in range(w) for y in range(h) if not bg[y][x]]
+    ys = [y for y in range(h) for x in range(w) if not bg[y][x]]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    tw = 26
+    cell = (x1 - x0 + 1) / tw
+    th = max(1, round((y1 - y0 + 1) / cell))
+    grid = []
+    for gy in range(th):
+        row = []
+        for gx in range(tw):
+            cx0, cx1 = x0 + int(gx * cell), min(x0 + int((gx + 1) * cell) + 1, x1 + 1)
+            cy0, cy1 = y0 + int(gy * cell), min(y0 + int((gy + 1) * cell) + 1, y1 + 1)
+            rs = gs = bs = n = 0
+            for y in range(cy0, cy1):
+                for x in range(cx0, cx1):
+                    if not bg[y][x]:
+                        rs += px[x, y][0]; gs += px[x, y][1]; bs += px[x, y][2]; n += 1
+            if n == 0:
+                row.append(".")
+            else:
+                row.append(cat_classify((rs // n, gs // n, bs // n)))
+        grid.append(row)
+    while grid and all(c == "." for c in grid[0]):
+        grid.pop(0)
+    while grid and all(c == "." for c in grid[-1]):
+        grid.pop()
+    if grid:
+        while all(r[0] == "." for r in grid):
+            [r.pop(0) for r in grid]
+        while all(r[-1] == "." for r in grid):
+            [r.pop() for r in grid]
+    return grid
+
+
+_CAT_ART = None
+
+
 def cat(frame):
+    """Pitch-snapped trace of assets/mascot/cat1.jpg."""
+    global _CAT_ART
+    if _CAT_ART is None:
+        _CAT_ART = trace_cat1()
     g = Grid()
-    dy = 1 if frame == 1 else 0
-    # ears
-    for ex in (26, 36):
-        g.set(ex, 23 + dy, "G")
-        g.set(ex + (1 if ex > 31 else -1), 24 + dy, "G")
-        g.set(ex, 24 + dy, "P")
-    # head
-    g.ellipse(31, 30 + dy, 8, 6, "G", "D")
-    # tabby stripes on top
-    for dx in (-4, 0, 4):
-        g.set(31 + dx, 25 + dy, "S")
-        g.set(31 + dx, 26 + dy, "S")
-    # eyes
-    if frame == 0:
-        g.set(27, 30 + dy, "W"); g.set(27, 30 + dy, "P")
-        g.set(35, 30 + dy, "W"); g.set(35, 30 + dy, "P")
-        g.set(26, 29 + dy, "W"); g.set(34, 29 + dy, "W")
-    else:  # blink
-        g.hline(30 + dy, 26, 28, "D")
-        g.hline(30 + dy, 34, 36, "D")
-    # muzzle + nose
-    g.ellipse(31, 34 + dy, 3, 2, "C")
-    g.set(31, 33 + dy, "P")
-    # whiskers
-    for dx in (-6, 6):
-        g.set(31 + dx, 33 + dy, "W"); g.set(31 + dx + (1 if dx > 0 else -1), 34 + dy, "W")
-    # body
-    g.ellipse(31, 44 + dy, 8, 8, "G", "D")
-    # chest patch
-    g.ellipse(31, 46 + dy, 4, 5, "C")
-    # stripes on body
-    for dx in (-5, 5):
-        for y in (42, 45, 48):
-            g.set(31 + dx, y + dy, "S")
-    # front paws
-    g.rect(27, 51 + dy, 29, 54 + dy, "H")
-    g.rect(33, 51 + dy, 35, 54 + dy, "H")
-    # tail wrapped around the front
-    tail = [(39, 52 + dy), (38, 53 + dy), (34, 54 + dy), (29, 54 + dy), (25, 53 + dy)]
-    for x, y in tail:
-        g.set(x, y, "S")
-    if frame == 1:
-        g.set(24, 52 + dy, "S")  # tail flick tip
+    stamp(g, _CAT_ART, bottom=55 + (1 if frame == 1 else 0))
     return g
 
 
@@ -306,7 +655,7 @@ def preview():
     # map palette chars to colors for preview (approximate from MascotSprites.swift)
     PALS = {
         "owl": {"D": (59,36,18), "B": (138,90,51), "S": (95,61,32), "H": (185,138,95), "C": (242,227,198), "Y": (247,201,72), "P": (33,26,21), "W": (255,255,255), "O": (232,134,46)},
-        "dragon": {"D": (58,13,13), "R": (198,40,40), "S": (142,27,27), "H": (239,83,80), "O": (232,115,42), "Y": (249,212,35), "W": (255,255,255), "P": (26,26,26)},
+        "dragon": {"D": (16,16,16), "R": (40,41,46), "S": (81,82,86), "H": (98,100,106), "O": (249,115,22), "Y": (94,140,46), "W": (242,242,242), "P": (16,16,16)},
         "fairy": {"D": (45,27,61), "P": (236,111,168), "S": (155,77,158), "H": (249,168,212), "F": (251,216,196), "Y": (245,215,110), "B": (59,130,246), "W": (255,255,255), "K": (30,58,138), "G": (253,224,71)},
         "fox": {"D": (0,0,0), "W": (248,250,252), "O": (232,115,42), "o": (194,65,12), "H": (254,215,170), "G": (34,197,94), "g": (22,101,52), "B": (0,0,0), "F": (124,45,18), "P": (26,26,26), "C": (245,230,200)},
         "cat": {"D": (42,42,46), "G": (154,160,166), "S": (107,114,128), "H": (209,213,219), "C": (245,230,200), "W": (255,255,255), "P": (240,140,158), "B": (0,0,0)},

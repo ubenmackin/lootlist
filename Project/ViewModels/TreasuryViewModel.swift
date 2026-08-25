@@ -128,17 +128,18 @@ final class TreasuryViewModel {
         }
         let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate) }
 
+        let effectivePolicy = profile.payoutPolicy ?? appState.family?.payoutPolicy ?? .perQuest
         let weekQuestsGold = GoldCalculation.netWeeklyGold(
             quests: quests,
             logs: logs,
             profileRecordName: profileName,
-            payoutPolicy: profile.payoutPolicy,
+            payoutPolicy: effectivePolicy,
             weekRange: weekRange
         )
 
         let totalEarned = weekQuestsGold + weekBonusGold
 
-        if hasPaidQuestThisWeek || payoutStatus == .paid || profile.payoutPolicy == .realTime {
+        if hasPaidQuestThisWeek || payoutStatus == .paid || effectivePolicy == .realTime {
             pendingQuestGold = 0.0
         } else {
             pendingQuestGold = weekQuestsGold

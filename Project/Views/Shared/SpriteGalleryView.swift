@@ -133,16 +133,27 @@ struct SpriteGalleryView: View {
     }
 
     private let gearItems: [GearItem] = [
-        GearItem(id: "crown", name: "Crown"),
-        GearItem(id: "wizard_hat", name: "Wizard Hat"),
-        GearItem(id: "flaming_sword", name: "Flaming Sword"),
-        GearItem(id: "crystal_staff", name: "Crystal Staff"),
+        GearItem(id: "headwear_crown", name: "Crown"),
+        GearItem(id: "headwear_bandana", name: "Bandana"),
+        GearItem(id: "headwear_viking_helm", name: "Viking Helm"),
+        GearItem(id: "headwear_knight_visor", name: "Knight Visor"),
+        GearItem(id: "headwear_wizard_hat", name: "Wizard Hat"),
+        GearItem(id: "weapon_flaming_sword", name: "Flaming Sword"),
+        GearItem(id: "weapon_astral_staff", name: "Astral Staff"),
+        GearItem(id: "weapon_holy_mace", name: "Holy Mace"),
+        GearItem(id: "weapon_dragon_bow", name: "Dragon Bow"),
+        GearItem(id: "weapon_shadow_daggers", name: "Shadow Daggers"),
+        GearItem(id: "cape_shadow_cloak", name: "Shadow Cloak"),
+        GearItem(id: "cape_royal_cape", name: "Royal Cape"),
+        GearItem(id: "cape_frostweave", name: "Frostweave"),
+        GearItem(id: "cape_phoenix_wings", name: "Phoenix Wings"),
         GearItem(id: "golden_wings", name: "Golden Wings"),
-        GearItem(id: "shadow_cloak", name: "Shadow Cloak"),
-        GearItem(id: "cosmic_aura", name: "Cosmic Aura"),
+        GearItem(id: "aura_cosmic", name: "Cosmic Aura"),
+        GearItem(id: "aura_starlight", name: "Star Aura"),
+        GearItem(id: "aura_mystic_runes", name: "Mystic Runes"),
+        GearItem(id: "aura_lightning", name: "Lightning"),
         GearItem(id: "sparkles", name: "Sparkles"),
-        GearItem(id: "star", name: "Star Aura"),
-        GearItem(id: "lightning", name: "Lightning")
+        GearItem(id: "companion_glow_sprite", name: "Glow Sprite")
     ]
 
     // MARK: - Computed

@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import SwiftData
 import SwiftUI
 import Synchronization
 
@@ -40,15 +41,19 @@ final class DailyLoginService {
         7: 50
     ]
 
+    private var customCalendar: Calendar?
+
     init(cloudKitService: any CloudKitServiceProtocol,
          cacheService: CacheService? = nil,
          appState: AppState? = nil,
-         syncCoordinator: CKSyncEngineCoordinator? = nil)
+         syncCoordinator: CKSyncEngineCoordinator? = nil,
+         calendar: Calendar? = nil)
     {
         self.cloudKitService = cloudKitService
         self.cacheService = cacheService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
+        self.customCalendar = calendar
     }
 
     // MARK: - Reactive surface (read-through to the CloudKit-backed Profile cache)
@@ -111,6 +116,64 @@ final class DailyLoginService {
 
     // MARK: - Claim guard
 
+    /// Checks if a daily reward has genuinely been claimed today, accounting for
+    /// legacy UTC claims that may have stamped today's date on a prior calendar day.
+    private func hasClaimedToday(profile: Profile) -> Bool {
+        let today = todayString()
+        guard profile.dailyLoginLastClaimDay == today else {
+            return false
+        }
+
+        guard let cacheService else {
+            return true
+        }
+
+        let profileRecordName = profile.id.recordName
+        let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
+
+        let standardLedgerID = GemLedger.deterministicRecordID(
+            profileRecordName: profileRecordName,
+            eventKey: "daily-\(today)",
+            source: "dailyLogin",
+            zoneID: profile.id.zoneID
+        )
+        if let standardLedger = cacheService.fetchGemLedger(recordName: standardLedgerID.recordName, family: familyRecordName) {
+            if calendar.isDateInToday(standardLedger.createdAt) {
+                return true
+            }
+        }
+
+        let v2LedgerID = GemLedger.deterministicRecordID(
+            profileRecordName: profileRecordName,
+            eventKey: "daily-\(today)-v2",
+            source: "dailyLogin",
+            zoneID: profile.id.zoneID
+        )
+        if let v2Ledger = cacheService.fetchGemLedger(recordName: v2LedgerID.recordName, family: familyRecordName) {
+            if calendar.isDateInToday(v2Ledger.createdAt) {
+                return true
+            }
+        }
+
+        let descriptor = FetchDescriptor<GemLedgerCache>(
+            predicate: #Predicate {
+                $0.profileRecordName == profileRecordName &&
+                    $0.familyRecordName == familyRecordName
+            }
+        )
+        if let allLedgers = try? cacheService.context?.fetch(descriptor) {
+            let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
+            if loginLedgers.contains(where: { calendar.isDateInToday($0.createdAt) }) {
+                return true
+            }
+            if !loginLedgers.isEmpty {
+                return false
+            }
+        }
+
+        return true
+    }
+
     /// Cross-device claim guard: the last-claim day is read from the
     /// CloudKit-backed `Profile.dailyLoginLastClaimDay`, so a reward claimed on
     /// device A is honored on device B after `CKSyncEngine` syncs. The daily
@@ -118,8 +181,6 @@ final class DailyLoginService {
     /// `Profile` record), so the prior shared-device hero-switch plumbing is
     /// no longer needed — heroes are inherently isolated by record name.
     func checkDailyLoginStatus(heroProfileRecordName: String) -> DailyLoginStatus {
-        let today = todayString()
-
         // Fail closed for a caller-supplied profile that is not the
         // authenticated active profile. Returning `.available` here would
         // make an invalid target appear claimable in a UI or shortcut.
@@ -129,17 +190,36 @@ final class DailyLoginService {
               profile.id.recordName == heroProfileRecordName
         else { return .claimedToday }
 
-        let lastClaim = profile.dailyLoginLastClaimDay
-
-        if lastClaim == today {
+        if hasClaimedToday(profile: profile) {
             return .claimedToday
         }
 
-        guard let lastClaim, let lastDate = dateFromString(lastClaim) else {
+        let today = todayString()
+        let familyRecordName = appState?.family?.id.recordName ?? profile.family.recordID.recordName
+        let ledgerID = GemLedger.deterministicRecordID(
+            profileRecordName: profile.id.recordName,
+            eventKey: "daily-\(today)",
+            source: "dailyLogin",
+            zoneID: profile.id.zoneID
+        )
+        if let cachedLedger = cacheService?.fetchGemLedger(recordName: ledgerID.recordName, family: familyRecordName),
+           calendar.isDateInToday(cachedLedger.createdAt)
+        {
+            return .claimedToday
+        }
+
+        guard let lastClaim = profile.dailyLoginLastClaimDay,
+              let lastDate = dateFromString(lastClaim)
+        else {
             return .available
         }
 
-        if let yesterday = yesterday(), Calendar.iso8601UTC.isDate(lastDate, inSameDayAs: yesterday) {
+        // If lastClaim was marked as today (legacy UTC bug), but we established no claim occurred today:
+        if lastClaim == today {
+            return .available
+        }
+
+        if let yesterday = yesterday(), calendar.isDate(lastDate, inSameDayAs: yesterday) {
             return .available
         }
 
@@ -206,8 +286,32 @@ final class DailyLoginService {
         current.dailyLoginCycleDay = (cycle % maxCycleDay) + 1
         current.dailyLoginLastClaimDay = today
 
+        // If a prior-day legacy ledger with eventKey "daily-\(today)" exists, suffix the eventKey
+        // so the new credit creates a fresh ledger rather than deduplicating against the old one.
+        let familyRecordName = appState.family?.id.recordName ?? profile.family.recordID.recordName
+        let legacyLedgerID = GemLedger.deterministicRecordID(
+            profileRecordName: profile.id.recordName,
+            eventKey: "daily-\(today)",
+            source: "dailyLogin",
+            zoneID: profile.id.zoneID
+        )
+        let hasPriorDayLedger = (cacheService?.fetchGemLedger(recordName: legacyLedgerID.recordName, family: familyRecordName))
+            .map { !calendar.isDateInToday($0.createdAt) } ?? false
+        let creditEventKey = hasPriorDayLedger ? "daily-\(today)-v2" : "daily-\(today)"
+
         // Credit gems and persist claim state using deterministic idempotent eventKey.
-        try await gemService.creditGems(amount: gemsToAward, to: current, source: "dailyLogin", eventKey: "daily-\(today)", detail: "Day \(cycle) reward")
+        let credited = try await gemService.creditGems(amount: gemsToAward, to: current, source: "dailyLogin", eventKey: creditEventKey, detail: "Day \(cycle) reward")
+
+        if !credited {
+            // Gems were already minted for today (idempotent duplicate ledger), but the profile
+            // claim date was out of sync. Persist the current claim state and update appState.
+            cacheService?.upsertProfile(current)
+            syncCoordinator?.enqueueSave(recordID: current.id, isOwner: appState.isZoneOwner)
+            if let active = appState.currentProfile, active.id == current.id {
+                appState.currentProfile = current
+            }
+            return 0
+        }
 
         // Re-resolve the authoritative profile from cache so the session
         // reflects the freshly-credited gems. Assigning the stale
@@ -218,6 +322,8 @@ final class DailyLoginService {
                 .toProfile(zoneID: current.id.zoneID)
             {
                 appState.currentProfile = refreshed
+            } else {
+                appState.currentProfile = current
             }
         }
 
@@ -228,26 +334,34 @@ final class DailyLoginService {
 
     // MARK: - Date helpers
 
-    /// Shared formatter for the `yyyy-MM-dd` date string format used by
-    /// daily login tracking. Created once and reused.
-    private static let dayFormatter: DateFormatter = {
+    private var calendar: Calendar {
+        customCalendar ?? {
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = .autoupdatingCurrent
+            return cal
+        }()
+    }
+
+    private func dayFormatter() -> DateFormatter {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.calendar = Calendar.iso8601UTC
+        formatter.timeZone = calendar.timeZone
+        formatter.calendar = calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter
-    }()
+    }
 
-    private func todayString() -> String {
-        Self.dayFormatter.string(from: Date())
+    private func todayString(for date: Date = Date()) -> String {
+        dayFormatter().string(from: date)
     }
 
     private func dateFromString(_ str: String) -> Date? {
-        Self.dayFormatter.date(from: str)
+        dayFormatter().date(from: str)
     }
 
-    private func yesterday() -> Date? {
-        Calendar.iso8601UTC.date(byAdding: .day, value: -1, to: Date())
+    private func yesterday(relativeTo date: Date = Date()) -> Date? {
+        let cal = calendar
+        let startOfToday = cal.startOfDay(for: date)
+        return cal.date(byAdding: .day, value: -1, to: startOfToday)
     }
 }

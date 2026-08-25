@@ -479,4 +479,107 @@ extension QuestServiceTests {
         let familyName = scaffold.familyRef.recordID.recordName
         #expect(scaffold.cache.fetchQuest(recordName: scaffold.quest.id.recordName, family: familyName) == nil)
     }
+
+    @Test
+    func `isMultiOccurrence correctly identifies multi occurrence schedules`() {
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .weeklyFlexible, targetCount: 1, specificDaysCount: 0) == false)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .weeklyFlexible, targetCount: 2, specificDaysCount: 0) == true)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .weeklyFlexible, targetCount: 7, specificDaysCount: 0) == true)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .specificDays, targetCount: 1, specificDaysCount: 0) == false)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .specificDays, targetCount: 1, specificDaysCount: 1) == false)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .specificDays, targetCount: 1, specificDaysCount: 2) == true)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .specificDays, targetCount: 1, specificDays: ["mon"]) == false)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .specificDays, targetCount: 1, specificDays: ["mon", "wed"]) == true)
+        #expect(QuestSchedule.isMultiOccurrence(schedule: .specificDays, targetCount: 1, specificDays: nil) == false)
+    }
+
+    @Test
+    func `assignQuickQuest preserves isAllOrNothing flag`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let family = Family(
+            name: "Guild",
+            createdBy: scaffold.parent.id,
+            id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
+        )
+        scaffold.appState.family = family
+        scaffold.appState.currentProfile = scaffold.parent
+
+        let questAON = try await scaffold.questService.assignQuickQuest(
+            name: "AON Quick",
+            description: "",
+            assignee: scaffold.hero,
+            goldReward: 5,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            targetCount: 3,
+            isAllOrNothing: true,
+            weekOf: WeekMath.mondayOfWeek(for: Date()),
+            createdBy: scaffold.parent,
+            family: family
+        )
+        #expect(questAON.isAllOrNothing == true)
+
+        let questProrated = try await scaffold.questService.assignQuickQuest(
+            name: "Prorated Quick",
+            description: "",
+            assignee: scaffold.hero,
+            goldReward: 5,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            targetCount: 3,
+            isAllOrNothing: false,
+            weekOf: WeekMath.mondayOfWeek(for: Date()),
+            createdBy: scaffold.parent,
+            family: family
+        )
+        #expect(questProrated.isAllOrNothing == false)
+    }
+
+    @Test
+    func `assignQuest applies isAllOrNothingOverride when provided`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let family = Family(
+            name: "Guild",
+            createdBy: scaffold.parent.id,
+            id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
+        )
+        scaffold.appState.family = family
+        scaffold.appState.currentProfile = scaffold.parent
+
+        let template = QuestTemplate(
+            name: "Tmpl",
+            description: "desc",
+            defaultGold: 10,
+            xpReward: 20,
+            scheduleType: .weeklyFlexible,
+            specificDays: [],
+            targetCount: 3,
+            isAllOrNothing: false,
+            createdBy: CKRecord.Reference(recordID: scaffold.parent.id, action: .none),
+            family: scaffold.familyRef,
+            id: CKRecord.ID(recordName: "tmpl_aon", zoneID: scaffold.zoneID)
+        )
+        scaffold.cache.upsertQuestTemplate(template)
+
+        // Default: inherits false from template
+        let qDefault = try await scaffold.questService.assignQuest(
+            template: template,
+            assignee: scaffold.hero,
+            weekOf: WeekMath.mondayOfWeek(for: Date()),
+            createdBy: scaffold.parent,
+            family: family
+        )
+        #expect(qDefault.isAllOrNothing == false)
+
+        // Override to true
+        let qOverridden = try await scaffold.questService.assignQuest(
+            template: template,
+            assignee: scaffold.hero,
+            isAllOrNothingOverride: true,
+            weekOf: WeekMath.mondayOfWeek(for: Date()),
+            createdBy: scaffold.parent,
+            family: family
+        )
+        #expect(qOverridden.isAllOrNothing == true)
+    }
 }

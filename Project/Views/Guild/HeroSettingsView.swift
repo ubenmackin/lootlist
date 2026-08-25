@@ -20,7 +20,7 @@ struct HeroSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
-    @State private var selectedPolicy: PayoutPolicy
+    @State private var selectedPolicy: PayoutPolicy?
     @State private var selectedDayOverride: PayoutDay?
     @State private var actionError: String?
     @State private var saveTask: Task<Void, Never>?
@@ -168,6 +168,13 @@ struct HeroSettingsView: View {
                 .padding(.horizontal, 4)
 
             VStack(spacing: 12) {
+                payoutPolicyOptionRow(
+                    policy: nil,
+                    title: "Use Default for Guild",
+                    description: "Inherits the Guild default rule.",
+                    icon: "building.columns.fill"
+                )
+
                 ForEach(PayoutPolicy.allCases, id: \.self) { policy in
                     payoutPolicyOptionRow(
                         policy: policy,
@@ -181,7 +188,7 @@ struct HeroSettingsView: View {
         .padding(.horizontal)
     }
 
-    private func payoutPolicyOptionRow(policy: PayoutPolicy,
+    private func payoutPolicyOptionRow(policy: PayoutPolicy?,
                                        title: String,
                                        description: String,
                                        icon: String) -> some View
@@ -244,6 +251,9 @@ struct HeroSettingsView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(description)")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
     private var cardBackground: some View {

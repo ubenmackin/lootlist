@@ -29,22 +29,6 @@ enum AvatarSize: Sendable {
         case .large: 64
         }
     }
-
-    var accessorySize: CGFloat {
-        switch self {
-        case .small: 12
-        case .medium: 22
-        case .large: 32
-        }
-    }
-
-    var accessoryPadding: CGFloat {
-        switch self {
-        case .small: 2
-        case .medium: 4
-        case .large: 6
-        }
-    }
 }
 
 struct AvatarView: View {
@@ -121,28 +105,8 @@ struct AvatarView: View {
                     )
                     .frame(width: size.diameter, height: size.diameter)
             }
-
-            accessoryOverlay
         }
         .frame(width: size.diameter, height: size.diameter)
-    }
-
-    @ViewBuilder
-    private var accessoryOverlay: some View {
-        if let glyph = effectiveAccessoryGlyph {
-            ZStack {
-                Circle()
-                    .fill(Color.black.opacity(0.35))
-                    .frame(width: size.accessorySize + size.accessoryPadding * 2,
-                           height: size.accessorySize + size.accessoryPadding * 2)
-                Image(systemName: glyph)
-                    .font(.system(size: size.accessorySize, weight: .bold))
-                    .foregroundStyle(Color.gold)
-                    .symbolRenderingMode(.hierarchical)
-                    .accessibilityHidden(true)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-        }
     }
 
     private var nameAndTitle: some View {
@@ -173,15 +137,6 @@ struct AvatarView: View {
         case .medium: .caption.weight(.semibold)
         case .large: .subheadline.weight(.semibold)
         }
-    }
-
-    private var effectiveAccessoryGlyph: String? {
-        if let equipped = spec.equippedAccessory,
-           let glyph = AvatarService.accessoryGlyph(for: equipped)
-        {
-            return glyph
-        }
-        return spec.preset?.accessoryIconSystemName
     }
 
     private var classGradient: LinearGradient {

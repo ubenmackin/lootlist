@@ -124,6 +124,20 @@ struct TemplateManagerView: View {
                     }
                 }
 
+                if isMultiOccurrence {
+                    Section {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Toggle("All-or-Nothing", isOn: $isAllOrNothing)
+                            Text(
+                                "When enabled, the hero must complete all required days or times to earn any gold or XP. When disabled, rewards are earned incrementally per completion."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
                 Section("Approval") {
                     Picker("Mode", selection: $approvalMode) {
                         ForEach(ApprovalMode.allCases, id: \.self) { mode in
@@ -155,11 +169,19 @@ struct TemplateManagerView: View {
         }
     }
 
+    private var isMultiOccurrence: Bool {
+        QuestSchedule.isMultiOccurrence(
+            schedule: schedule,
+            targetCount: targetCount,
+            specificDaysCount: specificDays.count
+        )
+    }
+
     private func hydrateFromEditing() {
         guard let editing else { return }
         name = editing.name
         descriptionText = editing.description
-        defaultGoldText = String(editing.defaultGold)
+        defaultGoldText = String(format: "%.2f", editing.defaultGold)
         selectedRarity = editing.rarity
         schedule = editing.scheduleType
         specificDays = Set(editing.specificDays)
@@ -186,6 +208,8 @@ struct TemplateManagerView: View {
             return
         }
 
+        let effectiveAllOrNothing = isMultiOccurrence ? isAllOrNothing : false
+
         isSaving = true
         Task {
             do {
@@ -200,7 +224,7 @@ struct TemplateManagerView: View {
                         ? Array(specificDays)
                         : []
                     updated.targetCount = schedule == .weeklyFlexible ? max(1, targetCount) : 1
-                    updated.isAllOrNothing = isAllOrNothing
+                    updated.isAllOrNothing = effectiveAllOrNothing
                     updated.approvalMode = approvalMode
                     try await viewModel.updateTemplate(updated)
                 } else {
@@ -214,7 +238,7 @@ struct TemplateManagerView: View {
                             ? Array(specificDays)
                             : [],
                         targetCount: schedule == .weeklyFlexible ? max(1, targetCount) : 1,
-                        isAllOrNothing: isAllOrNothing,
+                        isAllOrNothing: effectiveAllOrNothing,
                         approvalMode: approvalMode
                     )
                 }

@@ -43,17 +43,21 @@ final class NotificationService {
 
     var weeklySummaryProvider: (@Sendable (Profile, Family, Date) async -> String?)?
 
+    private let defaults: UserDefaults
+
     init(cloudKit: any CloudKitServiceProtocol,
          appState: AppState,
          cacheService: CacheService? = nil,
          toastManager: ToastManager? = nil,
-         syncCoordinator: CKSyncEngineCoordinator? = nil)
+         syncCoordinator: CKSyncEngineCoordinator? = nil,
+         defaults: UserDefaults = .standard)
     {
         self.cloudKit = cloudKit
         self.appState = appState
         self.cacheService = cacheService
         self.toastManager = toastManager
         self.syncCoordinator = syncCoordinator
+        self.defaults = defaults
     }
 
     @discardableResult
@@ -125,7 +129,6 @@ final class NotificationService {
     }
 
     private func userDefaultsFallback(for eventType: NotificationEventType) -> Bool {
-        let defaults = UserDefaults.standard
         let master = defaults.object(forKey: Self.masterDefaultsKey) as? Bool ?? false
         guard master else { return false }
 
@@ -136,7 +139,7 @@ final class NotificationService {
     }
 
     private func mirrorToUserDefaults(event: NotificationEventType, enabled: Bool) {
-        UserDefaults.standard.set(enabled, forKey: event.userDefaultsKey)
+        defaults.set(enabled, forKey: event.userDefaultsKey)
     }
 
     @discardableResult

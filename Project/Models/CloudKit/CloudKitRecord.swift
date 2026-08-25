@@ -74,7 +74,8 @@ extension Profile: CloudKitRecord {
             "dailyLoginLastClaimDay",
             "dailyLoginCycleDay",
             "dailyLoginStreakDays",
-            "claimedBonusObjectives"
+            "claimedBonusObjectives",
+            "journeyMapLastSeenLevel"
         ]
     }
 }

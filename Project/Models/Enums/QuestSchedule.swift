@@ -29,4 +29,19 @@ enum QuestSchedule: String, Codable, CaseIterable, Sendable {
     var requiresSpecificDays: Bool {
         self == .specificDays
     }
+
+    /// Determines whether a quest schedule represents multi-occurrence (more than 1 required completion or day).
+    static func isMultiOccurrence(schedule: QuestSchedule, targetCount: Int, specificDaysCount: Int) -> Bool {
+        switch schedule {
+        case .weeklyFlexible:
+            targetCount > 1
+        case .specificDays:
+            specificDaysCount > 1
+        }
+    }
+
+    /// Convenience overload accepting an optional collection/array of specific day codes.
+    static func isMultiOccurrence(schedule: QuestSchedule, targetCount: Int, specificDays: [String]?) -> Bool {
+        isMultiOccurrence(schedule: schedule, targetCount: targetCount, specificDaysCount: specificDays?.count ?? 0)
+    }
 }

@@ -302,7 +302,7 @@ struct TreasuryServiceTests {
             payoutPolicy: .allOrNothing,
             id: familyID
         )
-        // Profile has default .perQuest policy
+        // Profile has default (nil) policy to inherit family default
         let profile = Profile(
             displayName: "Hero",
             avatarClass: .knight,
@@ -310,7 +310,7 @@ struct TreasuryServiceTests {
             role: .hero,
             iCloudUserID: profileID,
             family: familyRef,
-            payoutPolicy: .perQuest,
+            payoutPolicy: nil,
             id: profileID
         )
 
@@ -368,5 +368,40 @@ struct TreasuryServiceTests {
         // 1 out of 2 quests completed under family .allOrNothing policy must yield 0 gold
         #expect(breakdown.goldFromQuests == 0.0)
         #expect(breakdown.questsCount == 1)
+    }
+
+    @Test
+    func `effectivePayoutPolicy resolves guild default when nil and respects hero override`() {
+        let dummyZone = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = dummyZone
+        let treasury = TreasuryService(cloudKit: cloudKit)
+
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: dummyZone), action: .none)
+        let family = Family(
+            name: "Guild",
+            createdBy: CKRecord.ID(recordName: "owner", zoneID: dummyZone),
+            payoutPolicy: .allOrNothing,
+            id: CKRecord.ID(recordName: "fam1", zoneID: dummyZone)
+        )
+
+        // 1. Profile with nil payoutPolicy inherits Guild Default (.allOrNothing)
+        var defaultProfile = Profile(
+            displayName: "Default Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: dummyZone),
+            family: familyRef,
+            payoutPolicy: nil,
+            id: CKRecord.ID(recordName: "hero1", zoneID: dummyZone)
+        )
+        #expect(treasury.effectivePayoutPolicy(for: defaultProfile, family: family) == .allOrNothing)
+
+        // 2. Profile with explicit override (.perQuest) overrides Guild Default (.allOrNothing)
+        defaultProfile.payoutPolicy = .perQuest
+        #expect(treasury.effectivePayoutPolicy(for: defaultProfile, family: family) == .perQuest)
+
+        // 3. Profile with nil payoutPolicy and nil family falls back to .perQuest
+        defaultProfile.payoutPolicy = nil
+        #expect(treasury.effectivePayoutPolicy(for: defaultProfile, family: nil) == .perQuest)
     }
 }

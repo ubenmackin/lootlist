@@ -216,7 +216,7 @@ extension ProfileCache {
                 role: UserRole(rawValue: role) ?? .hero,
                 iCloudUserID: CKRecord.ID(recordName: iCloudUserRecordName, zoneID: zid),
                 family: CKRecord.Reference(recordID: CKRecord.ID(recordName: familyRecordName, zoneID: zid), action: .none),
-                payoutPolicy: PayoutPolicy(rawValue: payoutPolicy) ?? .perQuest,
+                payoutPolicy: payoutPolicyEnum,
                 payoutDay: payoutDay.flatMap { PayoutDay(rawValue: $0) },
                 gems: gemsTotal,
                 streakShields: streakShields,
@@ -226,6 +226,7 @@ extension ProfileCache {
                 dailyLoginCycleDay: dailyLoginCycleDay,
                 dailyLoginStreakDays: dailyLoginStreakDays,
                 claimedBonusObjectives: claimedBonusObjectives ?? [],
+                journeyMapLastSeenLevel: journeyMapLastSeenLevel,
                 id: CKRecord.ID(recordName: recordName, zoneID: zid)
             )
             profile.xp = xpTotal

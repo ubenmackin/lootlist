@@ -106,6 +106,7 @@ final class QuestManagerViewModel {
                      goldOverride: Double?,
                      xpOverride: Int?,
                      approvalOverride: ApprovalMode?,
+                     isAllOrNothingOverride: Bool? = nil,
                      nameOverride: String? = nil,
                      weekOf: Date) async throws
     {
@@ -120,6 +121,7 @@ final class QuestManagerViewModel {
             goldOverride: goldOverride,
             xpOverride: xpOverride,
             approvalOverride: approvalOverride,
+            isAllOrNothingOverride: isAllOrNothingOverride,
             nameOverride: nameOverride,
             weekOf: weekOf,
             createdBy: parent,
@@ -136,6 +138,7 @@ final class QuestManagerViewModel {
         var scheduleType: QuestSchedule
         var specificDays: [String] = []
         var targetCount: Int = 1
+        var isAllOrNothing: Bool = false
         var approvalMode: ApprovalMode
         var weekOf: Date
     }
@@ -170,6 +173,7 @@ final class QuestManagerViewModel {
             scheduleType: input.scheduleType,
             specificDays: input.specificDays,
             targetCount: input.targetCount,
+            isAllOrNothing: input.isAllOrNothing,
             approvalMode: input.approvalMode,
             weekOf: input.weekOf,
             createdBy: parent,

@@ -18,7 +18,7 @@ struct FamilyServiceTests {
         let cloudKit = MockCloudKitService()
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = true
-        let appState = AppState()
+        let appState = AppState(defaults: .ephemeral())
         appState.isZoneOwner = true
         appState.familyZoneID = zoneID
         let family = Family(
@@ -115,7 +115,7 @@ struct FamilyServiceTests {
     func makeFamilyServiceWithCache(cloudKit: any CloudKitServiceProtocol,
                                     cache: CacheService) -> FamilyService
     {
-        let appState = AppState()
+        let appState = AppState(defaults: .ephemeral())
         let zoneID = cloudKit.activeFamilyZoneID ?? CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         appState.familyZoneID = zoneID
         appState.isZoneOwner = cloudKit.activeIsOwner
@@ -719,7 +719,7 @@ struct FamilyServiceTests {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = FailingCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let appState = AppState()
+        let appState = AppState(defaults: .ephemeral())
         let xpService = XPService(cloudKit: cloudKit)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService)
         let familyService = FamilyService(

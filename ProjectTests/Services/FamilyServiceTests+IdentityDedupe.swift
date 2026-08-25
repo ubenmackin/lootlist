@@ -134,8 +134,8 @@ struct FamilyServiceIdentityDedupeTests {
         return cloudKit
     }
 
-    private func makeService(cloudKit: MockCloudKitService) -> (familyService: FamilyService, appState: AppState) {
-        let appState = AppState()
+    private func makeService(cloudKit: MockCloudKitService, defaults: UserDefaults = .ephemeral()) -> (familyService: FamilyService, appState: AppState) {
+        let appState = AppState(defaults: defaults)
         let xpService = XPService(cloudKit: cloudKit, appState: appState)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
         let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: questService)

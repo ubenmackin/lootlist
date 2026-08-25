@@ -214,6 +214,11 @@ extension FamilyServiceTests {
         appState.currentProfile = parent
         let savedByParent = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
         #expect(savedByParent.payoutPolicy == PayoutPolicy.allOrNothing)
+
+        // Parent resets to Guild Default (nil)
+        let resetToDefault = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: nil)
+        #expect(resetToDefault.payoutPolicy == nil)
+        #expect(cache.fetchProfiles(family: hero.family.recordID.recordName).first { $0.recordName == hero.id.recordName }?.payoutPolicyEnum == nil)
     }
 
     @Test

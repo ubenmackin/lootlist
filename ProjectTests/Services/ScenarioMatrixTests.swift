@@ -74,7 +74,7 @@ struct ScenarioMatrixTests {
             role: .hero,
             iCloudUserID: userID,
             family: makeFamilyRef(zoneID),
-            payoutPolicy: payoutPolicy ?? .perQuest,
+            payoutPolicy: payoutPolicy,
             id: userID
         )
     }

@@ -53,9 +53,9 @@ struct LevelProgress: Equatable, Sendable {
 @Observable
 final class XPService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "XPService")
-    static let stepBase: Int = AppConstants.Experience.stepBase
+    nonisolated static let stepBase: Int = AppConstants.Experience.stepBase
 
-    static let accessoryCadence: Int = AppConstants.Experience.accessoryCadence
+    nonisolated static let accessoryCadence: Int = AppConstants.Experience.accessoryCadence
 
     private let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
@@ -83,14 +83,14 @@ final class XPService {
         self.syncCoordinator = syncCoordinator
     }
 
-    static func cumulativeXPForLevel(_ targetLevel: Int) -> Int {
+    nonisolated static func cumulativeXPForLevel(_ targetLevel: Int) -> Int {
         guard targetLevel > 1 else { return 0 }
 
         let tri = (targetLevel - 1) * targetLevel / 2
         return tri * stepBase
     }
 
-    static func level(forXP xp: Int) -> Int {
+    nonisolated static func level(forXP xp: Int) -> Int {
         guard xp > 0 else { return 1 }
 
         let step = Self.stepBase

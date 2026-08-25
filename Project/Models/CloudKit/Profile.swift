@@ -45,7 +45,7 @@ struct Profile: Identifiable, Equatable, Sendable {
     var family: CKRecord.Reference
 
     var isActive: Bool
-    var payoutPolicy: PayoutPolicy
+    var payoutPolicy: PayoutPolicy?
     var payoutDay: PayoutDay?
 
     // MARK: - Gamification claim state (CloudKit-backed, never UserDefaults)
@@ -65,6 +65,8 @@ struct Profile: Identifiable, Equatable, Sendable {
     var dailyLoginStreakDays: Int
     /// Objective IDs (`{date}-{type}`) already claimed; cross-device multi-claim guard.
     var claimedBonusObjectives: [String]
+    /// The highest level the hero has viewed on the Journey Map; syncs across devices so progression animation is never duplicated.
+    var journeyMapLastSeenLevel: Int
 
     var effectiveClassDisplay: String {
         if let avatarClass {
@@ -99,6 +101,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         merged.dailyLoginCycleDay = cached.dailyLoginCycleDay
         merged.dailyLoginStreakDays = cached.dailyLoginStreakDays
         merged.claimedBonusObjectives = cached.claimedBonusObjectives
+        merged.journeyMapLastSeenLevel = cached.journeyMapLastSeenLevel
         return merged
     }
 
@@ -161,7 +164,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         {
             payoutPolicy = policy
         } else {
-            payoutPolicy = .perQuest
+            payoutPolicy = nil
         }
 
         if let rawDay: String = record.extractOptional("payoutDay"),
@@ -181,6 +184,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         dailyLoginCycleDay = record.extractOptional("dailyLoginCycleDay") ?? 1
         dailyLoginStreakDays = record.extractOptional("dailyLoginStreakDays") ?? 0
         claimedBonusObjectives = record.extractOptional("claimedBonusObjectives") ?? []
+        journeyMapLastSeenLevel = record.extractOptional("journeyMapLastSeenLevel") ?? 1
     }
 
     func toRecord() -> CKRecord {
@@ -225,7 +229,11 @@ struct Profile: Identifiable, Equatable, Sendable {
         record["iCloudUserID"] = boundUserRecordName as CKRecordValue
         record["family"] = family as CKRecordValue
         record["isActive"] = isActive as CKRecordValue
-        record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
+        if let payoutPolicy {
+            record["payoutPolicy"] = payoutPolicy.rawValue as CKRecordValue
+        } else {
+            record["payoutPolicy"] = nil
+        }
         if let payoutDay {
             record["payoutDay"] = payoutDay.rawValue as CKRecordValue
         } else {
@@ -250,6 +258,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         if !claimedBonusObjectives.isEmpty {
             record["claimedBonusObjectives"] = claimedBonusObjectives as CKRecordValue
         }
+        record["journeyMapLastSeenLevel"] = journeyMapLastSeenLevel as CKRecordValue
         return record
     }
 
@@ -261,7 +270,7 @@ struct Profile: Identifiable, Equatable, Sendable {
          iCloudUserID: CKRecord.ID,
          creatorUserRecordName: String? = nil,
          family: CKRecord.Reference,
-         payoutPolicy: PayoutPolicy = .perQuest,
+         payoutPolicy: PayoutPolicy? = nil,
          payoutDay: PayoutDay? = nil,
          gems: Int = 0,
          streakShields: Int = 0,
@@ -272,6 +281,7 @@ struct Profile: Identifiable, Equatable, Sendable {
          dailyLoginCycleDay: Int = 1,
          dailyLoginStreakDays: Int = 0,
          claimedBonusObjectives: [String] = [],
+         journeyMapLastSeenLevel: Int = 1,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -297,6 +307,7 @@ struct Profile: Identifiable, Equatable, Sendable {
         self.dailyLoginCycleDay = dailyLoginCycleDay
         self.dailyLoginStreakDays = dailyLoginStreakDays
         self.claimedBonusObjectives = claimedBonusObjectives
+        self.journeyMapLastSeenLevel = journeyMapLastSeenLevel
     }
 
     /// Reconstructs the server-authenticated identity that CloudKit supplies
@@ -330,6 +341,7 @@ struct Profile: Identifiable, Equatable, Sendable {
             dailyLoginCycleDay: dailyLoginCycleDay,
             dailyLoginStreakDays: dailyLoginStreakDays,
             claimedBonusObjectives: claimedBonusObjectives,
+            journeyMapLastSeenLevel: journeyMapLastSeenLevel,
             id: id
         )
         stamped.xp = xp

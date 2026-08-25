@@ -18,9 +18,18 @@ struct QuickCreateFormView: View {
     @Binding var quickSchedule: QuestSchedule
     @Binding var quickSpecificDays: Set<String>
     @Binding var quickTargetCount: Int
+    @Binding var quickIsAllOrNothing: Bool
     @Binding var quickApproval: ApprovalMode
 
     private static let weekdayCodes: [String] = AppConstants.weekdayCodes
+
+    private var isMultiOccurrence: Bool {
+        QuestSchedule.isMultiOccurrence(
+            schedule: quickSchedule,
+            targetCount: quickTargetCount,
+            specificDaysCount: quickSpecificDays.count
+        )
+    }
 
     var body: some View {
         Section("One-Off Quest Details") {
@@ -132,6 +141,20 @@ struct QuickCreateFormView: View {
                 }
             }
             .pickerStyle(.segmented)
+        }
+
+        if isMultiOccurrence {
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("All-or-Nothing", isOn: $quickIsAllOrNothing)
+                    Text(
+                        "When enabled, the hero must complete all required days or times to earn any gold or XP. When disabled, rewards are earned incrementally per completion."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
+            }
         }
     }
 }

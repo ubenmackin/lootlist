@@ -18,6 +18,16 @@ struct TemplateAssignmentFormView: View {
     @Binding var goldOverrideText: String
     @Binding var xpOverrideText: String
     @Binding var approvalOverride: QuestAssignmentView.ApprovalModeSelection
+    @Binding var isAllOrNothingOverride: Bool
+
+    private var isMultiOccurrence: Bool {
+        guard let template = selectedTemplate else { return false }
+        return QuestSchedule.isMultiOccurrence(
+            schedule: template.scheduleTypeEnum ?? .weeklyFlexible,
+            targetCount: template.targetCount,
+            specificDays: template.specificDays
+        )
+    }
 
     var body: some View {
         Section("Template") {
@@ -35,6 +45,7 @@ struct TemplateAssignmentFormView: View {
                     guard isFromTemplateMode else { return }
                     editQuestName = newTemplate?.name ?? ""
                     userEditedQuestName = false
+                    isAllOrNothingOverride = newTemplate?.isAllOrNothing ?? false
                 }
             }
         }
@@ -86,7 +97,7 @@ struct TemplateAssignmentFormView: View {
                     .padding(.vertical, 2)
                 }
                 TextField(
-                    selectedTemplate.map { String($0.goldReward) } ?? "",
+                    selectedTemplate.map { String(format: "%.2f", $0.goldReward) } ?? "",
                     text: $goldOverrideText
                 )
                 .keyboardType(.decimalPad)
@@ -109,6 +120,18 @@ struct TemplateAssignmentFormView: View {
                 ForEach(QuestAssignmentView.ApprovalModeSelection.allCases) { sel in
                     Text(sel.rawValue).tag(sel)
                 }
+            }
+
+            if isMultiOccurrence {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("All-or-Nothing", isOn: $isAllOrNothingOverride)
+                    Text(
+                        "When enabled, the hero must complete all required days or times to earn any gold or XP. When disabled, rewards are earned incrementally per completion."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 2)
             }
         } header: {
             Text("Overrides (optional)")

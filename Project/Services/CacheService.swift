@@ -31,7 +31,10 @@ final class CacheService {
         container?.mainContext
     }
 
-    init(inMemory: Bool = false) throws {
+    let defaults: UserDefaults
+
+    init(inMemory: Bool = false, defaults: UserDefaults = .standard) throws {
+        self.defaults = defaults
         let schema = Schema(LootListSchemaV7.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
@@ -124,23 +127,23 @@ final class CacheService {
     /// Legacy stamp (no scope) — prefer scope-aware overload; scope-isolated so private-only pass never satisfies shared reads (§2, CachedRecordType.fetchScopes,
     /// completeSyncPass).
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
-        UserDefaults.standard.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
+        defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
     }
 
     /// Stamps freshness for `type` in `scope`. Scope-isolated: private-only sync must not satisfy shared-DB reads (§2, CachedRecordType.fetchScopes, completeSyncPass gating).
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, at date: Date = Date()) {
-        UserDefaults.standard.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
     }
 
     /// Legacy check (legacy OR any scope). Prefer scope-aware overload — scope-isolated reads must use `isCacheFresh(scope:)` so private-only never satisfies shared (§2,
     /// fetchScopes).
     func isCacheFresh(familyRecordName: String, type: CachedRecordType) -> Bool {
         let legacyKey = freshnessKey(familyRecordName: familyRecordName, type: type)
-        if UserDefaults.standard.object(forKey: legacyKey) != nil {
+        if defaults.object(forKey: legacyKey) != nil {
             return true
         }
         for scope in [CKDatabase.Scope.private, .shared]
-            where UserDefaults.standard.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
+            where defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
         {
             return true
         }
@@ -149,24 +152,23 @@ final class CacheService {
 
     /// Returns true only if `scope` was stamped. Scope-isolated: private-only pass must not satisfy shared-DB reads (§2, CachedRecordType.fetchScopes, completeSyncPass).
     func isCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
-        UserDefaults.standard.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
+        defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
     }
 
     /// Invalidates legacy + both scopes. Scope-isolated — clears private/shared watermarks together (§2, CachedRecordType.fetchScopes).
     func invalidateFreshness(familyRecordName: String, type: CachedRecordType) {
-        UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
+        defaults.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
         for scope in [CKDatabase.Scope.private, .shared] {
-            UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+            defaults.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
         }
     }
 
     /// Invalidates freshness for `type` in `scope` only. Scope-isolated — removing private must not affect shared (§2, CachedRecordType.fetchScopes).
     func invalidateFreshness(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) {
-        UserDefaults.standard.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        defaults.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
     }
 
     func invalidateAllFreshness() {
-        let defaults = UserDefaults.standard
         let staleKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(Self.freshnessKeyPrefix) }
         for key in staleKeys {
             defaults.removeObject(forKey: key)
@@ -174,7 +176,6 @@ final class CacheService {
     }
 
     func invalidateFreshness(forFamilyRecordName familyRecordName: String) {
-        let defaults = UserDefaults.standard
         let prefix = "\(Self.freshnessKeyPrefix)\(familyRecordName)_"
         let staleKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
         for key in staleKeys {

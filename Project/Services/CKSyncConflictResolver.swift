@@ -246,6 +246,9 @@ final class CKSyncConflictResolver {
         if serverRecord["equippedItems"] == nil {
             mergedProfile.equippedItems = originalRecord["equippedItems"] as? [String] ?? mergedProfile.equippedItems
         }
+        if serverRecord["payoutPolicy"] == nil {
+            mergedProfile.payoutPolicy = (originalRecord["payoutPolicy"] as? String).flatMap(PayoutPolicy.init(rawValue:))
+        }
 
         let serverClaimDay = serverRecord["dailyLoginLastClaimDay"] as? String
         let clientClaimDay = originalRecord["dailyLoginLastClaimDay"] as? String
@@ -263,6 +266,11 @@ final class CKSyncConflictResolver {
             mergedProfile.dailyLoginStreakDays = clientStreak
             mergedProfile.streakShields = originalRecord["streakShields"] as? Int ?? mergedProfile.streakShields
         }
+
+        let serverJourneyLevel = serverRecord["journeyMapLastSeenLevel"] as? Int ?? 1
+        let clientJourneyLevel = originalRecord["journeyMapLastSeenLevel"] as? Int ?? 1
+        mergedProfile.journeyMapLastSeenLevel = max(serverJourneyLevel, clientJourneyLevel)
+
         mergedProfile.changeTag = serverRecord.recordChangeTag
         mergedProfile.encodedSystemFields = serverRecord.encodedSystemFields
         // lastSyncedXP advances inside ProfileCache.update(from:isServerSync:) on

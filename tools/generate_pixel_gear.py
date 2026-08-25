@@ -29,22 +29,22 @@ def crown():
     G, GL, GD, R = hexc("FDE047"), hexc("FEF9C3"), hexc("D4A017"), hexc("DC2626")
     y0 = 13   # band hugs the helm dome (helm top y13); points rise above
     # points (3 peaks)
-    for i, (cx, hgt) in enumerate([(26, 5), (33, 7), (40, 5)]):
+    for i, (cx, hgt) in enumerate([(24, 5), (31, 7), (38, 5)]):
         for j in range(hgt):
             half = 1 if j < hgt - 2 else (2 if j < hgt - 1 else 3)
             for x in range(cx - half, cx + half + 1):
                 d.point((x, y0 + j), fill=G)
         d.point((cx, y0), fill=GL)
     # band
-    for x in range(23, 44):
+    for x in range(21, 42):
         d.point((x, y0 + 5), fill=G)
         d.point((x, y0 + 6), fill=GD)
     # gems on band
-    for x, c in [(27, R), (33, hexc("22D3EE")), (39, R)]:
+    for x, c in [(25, R), (31, hexc("22D3EE")), (37, R)]:
         d.point((x, y0 + 5), fill=c)
     # outline pass
     px = img.load()
-    for x in range(22, 45):
+    for x in range(20, 43):
         for y in range(y0, y0 + 7):
             if px[x, y][3] == 0:
                 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -266,32 +266,75 @@ def bandana():
     return img
 
 
-# --- viking helm: steel dome + horns ----------------------------------------
+# --- viking helm: traced from assets/gear/VikingHelm.png ---------------------
 def viking_helm():
-    img, d = canvas()
-    S, SD, SL = hexc("6B7280"), hexc("4B5563"), hexc("9CA3AF")
-    B, BS, BD = hexc("E7E5E4"), hexc("D6D3D1"), hexc("A8A29E")
-    # dome: rounded cap hugging the head (head top y13, center x31)
-    dome = [(9, 5), (10, 8), (11, 10), (12, 12), (13, 13), (14, 14),
-            (15, 14), (16, 15), (17, 15), (18, 15)]
-    for y, half in dome:
-        for x in range(31 - half, 31 + half + 1):
-            c = SL if x <= 31 - half + 2 else (SD if x >= 31 + half - 1 else S)
-            d.point((x, y), fill=c)
-    # rivet band along the bottom
-    for x in range(20, 43, 3):
-        d.point((x, 17), fill=SL)
-    # horns: thick curved bone horns rising outward
-    for mirror in (False, True):
-        horn = [(21, 12), (19, 10), (17, 8), (15, 6), (13, 5), (12, 4), (11, 3)]
-        for i, (x, y) in enumerate(horn):
-            xx = (62 - x) if mirror else x
-            d.point((xx, y), fill=B)
-            d.point((xx + (1 if mirror else -1), y), fill=BS)
-            d.point((xx, y + 1), fill=BS)
-            if i >= len(horn) - 3:  # dark tips
-                d.point((xx, y - 1), fill=BD)
-    return img
+    from PIL import Image
+    from collections import Counter, deque
+    img = Image.open("assets/gear/VikingHelm.png").convert("RGB")
+    w, h = img.size
+    px = img.load()
+    is_bg = lambda c: all(v > 235 for v in c)
+    bg = [[False] * w for _ in range(h)]
+    q = deque()
+    for x in range(w):
+        for y in (0, h - 1):
+            if is_bg(px[x, y]):
+                bg[y][x] = True; q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if is_bg(px[x, y]):
+                bg[y][x] = True; q.append((x, y))
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < w and 0 <= ny < h and not bg[ny][nx] and is_bg(px[nx, ny]):
+                bg[ny][nx] = True; q.append((nx, ny))
+    xs = [x for x in range(w) for y in range(h) if not bg[y][x]]
+    ys = [y for y in range(h) for x in range(w) if not bg[y][x]]
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+    tw = 18
+    cell = (x1 - x0 + 1) / tw
+    th = max(1, round((y1 - y0 + 1) / cell))
+
+    def classify(c):
+        r, g, b = c
+        if max(r, g, b) < 85:
+            return (26, 26, 34, 255)          # outline
+        if r > 170 and r > b + 70:            # horn gradient
+            if g > 190:
+                return (251, 191, 36, 255)    # yellow
+            if g > 120:
+                return (249, 115, 22, 255)    # orange
+            return (194, 65, 12, 255)         # deep orange
+        if b >= r:                            # steel family
+            v = (r + g + b) / 3
+            if v > 185:
+                return (199, 211, 221, 255)   # light steel
+            if v > 130:
+                return (147, 167, 181, 255)   # mid steel
+            return (92, 110, 124, 255)        # dark steel
+        return (147, 167, 181, 255)
+
+    out = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    d = ImageDraw.Draw(out)
+    for gy in range(th):
+        for gx in range(tw):
+            cx0, cx1 = x0 + int(gx * cell), min(x0 + int((gx + 1) * cell) + 1, x1 + 1)
+            cy0, cy1 = y0 + int(gy * cell), min(y0 + int((gy + 1) * cell) + 1, y1 + 1)
+            cnt = Counter()
+            for y in range(cy0, cy1):
+                for x in range(cx0, cx1):
+                    if not bg[y][x]:
+                        cnt[px[x, y]] += 1
+            if not cnt:
+                continue
+            col = classify(cnt.most_common(1)[0][0])
+            X = 31 - tw // 2 + gx
+            Y = 23 - th + 1 + gy
+            for ddy in range(2):      # 2px tall rows for presence on the head
+                d.point((X, Y + ddy), fill=col)
+    return out
 
 
 # --- knight visor: steel band across the face --------------------------------
@@ -327,21 +370,21 @@ def shadow_daggers():
     B, BG, G = hexc("4C1D95"), hexc("A78BFA"), hexc("312E81")
     for bx in (12, 50):
         flip = 1 if bx < 31 else -1
-        # blade pointing down-inward
+        # blade pointing up-inward
         for i in range(12):
-            x = bx + flip * i // 4
+            x = bx + flip * (11 - i) // 4
             y = 30 + i
             d.point((x, y), fill=B)
             d.point((x + flip, y), fill=G)
             if i % 3 == 0:
-                d.point((x, y + 1), fill=BG)
-        d.point((bx + flip * 3, 43), fill=BG)
-        # guard + grip
+                d.point((x, y - 1), fill=BG)
+        d.point((bx + flip * 3, 29), fill=BG)
+        # guard + grip hanging below
         for dx in (-2, -1, 0, 1, 2):
-            d.point((bx + dx + flip, 29), fill=hexc("854D0E"))
+            d.point((bx + dx + flip, 43), fill=hexc("854D0E"))
         for i in range(4):
-            d.point((bx - flip * i // 2, 27 - i), fill=hexc("5C2E06"))
-        d.point((bx - flip * 2, 23), fill=hexc("A78BFA"))
+            d.point((bx - flip * i // 2, 45 + i), fill=hexc("5C2E06"))
+        d.point((bx - flip * 2, 49), fill=hexc("A78BFA"))
     return img
 
 
@@ -400,7 +443,7 @@ def dragon_bow():
     for s2 in range(40):
         x = top[0] + (bot[0] - top[0]) * s2 // 39
         y = top[1] + (bot[1] - top[1]) * s2 // 39
-        d.point((x + 5, y), fill=STR)
+        d.point((x - 1, y), fill=STR)
     return img
 
 
@@ -444,13 +487,16 @@ def frostweave():
             c = BD if x > cx else B
             d.point((x, y), fill=c)
         d.point((cx - half, y), fill=RIM)
-    # frost crystals along the edges
-    for _ in range(30):
-        x = random.randint(12, 50)
-        y = random.randint(24, 57)
-        if random.random() < 0.5:
+    # frost crystals: only on existing cape pixels
+    px = img.load()
+    placed = 0
+    attempts = 0
+    while placed < 22 and attempts < 400:
+        attempts += 1
+        x, y = random.randint(14, 48), random.randint(24, 56)
+        if px[x, y][3] > 0 and px[x, y][:3] in (B, BD):
             d.point((x, y), fill=RIM)
-            d.point((x, y - 1), fill=RIM)
+            placed += 1
     # hem
     for x in range(14, 50):
         d.point((x, 57 + (x // 6) % 2), fill=RIM)
@@ -612,7 +658,7 @@ def wizard_hat():
     gpb = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gpb)
     blank = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-    return gpb.draw_wizard_hat(blank, **gpb.VIOLET)
+    return gpb.draw_wizard_hat(blank, **gpb.BLUE)
 
 
 GEAR = {
