@@ -19,6 +19,8 @@ struct ChildLedgerView: View {
 
     private let familyRecordName: String?
 
+    @State private var isShowingTransfer: Bool = false
+
     @Query private var allLedgers: [LedgerEntryCache]
 
     init(familyRecordName: String? = nil) {
@@ -105,6 +107,15 @@ struct ChildLedgerView: View {
                 }
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .safeAreaInset(edge: .bottom) {
+                moveMoneyBar
+                    .padding(.horizontal, DesignSystemConstants.Padding.standard)
+                    .padding(.vertical, DesignSystemConstants.Padding.small)
+                    .background(Color(.systemGroupedBackground))
+            }
+            .sheet(isPresented: $isShowingTransfer) {
+                BucketTransferView()
+            }
             .navigationTitle("MONEY")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable {
@@ -177,14 +188,13 @@ struct ChildLedgerView: View {
         .accessibilityLabel(
             "\(entry.entryDescription): \(CurrencyFormatter.string(entry.amount))"
         )
+        .accessibilityIdentifier("ledger.row-\(entry.recordName)")
     }
 
     // MARK: - Empty State
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer().frame(height: 64)
-
             Image(systemName: "dollarsign.circle")
                 .font(.system(size: 56))
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
@@ -203,7 +213,30 @@ struct ChildLedgerView: View {
 
             Spacer()
         }
+        .padding(.top, 64)
         .frame(maxWidth: .infinity)
+        .accessibilityIdentifier("ledger.emptyState")
+    }
+
+    // MARK: - Move Money CTA
+
+    private var moveMoneyBar: some View {
+        Button {
+            HapticsService.lightImpact()
+            isShowingTransfer = true
+        } label: {
+            Label("Move Money", systemImage: "arrow.left.arrow.right")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.button, style: .continuous)
+                        .fill(Color(DesignSystemConstants.Colors.accentBlue))
+                )
+        }
+        .accessibilityHint("Move money between your buckets")
+        .accessibilityIdentifier("ledger.moveMoneyButton")
     }
 
     // MARK: - Helpers

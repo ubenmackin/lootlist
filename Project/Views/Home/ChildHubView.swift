@@ -140,6 +140,7 @@ struct ChildHubView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(bellAccessibilityLabel)
+            .accessibilityIdentifier("hub.questsLink")
 
             NavigationLink {
                 SettingsView()
@@ -152,6 +153,7 @@ struct ChildHubView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
+            .accessibilityIdentifier("hub.settingsLink")
         }
     }
 
@@ -222,17 +224,20 @@ struct ChildHubView: View {
                 BucketTileView(
                     emoji: "🛍️",
                     title: "SPEND",
-                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.spend))
+                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.spend)),
+                    accessibilityID: "hub.bucketTile-spend"
                 )
                 BucketTileView(
                     emoji: "🐷",
                     title: "SHORT SAVE",
-                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.shortTermSave))
+                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.shortTermSave)),
+                    accessibilityID: "hub.bucketTile-shortSave"
                 )
                 BucketTileView(
                     emoji: "🌳",
                     title: "LONG SAVE",
-                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.longTermSave))
+                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.longTermSave)),
+                    accessibilityID: "hub.bucketTile-longSave"
                 )
             }
         }
@@ -250,6 +255,7 @@ struct ChildHubView: View {
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Available balance \(CurrencyFormatter.string(viewModel.availableBalance))")
+        .accessibilityIdentifier("hub.balanceCard")
     }
 
     // MARK: - Weekly Progress Card
@@ -270,7 +276,7 @@ struct ChildHubView: View {
 
             Spacer()
 
-            ProgressRingView(progress: viewModel.weeklyProgress, tint: .blue)
+            ProgressRingView(progress: viewModel.weeklyProgress, tint: .blue, identifier: "hub.weeklyProgressRing")
                 .frame(width: 72, height: 72)
         }
         .padding(DesignSystemConstants.Padding.standard)
@@ -300,7 +306,8 @@ struct ChildHubView: View {
                         title: row.title,
                         subtitle: row.subtitle,
                         amountText: "+\(CurrencyFormatter.string(row.amount))",
-                        style: row.isPendingReview ? .pendingReview : .upcoming
+                        style: row.isPendingReview ? .pendingReview : .upcoming,
+                        accessibilityID: "hub.choreRow-\(row.id)"
                     )
                 }
             }
@@ -354,6 +361,7 @@ struct ChildHubView: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Active goal \(summary.goal.name), \(CurrencyFormatter.string(savedDollars)) of \(CurrencyFormatter.string(targetDollars)) saved")
+                .accessibilityIdentifier("hub.activeGoalCard")
             } else {
                 Text("No active goal yet — tap View All to set one!")
                     .font(.caption)
@@ -390,6 +398,7 @@ struct ChildHubView: View {
                 )
         }
         .accessibilityHint("Opens the spending log form")
+        .accessibilityIdentifier("hub.logPurchaseButton")
     }
 
     // MARK: - Rebuild

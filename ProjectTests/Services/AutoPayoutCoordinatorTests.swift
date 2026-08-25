@@ -26,7 +26,13 @@ struct AutoPayoutCoordinatorTests {
         let heroProfile: Profile
     }
 
-    private func setupServices(heroPayoutPolicy: PayoutPolicy = .perQuest, heroPayoutDay: PayoutDay? = nil) throws -> TestContext {
+    private func setupServices(
+        heroPayoutPolicy: PayoutPolicy = .perQuest,
+        heroPayoutDay: PayoutDay? = nil,
+        heroSplitSpend: Int = 100,
+        heroSplitShort: Int = 0,
+        heroSplitLong: Int = 0
+    ) throws -> TestContext {
         let zoneID = CKRecordZone.ID(zoneName: "TestFamily", ownerName: "Owner")
         let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
@@ -64,6 +70,9 @@ struct AutoPayoutCoordinatorTests {
             family: CKRecord.Reference(recordID: familyObj.id, action: .none),
             payoutPolicy: heroPayoutPolicy,
             payoutDay: heroPayoutDay,
+            splitPercentSpend: heroSplitSpend,
+            splitPercentShort: heroSplitShort,
+            splitPercentLong: heroSplitLong,
             id: CKRecord.ID(recordName: "hero-1", zoneID: zoneID)
         )
 
@@ -773,5 +782,184 @@ struct AutoPayoutCoordinatorTests {
         #expect(comps.second == 0)
         #expect(range.upperBound == range.lowerBound.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek)))
         #expect(range.contains(dstDay))
+    }
+}
+
+// MARK: - Bucket-split payout settlement
+
+extension AutoPayoutCoordinatorTests {
+    /// Seeds one completed quest and an open allowance period for the week
+    /// starting `weekOf`, so the coordinator's next due pass settles it.
+    private func seedWeekEarnings(ctx: TestContext, weekOf: Date, goldReward: Double) throws {
+        let template = QuestTemplate(
+            name: "Bucket Quest",
+            description: "Earn toward buckets",
+            defaultGold: goldReward,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            createdBy: CKRecord.Reference(recordID: ctx.parentProfile.id, action: .none),
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+            id: CKRecord.ID(recordName: "template-buckets", zoneID: ctx.family.id.zoneID)
+        )
+        ctx.cache.upsertQuestTemplate(template)
+
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: template.id, action: .none),
+            assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+            goldReward: goldReward,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            createdBy: CKRecord.Reference(recordID: ctx.parentProfile.id, action: .none),
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+            name: "Bucket Quest",
+            id: CKRecord.ID(recordName: "quest-buckets", zoneID: ctx.family.id.zoneID)
+        )
+        ctx.cache.upsertQuest(quest)
+
+        let completion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: weekOf,
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none)
+        )
+        ctx.cache.upsertQuestCompletion(completion)
+
+        let period = AllowancePeriod(
+            weekOf: weekOf,
+            profile: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
+            questsTotal: 1,
+            family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
+            id: CKRecord.ID(recordName: "period-buckets", zoneID: ctx.family.id.zoneID)
+        )
+        ctx.cache.upsertAllowancePeriod(period)
+
+        for type in [CachedRecordType.quest, .questCompletion, .allowancePeriod, .ledgerEntry] {
+            ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: type)
+        }
+    }
+
+    @Test
+    func `autoPayout settles weekly earnings into three buckets per child percentages`() async throws {
+        let ctx = try setupServices(heroSplitSpend: 60, heroSplitShort: 25, heroSplitLong: 15)
+
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
+        try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 25.0)
+
+        let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
+        let processed = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        #expect(processed == 1)
+
+        // The AllowancePeriod must close as paid with the full pre-split amount.
+        let paidPeriod = try #require(
+            ctx.cache.fetchAllowancePeriods(family: ctx.family.id.recordName)
+                .first { $0.profileRecordName == ctx.heroProfile.id.recordName && $0.statusEnum == .paid }
+        )
+        #expect(paidPeriod.paidAmount == 25.0)
+
+        let entries = ctx.cache.fetchLedgerEntries(
+            profileRecordName: ctx.heroProfile.id.recordName,
+            family: ctx.family.id.recordName
+        )
+        #expect(entries.count == 3, "A multi-bucket payout mints exactly one entry per receiving bucket")
+
+        let base = "payout-\(paidPeriod.recordName)"
+        let byName = Dictionary(uniqueKeysWithValues: entries.map { ($0.recordName, $0) })
+        #expect(byName["\(base)-spend"]?.amount == 15.0)
+        #expect(byName["\(base)-shortTermSave"]?.amount == 6.25)
+        #expect(byName["\(base)-longTermSave"]?.amount == 3.75)
+        #expect(byName["\(base)-spend"]?.bucketKind == BucketKind.spend.rawValue)
+        #expect(byName["\(base)-shortTermSave"]?.bucketKind == BucketKind.shortTermSave.rawValue)
+        #expect(byName["\(base)-longTermSave"]?.bucketKind == BucketKind.longTermSave.rawValue)
+        #expect(entries.allSatisfy { $0.source == "quest" })
+
+        // Whole-penny shares must sum back to the exact payout total.
+        let totalPennies = entries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        #expect(totalPennies == 2500)
+    }
+
+    @Test
+    func `autoPayout distributes leftover pennies by largest remainder at the coordinator level`() async throws {
+        // $0.10 at equal thirds leaves one penny; the tie resolves to Spend in
+        // bucket order so the same input never yields two allocations (4/3/3).
+        let tiedCtx = try setupServices(heroSplitSpend: 1, heroSplitShort: 1, heroSplitLong: 1)
+
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
+        try seedWeekEarnings(ctx: tiedCtx, weekOf: weekStart, goldReward: 0.10)
+
+        let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
+        let processed = await tiedCtx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        #expect(processed == 1)
+
+        let tiedEntries = tiedCtx.cache.fetchLedgerEntries(
+            profileRecordName: tiedCtx.heroProfile.id.recordName,
+            family: tiedCtx.family.id.recordName
+        )
+        #expect(tiedEntries.count == 3)
+        let tiedByName = Dictionary(uniqueKeysWithValues: tiedEntries.map { ($0.recordName, $0) })
+        #expect(tiedByName["payout-period-buckets-spend"]?.amount == 0.04)
+        #expect(tiedByName["payout-period-buckets-shortTermSave"]?.amount == 0.03)
+        #expect(tiedByName["payout-period-buckets-longTermSave"]?.amount == 0.03)
+        let tiedPennies = tiedEntries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        #expect(tiedPennies == 10)
+
+        // An uneven split sends the stray penny to the bucket with the largest
+        // fractional remainder instead: $0.10 at 33/33/34 lands 4 on long-term.
+        let unevenCtx = try setupServices(heroSplitSpend: 33, heroSplitShort: 33, heroSplitLong: 34)
+        try seedWeekEarnings(ctx: unevenCtx, weekOf: weekStart, goldReward: 0.10)
+
+        _ = await unevenCtx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+
+        let unevenEntries = unevenCtx.cache.fetchLedgerEntries(
+            profileRecordName: unevenCtx.heroProfile.id.recordName,
+            family: unevenCtx.family.id.recordName
+        )
+        #expect(unevenEntries.count == 3)
+        let unevenByName = Dictionary(uniqueKeysWithValues: unevenEntries.map { ($0.recordName, $0) })
+        #expect(unevenByName["payout-period-buckets-spend"]?.amount == 0.03)
+        #expect(unevenByName["payout-period-buckets-shortTermSave"]?.amount == 0.03)
+        #expect(unevenByName["payout-period-buckets-longTermSave"]?.amount == 0.04)
+        let unevenPennies = unevenEntries.reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
+        #expect(unevenPennies == 10)
+    }
+
+    @Test
+    func `autoPayout bucket settlement is idempotent across repeated runs`() async throws {
+        let ctx = try setupServices(heroSplitSpend: 60, heroSplitShort: 25, heroSplitLong: 15)
+
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
+        let weekStart = WeekMath.startOfWeek(for: monday, payoutDay: .sunday)
+        try seedWeekEarnings(ctx: ctx, weekOf: weekStart, goldReward: 25.0)
+
+        let payoutMoment = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
+        let firstRun = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        #expect(firstRun == 1)
+
+        let entriesAfterFirst = ctx.cache.fetchLedgerEntries(
+            profileRecordName: ctx.heroProfile.id.recordName,
+            family: ctx.family.id.recordName
+        )
+        #expect(entriesAfterFirst.count == 3)
+
+        // The paid AllowancePeriod skip-guard makes the second pass a no-op —
+        // no re-minted entries, no double-credited wallet.
+        let secondRun = await ctx.coordinator.processPendingPayoutsIfDue(now: payoutMoment)
+        #expect(secondRun == 0)
+
+        let entriesAfterSecond = ctx.cache.fetchLedgerEntries(
+            profileRecordName: ctx.heroProfile.id.recordName,
+            family: ctx.family.id.recordName
+        )
+        #expect(entriesAfterSecond.count == 3)
+        #expect(Set(entriesAfterSecond.map(\.recordName)) == Set(entriesAfterFirst.map(\.recordName)))
     }
 }

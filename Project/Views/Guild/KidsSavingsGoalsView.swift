@@ -216,6 +216,8 @@ struct KidsSavingsGoalsView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(accent.opacity(0.25), lineWidth: 1.2)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("kidsGoals.section-\(hero.recordName)")
     }
 
     private func heroHeader(hero: ProfileCache, accent: Color) -> some View {
@@ -249,6 +251,7 @@ struct KidsSavingsGoalsView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Edit savings settings for \(hero.displayName)")
+            .accessibilityIdentifier("kidsGoals.editLink-\(hero.recordName)")
         }
     }
 
@@ -382,6 +385,7 @@ struct KidsSavingsGoalsView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel(goal: goal, hero: hero, percent: percent, remainingDollars: remainingDollars))
+        .accessibilityIdentifier("kidsGoals.goalCard-\(goal.recordName)")
     }
 
     private func attributedTitle(goal: GoalCache, hero: ProfileCache) -> String {

@@ -64,7 +64,7 @@ struct AvatarCardView: View {
             if let customData = model.customAvatarImageData, let uiImage = UIImage(data: customData) {
                 Image(uiImage: uiImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
                     .frame(width: DesignSystemConstants.AvatarSize.large, height: DesignSystemConstants.AvatarSize.large)
                     .clipShape(Circle())
                     .overlay(

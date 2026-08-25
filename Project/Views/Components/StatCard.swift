@@ -18,6 +18,8 @@ struct StatCard: View {
 
     var tint: Color = .init(DesignSystemConstants.Colors.primaryGreen)
 
+    var accessibilityID: String?
+
     var body: some View {
         VStack(spacing: 4) {
             if let icon {
@@ -42,5 +44,6 @@ struct StatCard: View {
                              style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
+        .accessibilityIdentifierIfSet(accessibilityID)
     }
 }

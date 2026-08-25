@@ -30,10 +30,9 @@ struct DetectedFamilyView: View {
             Spacer()
 
             actionButtons
-
-            Spacer().frame(height: 24)
         }
         .padding(.horizontal, 24)
+        .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(

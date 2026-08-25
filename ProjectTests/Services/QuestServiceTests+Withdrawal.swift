@@ -78,4 +78,68 @@ extension QuestServiceTests {
             "The withdrawn log must remain in the cache as a status-transitioned record"
         )
     }
+
+    // MARK: - Bucket overdraft rejection
+
+    @Test
+    func `bucket transfer rejects overdrawing the source bucket`() async throws {
+        let scaffold = try MarkCompleteScaffold()
+        let cache = scaffold.cache
+
+        func seedEntry(_ name: String, amount: Double, kind: BucketKind) {
+            cache.upsertLedgerEntry(
+                LedgerEntry(
+                    profile: CKRecord.Reference(recordID: scaffold.hero.id, action: .none),
+                    amount: amount,
+                    description: name,
+                    date: Date(),
+                    source: "quest",
+                    bucketKind: kind.rawValue,
+                    family: scaffold.familyRef,
+                    id: CKRecord.ID(recordName: name, zoneID: scaffold.zoneID)
+                )
+            )
+        }
+        seedEntry("seed-spend", amount: 5.00, kind: .spend)
+        seedEntry("seed-short", amount: 2.00, kind: .shortTermSave)
+
+        let conflictResolver = CKSyncConflictResolver(cacheService: cache, appState: scaffold.appState)
+        let delegateHandler = CKSyncEngineDelegateHandler(
+            conflictResolver: conflictResolver,
+            cacheService: cache,
+            appState: scaffold.appState
+        )
+        let syncCoordinator = CKSyncEngineCoordinator(
+            cloudKitService: scaffold.cloudKit,
+            delegateHandler: delegateHandler,
+            appState: scaffold.appState,
+            defaults: UserDefaults.ephemeral()
+        )
+        let buckets = BucketService(cacheService: cache, syncCoordinator: syncCoordinator, appState: scaffold.appState)
+        let family = try #require(scaffold.appState.family)
+
+        await #expect(throws: BucketServiceError.insufficientFunds(available: 5.00, requested: 7.00)) {
+            try await buckets.transfer(
+                from: .spend,
+                to: .shortTermSave,
+                amount: 7.00,
+                profile: scaffold.hero,
+                family: family
+            )
+        }
+
+        // The rejected transfer leaves balances and the ledger untouched —
+        // no partial movement may be recorded.
+        let balances = buckets.bucketBalances(
+            profileRecordName: scaffold.hero.id.recordName,
+            familyRecordName: family.id.recordName
+        )
+        #expect(balances[.spend] == 5.00)
+        #expect(balances[.shortTermSave] == 2.00)
+        let rows = cache.fetchLedgerEntries(
+            profileRecordName: scaffold.hero.id.recordName,
+            family: family.id.recordName
+        )
+        #expect(!rows.contains { $0.source == "transfer" })
+    }
 }

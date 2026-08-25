@@ -164,10 +164,9 @@ struct FamilyJoinView: View {
             #endif
 
             Spacer()
-
-            Spacer().frame(height: 24)
         }
         .padding(.horizontal, 24)
+        .padding(.bottom, 24)
         .accessibilityIdentifier("joinFamily.waitingScreen")
     }
 
@@ -246,10 +245,9 @@ struct FamilyJoinView: View {
             Spacer()
 
             heroActionButtons
-
-            Spacer().frame(height: 24)
         }
         .padding(.horizontal, 24)
+        .padding(.bottom, 24)
     }
 
     private func heroCard(_ hero: DetectedHero) -> some View {

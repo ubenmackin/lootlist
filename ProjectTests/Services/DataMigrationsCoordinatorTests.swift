@@ -193,4 +193,58 @@ struct DataMigrationsCoordinatorTests {
             try await step.run()
         }
     }
+
+    // MARK: - Schema V8 transition
+
+    @Test
+    func `schemaV8SavingsResetMarker completes per account and family and skips reruns`() async throws {
+        let suite = "MigrationTests_V8Marker_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+
+        let coordinator = DataMigrationsCoordinator(defaults: defaults)
+        coordinator.register(DataMigrationsCoordinator.schemaV8SavingsResetMarker(cloudKit: cloudKit))
+
+        await coordinator.runPendingMigrations(accountID: "user123", familyRecordName: "family456")
+        #expect(defaults.bool(forKey: "migration.user123.family456.SchemaV8SavingsResetMarker.v8.complete"))
+
+        // The marker must be idempotent: a second pass for the same family is a
+        // no-op and leaves the completion flag intact.
+        await coordinator.runPendingMigrations(accountID: "user123", familyRecordName: "family456")
+        #expect(defaults.bool(forKey: "migration.user123.family456.SchemaV8SavingsResetMarker.v8.complete"))
+
+        // A different family scopes its own transition marker.
+        await coordinator.runPendingMigrations(accountID: "user123", familyRecordName: "family789")
+        #expect(defaults.bool(forKey: "migration.user123.family789.SchemaV8SavingsResetMarker.v8.complete"))
+        #expect(defaults.bool(forKey: "migration.user123.family456.SchemaV8SavingsResetMarker.v8.complete"))
+
+        defaults.removePersistentDomain(forName: suite)
+    }
+
+    @Test
+    func `schemaV8SavingsResetMarker completes fail-open without an active zone`() async throws {
+        // The destructive cache reset itself happens when the SwiftData container
+        // opens with the V8 schema; the marker only records that the version
+        // transition was observed. Failing here (e.g. before a session exists)
+        // would retry forever without ever doing the real work, so it must
+        // complete even with no active family zone.
+        let suite = "MigrationTests_V8MarkerNoZone_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = nil
+
+        let coordinator = DataMigrationsCoordinator(defaults: defaults)
+        coordinator.register(DataMigrationsCoordinator.schemaV8SavingsResetMarker(cloudKit: cloudKit))
+
+        await coordinator.runPendingMigrations(accountID: "user123", familyRecordName: "family456")
+
+        #expect(defaults.bool(forKey: "migration.user123.family456.SchemaV8SavingsResetMarker.v8.complete"))
+
+        defaults.removePersistentDomain(forName: suite)
+    }
 }

@@ -297,6 +297,7 @@ enum LedgerCSVParser {
 /// dedupes instead of duplicating purchases. Nothing touches the ledger
 /// until `finalize` runs after explicit parent confirmation.
 @MainActor
+@Observable
 final class LedgerImportService {
     private let cloudKit: any CloudKitServiceProtocol
     private(set) var cacheService: CacheService?

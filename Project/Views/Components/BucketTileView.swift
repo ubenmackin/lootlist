@@ -17,6 +17,8 @@ struct BucketTileView: View {
 
     let amountText: String
 
+    var accessibilityID: String?
+
     var body: some View {
         VStack(spacing: 4) {
             Text("\(emoji) \(title)")
@@ -38,5 +40,6 @@ struct BucketTileView: View {
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                 .fill(Color.white.opacity(0.18))
         )
+        .accessibilityIdentifierIfSet(accessibilityID)
     }
 }

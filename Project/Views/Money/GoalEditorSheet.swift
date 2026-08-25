@@ -54,10 +54,12 @@ struct GoalEditorSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(isSaving)
+                        .accessibilityIdentifier("goalEditor.cancelButton")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveGoal() }
                         .disabled(!isValid || isSaving)
+                        .accessibilityIdentifier("goalEditor.saveButton")
                 }
             }
         }
@@ -99,6 +101,7 @@ struct GoalEditorSheet: View {
         Section("Goal Name") {
             TextField("e.g. New Bike", text: $nameText)
                 .submitLabel(.done)
+                .accessibilityIdentifier("goalEditor.nameField")
         }
     }
 
@@ -147,6 +150,7 @@ struct GoalEditorSheet: View {
 
                 TextField("0.00", text: $targetAmountText)
                     .keyboardType(.decimalPad)
+                    .accessibilityIdentifier("goalEditor.amountField")
                     .onChange(of: targetAmountText) { _, newValue in
                         validateAmount(newValue)
                     }

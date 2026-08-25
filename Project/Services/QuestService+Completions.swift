@@ -156,14 +156,21 @@ extension QuestService {
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
 
+        // Local-first approval: the parent's decision persists immediately, so
+        // a failed or lost reward claim can never strand the completion in
+        // .pending — the queue clears instantly and the verified row rides the
+        // next engine send. applyReward deduplicates this completion in its
+        // approved-count math, and xpCredited stamping stays gated behind the
+        // atomic server claim.
+        cacheService?.upsertQuestCompletion(updated)
+        let isOwner = appState.isZoneOwner
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+
         try await handlePostVerifySettlement(questLog: questLog, updated: updated)
 
+        // Adopt whatever the settlement step stamped onto the cached row.
         if let cached = cacheService?.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
             updated = cached.toQuestCompletion(zoneID: questLog.id.zoneID)
-        } else {
-            cacheService?.upsertQuestCompletion(updated)
-            let isOwner = appState.isZoneOwner
-            syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         }
 
         return updated

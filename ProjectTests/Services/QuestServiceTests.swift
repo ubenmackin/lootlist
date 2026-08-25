@@ -762,7 +762,7 @@ struct QuestServiceTests {
     }
 
     @Test
-    func `verify on RewardEvent save failure leaves completion pending and allows clean retry`() async throws {
+    func `verify on RewardEvent save failure keeps approval and defers only XP credit`() async throws {
         let mockCK = MockCloudKitService()
         let scaffold = try MarkCompleteScaffold(
             approvalMode: .parentVerify,
@@ -796,17 +796,22 @@ struct QuestServiceTests {
             _ = try await scaffold.questService.verify(questLog: pending, by: scaffold.parent)
         }
 
+        // The approval decision is durable local-first: a failed reward claim
+        // must never strand the completion in pending, or the parent's review
+        // queue would never clear.
         let cachedAfterFailure = try #require(scaffold.cache.fetchQuestCompletions(family: "fam1").first { $0.recordName == pending.id.recordName })
-        #expect(cachedAfterFailure.verificationStatus == VerificationStatus.pending.rawValue, "Failed verify must leave completion in pending state")
-        #expect(cachedAfterFailure.xpCredited == nil, "xpCredited must remain nil on failure")
+        #expect(cachedAfterFailure.verificationStatus == VerificationStatus.verified.rawValue, "Failed reward settlement must not discard the parent's approval")
+        #expect(cachedAfterFailure.xpCredited == nil, "xpCredited must remain nil until the atomic RewardEvent claim succeeds")
 
+        // Retrying after settlement failed resolves as already-approved rather
+        // than re-running settlement and risking a double credit.
         mockCK.saveError = nil
-        let verified = try await scaffold.questService.verify(questLog: pending, by: scaffold.parent)
-        #expect(verified.verificationStatus == .verified)
-
-        let cachedAfterSuccess = try #require(scaffold.cache.fetchQuestCompletions(family: "fam1").first { $0.recordName == pending.id.recordName })
-        #expect(cachedAfterSuccess.verificationStatus == VerificationStatus.verified.rawValue)
-        #expect(cachedAfterSuccess.xpCredited == 50)
+        await #expect(throws: QuestServiceError.self) {
+            _ = try await scaffold.questService.verify(questLog: pending, by: scaffold.parent)
+        }
+        let cachedAfterRetry = try #require(scaffold.cache.fetchQuestCompletions(family: "fam1").first { $0.recordName == pending.id.recordName })
+        #expect(cachedAfterRetry.verificationStatus == VerificationStatus.verified.rawValue)
+        #expect(cachedAfterRetry.xpCredited == nil)
     }
 
     @Test

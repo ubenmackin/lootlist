@@ -65,6 +65,7 @@
 		2EF69CF462F9C95DAC72D6B3 /* OptimisticRollbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56D827C1B1BDCCD1F2D6AA52 /* OptimisticRollbackTests.swift */; };
 		2F9B31B904F2EA47AFAD916A /* CachedRecordType.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E2D5703C59B4BFBBF4A5D3 /* CachedRecordType.swift */; };
 		2FFB74BF54928DA7A3C2FD31 /* CalendarUtilsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A9FD98BAD9A663A62C68DCF /* CalendarUtilsTests.swift */; };
+		30F82D6FAB9F470428D0C73A /* HeroBoardServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8418B2778C70952E03CE2358 /* HeroBoardServiceTests.swift */; };
 		311A36B8F51F7B4451661892 /* LedgerEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E42E78941E304FA8251B2C6 /* LedgerEntry.swift */; };
 		315E384633D0452D39C774A0 /* InviteRolePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59975E89F6BF79DB7841FABB /* InviteRolePickerView.swift */; };
 		318834AC9316BEAC96554D61 /* MascotCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E90082B7E13F6A2D1DA2689 /* MascotCompanion.swift */; };
@@ -100,6 +101,7 @@
 		4CF83C1694812542CB24D8BF /* CalendarScopeFilterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69AEBEE98C0679819CAC1446 /* CalendarScopeFilterView.swift */; };
 		4D06C6635C57CC7BDE1266E4 /* HeroTransactionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45DF5E9CBB29FC6E6312FE81 /* HeroTransactionView.swift */; };
 		4DE4E9257E98EBD2264C991C /* QuestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 793AE042C54685940F7C3EF1 /* QuestService.swift */; };
+		4EECB96019C92B28A46C845B /* HeroBoardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 966353EEA4E8A4A36D6AAE31 /* HeroBoardUITests.swift */; };
 		4EF789182D28E751857FE6EE /* CloudKitServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 174A338676002E0C46AF3AB3 /* CloudKitServiceProtocol.swift */; };
 		4F8EE68B268993280FAEC986 /* HeroDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8809BA2CCE4B470D8B8554F7 /* HeroDetailView.swift */; };
 		50E39FEEA657632AB7AF960A /* QuestCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5860C6168028B967E157D8 /* QuestCardView.swift */; };
@@ -189,6 +191,7 @@
 		99DE98B6440EB9713CD0F2EB /* HeroAvatarSprites+Equipment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3D6CF1C8AF221417C51FF9 /* HeroAvatarSprites+Equipment.swift */; };
 		9A95211B018F750F1C391111 /* GoldCalculationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 931E127FC9659B8520BB240A /* GoldCalculationTests.swift */; };
 		9ADDCC0E74B821C4CBD6EA8F /* MascotSprites.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9997E541DB4BB7E82A4FD00B /* MascotSprites.swift */; };
+		9B26FE3367D5EDF0D2A3CC42 /* uitest-import-sample.csv in Resources */ = {isa = PBXBuildFile; fileRef = 3B971C67204AF2BED3D54E4A /* uitest-import-sample.csv */; };
 		9BBD7D10551290D9847A1D4F /* SpendingLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09DEF8FEF0BE0600CAD65B9F /* SpendingLogView.swift */; };
 		9C00E3EE402D5426E41E1538 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7309A7921898E5B1910AA9 /* NotificationService.swift */; };
 		9C425F92E42E005BDD1ADDB5 /* RarityBorderModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906DCB4251799C136B0E9B40 /* RarityBorderModifier.swift */; };
@@ -210,6 +213,7 @@
 		A5F050FD7940FC9D2E15B874 /* AllowancePayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DCAA1B2A51F158C1633A551 /* AllowancePayoutEngine.swift */; };
 		A6CC4F0896A3EFBBE8FF6653 /* HeroBoardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B40A26C97411D811F77F48 /* HeroBoardViewModel.swift */; };
 		A75F8715C11AD74DDDCC63B2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86FCD8DE053FCE5CF03E264 /* AppDelegate.swift */; };
+		A828B1B6B47748CE3DFC7AD9 /* HeroBoardViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B2721834052A5030A71C27 /* HeroBoardViewModelTests.swift */; };
 		A9076D491EEFF5E99600A80F /* OnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE3059DE9424EEBF9EAD434 /* OnboardingViewModel.swift */; };
 		AB5994E89A958B1148A2AB5F /* FamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10C1DE0DDB4F4105574887CE /* FamilyCache.swift */; };
 		ABA21AD6F50F102108FBB1A6 /* QuestManagerViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FA4B6503D1684E537104F9C /* QuestManagerViewModelTests.swift */; };
@@ -399,6 +403,7 @@
 		2115EBAAEC5C1190BA62182E /* QuestLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestLogView.swift; sourceTree = "<group>"; };
 		2130409982CCED93E0B0CF0E /* LootList.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = LootList.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		216C19025568EED1B3FFEB60 /* ChoreRowCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChoreRowCard.swift; sourceTree = "<group>"; };
+		21B2721834052A5030A71C27 /* HeroBoardViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroBoardViewModelTests.swift; sourceTree = "<group>"; };
 		22BA86AD62F4837E2182A697 /* AchievementCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementCache.swift; sourceTree = "<group>"; };
 		2362EFD90344CB9A7507C8E7 /* QuickActionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickActionManager.swift; sourceTree = "<group>"; };
 		24F3F8CC0DD0E4E540306D55 /* QuestServiceTests+ActiveQuests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestServiceTests+ActiveQuests.swift"; sourceTree = "<group>"; };
@@ -423,6 +428,7 @@
 		3981A96F7316EF05BD95B2D9 /* WeekMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekMath.swift; sourceTree = "<group>"; };
 		39FD1534CF37B76842F11715 /* DesignSystemConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystemConstants.swift; sourceTree = "<group>"; };
 		3B02119865F6610D00BD4F2A /* TabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarView.swift; sourceTree = "<group>"; };
+		3B971C67204AF2BED3D54E4A /* uitest-import-sample.csv */ = {isa = PBXFileReference; path = "uitest-import-sample.csv"; sourceTree = "<group>"; };
 		3BD29C5382B850C0B63C0A7B /* HeroDashboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardUITests.swift; sourceTree = "<group>"; };
 		3BF2353F4534F87197328D31 /* TreasuryService+Fetches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TreasuryService+Fetches.swift"; sourceTree = "<group>"; };
 		3C0AD0E8223D235A61B7686E /* Family.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Family.swift; sourceTree = "<group>"; };
@@ -520,6 +526,7 @@
 		81E373C156981A67C46478F5 /* GemServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemServiceTests.swift; sourceTree = "<group>"; };
 		830400052B99000D040CC4A2 /* ChildLedgerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildLedgerView.swift; sourceTree = "<group>"; };
 		831CA0373D9645FB1500A84B /* FamilyServiceTests+Authorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyServiceTests+Authorization.swift"; sourceTree = "<group>"; };
+		8418B2778C70952E03CE2358 /* HeroBoardServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroBoardServiceTests.swift; sourceTree = "<group>"; };
 		8489EFF3404096B84A6A50E9 /* QuestManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestManagerView.swift; sourceTree = "<group>"; };
 		86D997850B328758B3EDCDEF /* QuestService+QuestLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestService+QuestLogs.swift"; sourceTree = "<group>"; };
 		87237129AEF89A3DE55E38BC /* ShopItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopItem.swift; sourceTree = "<group>"; };
@@ -544,6 +551,7 @@
 		93CD3446C77BFD7A77AE61D3 /* GemLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemLedger.swift; sourceTree = "<group>"; };
 		948EDDDAD54F2B77BE95CE18 /* FamilyService+Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyService+Settings.swift"; sourceTree = "<group>"; };
 		94FB9A652DA4D837BED9282F /* GuildSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuildSettingsView.swift; sourceTree = "<group>"; };
+		966353EEA4E8A4A36D6AAE31 /* HeroBoardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroBoardUITests.swift; sourceTree = "<group>"; };
 		975CB482406B3EB4588EC345 /* FamilyDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardView.swift; sourceTree = "<group>"; };
 		976D7D6008F9585BF84BDCB5 /* PixelCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelCanvasView.swift; sourceTree = "<group>"; };
 		97B1C9FB5C6463078E45D345 /* QuestCompletionEffectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestCompletionEffectView.swift; sourceTree = "<group>"; };
@@ -729,6 +737,7 @@
 			children = (
 				4485D5B4DFB8574E1DF1D9C3 /* FamilyDashboardViewModelTests.swift */,
 				140BA379E20551BFFF39194D /* FamilyDashboardViewModelTests+Invitations.swift */,
+				21B2721834052A5030A71C27 /* HeroBoardViewModelTests.swift */,
 				074925C44334B4631E02476F /* HeroDashboardViewModelTests.swift */,
 				029D59AC3369CE8ADE425CFE /* HeroLedgerViewModelTests.swift */,
 				43EE66D0D9D493BF47D10DA7 /* ProfileViewModelTests.swift */,
@@ -953,6 +962,7 @@
 				A49B5A27C700FC780D0D78C1 /* FamilyShareReconcilerTests.swift */,
 				81E373C156981A67C46478F5 /* GemServiceTests.swift */,
 				EA56F1C78EF704793A4CC8BA /* HeroAvatarSpritesTests.swift */,
+				8418B2778C70952E03CE2358 /* HeroBoardServiceTests.swift */,
 				41B23C330040CF5222E25760 /* InviteErrorTests.swift */,
 				A3A14024274BCCB6C894C00D /* JourneyServiceTests.swift */,
 				E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */,
@@ -981,6 +991,8 @@
 		4BE4662E212EF363BA47D503 /* ProjectUITests */ = {
 			isa = PBXGroup;
 			children = (
+				65CD490940388EC473D971CC /* Resources */,
+				966353EEA4E8A4A36D6AAE31 /* HeroBoardUITests.swift */,
 				3BD29C5382B850C0B63C0A7B /* HeroDashboardUITests.swift */,
 				F9CDF1B3CCF6974CB463FB5D /* LootListScreenshotTests.swift */,
 				C0168D33CAFC7EF9E0B61580 /* OnboardingUITests.swift */,
@@ -1001,6 +1013,14 @@
 				FC4F63E61875E6DDD28AEE9E /* TreasuryView.swift */,
 			);
 			path = Treasury;
+			sourceTree = "<group>";
+		};
+		65CD490940388EC473D971CC /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				3B971C67204AF2BED3D54E4A /* uitest-import-sample.csv */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		69249A20912CF85D9DFDBBC9 /* ProjectTests */ = {
@@ -1270,6 +1290,7 @@
 			buildConfigurationList = E9A1B8392A4A76C33819B39B /* Build configuration list for PBXNativeTarget "LootListUITests" */;
 			buildPhases = (
 				C91659FD007FCAE84047F97F /* Sources */,
+				2DEAD5BEDC9502166F80921B /* Resources */,
 			);
 			buildRules = (
 			);
@@ -1388,6 +1409,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		2DEAD5BEDC9502166F80921B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9B26FE3367D5EDF0D2A3CC42 /* uitest-import-sample.csv in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		6762EE843DC6B6A9BC536EF1 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1660,6 +1689,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EECB96019C92B28A46C845B /* HeroBoardUITests.swift in Sources */,
 				8EF7931F2B14AB2B90388AEE /* HeroDashboardUITests.swift in Sources */,
 				60447CF3B1E15722E78854EF /* LootListScreenshotTests.swift in Sources */,
 				7974B82A42941AAD9B5D970F /* OnboardingUITests.swift in Sources */,
@@ -1704,6 +1734,8 @@
 				2C0024A3CC6966BD80475E98 /* GoalServiceFIFOTests.swift in Sources */,
 				9A95211B018F750F1C391111 /* GoldCalculationTests.swift in Sources */,
 				1DC307CF87B504DE7E29F317 /* HeroAvatarSpritesTests.swift in Sources */,
+				30F82D6FAB9F470428D0C73A /* HeroBoardServiceTests.swift in Sources */,
+				A828B1B6B47748CE3DFC7AD9 /* HeroBoardViewModelTests.swift in Sources */,
 				EC94E2CDB261FFEB865D2E7C /* HeroDashboardViewModelTests.swift in Sources */,
 				2A910DDD532DBC562115C313 /* HeroLedgerViewModelTests.swift in Sources */,
 				8F423B819E247D73BF293236 /* InterestServiceTests.swift in Sources */,

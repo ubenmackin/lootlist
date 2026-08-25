@@ -15,6 +15,7 @@ struct PayoutHistoryView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
+    @Environment(LedgerImportService.self) private var ledgerImportService
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
@@ -31,6 +32,7 @@ struct PayoutHistoryView: View {
     @State private var showShareSheet = false
     @State private var shareURL: URL?
     @State private var exportFormat: ExportFormat?
+    @State private var showImportSheet = false
     private let exportService = LedgerExportService()
 
     /// Family record name used to push the family filter down to SwiftData.
@@ -83,6 +85,18 @@ struct PayoutHistoryView: View {
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
+                            showImportSheet = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                        // Import is a privileged parent mutation, matching the
+                        // service-layer authorization in LedgerImportService.
+                        .disabled(appState.currentProfile?.role.isParent != true)
+                        .accessibilityLabel("Import Transactions")
+                        .accessibilityIdentifier("payoutHistory.importButton")
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
                             showExportPicker = true
                         } label: {
                             Image(systemName: "square.and.arrow.up")
@@ -113,6 +127,12 @@ struct PayoutHistoryView: View {
                     if let url = shareURL {
                         ShareSheet(items: [url])
                     }
+                }
+                .sheet(isPresented: $showImportSheet) {
+                    LedgerImportView(
+                        importService: ledgerImportService,
+                        familyRecordName: familyRecordName
+                    )
                 }
                 .task {
                     if viewModel == nil {

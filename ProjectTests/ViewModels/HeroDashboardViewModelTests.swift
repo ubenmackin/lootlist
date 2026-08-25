@@ -491,4 +491,153 @@ struct HeroDashboardViewModelTests {
         _ = quest
         _ = log
     }
+
+    // MARK: - Child Hub Aggregates
+
+    /// Harness for the rebuilt child hub: an authenticated hero session over
+    /// an in-memory cache seeded with bucket-attributed ledger rows.
+    @MainActor
+    private struct ChildHubHarness {
+        let appState: AppState
+        let cache: CacheService
+        let viewModel: ChildHubViewModel
+        let profileRef: CKRecord.Reference
+        let familyRef: CKRecord.Reference
+
+        init() throws {
+            cache = try CacheService(inMemory: true)
+            appState = AppState()
+            appState.family = SampleData.family
+            appState.currentProfile = SampleData.heroProfile
+            viewModel = ChildHubViewModel(appState: appState, cacheService: cache)
+            profileRef = CKRecord.Reference(recordID: SampleData.hero1ID, action: .none)
+            familyRef = CKRecord.Reference(recordID: SampleData.familyID, action: .none)
+        }
+
+        func seedLedger(
+            _ name: String,
+            amount: Double,
+            source: String,
+            bucketKind: String?,
+            fromBucket: String? = nil,
+            toBucket: String? = nil
+        ) {
+            cache.upsertLedgerEntry(LedgerEntry(
+                profile: profileRef,
+                amount: amount,
+                description: name,
+                source: source,
+                bucketKind: bucketKind,
+                fromBucket: fromBucket,
+                toBucket: toBucket,
+                family: familyRef,
+                id: CKRecord.ID(recordName: name, zoneID: SampleData.zoneID)
+            ))
+        }
+
+        func quest(_ name: String, weekOf: Date, goldReward: Double = 10.0) -> QuestCache {
+            QuestCache(
+                recordName: name,
+                familyRecordName: SampleData.familyID.recordName,
+                assigneeRecordName: SampleData.hero1ID.recordName,
+                templateRecordName: "t1",
+                weekOf: weekOf,
+                questName: name,
+                isActive: true,
+                goldReward: goldReward,
+                xpReward: 10,
+                rarity: "common",
+                scheduleType: QuestSchedule.weeklyFlexible.rawValue,
+                isAllOrNothing: false,
+                approvalMode: ApprovalMode.autoApprove.rawValue,
+                descriptionText: nil,
+                createdByRecordName: "parent_dad"
+            )
+        }
+
+        func log(_ name: String, quest: QuestCache, status: VerificationStatus) -> QuestCompletionCache {
+            QuestCompletionCache(
+                recordName: name,
+                questRecordName: quest.recordName,
+                familyRecordName: SampleData.familyID.recordName,
+                completerRecordName: SampleData.hero1ID.recordName,
+                completedDate: Date(),
+                weekOf: quest.weekOf,
+                verificationStatus: status.rawValue,
+                approvalMode: ApprovalMode.autoApprove.rawValue,
+                verifiedByRecordName: nil,
+                verifiedDate: nil
+            )
+        }
+    }
+
+    @Test
+    func `hub aggregates total available balance from per-bucket balances`() throws {
+        let harness = try ChildHubHarness()
+        harness.seedLedger("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        harness.seedLedger("l-spend-out", amount: -2.50, source: "manual", bucketKind: BucketKind.spend.rawValue)
+        harness.seedLedger("l-short-in", amount: 6.25, source: "quest", bucketKind: BucketKind.shortTermSave.rawValue)
+
+        harness.viewModel.rebuild(quests: [], logs: [], templates: [], goals: [])
+
+        #expect(harness.viewModel.bucketBalance(.spend) == 7.50)
+        #expect(harness.viewModel.bucketBalance(.shortTermSave) == 6.25)
+        #expect(harness.viewModel.bucketBalance(.longTermSave) == 0)
+        #expect(harness.viewModel.availableBalance == 13.75)
+    }
+
+    @Test
+    func `hub balances debit the transfer source and credit the destination`() throws {
+        let harness = try ChildHubHarness()
+        harness.seedLedger("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        // One transfer row moves money twice: the balance aggregator credits
+        // its bucketKind destination AND debits its fromBucket source.
+        harness.seedLedger(
+            "transfer-hero_maya-1-spend-shortTermSave",
+            amount: 3.00,
+            source: "transfer",
+            bucketKind: BucketKind.shortTermSave.rawValue,
+            fromBucket: BucketKind.spend.rawValue,
+            toBucket: BucketKind.shortTermSave.rawValue
+        )
+
+        harness.viewModel.rebuild(quests: [], logs: [], templates: [], goals: [])
+
+        #expect(harness.viewModel.bucketBalance(.spend) == 7.00)
+        #expect(harness.viewModel.bucketBalance(.shortTermSave) == 3.00)
+        #expect(harness.viewModel.availableBalance == 10.00)
+    }
+
+    @Test
+    func `weekly completion ring fraction counts only quests inside the WeekMath cycle`() throws {
+        let harness = try ChildHubHarness()
+        let currentWeek = WeekMath.weekOf(date: Date())
+        let done = harness.quest("q-done", weekOf: currentWeek)
+        let todo = harness.quest("q-todo", weekOf: currentWeek)
+        let stale = harness.quest("q-stale", weekOf: currentWeek.addingTimeInterval(-7 * 24 * 3600))
+
+        harness.viewModel.rebuild(
+            quests: [done, todo, stale],
+            logs: [harness.log("log-done", quest: done, status: .autoApproved)],
+            templates: [],
+            goals: []
+        )
+
+        #expect(harness.viewModel.weeklyGoal == 2)
+        #expect(harness.viewModel.weeklyCompleted == 1)
+        #expect(harness.viewModel.weeklyProgress == 0.5)
+    }
+
+    @Test
+    func `active goal projection fills the oldest open goal first with FIFO saved pennies`() throws {
+        let harness = try ChildHubHarness()
+        harness.seedLedger("l-short-in", amount: 30.00, source: "quest", bucketKind: BucketKind.shortTermSave.rawValue)
+        let goals = SampleData.createSampleGoals().map { GoalCache(from: $0) }
+
+        harness.viewModel.rebuild(quests: [], logs: [], templates: [], goals: goals)
+
+        let activeGoal = try #require(harness.viewModel.activeGoal)
+        #expect(activeGoal.goal.recordName == "goal_maya_art")
+        #expect(activeGoal.savedPennies == 2500)
+    }
 }

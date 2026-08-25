@@ -39,14 +39,15 @@ struct ProgressBar: View {
 
     private var track: some View {
         GeometryReader { proxy in
+            let trackWidth = max(0, proxy.size.width)
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(trackFill)
-                    .frame(width: proxy.size.width, height: height)
+                    .frame(width: trackWidth, height: height)
 
                 Capsule()
                     .fill(tint)
-                    .frame(width: proxy.size.width * currentFraction, height: height)
+                    .frame(width: max(0, trackWidth * currentFraction), height: height)
                     .shadow(color: tint.opacity(0.45), radius: 4, y: 1)
             }
             .clipShape(Capsule())

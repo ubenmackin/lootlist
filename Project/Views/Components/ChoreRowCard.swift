@@ -24,6 +24,8 @@ struct ChoreRowCard: View {
 
     let style: RowStyle
 
+    var accessibilityID: String?
+
     var body: some View {
         HStack(spacing: DesignSystemConstants.Padding.medium) {
             leadingIcon
@@ -59,6 +61,7 @@ struct ChoreRowCard: View {
             }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifierIfSet(accessibilityID)
     }
 
     @ViewBuilder

@@ -18,6 +18,8 @@ struct GoalCardView: View {
 
     let targetAmount: Double
 
+    var accessibilityID: String?
+
     private var progress: Double {
         guard targetAmount > 0 else { return 0 }
         return min(max(savedAmount / targetAmount, 0), 1)
@@ -66,7 +68,7 @@ struct GoalCardView: View {
 
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(Color(DesignSystemConstants.Colors.primaryGreen))
-                        .frame(width: geometry.size.width * progress, height: 8)
+                        .frame(width: max(0, geometry.size.width * progress), height: 8)
                 }
             }
             .frame(height: 8)
@@ -90,6 +92,7 @@ struct GoalCardView: View {
                              style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
+        .accessibilityIdentifierIfSet(accessibilityID)
     }
 
     /// Simple USD formatting — callers that need region-aware formatting

@@ -543,4 +543,200 @@ struct TreasuryViewModelTests {
         #expect(viewModel.weeklyBreakdown?.paidAmount == 50.0)
         #expect(viewModel.pendingQuestGold == 0.0)
     }
+
+    // MARK: - Bucket Balances & Transfer Preview
+
+    /// Scaffold for the treasury bucket-transfer flow: a self-owned hero
+    /// session over an in-memory cache with a buffered (engine-less) sync
+    /// coordinator, so transfers never touch the network.
+    @MainActor
+    private struct TransferScaffold {
+        let zoneID: CKRecordZone.ID
+        let appState: AppState
+        let buckets: BucketService
+        let cache: CacheService
+        let hero: Profile
+        let family: Family
+        private let profileRef: CKRecord.Reference
+        private let familyRef: CKRecord.Reference
+
+        init() throws {
+            zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+            let mock = MockCloudKitService(zoneID: zoneID)
+            cache = try CacheService(inMemory: true)
+            appState = AppState()
+            hero = Profile(
+                displayName: "Test Hero",
+                role: .hero,
+                iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+                family: CKRecord.Reference(
+                    recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
+                ),
+                id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+            )
+            family = Family(
+                name: "Test Family",
+                createdBy: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+                payoutDay: .sunday,
+                id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+            )
+            appState.currentProfile = hero
+            appState.family = family
+            appState.familyZoneID = zoneID
+            // The engine never initializes under TestEnvironment, so enqueued
+            // saves buffer in memory instead of reaching CloudKit.
+            let handler = CKSyncEngineDelegateHandler(conflictResolver: CKSyncConflictResolver())
+            let coordinator = CKSyncEngineCoordinator(cloudKitService: mock, delegateHandler: handler, appState: appState)
+            buckets = BucketService(cacheService: cache, syncCoordinator: coordinator, appState: appState)
+            profileRef = CKRecord.Reference(recordID: hero.id, action: .none)
+            familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        }
+
+        func seed(_ name: String,
+                  amount: Double,
+                  source: String,
+                  bucketKind: String?,
+                  fromBucket: String? = nil,
+                  toBucket: String? = nil)
+        {
+            cache.upsertLedgerEntry(LedgerEntry(
+                profile: profileRef,
+                amount: amount,
+                description: name,
+                source: source,
+                bucketKind: bucketKind,
+                fromBucket: fromBucket,
+                toBucket: toBucket,
+                family: familyRef,
+                id: CKRecord.ID(recordName: name, zoneID: zoneID)
+            ))
+        }
+
+        func entries() -> [LedgerEntryCache] {
+            cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
+        }
+    }
+
+    @Test
+    func `treasury bucket balances credit transfers to destination and debit source`() throws {
+        let scaffold = try TransferScaffold()
+        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        scaffold.seed(
+            "l-transfer",
+            amount: 3.00,
+            source: "transfer",
+            bucketKind: BucketKind.shortTermSave.rawValue,
+            fromBucket: BucketKind.spend.rawValue,
+            toBucket: BucketKind.shortTermSave.rawValue
+        )
+
+        let balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
+
+        #expect(balances[.spend] == 7.00)
+        #expect(balances[.shortTermSave] == 3.00)
+    }
+
+    @Test
+    func `transfer preview rejects same-bucket moves before touching balances`() async throws {
+        let scaffold = try TransferScaffold()
+        do {
+            _ = try await scaffold.buckets.transfer(
+                from: .spend, to: .spend, amount: 1.0,
+                profile: scaffold.hero, family: scaffold.family
+            )
+            Issue.record("Same-bucket transfer must throw")
+        } catch {
+            #expect(error as? BucketServiceError == .sameBucket)
+        }
+    }
+
+    @Test
+    func `transfer preview rejects zero and negative amounts`() async throws {
+        let scaffold = try TransferScaffold()
+        for amount in [0.0, -5.0] {
+            do {
+                _ = try await scaffold.buckets.transfer(
+                    from: .spend, to: .shortTermSave, amount: amount,
+                    profile: scaffold.hero, family: scaffold.family
+                )
+                Issue.record("Amount \(amount) must throw")
+            } catch {
+                #expect(error as? BucketServiceError == .invalidAmount)
+            }
+        }
+    }
+
+    @Test
+    func `transfer preview refuses moves on behalf of another profile`() async throws {
+        let scaffold = try TransferScaffold()
+        scaffold.appState.currentProfile = nil
+        do {
+            _ = try await scaffold.buckets.transfer(
+                from: .spend, to: .shortTermSave, amount: 1.0,
+                profile: scaffold.hero, family: scaffold.family
+            )
+            Issue.record("Cross-profile transfer must throw")
+        } catch {
+            #expect(error as? BucketServiceError == .unauthorized)
+        }
+    }
+
+    @Test
+    func `transfer preview reports exact insufficient funds from the source bucket`() async throws {
+        let scaffold = try TransferScaffold()
+        scaffold.seed("l-spend-in", amount: 2.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+        let rowsBeforePreview = scaffold.entries().count
+
+        do {
+            _ = try await scaffold.buckets.transfer(
+                from: .spend, to: .shortTermSave, amount: 5.00,
+                profile: scaffold.hero, family: scaffold.family
+            )
+            Issue.record("Overdrafting transfer must throw")
+        } catch {
+            #expect(error as? BucketServiceError == .insufficientFunds(available: 2.00, requested: 5.00))
+        }
+        // A rejected preview is strictly read-only: the ledger keeps exactly
+        // the seeded funding row and gains nothing from the failed attempt.
+        #expect(scaffold.entries().count == rowsBeforePreview)
+    }
+
+    @Test
+    func `confirmed transfer moves balances with deterministic id and replays idempotently`() async throws {
+        let scaffold = try TransferScaffold()
+        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+
+        let entry = try await scaffold.buckets.transfer(
+            from: .spend, to: .shortTermSave, amount: 4.00,
+            profile: scaffold.hero, family: scaffold.family
+        )
+
+        // Deterministic ID per (profile, day, from, to): CloudKit dedupes a
+        // same-day retry across devices.
+        let unixDay = Int(Date().timeIntervalSince1970 / 86400)
+        #expect(entry.id.recordName == "transfer-hero1-\(unixDay)-spend-shortTermSave")
+        #expect(entry.source == "transfer")
+        #expect(entry.bucketKind == BucketKind.shortTermSave.rawValue)
+        #expect(entry.fromBucket == BucketKind.spend.rawValue)
+        #expect(entry.toBucket == BucketKind.shortTermSave.rawValue)
+
+        var balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
+        #expect(balances[.spend] == 6.00)
+        #expect(balances[.shortTermSave] == 4.00)
+        // Two rows total: the seeded funding entry plus exactly ONE transfer
+        // ledger row — the debit side is carried by fromBucket attribution,
+        // never by a second row.
+        #expect(scaffold.entries().count == 2)
+
+        // Same-day replay re-upserts the identical record instead of minting
+        // a second ledger row.
+        _ = try await scaffold.buckets.transfer(
+            from: .spend, to: .shortTermSave, amount: 4.00,
+            profile: scaffold.hero, family: scaffold.family
+        )
+        #expect(scaffold.entries().count == 2)
+        balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
+        #expect(balances[.spend] == 6.00)
+        #expect(balances[.shortTermSave] == 4.00)
+    }
 }

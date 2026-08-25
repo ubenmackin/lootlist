@@ -74,7 +74,7 @@ struct AvatarView: View {
             if let customData = spec.customAvatarImageData, let uiImage = UIImage(data: customData) {
                 Image(uiImage: uiImage)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
+                    .scaledToFill()
                     .frame(width: size.diameter, height: size.diameter)
                     .clipShape(Circle())
             } else if let emoji = spec.avatarEmoji, !emoji.isEmpty {

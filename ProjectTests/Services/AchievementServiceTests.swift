@@ -620,6 +620,115 @@ struct AchievementServiceTests {
     }
 
     @Test
+    func `seeded trophy catalog matches the V1 spec and omits legacy criteria`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState.testState()
+        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let parent = makeParent(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = parent
+
+        try await service.seedDefaultAchievements(family: family)
+
+        let seeded = cache.fetchAchievements(family: family.id.recordName)
+        let v1RequirementTypes: Set<String> = [
+            AchievementRequirement.firstQuest.rawValue,
+            AchievementRequirement.questCount10.rawValue,
+            AchievementRequirement.questCount25.rawValue,
+            AchievementRequirement.questCount50.rawValue,
+            AchievementRequirement.questCount100.rawValue,
+            AchievementRequirement.weekly100.rawValue,
+            AchievementRequirement.streak7.rawValue,
+            AchievementRequirement.streak30.rawValue,
+            AchievementRequirement.firstGoalCreated.rawValue,
+            AchievementRequirement.goalGetter.rawValue,
+            AchievementRequirement.ledgerCount10.rawValue,
+            AchievementRequirement.earlyBird9am.rawValue
+        ]
+        #expect(seeded.count == 12, "V1 trophy spec has exactly 12 trophies")
+        #expect(Set(seeded.map(\.requirementType)) == v1RequirementTypes)
+
+        // Legacy Level/XP/Gem-era criteria must never be seeded again.
+        for legacy in [AchievementRequirement.gold100, .gold500, .ledgerWeeks4] {
+            #expect(!seeded.contains { $0.requirementType == legacy.rawValue }, "Legacy \(legacy.rawValue) must not be seeded in the V1 catalog")
+        }
+    }
+
+    @Test
+    func `quest count tiers are completion counts not xp or gem thresholds`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState.testState()
+        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let parent = makeParent(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = parent
+
+        try await service.seedDefaultAchievements(family: family)
+
+        let seeded = cache.fetchAchievements(family: family.id.recordName)
+        let tierValues: [String: Int] = [
+            AchievementRequirement.firstQuest.rawValue: 1,
+            AchievementRequirement.questCount10.rawValue: 10,
+            AchievementRequirement.questCount25.rawValue: 25,
+            AchievementRequirement.questCount50.rawValue: 50,
+            AchievementRequirement.questCount100.rawValue: 100
+        ]
+        for (rawValue, expectedValue) in tierValues {
+            let tier = seeded.first { $0.requirementType == rawValue }
+            #expect(tier != nil, "Quest-count tier \(rawValue) must be part of the seeded catalog")
+            #expect(tier?.categoryEnum == .quest)
+            #expect(tier?.requirementValue == expectedValue, "Tier \(rawValue) must key on a completion count of \(expectedValue)")
+        }
+    }
+
+    @Test
+    func `replayed quest completion events do not duplicate profile achievements`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState.testState()
+        let service = AchievementService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        appState.currentProfile = hero
+        appState.family = family
+        let weekOf = WeekMath.mondayOfWeek(for: Date())
+        seedQuestCountAchievements(in: cache, zoneID: zoneID, familyRef: makeFamilyRef(zoneID))
+        seedCompletions(count: 10, hero: hero, zoneID: zoneID, familyRef: makeFamilyRef(zoneID), cache: cache, weekOf: weekOf)
+
+        let first = try await service.evaluateAll(for: hero, family: family)
+        #expect(first.contains { $0.requirementType == .firstQuest })
+        #expect(first.contains { $0.requirementType == .questCount10 })
+
+        // The triggering completion event replays (e.g. re-verified on another
+        // device) — the deterministic ProfileAchievement IDs must collapse the
+        // duplicate award into the existing rows.
+        _ = try await service.handleQuestCompleted(for: hero, family: family)
+        let thirdReplay = try await service.handleQuestCompleted(for: hero, family: family)
+        #expect(thirdReplay.isEmpty, "Replayed completion events must not re-award earned trophies")
+
+        let cachedRows = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName)
+        #expect(cachedRows.count == first.count, "One ProfileAchievement row per earned trophy — no duplicates from event replay")
+
+        let firstQuestRow = cachedRows.first { $0.recordName == ProfileAchievement.recordID(
+            profileID: hero.id,
+            achievementID: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.firstQuest.rawValue)", zoneID: zoneID),
+            zoneID: zoneID
+        ).recordName }
+        #expect(firstQuestRow != nil, "firstQuest row must use the deterministic profile+achievement record ID")
+    }
+
+    @Test
     func `first goal created unlocks at one goal and is idempotent`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = MockCloudKitService()

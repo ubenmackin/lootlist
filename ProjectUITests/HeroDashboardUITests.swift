@@ -7,6 +7,9 @@
 
 import XCTest
 
+/// Child-flow suite over the seeded hero scenario. Assertions bind to
+/// accessibility identifiers; label predicates appear only for text the
+/// child authors themselves.
 @MainActor
 final class HeroDashboardUITests: XCTestCase {
     var app: XCUIApplication!
@@ -15,42 +18,87 @@ final class HeroDashboardUITests: XCTestCase {
         try await super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting"]
+        // Seeded child gives deterministic buckets, goals, and a pending
+        // parent review; light mode pins the dashboard rendering.
+        app.launchArguments = ["--uitesting", "--uitest-seed=child", "--uitest-appearance=light"]
         app.launch()
     }
 
-    func testTabBarNavigation() {
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0), "Tab bar should be visible")
+    // MARK: - Helpers
 
-        let homeTab = tabBar.buttons.element(boundBy: 0)
-        let questsTab = tabBar.buttons.element(boundBy: 1)
-        let goldTab = tabBar.buttons.element(boundBy: 2)
-        let profileTab = tabBar.buttons.element(boundBy: 3)
-
-        XCTAssertTrue(homeTab.exists, "Home tab should exist")
-        XCTAssertTrue(questsTab.exists, "Quests tab should exist")
-        XCTAssertTrue(goldTab.exists, "Money/Treasury tab should exist")
-        XCTAssertTrue(profileTab.exists, "Profile tab should exist")
+    /// Identifier queries run across every element kind because the hub
+    /// composes plain containers (tiles, rings, chore rows) rather than
+    /// standard controls.
+    private func element(withIdentifier id: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: id).firstMatch
     }
 
-    func testSwitchingTabs() {
-        let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0))
+    // MARK: - Hub Content
 
-        // Tap Money tab (now index 2 in the [Home, Quests, Money, Profile] order)
-        tabBar.buttons["Money"].tap()
-        let treasuryHeader = app.staticTexts
-            .matching(NSPredicate(format: "label CONTAINS[c] 'Wishlist' OR label CONTAINS[c] 'Savings' OR label CONTAINS[c] 'Money' OR label CONTAINS[c] 'Short Save'")).firstMatch
-        XCTAssertTrue(treasuryHeader.waitForExistence(timeout: 3.0), "Treasury/Goals view header should appear after switching tabs")
+    func testHubShowsBalanceCardAndBucketTiles() {
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10.0), "Child tab bar should load")
 
-        // Navigate to Trophies via Profile tab → Trophies cell
-        tabBar.buttons["Profile"].tap()
-        let trophiesLink = app.buttons["profile.trophies"]
-        XCTAssertTrue(trophiesLink.waitForExistence(timeout: 3.0), "Trophies row should appear on Profile")
-        trophiesLink.tap()
+        let balanceCard = element(withIdentifier: "hub.balanceCard")
+        XCTAssertTrue(balanceCard.waitForExistence(timeout: 5.0), "Balance hero card should render at the top of the child hub")
 
-        let trophiesHeader = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'Hall' OR label CONTAINS[c] 'Trophies' OR label CONTAINS[c] 'Level'")).firstMatch
-        XCTAssertTrue(trophiesHeader.waitForExistence(timeout: 3.0), "Trophy view header should appear after opening from Profile")
+        for id in ["hub.bucketTile-spend", "hub.bucketTile-shortSave", "hub.bucketTile-longSave"] {
+            XCTAssertTrue(element(withIdentifier: id).exists, "Bucket tile \(id) should render in the balance card")
+        }
+    }
+
+    func testHubShowsWeeklyProgressRingAndActiveGoal() {
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10.0))
+
+        let progressRing = element(withIdentifier: "hub.weeklyProgressRing")
+        XCTAssertTrue(progressRing.waitForExistence(timeout: 5.0), "Weekly progress ring section should render")
+
+        // FIFO puts the oldest open goal at the head, so the card renders
+        // without any scrolling under the seed.
+        XCTAssertTrue(element(withIdentifier: "hub.activeGoalCard").exists, "Active goal card should show the FIFO head goal")
+    }
+
+    func testTodaysChoresShowsPendingReviewRow() {
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10.0))
+
+        // The parentVerify quest is complete but unreviewed under the seed;
+        // its completion drives the amber pending-review row.
+        let pendingRow = element(withIdentifier: "hub.choreRow-completion_3")
+        XCTAssertTrue(pendingRow.waitForExistence(timeout: 5.0), "Chore awaiting parent review should render in the pending-review state")
+    }
+
+    // MARK: - Child Flows
+
+    func testMyChoresShowsPendingReviewAndUpcomingSections() {
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10.0))
+
+        app.tabBars.buttons["Quests"].tap()
+
+        // Pending rows key off the quest's record name; upcoming rows list
+        // every active assignment not awaiting review, including ones whose
+        // auto-approved completion already paid out.
+        XCTAssertTrue(element(withIdentifier: "chores.pendingRow-quest_hero1_3").waitForExistence(timeout: 5.0),
+                      "Quest sent for review should render in the amber pending section")
+        XCTAssertTrue(element(withIdentifier: "chores.upcomingRow-quest_hero1_1").exists,
+                      "Auto-approved quest should remain listed under Upcoming")
+        XCTAssertTrue(element(withIdentifier: "chores.upcomingRow-quest_hero1_2").exists,
+                      "Auto-approved quest should remain listed under Upcoming")
+
+        XCTAssertTrue(element(withIdentifier: "chores.heroBoardLink").exists, "Hero Board should be reachable from My Chores")
+    }
+
+    func testMyGoalsListsSeededGoalCards() {
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10.0))
+
+        app.tabBars.buttons["Goals"].tap()
+
+        XCTAssertTrue(element(withIdentifier: "goals.addGoalButton").waitForExistence(timeout: 5.0), "Add Goal action should be available on My Goals")
+
+        // Short Save section sorts first, so its card needs no scrolling;
+        // Long Save cards sit below the fold on compact devices.
+        XCTAssertTrue(element(withIdentifier: "goals.card-goal_maya_art").exists, "Short Save goal card should render")
+        app.swipeUp()
+        XCTAssertTrue(element(withIdentifier: "goals.card-goal_maya_nintendo").waitForExistence(timeout: 3.0), "Long Save goal cards should render after scrolling")
+        app.swipeUp()
+        XCTAssertTrue(element(withIdentifier: "goals.card-goal_maya_bike").waitForExistence(timeout: 3.0), "Long Save goal cards should render after scrolling")
     }
 }

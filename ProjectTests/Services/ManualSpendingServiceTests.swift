@@ -503,4 +503,133 @@ struct SpendingServiceTests {
         #expect(!(description ?? "").contains(raw))
         #expect(!(description ?? "").contains("SwiftDataError"))
     }
+
+    // MARK: - Bucket attribution
+
+    /// Bucket reads need a fully wired service because transfer paths guard on
+    /// every dependency; engines stay inert under the unit-test gate.
+    private func makeBucketService(
+        cache: CacheService,
+        appState: AppState,
+        cloudKit: MockCloudKitService
+    ) -> BucketService {
+        let conflictResolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let delegateHandler = CKSyncEngineDelegateHandler(
+            conflictResolver: conflictResolver,
+            cacheService: cache,
+            appState: appState
+        )
+        let syncCoordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: delegateHandler,
+            appState: appState,
+            defaults: UserDefaults.ephemeral()
+        )
+        return BucketService(cacheService: cache, syncCoordinator: syncCoordinator, appState: appState)
+    }
+
+    private func seedAttributedEntry(
+        _ cache: CacheService,
+        recordName: String,
+        amount: Double,
+        source: String,
+        bucketKind: String?,
+        profileID: CKRecord.ID,
+        familyRef: CKRecord.Reference,
+        zoneID: CKRecordZone.ID
+    ) {
+        let entry = LedgerEntry(
+            profile: CKRecord.Reference(recordID: profileID, action: .none),
+            amount: amount,
+            description: recordName,
+            date: Date(),
+            source: source,
+            bucketKind: bucketKind,
+            family: familyRef,
+            id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
+        )
+        cache.upsertLedgerEntry(entry)
+    }
+
+    @Test
+    func `manual purchase reduces the wallet without touching savings buckets`() async throws {
+        let zoneID = makeZoneID()
+        let cloudKit = FailingCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
+
+        // Prior week's split payout history: 12.00 / 5.00 / 3.00.
+        seedAttributedEntry(cache, recordName: "seed-spend", amount: 12.00, source: "quest",
+                            bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
+                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+        seedAttributedEntry(cache, recordName: "seed-short", amount: 5.00, source: "quest",
+                            bucketKind: BucketKind.shortTermSave.rawValue, profileID: hero.id,
+                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+        seedAttributedEntry(cache, recordName: "seed-long", amount: 3.00, source: "quest",
+                            bucketKind: BucketKind.longTermSave.rawValue, profileID: hero.id,
+                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+
+        let buckets = makeBucketService(cache: cache, appState: appState, cloudKit: cloudKit)
+
+        let entry = try await service.logManual(
+            profile: hero,
+            family: family,
+            familyRecordName: family.id.recordName,
+            description: "Comic book",
+            amount: 6.00
+        )
+        #expect(entry.amount == -6.00)
+        #expect(entry.source == "manual")
+
+        // Savings allocations are never silently drained by a purchase; the
+        // unattributed purchase only lowers the aggregate wallet.
+        let balances = buckets.bucketBalances(
+            profileRecordName: hero.id.recordName,
+            familyRecordName: family.id.recordName
+        )
+        #expect(balances[.spend] == 12.00)
+        #expect(balances[.shortTermSave] == 5.00)
+        #expect(balances[.longTermSave] == 3.00)
+
+        let walletTotal = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+            .reduce(0.0) { $0 + $1.amount }
+        #expect(walletTotal == 14.00)
+    }
+
+    @Test
+    func `spend-attributed purchase draws down the spend bucket alone`() throws {
+        let zoneID = makeZoneID()
+        let cloudKit = MockCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let buckets = makeBucketService(cache: cache, appState: appState, cloudKit: cloudKit)
+
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+
+        seedAttributedEntry(cache, recordName: "seed-spend", amount: 10.00, source: "quest",
+                            bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
+                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+        seedAttributedEntry(cache, recordName: "seed-short", amount: 4.00, source: "quest",
+                            bucketKind: BucketKind.shortTermSave.rawValue, profileID: hero.id,
+                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+        // A purchase recorded against the Spend bucket leaves the save buckets intact.
+        seedAttributedEntry(cache, recordName: "purchase-spend", amount: -6.00, source: "manual",
+                            bucketKind: BucketKind.spend.rawValue, profileID: hero.id,
+                            familyRef: makeFamilyRef(zoneID), zoneID: zoneID)
+
+        let balances = buckets.bucketBalances(
+            profileRecordName: hero.id.recordName,
+            familyRecordName: family.id.recordName
+        )
+        #expect(balances[.spend] == 4.00)
+        #expect(balances[.shortTermSave] == 4.00)
+        #expect(balances[.longTermSave] == nil)
+        #expect(balances.count == 2)
+    }
 }

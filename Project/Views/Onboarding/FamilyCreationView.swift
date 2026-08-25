@@ -10,64 +10,72 @@ import SwiftUI
 struct FamilyCreationView: View {
     @Bindable var viewModel: OnboardingViewModel
 
+    @FocusState private var isFieldFocused: Bool
+
     var body: some View {
-        VStack(spacing: 24) {
-            header
+        ScrollView {
+            VStack(spacing: 24) {
+                header
 
-            Spacer()
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Name your guild", systemImage: "person.3.fill")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.primary)
 
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Name your guild", systemImage: "person.3.fill")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.primary)
+                    TextField("The Pan Family", text: $viewModel.familyName)
+                        .textInputAutocapitalization(.words)
+                        .autocorrectionDisabled()
+                        .font(.title3)
+                        .focused($isFieldFocused)
+                        .submitLabel(.done)
+                        .onSubmit {
+                            isFieldFocused = false
+                        }
+                        .padding(16)
+                        .background(.thinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                        )
+                        .accessibilityIdentifier("createFamily.familyNameField")
 
-                TextField("The Pan Family", text: $viewModel.familyName)
-                    .textInputAutocapitalization(.words)
-                    .autocorrectionDisabled()
-                    .font(.title3)
-                    .padding(16)
-                    .background(.thinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                    )
-                    .accessibilityIdentifier("createFamily.familyNameField")
+                    Text("Your family will share this name across all devices.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 24)
 
-                Text("Your family will share this name across all devices.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Button {
+                    isFieldFocused = false
+                    viewModel.advanceToAvatarSelection()
+                } label: {
+                    Label("Next: Forge Your Character", systemImage: "shield.fill")
+                        .font(.headline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(viewModel.familyName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
             }
-            .padding(.horizontal, 24)
-
-            Spacer()
-
-            Button {
-                viewModel.advanceToAvatarSelection()
-            } label: {
-                Label("Next: Forge Your Character", systemImage: "shield.fill")
-                    .font(.headline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.orange)
-            .disabled(viewModel.familyName.trimmingCharacters(in: .whitespaces).isEmpty)
-            .padding(.horizontal, 24)
-
-            Spacer().frame(height: 32)
+            .padding(.vertical, 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .scrollDismissesKeyboard(.interactively)
         .background(
             LinearGradient(
                 colors: [Color(.systemBackground), Color.orange.opacity(0.12)],
                 startPoint: .top, endPoint: .bottom
             )
+            .ignoresSafeArea()
         )
         .navigationBarBackButtonHidden(true)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
+                    isFieldFocused = false
                     viewModel.backToRoleSelection()
                 } label: {
                     Label("Back", systemImage: "chevron.left")

@@ -98,7 +98,6 @@ struct FamilyDashboardView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         if let vm = viewModel {
-                            parentHeaderView(vm: vm)
                             statCardsRow(vm: vm, scrollProxy: scrollProxy)
                             childAccountsSection(vm: vm)
                             depositWithdrawSection(vm: vm)
@@ -109,6 +108,36 @@ struct FamilyDashboardView: View {
                         }
                     }
                     .padding(.vertical, 14)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            withAnimation {
+                                scrollProxy.scrollTo("pendingQueueAnchor", anchor: .top)
+                            }
+                            HapticsService.rigid()
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "bell.fill")
+                                    .font(.body)
+
+                                if pendingCount > 0 {
+                                    Text("\(pendingCount)")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(
+                                            Capsule()
+                                                .fill(Color(DesignSystemConstants.Colors.dangerRed))
+                                        )
+                                        .offset(x: 8, y: -6)
+                                }
+                            }
+                        }
+                        .accessibilityLabel("\(pendingCount) pending approvals")
+                        .accessibilityIdentifier("dashboard.pendingBell")
+                    }
                 }
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
@@ -199,66 +228,6 @@ struct FamilyDashboardView: View {
         )
     }
 
-    // MARK: - Header
-
-    private func parentHeaderView(vm: FamilyDashboardViewModel) -> some View {
-        VStack(spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("PARENT MODE")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-                        .tracking(1.2)
-                    Text("Family Dashboard")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.primary)
-                }
-
-                Spacer()
-
-                // Bell icon with pending-review action count badge.
-                HStack(spacing: 16) {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "bell.fill")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-
-                        if vm.pendingReviewCount > 0 {
-                            Text("\(vm.pendingReviewCount)")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(
-                                    Capsule()
-                                        .fill(Color(DesignSystemConstants.Colors.dangerRed))
-                                )
-                                .offset(x: 10, y: -6)
-                        }
-                    }
-                    .accessibilityLabel("\(vm.pendingReviewCount) pending approvals")
-
-                    // Settings gear button.
-                    NavigationLink {
-                        SettingsView()
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("Settings")
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
-            )
-            .padding(.horizontal)
-        }
-    }
-
     // MARK: - Stat Cards
 
     private func statCardsRow(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
@@ -267,7 +236,8 @@ struct FamilyDashboardView: View {
                 title: "FAMILY OUTFLOW",
                 value: CurrencyFormatter.string(vm.familyOutflow),
                 icon: "banknote.fill",
-                tint: Color.gold
+                tint: Color.gold,
+                accessibilityID: "dashboard.outflowCard"
             )
 
             Button {
@@ -278,9 +248,10 @@ struct FamilyDashboardView: View {
             } label: {
                 StatCard(
                     title: "PENDING REVIEW",
-                    value: "\(vm.pendingReviewCount)",
+                    value: "\(pendingCount)",
                     icon: "hourglass",
-                    tint: Color(DesignSystemConstants.Colors.pendingAmber)
+                    tint: Color(DesignSystemConstants.Colors.pendingAmber),
+                    accessibilityID: "dashboard.pendingReviewCard"
                 )
             }
             .buttonStyle(.plain)
@@ -388,6 +359,7 @@ struct FamilyDashboardView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("View \(card.profile.displayName)'s account")
+        .accessibilityIdentifier("dashboard.childAccount-\(card.profile.recordName)")
     }
 
     private var emptyChildrenCard: some View {
@@ -439,7 +411,8 @@ struct FamilyDashboardView: View {
                     quickActionButton(
                         title: "Deposit",
                         icon: "plus.circle.fill",
-                        color: .green
+                        color: .green,
+                        identifier: "dashboard.depositButton"
                     ) {
                         selectedChildForTransaction = vm.childAccountCards.first?.profile
                         showDepositSheet = true
@@ -448,7 +421,8 @@ struct FamilyDashboardView: View {
                     quickActionButton(
                         title: "Withdraw",
                         icon: "minus.circle.fill",
-                        color: .orange
+                        color: .orange,
+                        identifier: "dashboard.withdrawButton"
                     ) {
                         selectedChildForTransaction = vm.childAccountCards.first?.profile
                         showWithdrawSheet = true
@@ -463,6 +437,7 @@ struct FamilyDashboardView: View {
         title: String,
         icon: String,
         color: Color,
+        identifier: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -484,6 +459,7 @@ struct FamilyDashboardView: View {
             )
         }
         .accessibilityLabel(title)
+        .accessibilityIdentifier(identifier)
     }
 
     // MARK: - Pending Approval Queue
@@ -527,6 +503,10 @@ struct FamilyDashboardView: View {
 
     private var pendingCompletions: [QuestCompletionCache] {
         cachedCompletions.filter { $0.verificationStatus == VerificationStatus.pending.rawValue }
+    }
+
+    private var pendingCount: Int {
+        pendingCompletions.count
     }
 
     @ViewBuilder
@@ -587,6 +567,7 @@ struct FamilyDashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reject \(questName)")
+                .accessibilityIdentifier("dashboard.rejectButton-\(completion.recordName)")
 
                 Button {
                     Task {
@@ -611,6 +592,7 @@ struct FamilyDashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Approve \(questName) for \(CurrencyFormatter.string(goldAmount))")
+                .accessibilityIdentifier("dashboard.approveButton-\(completion.recordName)")
             }
         }
         .padding(10)
@@ -805,6 +787,7 @@ struct FamilyDashboardView: View {
             )
         }
         .accessibilityLabel("Invite Members. Tap to invite a Hero or Co-Parent.")
+        .accessibilityIdentifier("dashboard.inviteButton")
     }
 
     @MainActor
@@ -861,6 +844,7 @@ private struct ProcessPayoutButtonView: View {
         }
         .buttonStyle(.plain)
         .disabled(isProcessingPayout)
+        .accessibilityIdentifier("dashboard.processPayoutButton")
         .alert("Process Payout Now?", isPresented: $showEarlyPayoutConfirm) {
             Button("Confirm Payout", role: .destructive) {
                 Task { await onConfirmPayout() }

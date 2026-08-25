@@ -127,6 +127,7 @@ struct MyChoresView: View {
                     } label: {
                         Label("Hero Board", systemImage: "square.grid.2x2.fill")
                     }
+                    .accessibilityIdentifier("chores.heroBoardLink")
                 }
             }
             .refreshable {
@@ -146,7 +147,8 @@ struct MyChoresView: View {
                     title: pair.quest.questName,
                     subtitle: "Sent to Parent for Review",
                     amountText: CurrencyFormatter.string(pair.quest.goldReward),
-                    style: .pendingReview
+                    style: .pendingReview,
+                    accessibilityID: "chores.pendingRow-\(pair.quest.recordName)"
                 )
                 .accessibilityHint("Awaiting parent verification")
             }
@@ -166,7 +168,8 @@ struct MyChoresView: View {
                     title: quest.questName,
                     subtitle: quest.descriptionText,
                     amountText: CurrencyFormatter.string(quest.goldReward),
-                    style: .upcoming
+                    style: .upcoming,
+                    accessibilityID: "chores.upcomingRow-\(quest.recordName)"
                 )
                 .overlay(alignment: .trailing) {
                     completeButton(for: quest)
@@ -197,6 +200,7 @@ struct MyChoresView: View {
         .disabled(isSubmitting)
         .accessibilityLabel("Complete \(quest.questName)")
         .accessibilityHint("Marks the chore as done")
+        .accessibilityIdentifier("chores.completeButton-\(quest.recordName)")
     }
 
     // MARK: - Complete Action
@@ -242,8 +246,6 @@ struct MyChoresView: View {
 
     private var emptyState: some View {
         VStack(spacing: 16) {
-            Spacer().frame(height: 64)
-
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 56))
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
@@ -262,6 +264,7 @@ struct MyChoresView: View {
 
             Spacer()
         }
+        .padding(.top, 64)
         .frame(maxWidth: .infinity)
     }
 }

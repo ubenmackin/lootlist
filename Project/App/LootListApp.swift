@@ -26,6 +26,7 @@ final class AppDependencies {
     let notificationService: NotificationService
     let spendingService: SpendingService
     let interestService: InterestService
+    let ledgerImportService: LedgerImportService
     let appSyncCoordinator: AppSyncCoordinator
     let dataMigrationsCoordinator: DataMigrationsCoordinator
     let autoPayoutCoordinator: AutoPayoutCoordinator
@@ -44,6 +45,7 @@ final class AppDependencies {
     let equipmentService: EquipmentService
     let goalService: GoalService
     let bucketService: BucketService
+    let matchService: MatchService
     let familyShareReconciler: FamilyShareReconciler
     let lifecycleCoordinator: AppLifecycleCoordinator
 
@@ -67,38 +69,23 @@ final class AppDependencies {
         let sharedBgActor = cache.flatMap { $0.container.map { BackgroundCacheActor(container: $0) } }
         app.backgroundCacheActor = sharedBgActor
 
-        let conflict = CKSyncConflictResolver(cacheService: cache, backgroundCache: sharedBgActor, toastManager: toast, appState: app)
-        conflictResolver = conflict
-
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: sharedBgActor,
-            conflictResolver: conflict,
-            cacheService: cache,
-            appState: app
+        let syncStack = Self.makeSyncStack(
+            ck: ck, cache: cache, app: app, toast: toast, backgroundCache: sharedBgActor
         )
-        syncEngineDelegateHandler = delegate
-
-        let syncCoord = CKSyncEngineCoordinator(
-            cloudKitService: ck,
-            delegateHandler: delegate,
-            appState: app
-        )
+        conflictResolver = syncStack.conflictResolver
+        syncEngineDelegateHandler = syncStack.delegateHandler
+        // Single shared coordinator instance handed to every downstream service.
+        let syncCoord = syncStack.syncCoordinator
         syncCoordinator = syncCoord
+        notificationService = syncStack.notificationService
 
-        let notification = NotificationService(cloudKit: ck, appState: app, cacheService: cache, toastManager: toast, syncCoordinator: syncCoord)
-        delegate.setNotificationService(notification)
-        let xp = XPService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
+        let xp = XPService(cloudKit: ck, notificationService: notificationService, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
         xp.celebrationManager = celebration
-        let treasury = TreasuryService(cloudKit: ck, notificationService: notification, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
+        let treasury = TreasuryService(cloudKit: ck, notificationService: notificationService, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
         let quest = QuestService(
-            cloudKit: ck,
-            xpService: xp,
-            notificationService: notification,
-            cacheService: cache,
-            treasuryService: treasury,
-            toastManager: toast,
-            appState: app,
-            syncCoordinator: syncCoord
+            cloudKit: ck, xpService: xp, notificationService: notificationService,
+            cacheService: cache, treasuryService: treasury, toastManager: toast,
+            appState: app, syncCoordinator: syncCoord
         )
         let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast, syncCoordinator: syncCoord)
         let reconciler = FamilyShareReconciler(familyService: family)
@@ -107,7 +94,7 @@ final class AppDependencies {
         }
 
         let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app, celebrationManager: celebration, syncCoordinator: syncCoord)
-        achievement.notificationService = notification
+        achievement.notificationService = notificationService
         quest.achievementService = achievement
         let avatar = AvatarService(xp: xp)
         let manualSpending = SpendingService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
@@ -115,27 +102,26 @@ final class AppDependencies {
         spendingService = manualSpending
 
         let interest = InterestService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-
+        let match = MatchService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let ledgerImport = LedgerImportService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
         let bucket = BucketService(cacheService: cache, syncCoordinator: syncCoord, appState: app)
         let goal = GoalService(
-            cloudKit: ck,
-            cacheService: cache,
-            appState: app,
-            syncCoordinator: syncCoord,
-            achievementService: achievement,
-            celebrationManager: celebration
+            cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord,
+            achievementService: achievement, celebrationManager: celebration
         )
 
         let appSync = AppSyncCoordinator()
         app.cacheService = cache
         toastManager = toast
 
-        let gem = GemService(cloudKitService: ck, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord, soundManager: sound)
-        let lootDrop = LootDropService(gemService: gem, toastManager: toast, soundManager: sound)
-        quest.lootDropService = lootDrop
-        let dailyLogin = DailyLoginService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let bonusObjective = BonusObjectiveService(cloudKitService: ck, gemService: gem, soundManager: sound, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let equipment = EquipmentService(cloudKitService: ck, gemService: gem, soundManager: sound, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let gamification = Self.makeGamificationServices(
+            ck: ck, cache: cache, toast: toast, sound: sound, app: app, syncCoord: syncCoord, quest: quest
+        )
+        gemService = gamification.gem
+        lootDropService = gamification.lootDrop
+        dailyLoginService = gamification.dailyLogin
+        bonusObjectiveService = gamification.bonusObjective
+        equipmentService = gamification.equipment
 
         let migrations = Self.makeDataMigrations(cloudKit: ck, cache: cache, backgroundCache: sharedBgActor, syncCoordinator: syncCoord)
 
@@ -144,18 +130,12 @@ final class AppDependencies {
         }
 
         let autoPayout = AutoPayoutCoordinator(
-            treasuryService: treasury,
-            questService: quest,
-            familyService: family,
-            appState: app
+            treasuryService: treasury, questService: quest, familyService: family, appState: app
         )
 
         let lifecycle = AppLifecycleCoordinator(
-            appState: app,
-            cloudKitService: ck,
-            syncCoordinator: syncCoord,
-            appSyncCoordinator: appSync,
-            dataMigrationsCoordinator: migrations,
+            appState: app, cloudKitService: ck, syncCoordinator: syncCoord,
+            appSyncCoordinator: appSync, dataMigrationsCoordinator: migrations,
             autoPayoutCoordinator: autoPayout
         )
 
@@ -167,25 +147,94 @@ final class AppDependencies {
         treasuryService = treasury
         achievementService = achievement
         avatarService = avatar
-        notificationService = notification
         appSyncCoordinator = appSync
         dataMigrationsCoordinator = migrations
         autoPayoutCoordinator = autoPayout
         cacheService = cache
         celebrationManager = celebration
         soundManager = sound
-        gemService = gem
-        lootDropService = lootDrop
-        dailyLoginService = dailyLogin
-        bonusObjectiveService = bonusObjective
-        equipmentService = equipment
         interestService = interest
+        matchService = match
+        ledgerImportService = ledgerImport
         goalService = goal
         bucketService = bucket
         familyShareReconciler = reconciler
         lifecycleCoordinator = lifecycle
 
         Self.shared = self
+    }
+
+    private struct SyncStack {
+        let conflictResolver: CKSyncConflictResolver
+        let delegateHandler: CKSyncEngineDelegateHandler
+        let syncCoordinator: CKSyncEngineCoordinator
+        let notificationService: NotificationService
+    }
+
+    private struct GamificationStack {
+        let gem: GemService
+        let lootDrop: LootDropService
+        let dailyLogin: DailyLoginService
+        let bonusObjective: BonusObjectiveService
+        let equipment: EquipmentService
+    }
+
+    private static func makeSyncStack(
+        ck: CloudKitService,
+        cache: CacheService?,
+        app: AppState,
+        toast: ToastManager,
+        backgroundCache: BackgroundCacheActor?
+    ) -> SyncStack {
+        let conflict = CKSyncConflictResolver(
+            cacheService: cache, backgroundCache: backgroundCache,
+            toastManager: toast, appState: app
+        )
+        let delegate = CKSyncEngineDelegateHandler(
+            backgroundCache: backgroundCache, conflictResolver: conflict,
+            cacheService: cache, appState: app
+        )
+        let syncCoord = CKSyncEngineCoordinator(
+            cloudKitService: ck, delegateHandler: delegate, appState: app
+        )
+        let notification = NotificationService(
+            cloudKit: ck, appState: app, cacheService: cache,
+            toastManager: toast, syncCoordinator: syncCoord
+        )
+        delegate.setNotificationService(notification)
+        return SyncStack(
+            conflictResolver: conflict,
+            delegateHandler: delegate,
+            syncCoordinator: syncCoord,
+            notificationService: notification
+        )
+    }
+
+    private static func makeGamificationServices(
+        ck: CloudKitService,
+        cache: CacheService?,
+        toast: ToastManager,
+        sound: SoundManager,
+        app: AppState,
+        syncCoord: CKSyncEngineCoordinator,
+        quest: QuestService
+    ) -> GamificationStack {
+        let gem = GemService(
+            cloudKitService: ck, cacheService: cache, toastManager: toast,
+            appState: app, syncCoordinator: syncCoord, soundManager: sound
+        )
+        let lootDrop = LootDropService(gemService: gem, toastManager: toast, soundManager: sound)
+        quest.lootDropService = lootDrop
+        let dailyLogin = DailyLoginService(cloudKitService: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let bonusObjective = BonusObjectiveService(cloudKitService: ck, gemService: gem, soundManager: sound, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let equipment = EquipmentService(cloudKitService: ck, gemService: gem, soundManager: sound, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        return GamificationStack(
+            gem: gem,
+            lootDrop: lootDrop,
+            dailyLogin: dailyLogin,
+            bonusObjective: bonusObjective,
+            equipment: equipment
+        )
     }
 
     private static func makeCacheService(app: AppState, isTest: Bool, logger: Logger) -> CacheService? {
@@ -222,19 +271,27 @@ final class AppDependencies {
         logger: Logger
     ) {
         logger.info("Tests detected — seeding mock data and setting test auth state")
-        SampleData.populate(cacheService: cache)
+        // The hero-board scenario pre-claims board quests so both board
+        // sections render deterministically; all other scenarios share the
+        // standard seeded family.
+        if TestEnvironment.activeScenario == .heroBoardWithClaims {
+            SampleData.populate(cacheService: cache, boardClaims: 2)
+        } else {
+            SampleData.populate(cacheService: cache)
+        }
         cloudKit.activeFamilyZoneID = SampleData.zoneID
 
-        if CommandLine.arguments.contains("--onboarding") {
+        switch TestEnvironment.activeScenario {
+        case .freshOnboarding:
             app.authStatus = .onboarding
-        } else if CommandLine.arguments.contains("--parent") {
+        case .seededParent:
             cloudKit.activeIsOwner = true
             app.currentProfile = SampleData.parentProfile
             app.family = SampleData.family
             app.familyZoneID = SampleData.zoneID
             app.isZoneOwner = true
             app.authStatus = .authenticated
-        } else {
+        case .seededChild, .heroBoardWithClaims, nil:
             cloudKit.activeIsOwner = false
             app.currentProfile = SampleData.heroProfile
             app.family = SampleData.family
@@ -350,6 +407,26 @@ struct LootListApp: App {
         dependencies.interestService
     }
 
+    private var matchService: MatchService {
+        dependencies.matchService
+    }
+
+    private var ledgerImportService: LedgerImportService {
+        dependencies.ledgerImportService
+    }
+
+    private var goalService: GoalService {
+        dependencies.goalService
+    }
+
+    private var bucketService: BucketService {
+        dependencies.bucketService
+    }
+
+    private var lifecycleCoordinator: AppLifecycleCoordinator {
+        dependencies.lifecycleCoordinator
+    }
+
     var body: some Scene {
         WindowGroup {
             rootViewContent
@@ -371,7 +448,7 @@ struct LootListApp: App {
             let baseRoot = RootView(pendingShareMetadata: pendingShareMetadata)
                 .task {
                     if !TestEnvironment.isRunningUnitOrUITests {
-                        await dependencies.lifecycleCoordinator.performInitialBootstrap()
+                        await lifecycleCoordinator.performInitialBootstrap()
                     }
                 }
                 .onOpenURL { url in
@@ -379,16 +456,19 @@ struct LootListApp: App {
                 }
                 .task(id: appState.familyZoneID) {
                     guard appState.familyZoneID != nil, !TestEnvironment.isRunningUnitOrUITests else { return }
-                    await dependencies.lifecycleCoordinator.performFamilyZoneChange()
+                    await lifecycleCoordinator.performFamilyZoneChange()
                 }
                 .task(id: scenePhase) {
                     guard scenePhase == .active, !TestEnvironment.isRunningUnitOrUITests else { return }
-                    await dependencies.lifecycleCoordinator.performForegroundSync()
+                    await lifecycleCoordinator.performForegroundSync()
                 }
                 // Toast banner overlay sits above all RootView states (splash,
                 // onboarding, authenticated) so services can surface errors
                 // universally.
                 .toastOverlay()
+                // UI tests force light or dark via `--uitest-appearance` so a
+                // single simulator captures both modes per run.
+                .preferredColorScheme(TestEnvironment.preferredAppearanceOverride)
                 .onReceive(NotificationCenter.default.publisher(for: .familyAccessRevoked)) { _ in
                     toastManager.show(message: "You were removed from this Guild.", type: .warning)
                 }
@@ -407,7 +487,7 @@ struct LootListApp: App {
                 .environment(appSyncCoordinator)
                 .environment(cacheService)
                 .environment(syncCoordinator)
-                .environment(dependencies.lifecycleCoordinator)
+                .environment(lifecycleCoordinator)
                 .environment(networkMonitor)
                 .environment(toastManager)
                 .environment(celebrationManager)
@@ -419,8 +499,10 @@ struct LootListApp: App {
                 .environment(equipmentService)
                 .environment(spendingService)
                 .environment(interestService)
-                .environment(dependencies.goalService)
-                .environment(dependencies.bucketService)
+                .environment(matchService)
+                .environment(ledgerImportService)
+                .environment(goalService)
+                .environment(bucketService)
 
             if let container = cacheService?.container {
                 baseRoot.modelContainer(container)
