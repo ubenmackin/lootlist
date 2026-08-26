@@ -134,7 +134,7 @@ final class XPService {
         updated.xp += gained
         updated.level = Self.level(forXP: updated.xp)
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
 
         if let current = appState.currentProfile, current.id == updated.id {
             var reconciled = current

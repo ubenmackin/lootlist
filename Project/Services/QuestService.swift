@@ -151,7 +151,7 @@ final class QuestService {
             id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
 
-        cacheService?.upsertQuestTemplate(template)
+        await cacheService?.upsertQuestTemplate(template)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: template.id, isOwner: isOwner)
         return template
@@ -171,7 +171,7 @@ final class QuestService {
             cloudKit: cloudKit
         )
 
-        cacheService?.upsertQuestTemplate(template)
+        await cacheService?.upsertQuestTemplate(template)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: template.id, isOwner: isOwner)
         return template
@@ -194,7 +194,7 @@ final class QuestService {
         var deactivated = template
         deactivated.isActive = false
 
-        cacheService?.upsertQuestTemplate(deactivated)
+        await cacheService?.upsertQuestTemplate(deactivated)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: deactivated.id, isOwner: isOwner)
         return deactivated
@@ -214,17 +214,21 @@ final class QuestService {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = try await cloudKit.query(QuestTemplate.self, predicate: predicate, in: family.id.zoneID)
-        cacheService?.upsertQuestTemplates(all)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: all,
+            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            zoneID: family.id.zoneID
+        )
         return all
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     /// Cache-first single-template read for presentation paths. On a cache
-    /// miss it fetches the record from CloudKit and hydrates the local row as
-    /// a server-sourced snapshot (`isServerSync: true`, persisting changeTag
-    /// and encodedSystemFields) so subsequent reads stay fully local. The
-    /// hydrated row is never re-enqueued for save: it originated from the
-    /// server, and echoing it back would create a redundant write cycle.
+    /// miss it fetches the record from CloudKit and re-ingests it as a
+    /// server-sourced snapshot (persisting changeTag and encodedSystemFields)
+    /// so subsequent reads stay fully local. The hydrated row is never
+    /// re-enqueued for save: it originated from the server, and echoing it
+    /// back would create a redundant write cycle.
     func fetchTemplateCached(id: String, familyRecordName: String) async throws -> QuestTemplate? {
         guard let zoneID = appState?.familyZoneID else { return nil }
         return try await fetchTemplateCached(id: CKRecord.ID(recordName: id, zoneID: zoneID), familyRecordName: familyRecordName)
@@ -236,7 +240,11 @@ final class QuestService {
         }
 
         let template = try await cloudKit.fetch(QuestTemplate.self, id: id)
-        cacheService?.upsertQuestTemplate(template, isServerSync: true)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: [template],
+            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            zoneID: id.zoneID
+        )
         return template
     }
 
@@ -295,7 +303,7 @@ final class QuestService {
             id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
 
-        cacheService?.upsertQuest(quest)
+        await cacheService?.upsertQuest(quest)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
         sendAssignmentNotification(to: assignee, questName: questName)
@@ -321,7 +329,7 @@ final class QuestService {
             updatedQuest.assignee = CKRecord.Reference(recordID: CKRecord.ID(recordName: newAssigneeRecordName, zoneID: quest.id.zoneID), action: .none)
         }
 
-        cacheService?.upsertQuest(updatedQuest)
+        await cacheService?.upsertQuest(updatedQuest)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updatedQuest.id, isOwner: isOwner)
         return updatedQuest
@@ -397,7 +405,7 @@ final class QuestService {
             id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
 
-        cacheService?.upsertQuest(quest)
+        await cacheService?.upsertQuest(quest)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
         sendAssignmentNotification(to: assignee, questName: name)
@@ -422,7 +430,7 @@ final class QuestService {
         if shouldRetainTombstone {
             var tombstone = quest
             tombstone.active = false
-            cacheService?.upsertQuest(tombstone)
+            await cacheService?.upsertQuest(tombstone)
             syncCoordinator?.enqueueSave(recordID: tombstone.id, isOwner: isOwner)
             return
         }
@@ -435,7 +443,7 @@ final class QuestService {
         )
         // Pre-delete identity captured before invalidate; RecordBridge returns nil
         // for the dangling record and coordinator drain handles the tombstone.
-        cacheService?.invalidate(identity: identity, type: .quest)
+        await cacheService?.invalidate(identity: identity, type: .quest, expectedActiveZone: appState.familyZoneID)
         syncCoordinator?.enqueueDelete(recordID: quest.id, isOwner: isOwner)
     }
 
@@ -460,7 +468,15 @@ final class QuestService {
         let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
         let all = try await cloudKit.query(Quest.self, predicate: predicate, in: profile.id.zoneID)
         let stampedAll = await stampAllQuests(all)
-        cacheService?.upsertQuests(stampedAll)
+        if let syncCoordinator {
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: stampedAll,
+                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                zoneID: profile.id.zoneID
+            )
+        } else {
+            await cacheService?.upsertQuests(stampedAll)
+        }
         return stampedAll
             .filter { $0.active && range.contains($0.weekOf) }
             .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
@@ -485,7 +501,15 @@ final class QuestService {
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
         let stampedAll = await stampAllQuests(all)
-        cacheService?.upsertQuests(stampedAll)
+        if let syncCoordinator {
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: stampedAll,
+                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                zoneID: family.id.zoneID
+            )
+        } else {
+            await cacheService?.upsertQuests(stampedAll)
+        }
         return stampedAll
             .filter { $0.active && range.contains($0.weekOf) }
             .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
@@ -553,7 +577,7 @@ final class QuestService {
             let currentWeekForAssignee = WeekMath.startOfWeek(for: currentWeekOf, payoutDay: effectivePayoutDay)
             if questWeek < currentWeekForAssignee, paidWeeks.contains(questWeek) {
                 quest.active = false
-                cacheService?.upsertQuest(quest)
+                await cacheService?.upsertQuest(quest)
                 syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
                 deactivated.append(quest)
             }
@@ -572,15 +596,29 @@ final class QuestService {
         }
         var updated = quest
         updated.name = template.name
-        cacheService?.upsertQuest(updated)
         return updated
     }
 
     private func stampAllQuests(_ quests: [Quest]) async -> [Quest] {
         var stamped: [Quest] = []
         stamped.reserveCapacity(quests.count)
+        var nameStamped: [Quest] = []
         for quest in quests {
-            await stamped.append(stampNameIfNeeded(quest))
+            let resolved = await stampNameIfNeeded(quest)
+            if resolved.name != quest.name {
+                nameStamped.append(resolved)
+            }
+            stamped.append(resolved)
+        }
+        // Stamped names originate from server templates, so the rows re-enter
+        // the cache through the single ingestion path; batching keeps N per-
+        // quest stamps from becoming N separate ingest passes.
+        if let zoneID = stamped.first?.id.zoneID {
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: nameStamped,
+                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                zoneID: zoneID
+            )
         }
         return stamped
     }

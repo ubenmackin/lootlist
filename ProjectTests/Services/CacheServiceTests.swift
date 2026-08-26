@@ -26,7 +26,7 @@ struct CacheServiceTests {
     // MARK: - Quest Upserts
 
     @Test
-    func `upsert quest inserts new record`() throws {
+    func `upsert quest inserts new record`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -42,7 +42,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "quest1")
         )
 
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         let quests = service.fetchQuests(family: "fam")
         #expect(quests.count == 1)
@@ -51,7 +51,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert quest updates existing record`() throws {
+    func `upsert quest updates existing record`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -66,12 +66,12 @@ struct CacheServiceTests {
             name: "Clean Room",
             id: CKRecord.ID(recordName: "quest1")
         )
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         var updated = quest
         updated.goldReward = 10.0
         updated.name = "Mega Clean Room"
-        service.upsertQuest(updated)
+        await service.upsertQuest(updated)
 
         let quests = service.fetchQuests(family: "fam")
         #expect(quests.count == 1)
@@ -80,7 +80,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert quest clears change tag when nil`() throws {
+    func `upsert quest clears change tag when nil`() async throws {
         // changeTag is copied unconditionally: a nil incoming changeTag is a
         // meaningful "no further tag" value and must clear the cached tag.
         let service = try makeService()
@@ -98,12 +98,12 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "quest1")
         )
         quest.changeTag = "server-v1"
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         // Upsert same record with nil changeTag — the cached tag must be cleared.
         var upserted = quest
         upserted.changeTag = nil
-        service.upsertQuest(upserted)
+        await service.upsertQuest(upserted)
 
         let quests = service.fetchQuests(family: "fam")
         #expect(quests.count == 1)
@@ -111,7 +111,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert quest overwrites change tag when non nil`() throws {
+    func `upsert quest overwrites change tag when non nil`() async throws {
         let service = try makeService()
         var quest = Quest(
             template: ref("tpl"),
@@ -127,12 +127,12 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "quest1")
         )
         quest.changeTag = "server-v1"
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         // Upsert with a new changeTag — must overwrite the existing value.
         var upserted = quest
         upserted.changeTag = "server-v2"
-        service.upsertQuest(upserted)
+        await service.upsertQuest(upserted)
 
         let quests = service.fetchQuests(family: "fam")
         #expect(quests.count == 1)
@@ -142,7 +142,7 @@ struct CacheServiceTests {
     // MARK: - Invalidation & Fetch
 
     @Test
-    func `invalidate quest removes record`() throws {
+    func `invalidate quest removes record`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -157,10 +157,10 @@ struct CacheServiceTests {
             name: "Clean Room",
             id: CKRecord.ID(recordName: "quest1")
         )
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
         #expect(service.fetchQuests(family: "fam").count == 1)
 
-        service.invalidate(recordName: "quest1", family: "fam", type: .quest)
+        await service.invalidate(recordName: "quest1", family: "fam", type: .quest)
 
         #expect(service.fetchQuests(family: "fam").count == 0)
     }
@@ -175,7 +175,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `fetch quests filters by family`() throws {
+    func `fetch quests filters by family`() async throws {
         let service = try makeService()
         let questA = Quest(
             template: ref("tpl"),
@@ -203,8 +203,8 @@ struct CacheServiceTests {
             name: "Quest B",
             id: CKRecord.ID(recordName: "questB")
         )
-        service.upsertQuest(questA)
-        service.upsertQuest(questB)
+        await service.upsertQuest(questA)
+        await service.upsertQuest(questB)
 
         let famAQuests = service.fetchQuests(family: "famA")
         #expect(famAQuests.count == 1)
@@ -218,7 +218,7 @@ struct CacheServiceTests {
     // MARK: - Bulk Clear
 
     @Test
-    func `clear all removes all records`() throws {
+    func `clear all removes all records`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -238,18 +238,18 @@ struct CacheServiceTests {
             createdBy: CKRecord.ID(recordName: "user1"),
             id: CKRecord.ID(recordName: "fam")
         )
-        service.upsertQuest(quest)
-        service.upsertFamily(family)
+        await service.upsertQuest(quest)
+        await service.upsertFamily(family)
         #expect(service.fetchQuests(family: "fam").count == 1)
 
-        try service.clearAll()
+        try await service.clearAll()
 
         #expect(service.fetchQuests(family: "fam").count == 0)
         #expect(service.fetchFamily(recordName: "fam") == nil)
     }
 
     @Test
-    func `clearAll scrubs every cache model descriptor on happy path`() throws {
+    func `clearAll scrubs every cache model descriptor on happy path`() async throws {
         let service = try makeService()
         let family = Family(
             name: "Dragons",
@@ -278,15 +278,15 @@ struct CacheServiceTests {
         )
 
         // Seed across three distinct cache model types before the wipe.
-        service.upsertFamily(family)
-        service.upsertQuest(quest)
-        service.upsertProfile(profile)
+        await service.upsertFamily(family)
+        await service.upsertQuest(quest)
+        await service.upsertProfile(profile)
         #expect(service.fetchFamily(recordName: "fam") != nil)
         #expect(service.fetchQuests(family: "fam").count == 1)
         #expect(service.fetchProfiles(family: "fam").count == 1)
 
         // Happy path: clearAll() completes without throwing.
-        try service.clearAll()
+        try await service.clearAll()
 
         // Every cache model descriptor must report zero rows after the wipe.
         guard let container = service.container else { return }
@@ -308,7 +308,7 @@ struct CacheServiceTests {
     // MARK: - Notification Preference ChangeTag
 
     @Test
-    func `upsert notification preference clears change tag when nil`() throws {
+    func `upsert notification preference clears change tag when nil`() async throws {
         let service = try makeService()
         var pref = NotificationPreference(
             profile: ref("hero"),
@@ -318,12 +318,12 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "pref1")
         )
         pref.changeTag = "server-v1"
-        service.upsertNotificationPreference(pref)
+        await service.upsertNotificationPreference(pref)
 
         // Upsert with nil changeTag — the cached tag must be cleared.
         var upserted = pref
         upserted.changeTag = nil
-        service.upsertNotificationPreference(upserted)
+        await service.upsertNotificationPreference(upserted)
 
         let prefs = service.fetchNotificationPreferences(profileRecordName: "hero")
         #expect(prefs.count == 1)
@@ -333,7 +333,7 @@ struct CacheServiceTests {
     // MARK: - Per-Family Purge (M4 Regression)
 
     @Test
-    func `purge family removes only target family rows`() throws {
+    func `purge family removes only target family rows`() async throws {
         let service = try makeService()
 
         // Seed two families with their own quests.
@@ -347,8 +347,8 @@ struct CacheServiceTests {
             createdBy: CKRecord.ID(recordName: "user2"),
             id: CKRecord.ID(recordName: "famB")
         )
-        service.upsertFamily(familyA)
-        service.upsertFamily(familyB)
+        await service.upsertFamily(familyA)
+        await service.upsertFamily(familyB)
 
         let questA = Quest(
             template: ref("tpl"),
@@ -376,8 +376,8 @@ struct CacheServiceTests {
             name: "Quest B",
             id: CKRecord.ID(recordName: "questB")
         )
-        service.upsertQuest(questA)
-        service.upsertQuest(questB)
+        await service.upsertQuest(questA)
+        await service.upsertQuest(questB)
         #expect(service.fetchQuests(family: "famA").count == 1)
         #expect(service.fetchQuests(family: "famB").count == 1)
 
@@ -396,7 +396,7 @@ struct CacheServiceTests {
     // MARK: - Remaining Entity Upserts
 
     @Test
-    func `upsert profile inserts new record`() throws {
+    func `upsert profile inserts new record`() async throws {
         let service = try makeService()
         let profile = Profile(
             displayName: "Hero",
@@ -406,7 +406,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "profile1")
         )
 
-        service.upsertProfile(profile)
+        await service.upsertProfile(profile)
 
         let profiles = service.fetchProfiles(family: "fam")
         #expect(profiles.count == 1)
@@ -414,7 +414,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert quest template inserts new record`() throws {
+    func `upsert quest template inserts new record`() async throws {
         let service = try makeService()
         let template = QuestTemplate(
             name: "Clean Room",
@@ -428,7 +428,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "tpl1")
         )
 
-        service.upsertQuestTemplate(template)
+        await service.upsertQuestTemplate(template)
 
         let templates = service.fetchQuestTemplates(family: "fam")
         #expect(templates.count == 1)
@@ -436,7 +436,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert quest completion inserts new record`() throws {
+    func `upsert quest completion inserts new record`() async throws {
         let service = try makeService()
         let completion = QuestCompletion(
             quest: ref("quest1"),
@@ -448,7 +448,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "comp1")
         )
 
-        service.upsertQuestCompletion(completion)
+        await service.upsertQuestCompletion(completion)
 
         let completions = service.fetchQuestCompletions(family: "fam")
         #expect(completions.count == 1)
@@ -456,7 +456,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert ledger entry inserts new record`() throws {
+    func `upsert ledger entry inserts new record`() async throws {
         let service = try makeService()
         let entry = LedgerEntry(
             profile: ref("hero"),
@@ -466,7 +466,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "entry1")
         )
 
-        service.upsertLedgerEntry(entry)
+        await service.upsertLedgerEntry(entry)
 
         let entries = service.fetchLedgerEntries(profileRecordName: "hero")
         #expect(entries.count == 1)
@@ -474,7 +474,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert allowance period inserts new record`() throws {
+    func `upsert allowance period inserts new record`() async throws {
         let service = try makeService()
         let period = AllowancePeriod(
             weekOf: Date(),
@@ -484,7 +484,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "period1")
         )
 
-        service.upsertAllowancePeriod(period)
+        await service.upsertAllowancePeriod(period)
 
         let periods = service.fetchAllowancePeriods(profileRecordName: "hero")
         #expect(periods.count == 1)
@@ -492,7 +492,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert achievement inserts new record`() throws {
+    func `upsert achievement inserts new record`() async throws {
         let service = try makeService()
         let achievement = Achievement(
             name: "First Quest",
@@ -505,7 +505,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "ach1")
         )
 
-        service.upsertAchievement(achievement)
+        await service.upsertAchievement(achievement)
 
         let achievements = service.fetchAchievements(family: "fam")
         #expect(achievements.count == 1)
@@ -513,7 +513,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert profile achievement inserts new record`() throws {
+    func `upsert profile achievement inserts new record`() async throws {
         let service = try makeService()
         let pa = ProfileAchievement(
             achievement: ref("ach1"),
@@ -522,7 +522,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "pa1")
         )
 
-        service.upsertProfileAchievement(pa)
+        await service.upsertProfileAchievement(pa)
 
         let pas = service.fetchProfileAchievements(profileRecordName: "hero")
         #expect(pas.count == 1)
@@ -530,7 +530,7 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `upsert family inserts new record`() throws {
+    func `upsert family inserts new record`() async throws {
         let service = try makeService()
         let family = Family(
             name: "Dragons",
@@ -538,7 +538,7 @@ struct CacheServiceTests {
             id: CKRecord.ID(recordName: "fam1")
         )
 
-        service.upsertFamily(family)
+        await service.upsertFamily(family)
 
         let cached = service.fetchFamily(recordName: "fam1")
         #expect(cached != nil)
@@ -548,7 +548,7 @@ struct CacheServiceTests {
     // MARK: - Payout Day Stamp on Existing-Row Upsert (V3 schema regression)
 
     @Test
-    func `upsert profile stamps payoutDay on existing row`() throws {
+    func `upsert profile stamps payoutDay on existing row`() async throws {
         // Seed a row with payoutDay = .monday, then upsert the same record with
         // payoutDay = .wednesday. The existing-row branch must stamp the new
         // payoutDay; before the fix it left the stale .monday in place.
@@ -558,7 +558,7 @@ struct CacheServiceTests {
             createdBy: CKRecord.ID(recordName: "user1"),
             id: CKRecord.ID(recordName: "fam")
         )
-        service.upsertFamily(family)
+        await service.upsertFamily(family)
 
         var profile = Profile(
             displayName: "Hero",
@@ -568,18 +568,18 @@ struct CacheServiceTests {
             payoutDay: .monday,
             id: CKRecord.ID(recordName: "profile1")
         )
-        service.upsertProfile(profile)
+        await service.upsertProfile(profile)
         #expect(service.fetchProfiles(family: "fam").first?.payoutDayEnum == .monday)
 
         profile.payoutDay = .wednesday
-        service.upsertProfile(profile)
+        await service.upsertProfile(profile)
 
         let updated = service.fetchProfiles(family: "fam").first
         #expect(updated?.payoutDayEnum == .wednesday)
     }
 
     @Test
-    func `upsert family stamps payoutDay on existing row`() throws {
+    func `upsert family stamps payoutDay on existing row`() async throws {
         // Seed a row with payoutDay = .monday, then upsert the same record with
         // payoutDay = .wednesday. The existing-row branch must stamp the new
         // payoutDay; before the fix it left the stale .monday in place.
@@ -590,11 +590,11 @@ struct CacheServiceTests {
             payoutDay: .monday,
             id: CKRecord.ID(recordName: "fam1")
         )
-        service.upsertFamily(family)
+        await service.upsertFamily(family)
         #expect(service.fetchFamily(recordName: "fam1")?.payoutDayEnum == .monday)
 
         family.payoutDay = .wednesday
-        service.upsertFamily(family)
+        await service.upsertFamily(family)
 
         let cached = service.fetchFamily(recordName: "fam1")
         #expect(cached?.payoutDayEnum == .wednesday)
@@ -623,13 +623,13 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `clearAll invalidates every freshness stamp`() throws {
+    func `clearAll invalidates every freshness stamp`() async throws {
         let service = try makeService()
         service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest)
         service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion)
         service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .profile)
 
-        try service.clearAll()
+        try await service.clearAll()
 
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == false)
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion) == false)
@@ -713,14 +713,14 @@ struct CacheServiceTests {
     }
 
     @Test
-    func `batch upsert profiles stamps payoutDay on existing row`() throws {
+    func `batch upsert profiles stamps payoutDay on existing row`() async throws {
         let service = try makeService()
         let family = Family(
             name: "Dragons",
             createdBy: CKRecord.ID(recordName: "user1"),
             id: CKRecord.ID(recordName: "fam")
         )
-        service.upsertFamily(family)
+        await service.upsertFamily(family)
 
         var profile = Profile(
             displayName: "Hero",
@@ -730,11 +730,11 @@ struct CacheServiceTests {
             payoutDay: .monday,
             id: CKRecord.ID(recordName: "profile-batch1")
         )
-        service.upsertProfile(profile)
+        await service.upsertProfile(profile)
         #expect(service.fetchProfiles(family: "fam").first(where: { $0.recordName == "profile-batch1" })?.payoutDayEnum == .monday)
 
         profile.payoutDay = .friday
-        service.upsertProfiles([profile], family: "fam")
+        await service.upsertProfiles([profile], family: "fam")
 
         let updated = service.fetchProfiles(family: "fam").first(where: { $0.recordName == "profile-batch1" })
         #expect(updated?.payoutDayEnum == .friday)

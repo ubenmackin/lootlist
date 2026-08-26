@@ -91,6 +91,8 @@ struct FamilyDashboardView: View {
     @State private var showWithdrawSheet = false
     @State private var selectedChildForTransaction: ProfileCache?
     @State private var transactionVM: HeroLedgerViewModel?
+    @State private var maxChildCardHeight: CGFloat?
+    @State private var isProcessingPayout = false
 
     var body: some View {
         NavigationStack {
@@ -159,6 +161,9 @@ struct FamilyDashboardView: View {
                     )
                 }
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
+                await lifecycleCoordinator?.performManualSync()
+                rebuild()
+                await viewModel?.refresh()
                 rebuild()
                 await viewModel?.refreshInvitations()
             }
@@ -217,6 +222,7 @@ struct FamilyDashboardView: View {
     }
 
     private func rebuild() {
+        maxChildCardHeight = nil
         viewModel?.rebuildLists(
             profiles: cachedProfiles,
             quests: cachedQuests,
@@ -227,10 +233,14 @@ struct FamilyDashboardView: View {
             achievements: cachedAchievements
         )
     }
+}
 
+// MARK: - Sections
+
+private extension FamilyDashboardView {
     // MARK: - Stat Cards
 
-    private func statCardsRow(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
+    func statCardsRow(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
         HStack(spacing: DesignSystemConstants.Padding.medium) {
             StatCard(
                 title: "FAMILY OUTFLOW",
@@ -282,6 +292,11 @@ struct FamilyDashboardView: View {
                 ) {
                     ForEach(vm.childAccountCards) { card in
                         childAccountCard(card, vm: vm)
+                    }
+                }
+                .onPreferenceChange(ChildCardHeightPreferenceKey.self) { newHeight in
+                    if newHeight > 0, maxChildCardHeight != newHeight {
+                        maxChildCardHeight = newHeight
                     }
                 }
                 .padding(.horizontal)
@@ -341,12 +356,23 @@ struct FamilyDashboardView: View {
                     )
                 }
 
+                Spacer(minLength: 0)
+
                 Text("View Screen")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                     .padding(.top, 2)
             }
             .frame(maxWidth: .infinity)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: ChildCardHeightPreferenceKey.self,
+                        value: geo.size.height
+                    )
+                }
+            )
+            .frame(minHeight: maxChildCardHeight)
             .padding(DesignSystemConstants.Padding.medium)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
@@ -694,9 +720,7 @@ struct FamilyDashboardView: View {
         }
     }
 
-    @State private var isProcessingPayout: Bool = false
-
-    private func totalsRow(summary: WeekendSummary, isPending: Bool) -> some View {
+    func totalsRow(summary: WeekendSummary, isPending: Bool) -> some View {
         HStack(spacing: 12) {
             statBlock(
                 icon: isPending ? "hourglass" : "banknote",
@@ -854,5 +878,12 @@ private struct ProcessPayoutButtonView: View {
             let amountStr = CurrencyFormatter.string(summary.pendingPayoutAmount)
             Text("Process payout of \(amountStr) across all heroes with completed quests? This will settle earnings for quests completed so far this week.")
         }
+    }
+}
+
+private struct ChildCardHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

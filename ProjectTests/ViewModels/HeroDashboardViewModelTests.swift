@@ -522,7 +522,7 @@ struct HeroDashboardViewModelTests {
             fromBucket: String? = nil,
             toBucket: String? = nil
         ) {
-            cache.upsertLedgerEntry(LedgerEntry(
+            cache.context?.insert(LedgerEntryCache(from: LedgerEntry(
                 profile: profileRef,
                 amount: amount,
                 description: name,
@@ -532,7 +532,8 @@ struct HeroDashboardViewModelTests {
                 toBucket: toBucket,
                 family: familyRef,
                 id: CKRecord.ID(recordName: name, zoneID: SampleData.zoneID)
-            ))
+            )))
+            _ = cache.saveContext()
         }
 
         func quest(_ name: String, weekOf: Date, goldReward: Double = 10.0) -> QuestCache {

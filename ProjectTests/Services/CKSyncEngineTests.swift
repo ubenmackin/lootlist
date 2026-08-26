@@ -35,7 +35,7 @@ struct CKSyncEngineTests {
     // MARK: - RecordBridge Tests
 
     @Test
-    func `record bridge converts cached quest into CKRecord with parent`() throws {
+    func `record bridge converts cached quest into CKRecord with parent`() async throws {
         let cache = try CacheService(inMemory: true)
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
@@ -52,7 +52,7 @@ struct CKSyncEngineTests {
             id: questID
         )
 
-        cache.upsertQuest(quest)
+        await cache.upsertQuest(quest)
 
         let questIdentity = ScopedRecordIdentity(
             databaseScope: .private,
@@ -68,7 +68,7 @@ struct CKSyncEngineTests {
     }
 
     @Test
-    func `record bridge converts cached quest completion to QuestLog CKRecord`() throws {
+    func `record bridge converts cached quest completion to QuestLog CKRecord`() async throws {
         let cache = try CacheService(inMemory: true)
         let completionID = CKRecord.ID(recordName: "log1", zoneID: zoneID)
         let completion = QuestCompletion(
@@ -81,7 +81,7 @@ struct CKSyncEngineTests {
             id: completionID
         )
 
-        cache.upsertQuestCompletion(completion)
+        await cache.upsertQuestCompletion(completion)
 
         let completionIdentity = ScopedRecordIdentity(
             databaseScope: .private,
@@ -320,7 +320,7 @@ struct CKSyncEngineTests {
             name: "Delete Me",
             id: questID
         )
-        cache.upsertQuest(quest)
+        await cache.upsertQuest(quest)
 
         // The row is visible both through the @MainActor cache and the shared
         // background store before the server deletion arrives.
@@ -357,7 +357,7 @@ struct CKSyncEngineTests {
             name: "Delete Both",
             id: questID
         )
-        cache.upsertQuest(quest)
+        await cache.upsertQuest(quest)
 
         #expect(cache.fetchQuest(recordName: questID.recordName, family: "fam1") != nil)
         #expect(try containerCount(QuestCache.self, in: container) == 1)
@@ -462,7 +462,7 @@ struct CKSyncEngineTests {
     }
 
     @Test
-    func `account switch clears session record and purges previous family cache`() throws {
+    func `account switch clears session record and purges previous family cache`() async throws {
         let suite = "CKSyncEngineTests_Session_\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
@@ -489,8 +489,8 @@ struct CKSyncEngineTests {
 
         // Establish an active session whose family row is resident in the cache.
         appState.saveSession(profile: profile, family: family, zoneID: savedZoneID, isOwner: true)
-        cache.upsertFamily(family)
-        cache.upsertProfile(profile)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(profile)
         #expect(cache.fetchFamily(recordName: "fam1") != nil)
 
         appState.clearSession()
@@ -534,8 +534,8 @@ struct CKSyncEngineTests {
         appState.familyZoneID = zoneID
         appState.isZoneOwner = true
         appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: true)
-        cache.upsertFamily(family)
-        cache.upsertProfile(profile)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(profile)
         #expect(appState.currentProfile != nil)
 
         // Exercise account change: signOut

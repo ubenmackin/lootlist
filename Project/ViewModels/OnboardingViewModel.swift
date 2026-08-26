@@ -84,6 +84,8 @@ final class OnboardingViewModel {
 
     private let appState: AppState
 
+    private let syncCoordinator: CKSyncEngineCoordinator
+
     private(set) var builtFamily: Family?
 
     private(set) var builtProfile: Profile?
@@ -91,9 +93,10 @@ final class OnboardingViewModel {
     /// Indicates whether `joinFamilyViaAcceptedShare` reused an existing active profile without modification.
     private(set) var didReuseActiveProfile = false
 
-    init(familyService: FamilyService, appState: AppState) {
+    init(familyService: FamilyService, appState: AppState, syncCoordinator: CKSyncEngineCoordinator) {
         self.familyService = familyService
         self.appState = appState
+        self.syncCoordinator = syncCoordinator
     }
 
     func advanceFromIntentSelection() {
@@ -363,18 +366,12 @@ final class OnboardingViewModel {
                 avatarEmoji: avatarEmoji
             )
 
-            // Persist completed profile synchronously to CloudKit before background sync pull.
-            let zoneID = saved.id.zoneID
-            let sharedDB = familyService.cloudKit.sharedDatabase
-            do {
-                let serverSaved = try await familyService.cloudKit.save(saved, in: zoneID, using: sharedDB)
-                builtProfile = serverSaved
-            } catch {
-                // Fallback: the enqueueSave from the update calls will eventually
-                // push the correct data. Log and proceed with the local version.
-                logger.warning("Failed to persist completed joined profile immediately: \(error, privacy: .private)")
-                builtProfile = saved
-            }
+            // updateProfileDisplayName/updateProfileAvatar already dual-wrote cache
+            // and enqueued engine saves; a raw save here would race that queue and
+            // leave the cache holding a stale changeTag, forcing a
+            // serverRecordChanged conflict on the first post-onboarding sync.
+            await syncCoordinator.sendPendingChanges()
+            builtProfile = saved
             push(.done)
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to finalize joined profile: \(familyError.localizedDescription, privacy: .private)")

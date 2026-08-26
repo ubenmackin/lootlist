@@ -108,7 +108,7 @@ final class MatchService {
         updated.matchRateBps = max(0, rateBps)
         updated.matchMonthlyCapPennies = monthlyCapPennies.flatMap { $0 > 0 ? $0 : nil }
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
@@ -211,7 +211,7 @@ final class MatchService {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: recordNameStr, zoneID: family.id.zoneID)
         )
-        cacheService?.upsertLedgerEntry(entry)
+        await cacheService?.upsertLedgerEntry(entry)
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
         logger.info("Matched \(matchPennies, privacy: .public)p for goal \(goal.id.recordName, privacy: .private) in month \(month, privacy: .public)")
         return entry

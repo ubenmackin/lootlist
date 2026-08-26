@@ -22,6 +22,8 @@ struct GemShopView: View {
     @State private var selectedCategory: ShopCategory = .headwear
     @State private var pendingPurchaseItem: ShopItem?
     @State private var isPurchasing: Bool = false
+    // Best-effort double-tap brake; EquipmentService owns the authoritative in-flight guard.
+    @State private var isChangingEquipment: Bool = false
     @State private var celebratedItem: ShopItem?
     @State private var showCelebration: Bool = false
 
@@ -305,7 +307,12 @@ struct GemShopView: View {
                 ForEach(ShopCategory.allCases) { category in
                     if let item = equipped[category] {
                         Button {
-                            equipmentService.unequip(category: category, profile: profile)
+                            guard !isChangingEquipment else { return }
+                            isChangingEquipment = true
+                            Task {
+                                defer { isChangingEquipment = false }
+                                await equipmentService.unequip(category: category, profile: profile)
+                            }
                             soundManager.play(.equipItem)
                         } label: {
                             HStack(spacing: 4) {
@@ -323,6 +330,7 @@ struct GemShopView: View {
                             .foregroundStyle(.primary)
                         }
                         .buttonStyle(.plain)
+                        .disabled(isChangingEquipment)
                         .accessibilityLabel("Equipped \(item.name). Tap to unequip.")
                     }
                 }
@@ -509,7 +517,12 @@ struct GemShopView: View {
             )
         } else if isEquipped {
             Button {
-                equipmentService.unequip(category: item.category, profile: profile)
+                guard !isChangingEquipment else { return }
+                isChangingEquipment = true
+                Task {
+                    defer { isChangingEquipment = false }
+                    await equipmentService.unequip(category: item.category, profile: profile)
+                }
                 soundManager.play(.equipItem)
             } label: {
                 HStack(spacing: 4) {
@@ -522,9 +535,15 @@ struct GemShopView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.green)
+            .disabled(isChangingEquipment)
         } else if isOwned {
             Button {
-                equipmentService.equip(item: item, profile: profile)
+                guard !isChangingEquipment else { return }
+                isChangingEquipment = true
+                Task {
+                    defer { isChangingEquipment = false }
+                    await equipmentService.equip(item: item, profile: profile)
+                }
                 soundManager.play(.equipItem)
             } label: {
                 Text("Equip")
@@ -534,6 +553,7 @@ struct GemShopView: View {
             }
             .buttonStyle(.bordered)
             .tint(Color.gold)
+            .disabled(isChangingEquipment)
         } else {
             Button {
                 pendingPurchaseItem = item

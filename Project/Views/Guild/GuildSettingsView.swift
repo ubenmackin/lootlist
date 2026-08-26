@@ -22,6 +22,8 @@ struct GuildSettingsView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(InterestService.self) private var interestService
     @Environment(MatchService.self) private var matchService
+    @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @State private var viewModel: FamilyDashboardViewModel?
 
@@ -84,6 +86,7 @@ struct GuildSettingsView: View {
             .navigationTitle("Guild Settings")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
+                await lifecycleCoordinator?.performManualSync()
                 await viewModel?.refresh()
                 rebuildViewModel()
                 await viewModel?.refreshInvitations()
@@ -98,10 +101,15 @@ struct GuildSettingsView: View {
                         appState: appState
                     )
                 }
+                viewModel?.subscribeToSyncEvents(appSyncCoordinator)
+                await lifecycleCoordinator?.performManualSync()
                 rebuildViewModel()
                 await viewModel?.refresh()
                 rebuildViewModel()
                 await viewModel?.refreshInvitations()
+            }
+            .onDisappear {
+                viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
             .onAppear {
                 rebuildViewModel()
@@ -317,11 +325,6 @@ struct GuildSettingsView: View {
         do {
             try await familyService.updateMemberRole(profile: newOwner.toProfile(zoneID: zoneID), newRole: .guildMaster)
             try await familyService.updateMemberRole(profile: current, newRole: .ranger)
-            if appState.currentProfile?.id == current.id {
-                var updated = current
-                updated.role = .ranger
-                appState.currentProfile = updated
-            }
             await viewModel?.refresh()
             showRoleTransferConfirm = nil
         } catch {

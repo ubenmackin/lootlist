@@ -40,8 +40,8 @@ struct AppStateTests {
         // Seed the cache with the offline-rehydration source rows.
         let defaults = UserDefaults.ephemeral()
         let cache = try CacheService(inMemory: true, defaults: defaults)
-        cache.upsertFamily(family)
-        cache.upsertProfile(profile)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(profile)
 
         let appState = AppState(defaults: defaults)
         appState.cacheService = cache
@@ -58,7 +58,7 @@ struct AppStateTests {
     }
 
     @Test
-    func `sign out purges only the signed out family cache`() throws {
+    func `sign out purges only the signed out family cache`() async throws {
         // Seed the in-memory cache with rows for three families. Only familyA
         // is the active session; sign-out must drop familyA's rows while
         // leaving familyB and familyC untouched (targeted purge, not clearAll).
@@ -116,12 +116,12 @@ struct AppStateTests {
 
         let defaults = UserDefaults.ephemeral()
         let cache = try CacheService(inMemory: true, defaults: defaults)
-        cache.upsertFamily(familyA)
-        cache.upsertFamily(familyB)
-        cache.upsertFamily(familyC)
-        cache.upsertProfile(profileA)
-        cache.upsertProfile(profileB)
-        cache.upsertProfile(profileC)
+        await cache.upsertFamily(familyA)
+        await cache.upsertFamily(familyB)
+        await cache.upsertFamily(familyC)
+        await cache.upsertProfile(profileA)
+        await cache.upsertProfile(profileB)
+        await cache.upsertProfile(profileC)
 
         let appState = AppState(defaults: defaults)
         appState.cacheService = cache
@@ -141,7 +141,7 @@ struct AppStateTests {
     }
 
     @Test
-    func `cross-device profile field changes propagate to current profile`() throws {
+    func `cross-device profile field changes propagate to current profile`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "PropagationZone", ownerName: "PropagationOwner")
         let familyID = CKRecord.ID(recordName: "famProp", zoneID: zoneID)
         let profileID = CKRecord.ID(recordName: "profProp", zoneID: zoneID)
@@ -164,8 +164,8 @@ struct AppStateTests {
 
         let defaults = UserDefaults.ephemeral()
         let cache = try CacheService(inMemory: true, defaults: defaults)
-        cache.upsertFamily(family)
-        cache.upsertProfile(profile)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(profile)
 
         let appState = AppState(defaults: defaults)
         appState.cacheService = cache
@@ -177,7 +177,7 @@ struct AppStateTests {
         // skipped this update; the full-profile comparison must not.
         var policyChanged = profile
         policyChanged.payoutPolicy = .allOrNothing
-        cache.upsertProfile(policyChanged)
+        await cache.upsertProfile(policyChanged)
 
         appState.updateCurrentProfileFromCache()
 
@@ -188,7 +188,7 @@ struct AppStateTests {
         var avatarAndDayChanged = policyChanged
         avatarAndDayChanged.payoutDay = .friday
         avatarAndDayChanged.customAvatarImageData = Data([0xAA, 0xBB, 0xCC])
-        cache.upsertProfile(avatarAndDayChanged)
+        await cache.upsertProfile(avatarAndDayChanged)
 
         appState.updateCurrentProfileFromCache()
 
@@ -382,8 +382,8 @@ struct AppStateTests {
         cloudKit.seedMockRecords([family, profile], creatorUserRecordName: "stale-creator")
 
         let cache = try CacheService(inMemory: true, defaults: defaults)
-        cache.upsertFamily(family)
-        cache.upsertProfile(profile)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(profile)
 
         let appState = AppState(defaults: defaults)
         appState.cacheService = cache

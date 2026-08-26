@@ -168,7 +168,7 @@ struct XPServiceTests {
         let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID: zoneID, xp: 100, level: 1)
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         appState.currentProfile = hero
 
         let saved = try await service.addXP(50, to: hero)
@@ -192,7 +192,7 @@ struct XPServiceTests {
 
         // The cache holds the pre-sync profile (knight_01 avatar, perQuest payout).
         let cachedHero = makeHero(zoneID: zoneID, xp: 100, level: 1)
-        cache.upsertProfile(cachedHero)
+        await cache.upsertProfile(cachedHero)
 
         // currentProfile carries fresher in-memory UI state (avatar + payout
         // policy changed on another device) that the local cache has not synced.
@@ -225,7 +225,7 @@ struct XPServiceTests {
         let service = XPService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let hero = makeHero(zoneID: zoneID, xp: 100, level: 1)
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         appState.currentProfile = hero
 
         let returned = try await service.addXP(50, to: hero)
@@ -269,7 +269,7 @@ struct XPServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "hero2", zoneID: zoneID)
         )
-        cache.upsertProfile(victim)
+        await cache.upsertProfile(victim)
         appState.currentProfile = actor
 
         do {
@@ -292,7 +292,7 @@ struct XPServiceTests {
         let service = XPService(cloudKit: cloudKit, cacheService: cache)
 
         let hero = makeHero(zoneID: zoneID, xp: 0, level: 1)
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
 
         do {
             _ = try await service.addXP(50, to: hero)

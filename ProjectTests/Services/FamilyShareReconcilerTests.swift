@@ -70,8 +70,9 @@ struct FamilyShareReconcilerTests {
         )
 
         cloudKit.seedMockRecords([family, hero])
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        cache.context?.insert(FamilyCache(from: family))
+        cache.context?.insert(ProfileCache(from: hero))
+        _ = cache.saveContext()
         appState.family = family
         // The owner's device acts as Guild Master, so deactivation is
         // authorized through the parent-role guard in `deactivateProfile`.

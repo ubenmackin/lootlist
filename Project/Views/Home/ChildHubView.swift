@@ -16,33 +16,41 @@ struct ChildHubView: View {
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
 
-    private let spending: SpendingService
-    private let familyRecordName: String?
-
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var viewModel: ChildHubViewModel?
     @State private var treasuryViewModel: TreasuryViewModel?
     @State private var isShowingLogSpending: Bool = false
 
-    init(spending: SpendingService, familyRecordName: String? = nil) {
+    private let spending: SpendingService
+    private let familyRecordName: String?
+
+    private let profileRecordName: String?
+
+    init(spending: SpendingService, familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.spending = spending
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let currentProfileFilter = #Predicate<ProfileCache> {
+            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
+        }
 
         _cachedQuests = Query(filter: questFilter, sort: \QuestCache.weekOf, order: .reverse)
         _cachedCompletions = Query(
@@ -54,6 +62,16 @@ struct ChildHubView: View {
         _cachedGoals = Query(filter: goalFilter, sort: \GoalCache.createdAt)
         _cachedLedgers = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date, order: .reverse)
         _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf, order: .reverse)
+        _currentProfileRows = Query(
+            filter: currentProfileFilter,
+            sort: \ProfileCache.displayName
+        )
+    }
+
+    /// Queried cache row for the active hero profile; nil when identity or
+    /// family scope has no synced row yet, keeping rendering fail-closed.
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
     }
 
     var body: some View {
@@ -115,7 +133,7 @@ struct ChildHubView: View {
 
     private var header: some View {
         HStack(spacing: DesignSystemConstants.Padding.medium) {
-            Text(appState.currentProfile?.avatarEmoji ?? "🦸")
+            Text(currentProfileRow?.avatarEmoji ?? "🦸")
                 .font(.title2)
                 .frame(width: 44, height: 44)
                 .background(Circle().fill(Color.green.opacity(0.15)))
@@ -134,7 +152,10 @@ struct ChildHubView: View {
             Spacer()
 
             NavigationLink {
-                QuestsView(familyRecordName: familyRecordName)
+                QuestsView(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: appState.currentProfile?.id.recordName
+                )
             } label: {
                 bellIcon
             }
@@ -143,7 +164,10 @@ struct ChildHubView: View {
             .accessibilityIdentifier("hub.questsLink")
 
             NavigationLink {
-                SettingsView()
+                SettingsView(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: appState.currentProfile?.id.recordName
+                )
             } label: {
                 Image(systemName: "slider.horizontal.3")
                     .font(.body.weight(.semibold))
@@ -184,7 +208,7 @@ struct ChildHubView: View {
     }
 
     private var firstName: String {
-        let name = appState.currentProfile?.displayName ?? "Hero"
+        let name = currentProfileRow?.displayName ?? "Hero"
         return name.split(separator: " ").first.map(String.init) ?? name
     }
 

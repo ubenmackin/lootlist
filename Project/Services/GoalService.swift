@@ -208,7 +208,7 @@ final class GoalService {
             id: id
         )
 
-        cacheService?.upsertGoal(goal)
+        await cacheService?.upsertGoal(goal)
         syncCoordinator?.enqueueSave(recordID: goal.id, isOwner: appState.isZoneOwner)
 
         logger.info("Created goal \"\(name, privacy: .private)\" for profile \(targetProfile.id.recordName, privacy: .private)")
@@ -257,12 +257,28 @@ final class GoalService {
             return copy
         }()
 
-        cacheService?.upsertGoal(updatedGoal)
+        await cacheService?.upsertGoal(updatedGoal)
         syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: appState.isZoneOwner)
 
         logger.info("Archived goal \"\(goal.name, privacy: .private)\"")
 
         return updatedGoal
+    }
+
+    /// Archives straight from a `GoalCache` row so view-layer callers never
+    /// convert cache models into the domain struct themselves — that
+    /// conversion belongs at the service mutation boundary. Delegation to
+    /// `archiveGoal(_:family:)` keeps every role and scope guard on the one
+    /// canonical write path.
+    func archiveGoal(_ goalCache: GoalCache, familyRecordName: String?) async throws {
+        guard let appState, let family = appState.family else {
+            throw ScopeViolation.noActiveFamily
+        }
+        if let supplied = familyRecordName, supplied != family.id.recordName {
+            throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: supplied)
+        }
+        let zoneID = appState.familyZoneID ?? family.id.zoneID
+        try await archiveGoal(goalCache.toGoal(zoneID: zoneID), family: family)
     }
 
     // MARK: - Complete Goal Manually
@@ -297,7 +313,7 @@ final class GoalService {
             return copy
         }()
 
-        cacheService?.upsertGoal(updatedGoal)
+        await cacheService?.upsertGoal(updatedGoal)
         syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: appState.isZoneOwner)
 
         // Centralized celebration hook.
@@ -363,7 +379,7 @@ final class GoalService {
                 family: CKRecord.Reference(recordID: family.id, action: .none),
                 id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
             )
-            cacheService?.upsertLedgerEntry(entry)
+            await cacheService?.upsertLedgerEntry(entry)
             syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
 
             logger.info("Contributed \(alloc.allocatedPennies)p to goal \(alloc.goalRecordName, privacy: .private)")
@@ -376,7 +392,7 @@ final class GoalService {
             let domain = goalCache.toGoal(zoneID: family.id.zoneID)
             var updated = domain
             updated.completedAt = contributionDate
-            cacheService?.upsertGoal(updated)
+            await cacheService?.upsertGoal(updated)
             syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: appState.isZoneOwner)
 
             triggerGoalCompletionFeedback(

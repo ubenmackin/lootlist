@@ -35,7 +35,7 @@ extension FamilyService {
         var updated = family
         updated.name = trimmed
 
-        cacheService?.upsertFamily(updated)
+        await cacheService?.upsertFamily(updated)
         appState.family = updated
 
         let isOwner = appState.isZoneOwner
@@ -66,7 +66,7 @@ extension FamilyService {
         var updated = family
         updated.payoutPolicy = policy
 
-        cacheService?.upsertFamily(updated)
+        await cacheService?.upsertFamily(updated)
         appState.family = updated
 
         // Re-resolve owner from authoritative CloudKit scope after AppState sync;
@@ -99,7 +99,7 @@ extension FamilyService {
         var updated = family
         updated.payoutDay = day
 
-        cacheService?.upsertFamily(updated)
+        await cacheService?.upsertFamily(updated)
         appState.family = updated
 
         let isOwner = appState.isZoneOwner
@@ -131,7 +131,7 @@ extension FamilyService {
         var updated = profile
         updated.payoutPolicy = policy
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
             appState.currentProfile = updated
         }
@@ -166,7 +166,7 @@ extension FamilyService {
         var updated = profile
         updated.payoutDay = day
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
             appState.currentProfile = updated
         }
@@ -195,7 +195,7 @@ extension FamilyService {
         var updated = profile
         updated.displayName = trimmed
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == profile.id {
             appState.currentProfile = updated
         }
@@ -245,7 +245,7 @@ extension FamilyService {
         updated.customAvatarImageData = customAvatarImageData
         updated.avatarEmoji = avatarEmoji
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }

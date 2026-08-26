@@ -72,8 +72,8 @@ extension FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "ranger1", zoneID: zoneID)
         )
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
         appState.currentProfile = ranger
@@ -108,7 +108,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (_, _, family, _, parent) = makeStandardFixtures()
-        cache.upsertFamily(family)
+        await cache.upsertFamily(family)
         cloudKit.seedMockRecords([family])
         appState.family = family
         appState.currentProfile = parent
@@ -135,7 +135,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (_, _, family, _, parent) = makeStandardFixtures()
-        cache.upsertFamily(family)
+        await cache.upsertFamily(family)
         cloudKit.seedMockRecords([family])
         appState.family = family
         appState.currentProfile = parent
@@ -162,7 +162,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (_, _, family, _, parent) = makeStandardFixtures()
-        cache.upsertFamily(family)
+        await cache.upsertFamily(family)
         cloudKit.seedMockRecords([family])
         appState.family = family
         appState.currentProfile = parent
@@ -202,7 +202,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (_, _, _, hero, parent) = makeStandardFixtures()
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([hero])
 
         // Self hero succeeds
@@ -246,7 +246,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (_, _, _, hero, parent) = makeStandardFixtures()
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([hero])
 
         // Self hero
@@ -325,7 +325,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (_, _, _, hero, _) = makeStandardFixtures()
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([hero])
         appState.currentProfile = hero
 
@@ -358,7 +358,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (_, _, _, hero, _) = makeStandardFixtures()
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([hero])
         appState.currentProfile = hero
 
@@ -551,7 +551,7 @@ extension FamilyServiceTests {
         familyService.cacheService = cache
 
         let (zoneID, familyRef, family, hero, _) = makeStandardFixtures()
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero], creatorUserRecordName: nil)
         let parent = Profile(
             displayName: "Guild Master",

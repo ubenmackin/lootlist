@@ -218,7 +218,7 @@ extension DataMigrationsCoordinator {
                     id: targetID
                 )
                 let saved = try await cloudKit.save(entry, in: zoneID, using: nil)
-                cacheService?.upsertLedgerEntry(saved)
+                await cacheService?.upsertLedgerEntry(saved)
             }
         }
     }
@@ -255,7 +255,7 @@ extension DataMigrationsCoordinator {
                         family: achievement.family
                     )
                     let saved = try await cloudKit.save(canonical, in: zoneID, using: nil)
-                    cacheService?.upsertAchievement(saved)
+                    await cacheService?.upsertAchievement(saved)
                     do {
                         try await cloudKit.delete(achievement.id, in: zoneID, using: nil)
                     } catch {
@@ -324,12 +324,12 @@ extension DataMigrationsCoordinator {
                 return
             }
             if let cacheService {
-                cacheService.upsertNotificationPreferences(toCreate, family: familyRecordName)
+                await cacheService.upsertNotificationPreferences(toCreate, family: familyRecordName)
             }
             for pref in toCreate {
                 do {
                     let saved = try await cloudKit.save(pref, in: zoneID, using: nil)
-                    cacheService?.upsertNotificationPreference(saved)
+                    await cacheService?.upsertNotificationPreference(saved)
                     syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
                 } catch {
                     logger.warning("Failed to backfill notification preference \(pref.id.recordName, privacy: .private): \(error, privacy: .private)")
@@ -388,7 +388,7 @@ extension DataMigrationsCoordinator {
                 )
                 do {
                     let saved = try await cloudKit.save(period, in: zoneID, using: nil)
-                    cacheService?.upsertAllowancePeriod(saved)
+                    await cacheService?.upsertAllowancePeriod(saved)
                     syncCoordinator?.enqueueSave(recordID: saved.id, isOwner: isOwner)
                     created += 1
                 } catch {

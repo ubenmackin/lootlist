@@ -39,6 +39,7 @@ struct ProfileView: View {
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedProfiles: [ProfileCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var showingEditName: Bool = false
 
@@ -57,25 +58,33 @@ struct ProfileView: View {
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
 
+    private let profileRecordName: String?
+
     init(avatarService: AvatarService,
          xpService: XPService,
          notificationService: NotificationService,
-         familyRecordName: String? = nil)
+         familyRecordName: String? = nil,
+         profileRecordName: String? = nil)
     {
         self.avatarService = avatarService
         self.xpService = xpService
         self.notificationService = notificationService
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
         let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+        let currentProfileFilter = #Predicate<ProfileCache> {
+            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
+        }
         _cachedAchievements = Query(
             filter: achievementFilter,
             sort: \AchievementCache.name
@@ -104,15 +113,26 @@ struct ProfileView: View {
             filter: profileFilter,
             sort: \ProfileCache.displayName
         )
+        _currentProfileRows = Query(
+            filter: currentProfileFilter,
+            sort: \ProfileCache.displayName
+        )
+    }
+
+    /// Queried cache row for the active profile. Nil when the session identity
+    /// or family scope has no synced row yet, keeping rendering fail-closed
+    /// instead of falling back to the session snapshot.
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    if let profile = appState.currentProfile {
-                        characterCard(profile: profile)
-                        actionsSection(profile: profile)
+                    if let row = currentProfileRow {
+                        characterCard(row: row)
+                        actionsSection(row: row)
                         aboutSection
                     } else {
                         emptyState
@@ -145,13 +165,13 @@ struct ProfileView: View {
                 }
             }
             .sheet(isPresented: $showingEditName) {
-                if let profile = appState.currentProfile, profile.role == .hero {
-                    editNameSheet(profile: profile)
+                if let row = currentProfileRow, row.roleEnum == .hero {
+                    editNameSheet()
                 }
             }
             .sheet(isPresented: $showingEditAvatar) {
-                if let profile = appState.currentProfile {
-                    EditAvatarSheet(profileCache: ProfileCache(from: profile))
+                if let row = currentProfileRow {
+                    EditAvatarSheet(profileCache: row)
                 }
             }
             .task {
@@ -184,12 +204,12 @@ struct ProfileView: View {
         )
     }
 
-    private func characterCard(profile: Profile) -> some View {
+    private func characterCard(row: ProfileCache) -> some View {
         VStack(spacing: 14) {
             if FeatureFlags.rpgImmersive {
-                rpgCharacterCard(profile: profile)
+                rpgCharacterCard(row: row)
             } else {
-                utilityCharacterCard(profile: profile)
+                utilityCharacterCard(row: row)
             }
 
             HStack(spacing: 12) {
@@ -203,9 +223,9 @@ struct ProfileView: View {
                 .tint(Color.gold)
                 .accessibilityIdentifier("profile.changeAvatarButton")
 
-                if profile.role == .hero {
+                if row.roleEnum == .hero {
                     Button {
-                        draftName = profile.displayName
+                        draftName = row.displayName
                         showingEditName = true
                     } label: {
                         Label("Rename", systemImage: "pencil.line")
@@ -249,18 +269,18 @@ struct ProfileView: View {
 
     /// Utility-first card: emoji avatar, name, role, and savings streak.
     @ViewBuilder
-    private func utilityCharacterCard(profile: Profile) -> some View {
-        Text(profile.avatarEmoji ?? "🧑")
+    private func utilityCharacterCard(row: ProfileCache) -> some View {
+        Text(row.avatarEmoji ?? "🧑")
             .font(.system(size: 56))
 
-        Text(profile.displayName)
+        Text(row.displayName)
             .font(.title2.bold())
             .foregroundStyle(.white)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
 
-        Text(profile.role.displayName)
+        Text((row.roleEnum ?? .hero).displayName)
             .font(.subheadline)
             .foregroundStyle(.white.opacity(0.85))
 
@@ -270,14 +290,14 @@ struct ProfileView: View {
 
     /// RPG-era card: sprite avatar, class, level, title, XP bar.
     @ViewBuilder
-    private func rpgCharacterCard(profile: Profile) -> some View {
-        let spec = avatarService.renderSpec(for: profile)
-        let progress = xpService.levelProgress(profile: profile)
+    private func rpgCharacterCard(row: ProfileCache) -> some View {
+        let spec = avatarService.renderSpec(for: row)
+        let progress = xpService.levelProgress(profileCache: row)
 
         AvatarView(spec: spec, size: .large, showsNameAndTitle: false)
-        nameBlock(profile: profile, spec: spec)
-        levelBadge(profile: profile, spec: spec)
-        xpBlock(profile: profile, progress: progress)
+        nameBlock(row: row, spec: spec)
+        levelBadge(row: row)
+        xpBlock(progress: progress)
     }
 
     /// Streak badges: quest-completion streak and weekly savings-split streak.
@@ -322,9 +342,9 @@ struct ProfileView: View {
         )
     }
 
-    private func nameBlock(profile: Profile, spec: AvatarRenderSpec) -> some View {
+    private func nameBlock(row: ProfileCache, spec: AvatarRenderSpec) -> some View {
         VStack(spacing: 4) {
-            Text(profile.displayName)
+            Text(row.displayName)
                 .font(.title2.bold())
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
@@ -333,17 +353,17 @@ struct ProfileView: View {
             Text(spec.levelTitle)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.gold)
-            Text("\(profile.effectiveClassDisplay) • \(profile.role.displayName)")
+            Text("\(row.avatarClassEnum?.displayName ?? (row.roleEnum ?? .hero).genericRoleName) • \((row.roleEnum ?? .hero).displayName)")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
         }
     }
 
-    private func levelBadge(profile: Profile, spec _: AvatarRenderSpec) -> some View {
+    private func levelBadge(row: ProfileCache) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "number")
                 .font(.caption.weight(.bold))
-            Text("\(profile.level)")
+            Text("\(row.level)")
                 .font(.callout.weight(.bold))
             Text("Level")
                 .font(.caption)
@@ -361,7 +381,7 @@ struct ProfileView: View {
         )
     }
 
-    private func xpBlock(profile _: Profile, progress: LevelProgress) -> some View {
+    private func xpBlock(progress: LevelProgress) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Experience")
@@ -388,27 +408,25 @@ struct ProfileView: View {
         )
     }
 
-    private func actionsSection(profile: Profile) -> some View {
+    private func actionsSection(row: ProfileCache) -> some View {
         VStack(spacing: 0) {
             // Character Sheet is an RPG-era detail screen; hidden while the
             // immersive layer is off.
             if FeatureFlags.rpgImmersive {
                 NavigationLink {
                     CharacterSheetView(
-                        profileCache: ProfileCache(from: profile),
+                        profileCache: row,
                         avatarService: avatarService,
                         xpService: xpService,
                         streak: viewModel.streak,
                         goldBalance: viewModel.goldBalance,
                         earnedAchievements: viewModel.earnedAchievements,
                         onSaveDisplayName: { newName in
-                            guard profile.role == .hero,
-                                  var updated = appState.currentProfile else { return }
-                            updated.displayName = newName
-                            appState.currentProfile = updated
+                            guard row.roleEnum == .hero, let current = appState.currentProfile else { return }
                             Task {
                                 do {
-                                    try await familyService.updateProfileDisplayName(profile: updated, newName: newName)
+                                    let updated = try await familyService.updateProfileDisplayName(profile: current, newName: newName)
+                                    appState.currentProfile = updated
                                 } catch {
                                     toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                                 }
@@ -426,7 +444,7 @@ struct ProfileView: View {
                 .accessibilityIdentifier("profile.openCharacterSheet")
             }
 
-            if profile.role == .hero {
+            if row.roleEnum == .hero {
                 // Gem Shop is an RPG-era surface; hidden while the immersive layer is off.
                 if FeatureFlags.rpgImmersive {
                     Divider().padding(.leading, 56)
@@ -452,7 +470,10 @@ struct ProfileView: View {
                 }
 
                 NavigationLink {
-                    TrophyRoomView(familyRecordName: familyRecordName)
+                    TrophyRoomView(
+                        familyRecordName: familyRecordName,
+                        profileRecordName: appState.currentProfile?.id.recordName
+                    )
                 } label: {
                     actionRow(
                         icon: "trophy.fill",
@@ -475,7 +496,7 @@ struct ProfileView: View {
                 if appState.family != nil {
                     NotificationSettingsView(
                         notificationService: notificationService,
-                        profileCache: ProfileCache(from: profile)
+                        profileCache: row
                     )
                 }
             } label: {
@@ -598,7 +619,7 @@ struct ProfileView: View {
         .padding(.top, 60)
     }
 
-    private func editNameSheet(profile _: Profile) -> some View {
+    private func editNameSheet() -> some View {
         NavigationStack {
             Form {
                 Section("Character Name") {
@@ -624,18 +645,16 @@ struct ProfileView: View {
                     Button("Save") {
                         let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
-                        if var updated = appState.currentProfile {
-                            updated.displayName = trimmed
-                            appState.currentProfile = updated
-                            Task {
-                                do {
-                                    try await familyService.updateProfileDisplayName(profile: updated, newName: trimmed)
-                                } catch {
-                                    toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
-                                }
+                        showingEditName = false
+                        guard let current = appState.currentProfile else { return }
+                        Task {
+                            do {
+                                let updated = try await familyService.updateProfileDisplayName(profile: current, newName: trimmed)
+                                appState.currentProfile = updated
+                            } catch {
+                                toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                             }
                         }
-                        showingEditName = false
                     }
                     .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("profile.displayNameSave")

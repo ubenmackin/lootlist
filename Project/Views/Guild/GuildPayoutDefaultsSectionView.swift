@@ -24,10 +24,13 @@ struct GuildPayoutDefaultsSectionView: View {
     @State private var actionError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Allowance & Payout Defaults")
-                .font(.headline)
-                .padding(.horizontal, 4)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Allowance & Payout Defaults")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
 
             VStack(alignment: .leading, spacing: 14) {
                 // Payout Day Picker
@@ -45,6 +48,7 @@ struct GuildPayoutDefaultsSectionView: View {
             }
             .padding(14)
             .background(cardBackground)
+            .padding(.horizontal)
 
             // Collapsible Default Payout Policy Radio Cards
             VStack(alignment: .leading, spacing: 10) {
@@ -75,8 +79,8 @@ struct GuildPayoutDefaultsSectionView: View {
             }
             .padding(14)
             .background(cardBackground)
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
         .onAppear {
             selectedPolicy = appState.family?.payoutPolicy ?? .perQuest
         }

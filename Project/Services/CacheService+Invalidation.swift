@@ -10,13 +10,6 @@ import Foundation
 import SwiftData
 
 extension CacheService {
-    private var currentActiveFamilyZoneID: CKRecordZone.ID? {
-        guard let zoneName = defaults.string(forKey: "session_familyZoneName"),
-              let ownerName = defaults.string(forKey: "session_familyZoneOwnerName")
-        else { return nil }
-        return CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
-    }
-
     func deleteAll<T: PersistentModel>(from context: ModelContext?, where predicate: Predicate<T>) {
         guard let context else { return }
         do {
@@ -30,27 +23,52 @@ extension CacheService {
     }
 
     /// Single invalidation entry — routes all deletes through one switch.
-    func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType) {
+    /// Row deletion rides the single background writer so it cannot interleave
+    /// with ingestion batches on the main context. The caller supplies the
+    /// active family zone so this service never derives sync authority from
+    /// device-local defaults itself.
+    func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async {
+        if let backgroundWriter {
+            await backgroundWriter.deleteByIdentity(identity, type: type, expectedActiveZone: expectedActiveZone)
+        } else {
+            invalidateIdentityOnMainActor(identity: identity, type: type, expectedActiveZone: expectedActiveZone)
+        }
+    }
+
+    /// Main-actor body for in-memory stores where no background writer exists.
+    private func invalidateIdentityOnMainActor(
+        identity: ScopedRecordIdentity,
+        type: CachedRecordType,
+        expectedActiveZone: CKRecordZone.ID?
+    ) {
         guard let context else { return }
         switch type {
-        case .profile: deleteByIdentity(ProfileCache.self, identity: identity, in: context)
-        case .family: deleteByIdentity(FamilyCache.self, identity: identity, in: context)
-        case .quest: deleteByIdentity(QuestCache.self, identity: identity, in: context)
-        case .questTemplate: deleteByIdentity(QuestTemplateCache.self, identity: identity, in: context)
-        case .questCompletion: deleteByIdentity(QuestCompletionCache.self, identity: identity, in: context)
-        case .ledgerEntry: deleteByIdentity(LedgerEntryCache.self, identity: identity, in: context)
-        case .allowancePeriod: deleteByIdentity(AllowancePeriodCache.self, identity: identity, in: context)
-        case .achievement: deleteByIdentity(AchievementCache.self, identity: identity, in: context)
-        case .profileAchievement: deleteByIdentity(ProfileAchievementCache.self, identity: identity, in: context)
-        case .notificationPreference: deleteByIdentity(NotificationPreferenceCache.self, identity: identity, in: context)
-        case .gemLedger: deleteByIdentity(GemLedgerCache.self, identity: identity, in: context)
-        case .rewardEvent: deleteByIdentity(RewardEventCache.self, identity: identity, in: context)
-        case .goal: deleteByIdentity(GoalCache.self, identity: identity, in: context)
+        case .profile: deleteByIdentity(ProfileCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .family: deleteByIdentity(FamilyCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .quest: deleteByIdentity(QuestCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .questTemplate: deleteByIdentity(QuestTemplateCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .questCompletion: deleteByIdentity(QuestCompletionCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .ledgerEntry: deleteByIdentity(LedgerEntryCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .allowancePeriod: deleteByIdentity(AllowancePeriodCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .achievement: deleteByIdentity(AchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .profileAchievement: deleteByIdentity(ProfileAchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .notificationPreference: deleteByIdentity(NotificationPreferenceCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .gemLedger: deleteByIdentity(GemLedgerCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .rewardEvent: deleteByIdentity(RewardEventCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
+        case .goal: deleteByIdentity(GoalCache.self, identity: identity, expectedActiveZone: expectedActiveZone, in: context)
         }
         _ = saveContext()
     }
 
-    func invalidate(recordName: String, family: String, type: CachedRecordType) {
+    func invalidate(recordName: String, family: String, type: CachedRecordType) async {
+        if let backgroundWriter {
+            await backgroundWriter.deleteByNameAndFamily(type, recordName: recordName, familyRecordName: family)
+        } else {
+            invalidateByNameAndFamilyOnMainActor(recordName: recordName, family: family, type: type)
+        }
+    }
+
+    private func invalidateByNameAndFamilyOnMainActor(recordName: String, family: String, type: CachedRecordType) {
         guard let context else { return }
         switch type {
         case .profile:
@@ -93,7 +111,12 @@ extension CacheService {
         _ = saveContext()
     }
 
-    private func deleteByIdentity(_ type: (some CacheMergeable).Type, identity: ScopedRecordIdentity, in context: ModelContext) {
+    private func deleteByIdentity(
+        _ type: (some CacheMergeable).Type,
+        identity: ScopedRecordIdentity,
+        expectedActiveZone: CKRecordZone.ID?,
+        in context: ModelContext
+    ) {
         let recordName = identity.recordID.recordName
         do {
             guard let match = try context.fetch(type.fetchDescriptor(recordName: recordName)).first else { return }
@@ -115,8 +138,7 @@ extension CacheService {
                     guard let expectedFamily = identity.familyRecordName else { return false }
                     return scoped.familyRecordName == expectedFamily
                 }()
-                let isActiveZone = currentActiveFamilyZoneID.map { $0 == identity.zoneID }
-                    ?? false
+                let isActiveZone = expectedActiveZone.map { $0 == identity.zoneID } ?? false
                 if isFamilyMatch, isActiveZone {
                     logger.info(
                         """
@@ -169,33 +191,6 @@ extension CacheService {
         }
     }
 
-    // MARK: - Deprecated shims — keep for ProjectTests that still call per-type wrappers.
-
-    @available(*, deprecated, message: "Use invalidate(identity:type:)")
-    func invalidateRecord(identity: ScopedRecordIdentity, type: CachedRecordType) {
-        invalidate(identity: identity, type: type)
-    }
-
-    @available(*, deprecated, message: "Use invalidate(recordName:family:type:)")
-    func invalidateQuest(recordName: String, family: String) {
-        invalidate(recordName: recordName, family: family, type: .quest)
-    }
-
-    @available(*, deprecated, message: "Use invalidate(identity:type:)")
-    func invalidateQuest(identity: ScopedRecordIdentity) {
-        invalidate(identity: identity, type: .quest)
-    }
-
-    @available(*, deprecated, message: "Use invalidate(recordName:family:type:)")
-    func invalidateLedgerEntry(recordName: String, family: String) {
-        invalidate(recordName: recordName, family: family, type: .ledgerEntry)
-    }
-
-    @available(*, deprecated, message: "Use invalidate(identity:type:)")
-    func invalidateLedgerEntry(identity: ScopedRecordIdentity) {
-        invalidate(identity: identity, type: .ledgerEntry)
-    }
-
     // MARK: - Per-Family Purge
 
     func purgeFamily(recordName: String) {
@@ -227,7 +222,18 @@ extension CacheService {
 
     // MARK: - Bulk Clear
 
-    func clearAll() throws {
+    /// Row deletion rides the single background writer; freshness watermarks
+    /// are device-local UserDefaults state and stay on this service.
+    func clearAll() async throws {
+        if let backgroundWriter {
+            await backgroundWriter.clearAllCachedRows()
+        } else {
+            try clearAllOnMainActor()
+        }
+        invalidateAllFreshness()
+    }
+
+    private func clearAllOnMainActor() throws {
         guard let context else { return }
         try context.delete(model: QuestCache.self)
         try context.delete(model: QuestTemplateCache.self)

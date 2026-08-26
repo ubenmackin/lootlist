@@ -31,7 +31,7 @@ Domain rules agents must not misinterpret:
 - Strict constraints:
   - Views/ViewModels NEVER call CloudKit directly or hold raw `CKRecord`s/domain structs for presentation. All reads are `@Query` on `*Cache` models.
   - All mutations go through Services → `CacheService` write + `CKSyncEngineCoordinator.enqueueSave/enqueueDelete`.
-  - All server→cache record writes ride ONE entry point: `CKSyncEngineDelegateHandler.ingest(records:databaseScope:zoneID:notifiesOnCompletion:)`. Never query-then-upsert directly into cache.
+  - Engine-delivered and query-derived server→cache record writes ride ONE entry point: `CKSyncEngineDelegateHandler.ingest(records:databaseScope:zoneID:notifiesOnCompletion:)`. Exactly two sanctioned exceptions: participant cache reconciliation via `BackgroundCacheActor.reconcileParticipantSet` (§4) and pre-session bootstrap mirrors in FamilyService during family creation/join, where ingest fails closed before a session exists. Never query-then-upsert directly into cache outside those two doors.
   - Every `*Cache` row is family-scoped (`FamilyScopedCache`, composite index familyRecordName + recordName). Cross-family isolation enforced at fetch/store layer, not downstream filtering.
   - Conflict merge semantics are FROZEN: quest banked XP max-merge capped at xpReward; Profile XP additive vs lastSyncedXP baseline with max-floor fallback; xpCredited non-nil preserve; AllowancePeriod uses monotonic-advance merge (highest-rank status wins) rather than strict server authority, and paidDate uses server-preferred-with-client-fallback, with client-wins display overlays. Changes require architecture review. Hero Board claim races resolve via standard server-wins conflict resolution (loser's ingest reveals the other claimer).
   - Services and AppState depend on `any CloudKitServiceProtocol` (narrower seams exist where useful). Do not concrete-type CloudKit dependencies.
@@ -60,7 +60,10 @@ Project/
 │   │                         # exactly one save per batch pass
 │   ├── CKSyncEngineCoordinator     # @MainActor engine lifecycle, enqueue buffers,
 │   │                               # state serialization, watermark stamping
-│   ├── CKSyncEngineDelegateHandler # delegate events + ingest() single entry point
+│   ├── CKSyncEngineDelegateHandler # delegate events + ingest() entry point for
+│   │                               # engine-delivered/query-derived records;
+│   │                               # sanctioned exceptions: §4 reconciliation
+│   │                               # door + FamilyService pre-session mirrors
 │   ├── CKSyncConflictResolver      # serverRecordChanged/deleted merges (frozen rules)
 │   ├── RecordBridge                # SwiftData → CKRecord synthesis on demand
 │   └── DataMigrationsCoordinator   # versioned MigrationStep runner
@@ -87,13 +90,13 @@ Adding a new cached record type REQUIRES all of: `*Cache` @Model conforming `Fam
 
 **Outbound:** engine requests batch → `RecordBridge` synthesizes current CKRecord from SwiftData, rehydrating stored changeTag + encodedSystemFields (optimistic locking). Dangling pending saves whose cache row vanished resolve fail-closed via `confirmedLocalDeletion` before converting save→delete. After successful send: persist ONLY the server-acked changeTag/encodedSystemFields. Never re-upsert sent record payloads.
 
-**Inbound (single ingestion path):**
+**Inbound (engine ingestion path):**
 `CKRecord[] → ingest() → fail-closed guards → parse + scope validation → BackgroundCacheActor.batchUpsertParsedRecords (single-save batch commit) → accounting → optional sync notifications`.
 
 Ingestion contract:
 - Drop records when no active session OR caller zone ≠ active family zone (re-delivered later via persisted change tokens).
-- Both private (owner) and shared (participant) scopes use the identical pipeline.
-- Participant reconciliation feeds ingest() with notifiesOnCompletion=false.
+- Private (owner) and shared (participant) scopes ride the identical ingest() pipeline; the sole sanctioned exception is participant cache reconciliation below.
+- Participant cache reconciliation is a sanctioned second door for NON-owner devices: at the end of every lifecycle sync pass (bootstrap, foreground/manual/remote-notification sync, family-zone change), AppLifecycleCoordinator queries the shared-database snapshot of quests, ledger entries, quest completions, and allowance periods, round-trips the results to CKRecords, and feeds `BackgroundCacheActor.reconcileParticipantSet(records:validRecordNamesByType:familyRecordName:databaseScope:zoneID:)` directly instead of ingest(). Records re-parse canonically on the main actor (`ParsedRecord.parse`, preserving changeTag + encodedSystemFields), then commit under SerialMutationQueue as ONE atomic upsert+prune pass — cached rows absent from the server-authoritative name sets are purged and exactly one saveContext() lands per pass, so @Query never observes a half-reconciled cache; a failed upsert or save leaves the context uncommitted and rows intact until the next pass. Two fail-safes gate it: `databaseScope` must be `.shared` (owner-side flows always ride ingest()), and an entirely empty snapshot — read as a shared scope that has not settled after fresh join or account recovery — aborts the pass instead of pruning the local cache. Reconciliation emits no sync notifications; any notifications these records warranted already fired on whichever device authored them.
 - Any parse/cache-write failure marks the sync pass failed; freshness watermarks stamp ONLY after a full pass across all active scopes with zero failures.
 
 **Conflicts:** serverRecordChanged → resolver applies frozen merge rules → merged result persists via single-record background batch carrying post-merge changeTag/encodedSystemFields; merged CKRecord returned for engine re-save.
@@ -128,7 +131,7 @@ Ingestion contract:
 
 DO:
 - Read/write data exclusively through `*Cache` models; convert to domain structs only at service/mutation boundaries.
-- Route EVERY server→cache write through `ingest(...)`.
+- Route EVERY engine-delivered and query-derived server→cache write through `ingest(...)` — sanctioned exceptions: the participant-reconciliation door (§4) and FamilyService pre-session bootstrap mirrors (ingest fails closed before session establishment).
 - Enforce family scoping in the fetch itself (predicate/index level).
 - Capture delete identities before cache invalidation.
 - Persist changeTag always; encodedSystemFields whenever writing a server-sourced snapshot.
@@ -139,7 +142,7 @@ DO:
 
 DON'T:
 - Don't call CKDatabase/cloudKitService methods from Views or ViewModels — add a cache-first service method instead.
-- Don't write query results directly into CacheService/BackgroundCacheActor outside `ingest()`.
+- Don't write query results directly into CacheService/BackgroundCacheActor outside `ingest()` or the two sanctioned doors: participant reconciliation (`reconcileParticipantSet`, §4) and FamilyService pre-session bootstrap mirrors.
 - Don't re-upsert sent records after successful sends; only refresh their system fields.
 - Don't alter conflict merge formulas, XP ledger semantics, or watermark stamping conditions without explicit architecture review.
 - Don't put authoritative domain state in UserDefaults.

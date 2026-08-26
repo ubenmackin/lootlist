@@ -10,30 +10,10 @@ import Foundation
 import os
 import SwiftData
 
-/// Sendable descriptor for one server-stamped system-field refresh on an
-/// existing cache row. Carries only plain values so a whole save round-trip
-/// can cross to the background actor and commit under a single context save
-/// instead of one save per record.
-struct SystemFieldRefresh: Sendable {
-    let recordName: String
-    let type: CachedRecordType
-    let changeTag: String?
-    let encodedSystemFields: Data?
-}
-
-/// Result of a system-field refresh pass. A Bool return cannot separate "no
-/// cached row matched" (legal — rows may have been deleted locally mid-flight)
-/// from "the context save failed" (a real cache-write failure), and conflating
-/// them would hide genuine persistence errors from sync accounting.
-enum SystemFieldRefreshOutcome: Sendable {
-    case updated
-    case noMatches
-    case saveFailed
-}
-
+// swiftlint:disable type_body_length
 @ModelActor
 actor BackgroundCacheActor {
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
+    let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
 
     init(container: ModelContainer) {
         modelContainer = container
@@ -45,13 +25,29 @@ actor BackgroundCacheActor {
     // MARK: - Generic batch helpers
 
     @discardableResult
-    private func batchUpsert<T: CacheMergeable>(_: T.Type, _ items: [T.DomainModel], familyRecordName: String?) async -> Bool {
+    private func batchUpsert<T: CacheMergeable & CacheSystemFields>(
+        _: T.Type,
+        _ items: [T.DomainModel],
+        familyRecordName: String?
+    ) async -> Bool where T.DomainModel: DomainSystemFields {
         let ok = await performUpsert(T.self, items, familyRecordName: familyRecordName, logLabel: "batchUpsert")
         guard ok else { return false }
         return saveContext()
     }
 
     private func purgeMissing<T: CacheMergeable>(
+        _: T.Type,
+        validRecordNames: Set<String>,
+        familyRecordName: String?
+    ) async {
+        await purgeMissingWithoutSave(T.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        saveContext()
+    }
+
+    /// Deferred variant of purgeMissing that deletes stale rows without
+    /// saving, allowing multi-type reconciliations to coalesce the deletes
+    /// into one saveContext() at the transaction boundary.
+    private func purgeMissingWithoutSave<T: CacheMergeable>(
         _: T.Type,
         validRecordNames: Set<String>,
         familyRecordName: String?
@@ -72,7 +68,6 @@ actor BackgroundCacheActor {
         for cached in existing where !validRecordNames.contains(cached.recordName) {
             modelContext.delete(cached)
         }
-        saveContext()
     }
 
     // MARK: - Batch upserts (public API preserved as thin wrappers)
@@ -150,18 +145,87 @@ actor BackgroundCacheActor {
         await batchUpsert(GemLedgerCache.self, entries, familyRecordName: familyRecordName)
     }
 
+    // MARK: - Domain-model upserts
+
+    /// Single-writer mirror of the main-actor upsert surface. Each family
+    /// scope commits as its own unit — one merge pass followed by one save —
+    /// so a failed save for one family never rolls into another family's
+    /// already-committed rows.
+    func upsertDomainModels<M: CacheMergeable & CacheSystemFields>(
+        _ items: [M.DomainModel],
+        type _: M.Type,
+        familyRecordName: String?,
+        isServerSync: Bool
+    ) async where M.DomainModel: DomainSystemFields {
+        guard !items.isEmpty else { return }
+        if let familyRecordName {
+            _ = await performUpsert(M.self, items, familyRecordName: familyRecordName, isServerSync: isServerSync, logLabel: "upsertDomainModels")
+            saveContext()
+            return
+        }
+        // Families are unscoped roots; every other type splits by its own
+        // family scope so each group commits independently.
+        if M.self == FamilyCache.self {
+            _ = await performUpsert(M.self, items, familyRecordName: nil, isServerSync: isServerSync, logLabel: "upsertDomainModels")
+            saveContext()
+            return
+        }
+        let grouped = Dictionary(grouping: items) { M(from: $0).familyRecordName }
+        for (family, group) in grouped {
+            _ = await performUpsert(M.self, group, familyRecordName: family.isEmpty ? nil : family, isServerSync: isServerSync, logLabel: "upsertDomainModels")
+            saveContext()
+        }
+    }
+
+    func upsertDomainModel<M: CacheMergeable & CacheSystemFields>(
+        _ item: M.DomainModel,
+        type: M.Type,
+        familyRecordName: String?,
+        isServerSync: Bool
+    ) async where M.DomainModel: DomainSystemFields {
+        await upsertDomainModels([item], type: type, familyRecordName: familyRecordName, isServerSync: isServerSync)
+    }
+
     // MARK: - Atomic gem credit
 
     /// Delegates to shared helper so ledger/profile stay in one transaction
-    /// and idempotency via deterministic ledger ID is enforced once.
+    /// and idempotency via deterministic ledger ID is enforced once. A partial
+    /// prepare rolls back so an orphan credit row can never outlive its
+    /// balance update under a later unrelated save.
     @discardableResult
     func atomicallyApplyGemCredit(ledger: GemLedger, profile: Profile) async -> Bool {
         guard sharedGemCreditPrepare(
             context: modelContext,
             ledger: ledger,
             profile: profile
-        ) else { return false }
+        ) else {
+            modelContext.rollback()
+            return false
+        }
         return saveContext()
+    }
+
+    /// Debit mirror of the main-actor path: balance and ledger row mutate in
+    /// one pass and commit together so a failed save can never split a
+    /// debited profile from its ledger entry. A partial upsert rolls back
+    /// instead of leaving one side dirty for a later unrelated save to flush
+    /// alone; deterministic purchase IDs make the caller's retry a clean redo.
+    func applyGemDebit(profile: Profile, ledger: GemLedger) async {
+        var success = true
+        success = await performUpsert(ProfileCache.self, [profile], familyRecordName: nil, isServerSync: true, logLabel: "applyGemDebit") && success
+        success = await performUpsert(GemLedgerCache.self, [ledger], familyRecordName: nil, isServerSync: true, logLabel: "applyGemDebit") && success
+        guard success else {
+            modelContext.rollback()
+            return
+        }
+        saveContext()
+    }
+
+    /// Mirrors the main-actor argument labels so service call sites transfer
+    /// unchanged onto the single-writer surface.
+    @discardableResult
+    func atomicallyApplyGemCredit(ledger: GemLedger, to profile: Profile) async -> Bool {
+        await atomicallyApplyGemCredit(ledger: ledger, profile: profile)
     }
 
     @discardableResult
@@ -221,6 +285,99 @@ actor BackgroundCacheActor {
         return await SerialMutationQueue.shared.write {
             await self.commitParsedBatch(capturedBatch)
         }
+    }
+
+    /// Accounting for one reconciliation pass, letting callers observe parse
+    /// and commit failures without this actor reaching into main-actor
+    /// sync-pass state.
+    struct ReconciliationOutcome: Sendable {
+        var recordCount = 0
+        var parseFailures = 0
+        var commitSucceeded = false
+    }
+
+    /// Participant reconciliation: upserts a fetched shared-database snapshot
+    /// and prunes rows the server no longer holds inside ONE queue-gated
+    /// transaction ending in a single save, so @Query never observes a
+    /// half-reconciled cache between the upsert and prune halves of the pass.
+    ///
+    /// - Parameters:
+    ///   - validRecordNamesByType: server-authoritative record names per type;
+    ///     cached rows absent from these sets are deleted after the upsert.
+    ///   - databaseScope: must be `.shared`; owner-side flows ride the standard
+    ///     ingestion path instead.
+    /// - Returns: nil when the pass is skipped for a non-shared scope;
+    ///   otherwise counts the caller surfaces in sync diagnostics.
+    @discardableResult
+    func reconcileParticipantSet(
+        records: [CKRecord],
+        validRecordNamesByType: [CachedRecordType: Set<String>],
+        familyRecordName: String,
+        databaseScope: CKDatabase.Scope,
+        zoneID: CKRecordZone.ID
+    ) async -> ReconciliationOutcome? {
+        guard databaseScope == .shared else {
+            logger.warning("Participant reconciliation skipped for non-shared scope")
+            return nil
+        }
+        // Parsing stays on the main actor like every other ingestion path;
+        // only Sendable parsed models continue into the gated commit.
+        let parsedRecords = await MainActor.run {
+            records.map { ParsedRecord.parse(record: $0) }
+        }
+        var parseFailures = 0
+        var batch = ParsedBatch()
+        for parsed in parsedRecords {
+            if case .parseFailure = parsed {
+                parseFailures += 1
+            }
+            batch.append(parsed)
+        }
+        if parseFailures > 0 {
+            logger.warning("\(parseFailures) record(s) failed to parse during participant reconciliation")
+        }
+        let capturedBatch = batch
+        let commitSucceeded = await SerialMutationQueue.shared.write {
+            await self.commitParticipantReconciliation(
+                capturedBatch,
+                validRecordNamesByType: validRecordNamesByType,
+                familyRecordName: familyRecordName,
+                zoneID: zoneID
+            )
+        }
+        return ReconciliationOutcome(
+            recordCount: records.count,
+            parseFailures: parseFailures,
+            commitSucceeded: commitSucceeded
+        )
+    }
+
+    /// Single-transaction variant of the parsed-batch commit followed by a
+    /// deferred purge per provided type. A failed commit leaves the context
+    /// unsaved so nothing partial becomes visible; rows survive until the next
+    /// reconciliation pass re-runs. The result feeds caller-side diagnostics
+    /// only — commit semantics are unchanged.
+    private func commitParticipantReconciliation(
+        _ batch: ParsedBatch,
+        validRecordNamesByType: [CachedRecordType: Set<String>],
+        familyRecordName: String,
+        zoneID: CKRecordZone.ID
+    ) async -> Bool {
+        var success = true
+        success = await commitCoreEntitiesDeferred(batch) && success
+        success = await commitSecondaryEntitiesDeferred(batch) && success
+        guard success else {
+            logger.error("Participant reconciliation upsert failed for zone \(zoneID.zoneName, privacy: .private)")
+            return false
+        }
+        for (type, validRecordNames) in validRecordNamesByType {
+            await purgeMissingOfType(type, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        }
+        guard saveContext() else {
+            logger.error("Participant reconciliation save failed for zone \(zoneID.zoneName, privacy: .private)")
+            return false
+        }
+        return true
     }
 
     /// Single-transaction commit: accumulates all inserts/updates across
@@ -292,12 +449,13 @@ actor BackgroundCacheActor {
     /// while multi-type batches coalesce into one saveContext() at the
     /// transaction boundary. `logLabel` keeps log output identical to the
     /// original per-path messages.
-    private func performUpsert<T: CacheMergeable>(
+    private func performUpsert<T: CacheMergeable & CacheSystemFields>(
         _: T.Type,
         _ items: [T.DomainModel],
         familyRecordName: String?,
+        isServerSync: Bool = true,
         logLabel: String
-    ) async -> Bool {
+    ) async -> Bool where T.DomainModel: DomainSystemFields {
         if let familyRecordName {
             let existing: [T]
             do { existing = try modelContext.fetch(T.fetchDescriptor(familyRecordName: familyRecordName)) } catch {
@@ -321,7 +479,16 @@ actor BackgroundCacheActor {
                         )
                         continue
                     }
-                    target.update(from: item, isServerSync: true)
+                    // Identical changeTags mean an identical server version; re-applying a
+                    // stale snapshot can only regress newer merged fields. Local optimistic
+                    // writes keep their base tag while carrying real field deltas, so the
+                    // guard must never swallow them.
+                    if isServerSync,
+                       let itemTag = item.changeTag, !itemTag.isEmpty, itemTag == target.changeTag
+                    {
+                        continue
+                    }
+                    target.update(from: item, isServerSync: isServerSync)
                 } else {
                     let newRow = T(from: item)
                     if newRow.familyRecordName != familyRecordName,
@@ -354,7 +521,14 @@ actor BackgroundCacheActor {
             for item in items {
                 let name = item.id.recordName
                 if let target = byName[name] {
-                    target.update(from: item, isServerSync: true)
+                    // Same guard as the scoped branch: only server-sourced passes may
+                    // treat an identical changeTag as a no-op.
+                    if isServerSync,
+                       let itemTag = item.changeTag, !itemTag.isEmpty, itemTag == target.changeTag
+                    {
+                        continue
+                    }
+                    target.update(from: item, isServerSync: isServerSync)
                 } else {
                     modelContext.insert(T(from: item))
                 }
@@ -364,7 +538,7 @@ actor BackgroundCacheActor {
         let grouped = Dictionary(grouping: items) { T(from: $0).familyRecordName }
         var success = true
         for (family, group) in grouped {
-            success = await performUpsert(T.self, group, familyRecordName: family.isEmpty ? nil : family, logLabel: logLabel) && success
+            success = await performUpsert(T.self, group, familyRecordName: family.isEmpty ? nil : family, isServerSync: isServerSync, logLabel: logLabel) && success
         }
         return success
     }
@@ -372,7 +546,11 @@ actor BackgroundCacheActor {
     /// Deferred variant of batchUpsert that mutates the actor's ModelContext
     /// without saving, allowing the caller to coalesce multiple type batches
     /// into a single saveContext() at the transaction boundary.
-    private func batchUpsertWithoutSave<T: CacheMergeable>(_: T.Type, _ items: [T.DomainModel], familyRecordName: String?) async -> Bool {
+    private func batchUpsertWithoutSave<T: CacheMergeable & CacheSystemFields>(
+        _: T.Type,
+        _ items: [T.DomainModel],
+        familyRecordName: String?
+    ) async -> Bool where T.DomainModel: DomainSystemFields {
         await performUpsert(T.self, items, familyRecordName: familyRecordName, logLabel: "batchUpsertWithoutSave")
     }
 
@@ -416,19 +594,6 @@ actor BackgroundCacheActor {
         return true
     }
 
-    /// Legacy single-type paths retain their own save for backward compat.
-    private func reconcileRewardEvents(_ events: [RewardEvent]) async -> Bool {
-        let ok = await reconcileRewardEventsWithoutSave(events)
-        guard ok else { return false }
-        return saveContext()
-    }
-
-    private func reconcileStoredRewardEvents(for completions: [QuestCompletion]) async -> Bool {
-        let ok = await reconcileStoredRewardEventsWithoutSave(for: completions)
-        guard ok else { return false }
-        return saveContext()
-    }
-
     private func applyRewardEvent(_ event: RewardEvent, to completion: QuestCompletionCache) {
         guard let credited = completion.xpCredited else {
             completion.xpCredited = event.xpAmount
@@ -469,40 +634,45 @@ actor BackgroundCacheActor {
         await purgeMissing(QuestTemplateCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
     }
 
-    func purgeMissingLedgerEntries(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(LedgerEntryCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
-    }
-
-    func purgeMissingAllowancePeriods(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(AllowancePeriodCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
-    }
-
-    func purgeMissingAchievements(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(AchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
-    }
-
-    func purgeMissingProfileAchievements(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(ProfileAchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
-    }
-
     func purgeMissingFamilies(validRecordNames: Set<String>) async {
         await purgeMissing(FamilyCache.self, validRecordNames: validRecordNames, familyRecordName: nil)
     }
 
-    func purgeMissingNotificationPreferences(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(NotificationPreferenceCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
-    }
-
-    func purgeMissingGemLedgers(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(GemLedgerCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
-    }
-
-    func purgeMissingRewardEvents(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
-    }
-
-    func purgeMissingGoals(validRecordNames: Set<String>, familyRecordName: String? = nil) async {
-        await purgeMissing(GoalCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+    /// Deferred purge dispatch for a runtime-resolved record type, letting
+    /// callers keyed on `CachedRecordType` prune without per-type boilerplate.
+    private func purgeMissingOfType(
+        _ type: CachedRecordType,
+        validRecordNames: Set<String>,
+        familyRecordName: String?
+    ) async {
+        switch type {
+        case .profile:
+            await purgeMissingWithoutSave(ProfileCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .family:
+            await purgeMissingWithoutSave(FamilyCache.self, validRecordNames: validRecordNames, familyRecordName: nil)
+        case .quest:
+            await purgeMissingWithoutSave(QuestCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .questTemplate:
+            await purgeMissingWithoutSave(QuestTemplateCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .questCompletion:
+            await purgeMissingWithoutSave(QuestCompletionCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .ledgerEntry:
+            await purgeMissingWithoutSave(LedgerEntryCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .allowancePeriod:
+            await purgeMissingWithoutSave(AllowancePeriodCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .achievement:
+            await purgeMissingWithoutSave(AchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .profileAchievement:
+            await purgeMissingWithoutSave(ProfileAchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .notificationPreference:
+            await purgeMissingWithoutSave(NotificationPreferenceCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .gemLedger:
+            await purgeMissingWithoutSave(GemLedgerCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .rewardEvent:
+            await purgeMissingWithoutSave(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        case .goal:
+            await purgeMissingWithoutSave(GoalCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+        }
     }
 
     func purgeFamily(recordName: String) async {
@@ -575,26 +745,136 @@ actor BackgroundCacheActor {
         assert(zeroTemplates.isEmpty, "QuestTemplateCache has zero targetCount post-backfill")
     }
 
-    func deleteRecord(identity: ScopedRecordIdentity, type: CachedRecordType) async {
+    /// Typed deletion entry point. The caller supplies the active family
+    /// zone so this actor never derives sync authority from
+    /// device-local defaults itself.
+    func deleteByIdentity(_ identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async {
+        await performTypedDeletion(identity: identity, type: type, expectedActiveZone: expectedActiveZone)
+        saveContext()
+    }
+
+    /// Shared fan-out so the ingestion path and the domain-write surface run
+    /// identical typed deletions behind one save.
+    private func performTypedDeletion(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async {
         switch type {
-        case .profile: await deleteRecordByIdentity(ProfileCache.self, identity: identity)
-        case .family: await deleteRecordByIdentity(FamilyCache.self, identity: identity)
-        case .quest: await deleteRecordByIdentity(QuestCache.self, identity: identity)
-        case .questTemplate: await deleteRecordByIdentity(QuestTemplateCache.self, identity: identity)
-        case .questCompletion: await deleteRecordByIdentity(QuestCompletionCache.self, identity: identity)
-        case .ledgerEntry: await deleteRecordByIdentity(LedgerEntryCache.self, identity: identity)
-        case .allowancePeriod: await deleteRecordByIdentity(AllowancePeriodCache.self, identity: identity)
-        case .achievement: await deleteRecordByIdentity(AchievementCache.self, identity: identity)
-        case .profileAchievement: await deleteRecordByIdentity(ProfileAchievementCache.self, identity: identity)
-        case .notificationPreference: await deleteRecordByIdentity(NotificationPreferenceCache.self, identity: identity)
-        case .gemLedger: await deleteRecordByIdentity(GemLedgerCache.self, identity: identity)
-        case .rewardEvent: await deleteRecordByIdentity(RewardEventCache.self, identity: identity)
-        case .goal: await deleteRecordByIdentity(GoalCache.self, identity: identity)
+        case .profile: await deleteRecordByIdentity(ProfileCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .family: await deleteRecordByIdentity(FamilyCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .quest: await deleteRecordByIdentity(QuestCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .questTemplate: await deleteRecordByIdentity(QuestTemplateCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .questCompletion: await deleteRecordByIdentity(QuestCompletionCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .ledgerEntry: await deleteRecordByIdentity(LedgerEntryCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .allowancePeriod: await deleteRecordByIdentity(AllowancePeriodCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .achievement: await deleteRecordByIdentity(AchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .profileAchievement: await deleteRecordByIdentity(ProfileAchievementCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .notificationPreference: await deleteRecordByIdentity(NotificationPreferenceCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .gemLedger: await deleteRecordByIdentity(GemLedgerCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .rewardEvent: await deleteRecordByIdentity(RewardEventCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        case .goal: await deleteRecordByIdentity(GoalCache.self, identity: identity, expectedActiveZone: expectedActiveZone)
+        }
+    }
+
+    func deleteByNameAndFamily<T: CacheMergeable & FamilyScopedCache>(
+        type _: T.Type,
+        recordName: String,
+        familyRecordName: String
+    ) async {
+        let descriptor = FetchDescriptor<T>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+        do {
+            let matches = try modelContext.fetch(descriptor)
+            for match in matches {
+                modelContext.delete(match)
+            }
+        } catch {
+            logger.warning("Failed to fetch \(T.self, privacy: .public) for invalidation: \(error, privacy: .private)")
         }
         saveContext()
     }
 
-    private func deleteRecordByIdentity<T: CacheMergeable>(_: T.Type, identity: ScopedRecordIdentity) async {
+    /// Typed fan-out mirroring performTypedDeletion for callers holding a
+    /// runtime record type instead of a concrete cache class. Family rows are
+    /// unscoped roots, so they cannot ride the family-scoped generic and are
+    /// matched by record name alone.
+    func deleteByNameAndFamily(
+        _ type: CachedRecordType,
+        recordName: String,
+        familyRecordName: String
+    ) async {
+        switch type {
+        case .profile:
+            await deleteByNameAndFamily(type: ProfileCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .family:
+            do {
+                if let match = try modelContext.fetch(FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })).first {
+                    modelContext.delete(match)
+                }
+            } catch {
+                logger.warning("Failed to fetch FamilyCache for invalidation: \(error, privacy: .private)")
+            }
+        case .quest:
+            await deleteByNameAndFamily(type: QuestCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .questTemplate:
+            await deleteByNameAndFamily(type: QuestTemplateCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .questCompletion:
+            await deleteByNameAndFamily(type: QuestCompletionCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .ledgerEntry:
+            await deleteByNameAndFamily(type: LedgerEntryCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .allowancePeriod:
+            await deleteByNameAndFamily(type: AllowancePeriodCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .achievement:
+            await deleteByNameAndFamily(type: AchievementCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .profileAchievement:
+            await deleteByNameAndFamily(type: ProfileAchievementCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .notificationPreference:
+            await deleteByNameAndFamily(type: NotificationPreferenceCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .gemLedger:
+            await deleteByNameAndFamily(type: GemLedgerCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .rewardEvent:
+            await deleteByNameAndFamily(type: RewardEventCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        case .goal:
+            await deleteByNameAndFamily(type: GoalCache.self, recordName: recordName, familyRecordName: familyRecordName)
+        }
+        saveContext()
+    }
+
+    /// Sign-out-scale wipe of every cached row. Runs inside the mutation
+    /// queue so an in-flight ingestion batch cannot repopulate rows between
+    /// the deletes and the save; freshness watermarks are device-local
+    /// UserDefaults state and stay with CacheService.
+    func clearAllCachedRows() async {
+        await SerialMutationQueue.shared.write {
+            await self.clearAllCachedRowsInTransaction()
+        }
+    }
+
+    private func clearAllCachedRowsInTransaction() async {
+        do {
+            try modelContext.delete(model: QuestCache.self)
+            try modelContext.delete(model: QuestTemplateCache.self)
+            try modelContext.delete(model: ProfileCache.self)
+            try modelContext.delete(model: QuestCompletionCache.self)
+            try modelContext.delete(model: FamilyCache.self)
+            try modelContext.delete(model: LedgerEntryCache.self)
+            try modelContext.delete(model: AllowancePeriodCache.self)
+            try modelContext.delete(model: AchievementCache.self)
+            try modelContext.delete(model: ProfileAchievementCache.self)
+            try modelContext.delete(model: NotificationPreferenceCache.self)
+            try modelContext.delete(model: GemLedgerCache.self)
+            try modelContext.delete(model: RewardEventCache.self)
+            try modelContext.delete(model: GoalCache.self)
+        } catch {
+            logger.error("Failed to delete cached rows: \(error, privacy: .private)")
+        }
+        guard saveContext() else {
+            logger.error("Failed to save after clearing cache")
+            return
+        }
+    }
+
+    private func deleteRecordByIdentity<T: CacheMergeable>(
+        _: T.Type,
+        identity: ScopedRecordIdentity,
+        expectedActiveZone: CKRecordZone.ID?
+    ) async {
         let recordName = identity.recordID.recordName
         let match: T?
         do { match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first } catch {
@@ -624,13 +904,7 @@ actor BackgroundCacheActor {
                     guard let expectedFamily = identity.familyRecordName else { return false }
                     return scoped.familyRecordName == expectedFamily
                 }()
-                let activeZone: CKRecordZone.ID? = await MainActor.run {
-                    let defaults = UserDefaults.standard
-                    guard let zoneName = defaults.string(forKey: "session_familyZoneName"),
-                          let ownerName = defaults.string(forKey: "session_familyZoneOwnerName") else { return nil }
-                    return CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
-                }
-                let isActiveZone = activeZone.map { $0 == identity.zoneID } ?? false
+                let isActiveZone = expectedActiveZone.map { $0 == identity.zoneID } ?? false
                 if isFamilyMatch, isActiveZone {
                     logger.info(
                         """
@@ -656,184 +930,8 @@ actor BackgroundCacheActor {
         }
     }
 
-    /// Batch variant of the system-field refresh: applies every descriptor to
-    /// its cache row and commits all of them under one context save. A
-    /// multi-record save round-trip would otherwise pay one fetch+save per
-    /// record, stalling the actor for the whole pass.
-    ///
-    /// Refreshes ONLY the server-owned system fields (`changeTag`,
-    /// `encodedSystemFields`) after CKSyncEngine confirms a successful save.
-    /// Full-record parsing and merging must stay on the fetch path: rewriting
-    /// whole records here would clobber local optimistic state that may
-    /// legitimately have diverged while the save was in flight.
-    ///
-    /// The outcome distinguishes a legal no-op (every row absent — records may
-    /// have been deleted locally mid-flight) from an actual context-save
-    /// failure, so callers can keep sync-completion accounting honest without
-    /// masking real cache-write failures behind silence.
     @discardableResult
-    func updateSystemFields(_ refreshes: [SystemFieldRefresh], familyRecordName: String) async -> SystemFieldRefreshOutcome {
-        guard !refreshes.isEmpty else { return .noMatches }
-        guard await applySystemFieldRefreshes(refreshes, familyRecordName: familyRecordName) else {
-            return .noMatches
-        }
-        return saveContext() ? .updated : .saveFailed
-    }
-
-    private func applySystemFieldRefreshes(_ refreshes: [SystemFieldRefresh], familyRecordName: String) async -> Bool {
-        var didUpdate = false
-        for refresh in refreshes {
-            let updated: Bool = switch refresh.type {
-            case .profile:
-                await updateSystemFields(
-                    ProfileCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .family:
-                await updateSystemFields(
-                    FamilyCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .quest:
-                await updateSystemFields(
-                    QuestCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .questTemplate:
-                await updateSystemFields(
-                    QuestTemplateCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .questCompletion:
-                await updateSystemFields(
-                    QuestCompletionCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .ledgerEntry:
-                await updateSystemFields(
-                    LedgerEntryCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .allowancePeriod:
-                await updateSystemFields(
-                    AllowancePeriodCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .achievement:
-                await updateSystemFields(
-                    AchievementCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .profileAchievement:
-                await updateSystemFields(
-                    ProfileAchievementCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .notificationPreference:
-                await updateSystemFields(
-                    NotificationPreferenceCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .gemLedger:
-                await updateSystemFields(
-                    GemLedgerCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .rewardEvent:
-                await updateSystemFields(
-                    RewardEventCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            case .goal:
-                await updateSystemFields(
-                    GoalCache.self,
-                    recordName: refresh.recordName,
-                    familyRecordName: familyRecordName,
-                    changeTag: refresh.changeTag,
-                    encodedSystemFields: refresh.encodedSystemFields
-                )
-            }
-            if updated {
-                didUpdate = true
-            }
-        }
-        // Absent rows are legal mid-flight deletions, not write failures — a
-        // pass that touched nothing must not pay for a context save or report
-        // itself as a completed write.
-        return didUpdate
-    }
-
-    private func updateSystemFields<T: SystemFieldUpdatable>(
-        _: T.Type,
-        recordName: String,
-        familyRecordName: String,
-        changeTag: String?,
-        encodedSystemFields: Data?
-    ) async -> Bool {
-        let match: T?
-        do { match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first } catch {
-            logger.error("Failed to fetch \(T.self, privacy: .private) for system-field refresh (\(recordName, privacy: .private)): \(error, privacy: .private)")
-            match = nil
-        }
-        guard let match else {
-            // Absence is legal: the row may have been deleted locally mid-flight
-            // while this save was outstanding.
-            logger.debug("Skipping system-field refresh; no cached row for \(recordName, privacy: .private)")
-            return false
-        }
-        guard match.familyRecordName == familyRecordName else {
-            logger.debug(
-                """
-                Skipping system-field refresh for \(recordName, privacy: .private): \
-                expected family \(familyRecordName, privacy: .private), found \
-                \(match.familyRecordName, privacy: .private)
-                """
-            )
-            return false
-        }
-        match.changeTag = changeTag
-        match.encodedSystemFields = encodedSystemFields
-        return true
-    }
-
-    @discardableResult
-    private func saveContext() -> Bool {
+    func saveContext() -> Bool {
         do {
             try modelContext.save()
             return true
@@ -844,24 +942,4 @@ actor BackgroundCacheActor {
     }
 }
 
-/// Minimal protocol surface for refreshing server-owned system fields on a
-/// cached row, so the generic refresh helper needs no per-type domain-model
-/// merge scaffolding.
-private protocol SystemFieldUpdatable: CacheMergeable {
-    var changeTag: String? { get set }
-    var encodedSystemFields: Data? { get set }
-}
-
-extension ProfileCache: SystemFieldUpdatable {}
-extension FamilyCache: SystemFieldUpdatable {}
-extension QuestCache: SystemFieldUpdatable {}
-extension QuestTemplateCache: SystemFieldUpdatable {}
-extension QuestCompletionCache: SystemFieldUpdatable {}
-extension LedgerEntryCache: SystemFieldUpdatable {}
-extension AllowancePeriodCache: SystemFieldUpdatable {}
-extension AchievementCache: SystemFieldUpdatable {}
-extension ProfileAchievementCache: SystemFieldUpdatable {}
-extension NotificationPreferenceCache: SystemFieldUpdatable {}
-extension GemLedgerCache: SystemFieldUpdatable {}
-extension RewardEventCache: SystemFieldUpdatable {}
-extension GoalCache: SystemFieldUpdatable {}
+// swiftlint:enable type_body_length

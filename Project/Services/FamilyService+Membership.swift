@@ -137,7 +137,7 @@ extension FamilyService {
         var updated = profile
         updated.isActive = false
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }

@@ -6,6 +6,7 @@
 //
 
 import CloudKit
+import SwiftData
 import SwiftUI
 
 private enum AppIconLock: String, CaseIterable {
@@ -54,9 +55,41 @@ struct SettingsView: View {
     @AppStorage("preferredAppearance") private var preferredAppearance: String = "system"
     @AppStorage("featureflags.rpgImmersive") private var rpgImmersive: Bool = false
 
+    @Query private var currentProfileRows: [ProfileCache]
+
     @State private var selectedIcon: AppIconLock = .standard
     @State private var unlockedIconMilestones: Set<AppIconLock> = []
     @State private var activeIconName: String?
+
+    /// Family record name used to push the family filter down to SwiftData.
+    /// When `nil` (no family loaded) the query returns zero rows, which is
+    /// the correct behavior — there is no family to scope to.
+    private let familyRecordName: String?
+
+    private let profileRecordName: String?
+
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
+
+        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
+        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
+        let currentProfileFilter = #Predicate<ProfileCache> {
+            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
+        }
+        _currentProfileRows = Query(
+            filter: currentProfileFilter,
+            sort: \ProfileCache.displayName
+        )
+    }
+
+    /// Queried cache row for the active profile; nil when identity or family
+    /// scope has no synced row yet, keeping rendering fail-closed.
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
+    }
 
     var body: some View {
         NavigationStack {
@@ -115,11 +148,11 @@ struct SettingsView: View {
                     }
 
                     // Notifications
-                    if let profile = appState.currentProfile, appState.family != nil {
+                    if let row = currentProfileRow, appState.family != nil {
                         NavigationLink {
                             NotificationSettingsView(
                                 notificationService: notificationService,
-                                profileCache: ProfileCache(from: profile)
+                                profileCache: row
                             )
                         } label: {
                             Label("Notifications", systemImage: "bell.badge.fill")

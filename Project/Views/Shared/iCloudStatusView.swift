@@ -168,19 +168,22 @@ import SwiftUI
         // MARK: Section 1 — Sync Status
 
         private var syncStatusSection: some View {
-            Section("CKSyncEngine Status") {
+            Section("Sync Status") {
                 HStack {
                     Text("Status")
                     Spacer()
-                    Label(syncStatusLabel, systemImage: syncStatusIcon)
-                        .font(.caption.bold())
-                        .foregroundStyle(syncStatusColor)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(syncStatusColor.opacity(0.15))
-                        )
+                    HStack(spacing: 4) {
+                        Image(systemName: syncStatusIcon)
+                        Text(syncStatusLabel)
+                    }
+                    .font(.caption.bold())
+                    .foregroundStyle(syncStatusColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(syncStatusColor.opacity(0.15))
+                    )
                 }
 
                 HStack {
@@ -220,9 +223,12 @@ import SwiftUI
                     Text("Connection")
                     Spacer()
                     if let monitor = networkMonitor {
-                        Label(monitor.connectionType.displayName, systemImage: monitor.connectionType.iconName)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(monitor.isConnected ? Color.green : Color.red)
+                        HStack(spacing: 4) {
+                            Image(systemName: monitor.connectionType.iconName)
+                            Text(monitor.connectionType.displayName)
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(monitor.isConnected ? Color.green : Color.red)
                     } else {
                         Text("Unknown")
                             .foregroundStyle(.secondary)

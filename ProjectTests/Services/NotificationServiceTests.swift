@@ -219,7 +219,7 @@ struct NotificationServiceTests {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: existingID
         )
-        cache.upsertNotificationPreference(snapshotPref)
+        await cache.upsertNotificationPreference(snapshotPref)
 
         // Another device's authoritative version of the SAME record won the
         // race and shipped to the server before our save landed. The mock
@@ -452,7 +452,7 @@ struct NotificationServiceTests {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: "pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
         )
-        cache.upsertNotificationPreference(pref)
+        await cache.upsertNotificationPreference(pref)
         cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)

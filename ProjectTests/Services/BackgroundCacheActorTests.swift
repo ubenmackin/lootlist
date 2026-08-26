@@ -142,7 +142,7 @@ struct BackgroundCacheActorTests {
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 1)
 
         let actor = BackgroundCacheActor(container: container)
-        await actor.deleteRecord(identity: testIdentity(recordName: recordName), type: .questCompletion)
+        await actor.deleteByIdentity(testIdentity(recordName: recordName), type: .questCompletion, expectedActiveZone: CKRecordZone.default().zoneID)
 
         #expect(try remainingCount(QuestCompletionCache.self, in: container) == 0)
     }
@@ -166,16 +166,16 @@ struct BackgroundCacheActorTests {
 
         let actor = BackgroundCacheActor(container: container)
 
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_profile"), type: .profile)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_family", family: nil), type: .family)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_quest"), type: .quest)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_questTemplate"), type: .questTemplate)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_questCompletion"), type: .questCompletion)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_ledgerEntry"), type: .ledgerEntry)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_allowancePeriod"), type: .allowancePeriod)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_achievement"), type: .achievement)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_profileAchievement"), type: .profileAchievement)
-        await actor.deleteRecord(identity: testIdentity(recordName: "seed_notificationPreference"), type: .notificationPreference)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_profile"), type: .profile, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_family", family: nil), type: .family, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_quest"), type: .quest, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_questTemplate"), type: .questTemplate, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_questCompletion"), type: .questCompletion, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_ledgerEntry"), type: .ledgerEntry, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_allowancePeriod"), type: .allowancePeriod, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_achievement"), type: .achievement, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_profileAchievement"), type: .profileAchievement, expectedActiveZone: CKRecordZone.default().zoneID)
+        await actor.deleteByIdentity(testIdentity(recordName: "seed_notificationPreference"), type: .notificationPreference, expectedActiveZone: CKRecordZone.default().zoneID)
 
         #expect(try remainingCount(ProfileCache.self, in: container) == 0)
         #expect(try remainingCount(FamilyCache.self, in: container) == 0)
@@ -201,7 +201,7 @@ struct BackgroundCacheActorTests {
         // and must leave the store untouched.
         let container = try makeContainer()
         let actor = BackgroundCacheActor(container: container)
-        await actor.deleteRecord(identity: testIdentity(recordName: "does_not_exist"), type: .quest)
+        await actor.deleteByIdentity(testIdentity(recordName: "does_not_exist"), type: .quest, expectedActiveZone: CKRecordZone.default().zoneID)
 
         #expect(try remainingCount(QuestCache.self, in: container) == 0)
     }

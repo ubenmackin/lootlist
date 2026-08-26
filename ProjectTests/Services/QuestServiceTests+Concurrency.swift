@@ -20,7 +20,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold(approvalMode: .parentVerify, cloudKitOverride: mockCK)
         scaffold.cache.invalidateFreshness(familyRecordName: "fam1", type: .questCompletion)
         // Re-seed quest fresh after helper to ensure no stale pending log blocks the gate.
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuest(scaffold.quest)
 
         let questService = scaffold.questService
         let quest = scaffold.quest
@@ -58,8 +58,8 @@ extension QuestServiceTests {
         let mockCK = MockCloudKitService(zoneID: CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner"))
         let scaffold = try MarkCompleteScaffold(approvalMode: .parentVerify, cloudKitOverride: mockCK)
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuest(scaffold.quest)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
@@ -99,8 +99,8 @@ extension QuestServiceTests {
         let mockCK = MockCloudKitService(zoneID: CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner"))
         let scaffold = try MarkCompleteScaffold(approvalMode: .parentVerify, cloudKitOverride: mockCK)
         let pending = scaffold.completion(status: .pending, recordName: "log-reject")
-        scaffold.cache.upsertQuestCompletion(pending)
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuest(scaffold.quest)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
@@ -140,8 +140,8 @@ extension QuestServiceTests {
         let mockCK = MockCloudKitService(zoneID: CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner"))
         let scaffold = try MarkCompleteScaffold(approvalMode: .parentVerify, cloudKitOverride: mockCK)
         let pending = scaffold.completion(status: .pending, recordName: "log-withdraw")
-        scaffold.cache.upsertQuestCompletion(pending)
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuest(scaffold.quest)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)

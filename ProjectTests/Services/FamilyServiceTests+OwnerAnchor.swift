@@ -31,7 +31,7 @@ extension FamilyServiceTests {
         let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
         #expect(anchoredFamily.creatorUserRecordName == Self.mockUserRecordName)
 
-        cache.upsertFamily(anchoredFamily)
+        await cache.upsertFamily(anchoredFamily)
         appState.family = anchoredFamily
         // The acting profile is a HERO — a non-parent role. Only the owner
         // anchor (server-authenticated creator match) can authorize this.
@@ -50,7 +50,7 @@ extension FamilyServiceTests {
         let (_, _, family, hero, _) = makeStandardFixtures()
         cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockUserRecordName)
         let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
-        cache.upsertFamily(anchoredFamily)
+        await cache.upsertFamily(anchoredFamily)
         appState.family = anchoredFamily
         appState.currentProfile = hero
 
@@ -67,7 +67,7 @@ extension FamilyServiceTests {
         let (_, _, family, hero, _) = makeStandardFixtures()
         cloudKit.seedMockRecords([family], creatorUserRecordName: Self.mockUserRecordName)
         let anchoredFamily = try await cloudKit.fetch(Family.self, id: family.id)
-        cache.upsertFamily(anchoredFamily)
+        await cache.upsertFamily(anchoredFamily)
         appState.family = anchoredFamily
         appState.currentProfile = hero
 

@@ -306,12 +306,13 @@ extension QuestServiceTests {
                 name: "Guard Quest",
                 id: questID
             )
-            cache.upsertProfile(parent)
-            cache.upsertProfile(hero)
-            cache.upsertQuest(quest)
+            cache.context?.insert(ProfileCache(from: parent))
+            cache.context?.insert(ProfileCache(from: hero))
+            cache.context?.insert(QuestCache(from: quest))
             if let family = appState.family {
-                cache.upsertFamily(family)
+                cache.context?.insert(FamilyCache(from: family))
             }
+            _ = cache.saveContext()
             if let mock = resolvedCloudKit as? MockCloudKitService {
                 mock.seedMockRecords([parent, hero, quest])
             }

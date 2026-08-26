@@ -60,14 +60,14 @@ extension QuestService {
                 // Atomic gate: only the device that creates the record on CloudKit wins.
                 // Local persistence and sync enqueue must happen after this point to avoid
                 // leaving a phantom RewardEvent that would later rehydrate xpCredited via
-                // BackgroundCacheActor.reconcileRewardEvents and double-credit.
+                // BackgroundCacheActor.reconcileRewardEventsWithoutSave in the batch commit path and double-credit.
                 guard try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil) else {
                     // Lost the race — another device already claimed the deterministic event.
                     // Remove any phantom local row so reconcile cannot hydrate xpCredited on the loser.
-                    cacheService?.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
+                    await cacheService?.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
                     return 0
                 }
-                cacheService?.upsertRewardEvent(rewardEvent)
+                await cacheService?.upsertRewardEvent(rewardEvent)
                 syncCoordinator?.enqueueRewardEvent(rewardEvent, isOwner: appState.isZoneOwner)
 
                 // Grant XP only after this device atomically claimed the event.
@@ -75,7 +75,7 @@ extension QuestService {
 
                 var updatedQuest = currentQuest
                 updatedQuest.xpBanked = currentQuest.xpBanked + remaining
-                cacheService?.upsertQuest(updatedQuest)
+                await cacheService?.upsertQuest(updatedQuest)
                 let isOwner = appState.isZoneOwner
                 syncCoordinator?.enqueueSave(recordID: updatedQuest.id, isOwner: isOwner)
 
@@ -142,7 +142,7 @@ extension QuestService {
     private func stampCompletionCredit(_ completion: QuestCompletion, xpGain: Int) async {
         var updated = completion
         updated.xpCredited = xpGain
-        cacheService?.upsertQuestCompletion(updated)
+        await cacheService?.upsertQuestCompletion(updated)
         let isOwner = appState?.isZoneOwner ?? false
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }

@@ -129,7 +129,7 @@ extension CKSyncEngineTests {
             createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
             id: CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
         )
-        cache.upsertFamily(family)
+        await cache.upsertFamily(family)
 
         #expect(cache.fetchFamily(recordName: zoneID.zoneName) != nil)
 
@@ -223,7 +223,7 @@ extension CKSyncEngineTests {
     // MARK: - System Fields & Additive Merge Tests
 
     @Test
-    func `record bridge preserves encodedSystemFields when building CKRecord`() throws {
+    func `record bridge preserves encodedSystemFields when building CKRecord`() async throws {
         let cache = try CacheService(inMemory: true)
         let questID = CKRecord.ID(recordName: "quest_system_fields", zoneID: zoneID)
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
@@ -248,7 +248,7 @@ extension CKSyncEngineTests {
             id: questID
         )
         quest.encodedSystemFields = encodedData
-        cache.upsertQuest(quest)
+        await cache.upsertQuest(quest)
 
         let identity = ScopedRecordIdentity(
             databaseScope: .private,
@@ -272,7 +272,7 @@ extension CKSyncEngineTests {
         var baseline = Profile(displayName: "Hero", role: .hero, iCloudUserID: profileID, family: familyRef, id: profileID)
         baseline.xp = 100
         baseline.level = XPService.level(forXP: 100)
-        cache.upsertProfile(baseline)
+        await cache.upsertProfile(baseline)
 
         // Now device earned +50 XP offline (client XP = 150)
         var clientProfile = baseline
@@ -366,7 +366,7 @@ extension CKSyncEngineTests {
 
         var baselineProfile = try Profile(record: initialServerRecord)
         baselineProfile.encodedSystemFields = initialServerRecord.encodedSystemFields
-        cache.upsertProfile(baselineProfile, isServerSync: true)
+        await cache.upsertProfile(baselineProfile, isServerSync: true)
 
         let cachedAfterSync = try #require(cache.fetchProfile(recordName: profileID.recordName, family: "fam1"))
         #expect(cachedAfterSync.lastSyncedXP == 100)
@@ -376,7 +376,7 @@ extension CKSyncEngineTests {
         var localProfile = baselineProfile
         localProfile.xp = 150
         localProfile.level = XPService.level(forXP: 150)
-        cache.upsertProfile(localProfile, isServerSync: false)
+        await cache.upsertProfile(localProfile, isServerSync: false)
 
         // Verify lastSyncedXP was NOT corrupted by the local edit
         let cachedAfterLocalEdit = try #require(cache.fetchProfile(recordName: profileID.recordName, family: "fam1"))

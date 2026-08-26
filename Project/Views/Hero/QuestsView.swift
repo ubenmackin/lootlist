@@ -21,6 +21,7 @@ struct QuestsView: View {
     @Query private var cachedTemplates: [QuestTemplateCache]
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var viewModel: HeroDashboardViewModel?
     @State private var submittingQuestIDs: Set<String> = []
@@ -32,17 +33,24 @@ struct QuestsView: View {
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
 
-    init(familyRecordName: String? = nil) {
+    private let profileRecordName: String?
+
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let currentProfileFilter = #Predicate<ProfileCache> {
+            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
+        }
 
         _cachedQuests = Query(
             filter: questFilter,
@@ -67,6 +75,16 @@ struct QuestsView: View {
             sort: \AllowancePeriodCache.weekOf,
             order: .reverse
         )
+        _currentProfileRows = Query(
+            filter: currentProfileFilter,
+            sort: \ProfileCache.displayName
+        )
+    }
+
+    /// Queried cache row for the active hero profile; nil when identity or
+    /// family scope has no synced row yet, keeping rendering fail-closed.
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
     }
 
     /// Quests assigned to the active hero profile.
@@ -85,8 +103,8 @@ struct QuestsView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    if FeatureFlags.rpgImmersive, let profile = appState.currentProfile {
-                        MascotBannerView(profileCache: ProfileCache(from: profile), quests: profileQuests, completions: profileLogs, showBonusCard: false)
+                    if FeatureFlags.rpgImmersive, let row = currentProfileRow {
+                        MascotBannerView(profileCache: row, quests: profileQuests, completions: profileLogs, showBonusCard: false)
                     }
 
                     questBoard

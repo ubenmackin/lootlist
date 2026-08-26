@@ -163,7 +163,7 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
         )
-        cache.upsertProfile(cachedHero)
+        await cache.upsertProfile(cachedHero)
 
         // CloudKit truth: a DIFFERENT hero in the same family.
         let ckHero = Profile(
@@ -207,7 +207,7 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
         )
-        cache.upsertProfile(cachedHero)
+        await cache.upsertProfile(cachedHero)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
 
         // CloudKit holds a DIFFERENT hero — if the gate leaked to CK the
@@ -263,7 +263,7 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
         )
-        cache.upsertProfile(cachedHero)
+        await cache.upsertProfile(cachedHero)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
 
         // CloudKit holds a DIFFERENT hero — the removed detached refresh would
@@ -315,7 +315,7 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
         )
-        cache.upsertProfile(cachedHero)
+        await cache.upsertProfile(cachedHero)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
 
         let ckHero = Profile(
@@ -423,8 +423,8 @@ struct FamilyServiceTests {
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         familyService.appState.currentProfile = hero
 
@@ -473,8 +473,8 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
         appState.currentProfile = guildMaster
@@ -519,8 +519,8 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
         appState.currentProfile = guildMaster
@@ -585,9 +585,9 @@ struct FamilyServiceTests {
             id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         )
 
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
-        cache.upsertQuest(quest)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
+        await cache.upsertQuest(quest)
         cloudKit.seedMockRecords([family, hero, quest])
         // unassignActiveQuests guards on appState.family being set.
         appState.family = family
@@ -704,7 +704,7 @@ struct FamilyServiceTests {
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
         familyService.appState.currentProfile = hero
 
         let updated = try await familyService.updateProfilePayoutPolicy(profile: hero, policy: .allOrNothing)
@@ -753,8 +753,8 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         appState.family = family
         appState.currentProfile = guildMaster
 
@@ -787,7 +787,7 @@ struct FamilyServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "gm1", zoneID: zoneID)
         )
-        cache.upsertFamily(family)
+        await cache.upsertFamily(family)
         cloudKit.seedMockRecords([family])
         familyService.appState.currentProfile = parent
         familyService.appState.family = family
@@ -837,8 +837,8 @@ struct FamilyServiceTests {
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         familyService.appState.currentProfile = hero
         familyService.appState.family = family

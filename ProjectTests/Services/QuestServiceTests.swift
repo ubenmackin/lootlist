@@ -18,7 +18,7 @@ struct QuestServiceTests {
         let scaffold = try MarkCompleteScaffold()
 
         // Stale cache: a pending log for this quest.
-        scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .pending)])
+        await scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .pending)])
         // CloudKit truth: a verified log for this quest.
         scaffold.seedMockRecords([scaffold.completion(status: .verified)])
 
@@ -48,7 +48,7 @@ struct QuestServiceTests {
     func `markComplete with stale rejected cache proceeds without a pre-write CloudKit check`() async throws {
         let scaffold = try MarkCompleteScaffold()
 
-        scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
+        await scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
         scaffold.seedMockRecords([scaffold.completion(status: .pending)])
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
@@ -64,7 +64,7 @@ struct QuestServiceTests {
     @Test
     func `markComplete double tap is gated by the local in-flight guard`() async throws {
         let scaffold = try MarkCompleteScaffold()
-        scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
+        await scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
         await #expect(throws: QuestServiceError.alreadyCompleted) {
@@ -78,7 +78,7 @@ struct QuestServiceTests {
         let cloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
         let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
 
-        scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
+        await scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
 
@@ -99,12 +99,12 @@ struct QuestServiceTests {
 
         var quest = scaffold.quest
         quest.xpBanked = 100
-        scaffold.cache.upsertQuest(quest)
+        await scaffold.cache.upsertQuest(quest)
 
         var hero = scaffold.hero
         hero.xp = 100
         hero.level = 2
-        scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertProfile(hero)
         scaffold.appState.currentProfile = hero
 
         _ = try await scaffold.questService.markComplete(quest: quest, by: hero)
@@ -129,7 +129,7 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertProfile(hero)
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
 
@@ -157,7 +157,7 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 33
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertProfile(hero)
         scaffold.seedMockRecords([hero])
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
@@ -193,8 +193,8 @@ struct QuestServiceTests {
         hero.xp = 0
         hero.level = 1
         cloudKit.seedMockRecords([deviceA.quest, hero])
-        deviceA.cache.upsertProfile(hero)
-        deviceB.cache.upsertProfile(hero)
+        await deviceA.cache.upsertProfile(hero)
+        await deviceB.cache.upsertProfile(hero)
         deviceA.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
@@ -203,10 +203,10 @@ struct QuestServiceTests {
         #expect(cachedA?.xpTotal == 100)
         var questB = deviceB.quest
         questB.xpBanked = 100
-        deviceB.cache.upsertQuest(questB)
+        await deviceB.cache.upsertQuest(questB)
         var heroB = hero
         heroB.xp = 100
-        deviceB.cache.upsertProfile(heroB)
+        await deviceB.cache.upsertProfile(heroB)
         deviceB.appState.currentProfile = heroB
         _ = try await deviceB.questService.markComplete(quest: questB, by: heroB)
 
@@ -266,7 +266,7 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertProfile(hero)
         scaffold.appState.currentProfile = hero
 
         let log = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
@@ -309,7 +309,7 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertProfile(hero)
         scaffold.appState.currentProfile = hero
 
         _ = try await scaffold.questService.markComplete(quest: scaffold.quest, by: hero)
@@ -346,8 +346,8 @@ struct QuestServiceTests {
         var hero = deviceA.hero
         hero.xp = 0
         hero.level = 1
-        deviceA.cache.upsertProfile(hero)
-        deviceB.cache.upsertProfile(hero)
+        await deviceA.cache.upsertProfile(hero)
+        await deviceB.cache.upsertProfile(hero)
         deviceA.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
@@ -355,11 +355,11 @@ struct QuestServiceTests {
 
         var questB = deviceB.quest
         questB.xpBanked = 100
-        deviceB.cache.upsertQuest(questB)
+        await deviceB.cache.upsertQuest(questB)
         deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
         var heroB = hero
         heroB.xp = 100
-        deviceB.cache.upsertProfile(heroB)
+        await deviceB.cache.upsertProfile(heroB)
         deviceB.appState.currentProfile = heroB
         _ = try await deviceB.questService.markComplete(quest: questB, by: heroB)
 
@@ -382,12 +382,12 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertProfile(hero)
         scaffold.appState.currentProfile = hero
 
         var quest = scaffold.quest
         quest.xpBanked = 100
-        scaffold.cache.upsertQuest(quest)
+        await scaffold.cache.upsertQuest(quest)
 
         let log = try await scaffold.questService.markComplete(quest: quest, by: hero)
 
@@ -422,7 +422,7 @@ struct QuestServiceTests {
 
         var quest = scaffold.quest
         quest.name = nil
-        scaffold.cache.upsertQuest(quest)
+        await scaffold.cache.upsertQuest(quest)
         scaffold.cache.markCacheFresh(familyRecordName: scaffold.familyRef.recordID.recordName, type: .quest)
 
         cloudKit.readCallCount = 0
@@ -469,7 +469,7 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertProfile(hero)
         cloudKit.seedMockRecords([scaffold.quest, hero])
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
@@ -556,9 +556,9 @@ struct QuestServiceTests {
             id: questID
         )
 
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
-        cache.upsertQuest(quest)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
+        await cache.upsertQuest(quest)
         var rejectedLog = QuestCompletion(
             quest: CKRecord.Reference(recordID: questID, action: .none),
             completedBy: CKRecord.Reference(recordID: heroID, action: .none),
@@ -568,7 +568,7 @@ struct QuestServiceTests {
             id: CKRecord.ID(recordName: "log_seed", zoneID: zoneID)
         )
         rejectedLog.verificationStatus = .rejected
-        cache.upsertQuestCompletions([rejectedLog])
+        await cache.upsertQuestCompletions([rejectedLog])
         for type in [
             CachedRecordType.family,
             CachedRecordType.profile,
@@ -606,12 +606,12 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertQuest(scaffold.quest)
         scaffold.seedMockRecords([scaffold.quest, hero])
 
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
         for type in [
             CachedRecordType.quest,
             CachedRecordType.profile,
@@ -653,10 +653,10 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertQuest(scaffold.quest)
         let completion = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(completion)
+        await scaffold.cache.upsertQuestCompletion(completion)
 
         let stranger = Profile(
             displayName: "Stranger Hero",
@@ -775,12 +775,12 @@ struct QuestServiceTests {
         var hero = scaffold.hero
         hero.xp = 0
         hero.level = 1
-        scaffold.cache.upsertProfile(hero)
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertProfile(hero)
+        await scaffold.cache.upsertQuest(scaffold.quest)
         mockCK.seedMockRecords([scaffold.quest, hero])
 
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
         for type in [
             CachedRecordType.quest,
             CachedRecordType.profile,
@@ -827,7 +827,7 @@ struct QuestServiceTests {
             family: scaffold.familyRef,
             id: otherHeroID
         )
-        scaffold.cache.upsertProfile(otherHero)
+        await scaffold.cache.upsertProfile(otherHero)
         scaffold.appState.currentProfile = otherHero
 
         await #expect(throws: FamilyServiceError.unauthorized) {

@@ -117,7 +117,7 @@ extension FamilyService {
         owner.isActive = true
         do {
             let saved = try await cloudKit.save(owner, in: zoneID, using: db)
-            cacheService?.upsertProfile(saved)
+            await cacheService?.upsertProfile(saved)
             return saved
         } catch {
             throw FamilyServiceError.creationFailed

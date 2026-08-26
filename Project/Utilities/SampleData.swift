@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import SwiftData
 
 @MainActor
 enum SampleData {
@@ -618,25 +619,40 @@ enum SampleData {
     // MARK: - Populate
 
     static func populate(cacheService: CacheService? = nil, boardClaims: Int = 0) {
+        guard let cache = cacheService, let context = cache.context else { return }
         let questData = createTemplatesAndQuests(boardClaims: boardClaims)
         let ledger = createLedgerEntries()
         let periods = createAllowancePeriods()
         let (achs, profileAchs) = createAchievements()
 
-        guard let cache = cacheService else { return }
-        cache.upsertFamily(family)
-        cache.upsertProfiles([heroProfile, secondHeroProfile, parentProfile])
-        cache.upsertQuestTemplates(questData.templates)
-        cache.upsertQuests(questData.quests)
-        cache.upsertQuestCompletions(questData.completions)
-        cache.upsertGoals(questData.goals)
-        if !ledger.isEmpty {
-            cache.upsertLedgerEntries(ledger)
+        context.insert(FamilyCache(from: family))
+        for profile in [heroProfile, secondHeroProfile, parentProfile] {
+            context.insert(ProfileCache(from: profile))
         }
-        if !periods.isEmpty {
-            cache.upsertAllowancePeriods(periods)
+        for template in questData.templates {
+            context.insert(QuestTemplateCache(from: template))
         }
-        cache.upsertAchievements(achs)
-        cache.upsertProfileAchievements(profileAchs)
+        for quest in questData.quests {
+            context.insert(QuestCache(from: quest))
+        }
+        for completion in questData.completions {
+            context.insert(QuestCompletionCache(from: completion))
+        }
+        for goal in questData.goals {
+            context.insert(GoalCache(from: goal))
+        }
+        for entry in ledger {
+            context.insert(LedgerEntryCache(from: entry))
+        }
+        for period in periods {
+            context.insert(AllowancePeriodCache(from: period))
+        }
+        for ach in achs {
+            context.insert(AchievementCache(from: ach))
+        }
+        for pa in profileAchs {
+            context.insert(ProfileAchievementCache(from: pa))
+        }
+        _ = cache.saveContext()
     }
 }

@@ -159,8 +159,8 @@ struct GemServiceTests {
         let family = makeFamily(zoneID: zoneID)
         var hero = makeProfile(zoneID: zoneID)
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
         appState.familyZoneID = zoneID
@@ -198,8 +198,8 @@ struct GemServiceTests {
         let family = makeFamily(zoneID: zoneID)
         var hero = makeProfile(zoneID: zoneID)
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
         appState.familyZoneID = zoneID
@@ -227,7 +227,7 @@ struct GemServiceTests {
     // MARK: - GemService ledger+profile atomic withBatch
 
     @Test
-    func `applyGemDebit persists ledger and profile atomically`() throws {
+    func `applyGemDebit persists ledger and profile atomically`() async throws {
         let cache = try CacheService(inMemory: true)
         let zoneID = makeZoneID(name: "AtomicZone")
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
@@ -242,7 +242,7 @@ struct GemServiceTests {
             id: heroID
         )
         hero.gems = 100
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
 
         let ledger = GemLedger(
             profileRecordName: heroID.recordName,
@@ -256,7 +256,7 @@ struct GemServiceTests {
         var debited = hero
         debited.gems = 70
 
-        cache.applyGemDebit(profile: debited, ledger: ledger)
+        await cache.applyGemDebit(profile: debited, ledger: ledger)
 
         let cachedLedger = cache.fetchGemLedger(recordName: ledger.id.recordName, family: "fam1")
         #expect(cachedLedger != nil, "Ledger must be persisted in the atomic batch")
@@ -282,7 +282,8 @@ struct GemServiceTests {
             id: heroID
         )
         hero.gems = 50
-        cache.upsertProfile(hero)
+        cache.context?.insert(ProfileCache(from: hero))
+        _ = cache.saveContext()
 
         let ledger = GemLedger(
             profileRecordName: heroID.recordName,
@@ -296,8 +297,8 @@ struct GemServiceTests {
         updated.gems = 75
 
         cache.withBatch {
-            cache.upsertProfile(updated)
-            cache.upsertGemLedger(ledger)
+            cache.context?.insert(ProfileCache(from: updated))
+            cache.context?.insert(GemLedgerCache(from: ledger))
             cache.context?.rollback()
         }
 
@@ -321,8 +322,8 @@ struct GemServiceTests {
         let family = makeFamily(zoneID: zoneID)
         var hero = makeProfile(zoneID: zoneID)
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
         appState.familyZoneID = zoneID
@@ -360,8 +361,8 @@ struct GemServiceTests {
         let family = makeFamily(zoneID: zoneID)
         var hero = makeProfile(zoneID: zoneID)
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         appState.family = family
         appState.familyZoneID = zoneID
         appState.currentProfile = hero
@@ -400,8 +401,8 @@ struct GemServiceTests {
             id: heroID
         )
         let family = Family(name: "Guild", createdBy: heroID, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])
 
         appState.family = family
@@ -451,7 +452,7 @@ struct GemServiceTests {
             name: "Phantom Quest",
             id: CKRecord.ID(recordName: "quest-phantom", zoneID: zoneID)
         )
-        cache.upsertQuest(quest)
+        await cache.upsertQuest(quest)
         let completion = QuestCompletion(
             quest: CKRecord.Reference(recordID: quest.id, action: .none),
             completedBy: CKRecord.Reference(recordID: heroID, action: .none),

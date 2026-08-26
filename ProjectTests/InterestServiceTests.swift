@@ -69,9 +69,10 @@ struct InterestServiceTests {
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
             mock.seedMockRecords([hero, guildMaster, family])
-            cache.upsertProfile(hero)
-            cache.upsertProfile(guildMaster)
-            cache.upsertFamily(family)
+            cache.context?.insert(ProfileCache(from: hero))
+            cache.context?.insert(ProfileCache(from: guildMaster))
+            cache.context?.insert(FamilyCache(from: family))
+            _ = cache.saveContext()
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
@@ -99,7 +100,8 @@ struct InterestServiceTests {
                 family: CKRecord.Reference(recordID: family.id, action: .none),
                 id: CKRecord.ID(recordName: name, zoneID: zoneID)
             )
-            cache.upsertLedgerEntry(entry)
+            cache.context?.insert(LedgerEntryCache(from: entry))
+            _ = cache.saveContext()
         }
 
         func ledgerEntries() -> [LedgerEntryCache] {

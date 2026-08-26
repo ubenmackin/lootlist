@@ -309,7 +309,7 @@ final class DailyLoginService {
         if !credited {
             // Gems were already minted for today (idempotent duplicate ledger), but the profile
             // claim date was out of sync. Persist the current claim state and update appState.
-            cacheService?.upsertProfile(current)
+            await cacheService?.upsertProfile(current)
             syncCoordinator?.enqueueSave(recordID: current.id, isOwner: appState.isZoneOwner)
             if let active = appState.currentProfile, active.id == current.id {
                 appState.currentProfile = current

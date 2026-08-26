@@ -116,6 +116,7 @@ final class FamilyDashboardViewModel {
         defer { isLoading = false }
 
         if let family = appState.family {
+            await familyService.refreshProfilesFromCloudKit(for: family)
             do {
                 try await achievements.seedDefaultAchievements(family: family)
             } catch {
@@ -159,7 +160,7 @@ final class FamilyDashboardViewModel {
             return
         }
 
-        let activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
+        var activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
         // Deactivated member profiles: their identity can remain an
         // accepted share participant (a self-leave cannot revoke a share it
         // does not own), which is why the panel flags them for owner-side
@@ -189,6 +190,7 @@ final class FamilyDashboardViewModel {
             invitations = []
             return
         }
+
         let roleMap: [String: UserRole]
         do {
             roleMap = try await familyService.fetchShareParticipantRoles(for: family)
@@ -197,13 +199,50 @@ final class FamilyDashboardViewModel {
             roleMap = [:]
         }
 
-        var result: [FamilyInvitation] = []
-        var handledRecordNames = Set<String>()
-        var handledKeys = Set<String>()
+        await reconcileMissingAcceptedMembers(
+            for: family,
+            statuses: statuses,
+            currentUserRecordName: currentUserRecordName,
+            activeRecordNames: &activeRecordNames
+        )
 
-        // Pre-compute a stable numeric label for every status-based identity.
-        // Sorted by identity key so the same set of identities always receives
-        // the same sequential numbers, regardless of processing order.
+        computeIdentityLabels(from: statuses)
+
+        invitations = assembleInvitations(
+            statuses: statuses,
+            participants: participants,
+            currentUserRecordName: currentUserRecordName,
+            activeRecordNames: activeRecordNames,
+            inactiveIdentities: inactiveIdentities,
+            participantByRecordName: participantByRecordName,
+            roleMap: roleMap
+        )
+    }
+
+    private func reconcileMissingAcceptedMembers(
+        for family: Family,
+        statuses: [ShareParticipantStatus],
+        currentUserRecordName: String,
+        activeRecordNames: inout Set<String>
+    ) async {
+        let missingAcceptedMembers = statuses.contains { status in
+            guard let recordName = status.recordName,
+                  !status.isRemoved,
+                  recordName != currentUserRecordName else { return false }
+            return !activeRecordNames.contains(recordName)
+        }
+
+        guard missingAcceptedMembers else { return }
+
+        await familyService.refreshProfilesFromCloudKit(for: family)
+        if let freshProfiles = try? await familyService.fetchAllProfilesForFamily(family) {
+            let freshActive = freshProfiles.filter(\.isActive)
+            let freshActiveRecordNames = Set(freshActive.map(\.iCloudUserID.recordName))
+            activeRecordNames.formUnion(freshActiveRecordNames)
+        }
+    }
+
+    private func computeIdentityLabels(from statuses: [ShareParticipantStatus]) {
         identityLabelCounter = [:]
         var labelIndex = 0
         for status in statuses.sorted(by: { ($0.identityKey ?? "") < ($1.identityKey ?? "") }) {
@@ -212,6 +251,20 @@ final class FamilyDashboardViewModel {
                 labelIndex += 1
             }
         }
+    }
+
+    private func assembleInvitations(
+        statuses: [ShareParticipantStatus],
+        participants: [CKShare.Participant],
+        currentUserRecordName: String,
+        activeRecordNames: Set<String>,
+        inactiveIdentities: [String: String],
+        participantByRecordName: [String: CKShare.Participant],
+        roleMap: [String: UserRole]
+    ) -> [FamilyInvitation] {
+        var result: [FamilyInvitation] = []
+        var handledRecordNames = Set<String>()
+        var handledKeys = Set<String>()
 
         // Statuses are the authoritative identity view (they include
         // `.removed` markers that object-only reading has to filter).
@@ -248,7 +301,7 @@ final class FamilyDashboardViewModel {
             }
         }
 
-        invitations = result
+        return result
     }
 
     private func buildStatusInvitation(

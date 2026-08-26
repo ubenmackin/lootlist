@@ -20,7 +20,7 @@ extension QuestServiceTests {
         // use mutable status transitions, so the record must survive the withdrawal.
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         try await scaffold.questService.withdrawCompletion(questLog: pending, by: scaffold.hero)
 
@@ -39,7 +39,7 @@ extension QuestServiceTests {
     func `withdrawCompletion updates local cache immediately`() async throws {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         try await scaffold.questService.withdrawCompletion(questLog: pending, by: scaffold.hero)
 
@@ -58,7 +58,7 @@ extension QuestServiceTests {
     func `withdrawn completion frees the quest slot for a new submission`() async throws {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
         scaffold.seedMockRecords([pending])
 
         try await scaffold.questService.withdrawCompletion(questLog: pending, by: scaffold.hero)
@@ -87,18 +87,17 @@ extension QuestServiceTests {
         let cache = scaffold.cache
 
         func seedEntry(_ name: String, amount: Double, kind: BucketKind) {
-            cache.upsertLedgerEntry(
-                LedgerEntry(
-                    profile: CKRecord.Reference(recordID: scaffold.hero.id, action: .none),
-                    amount: amount,
-                    description: name,
-                    date: Date(),
-                    source: "quest",
-                    bucketKind: kind.rawValue,
-                    family: scaffold.familyRef,
-                    id: CKRecord.ID(recordName: name, zoneID: scaffold.zoneID)
-                )
-            )
+            cache.context?.insert(LedgerEntryCache(from: LedgerEntry(
+                profile: CKRecord.Reference(recordID: scaffold.hero.id, action: .none),
+                amount: amount,
+                description: name,
+                date: Date(),
+                source: "quest",
+                bucketKind: kind.rawValue,
+                family: scaffold.familyRef,
+                id: CKRecord.ID(recordName: name, zoneID: scaffold.zoneID)
+            )))
+            _ = cache.saveContext()
         }
         seedEntry("seed-spend", amount: 5.00, kind: .spend)
         seedEntry("seed-short", amount: 2.00, kind: .shortTermSave)

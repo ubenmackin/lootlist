@@ -54,6 +54,7 @@ enum FamilyKickResult: Equatable, Sendable {
 @MainActor
 protocol FamilyProfileFetching: Sendable {
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile]
+    func refreshProfilesFromCloudKit(for family: Family) async
     func currentUserRecordName() async throws -> String
     func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare
     func fetchShareParticipants(for family: Family) async throws -> [CKShare.Participant]
@@ -221,8 +222,8 @@ final class FamilyService: FamilyProfileFetching {
             } catch {
                 throw FamilyServiceError.creationFailed
             }
-            cacheService?.upsertFamily(existingFamily)
-            cacheService?.upsertProfile(resolvedOwner)
+            await cacheService?.upsertFamily(existingFamily)
+            await cacheService?.upsertProfile(resolvedOwner)
 
             let session = finalizeOwnerSession(family: existingFamily,
                                                profile: resolvedOwner,
@@ -246,7 +247,8 @@ final class FamilyService: FamilyProfileFetching {
 
         do {
             family = try await cloudKit.save(family, in: zoneID, using: pvtDB)
-            cacheService?.upsertFamily(family, isServerSync: true)
+            // Direct pre-session mirror: ingestion drops rows until the owner session exists.
+            await cacheService?.upsertFamily(family, isServerSync: true)
         } catch {
             throw FamilyServiceError.creationFailed
         }
@@ -259,7 +261,8 @@ final class FamilyService: FamilyProfileFetching {
         let savedOwner: Profile
         do {
             savedOwner = try await cloudKit.save(owner, in: zoneID, using: pvtDB)
-            cacheService?.upsertProfile(savedOwner, isServerSync: true)
+            // Direct pre-session mirror: ingestion drops rows until the owner session exists.
+            await cacheService?.upsertProfile(savedOwner, isServerSync: true)
         } catch {
             throw FamilyServiceError.creationFailed
         }
@@ -318,38 +321,8 @@ final class FamilyService: FamilyProfileFetching {
                                     progressHandler: ((String, Double) -> Void)? = nil) async throws -> JoinedFamilyResult
     {
         logger.info("Joining family via accepted share started. hasMetadata=\(metadata != nil)")
-        // Step 1: Accept the share. `metadata` is nil only for tests; production
-        // callers always resolve it before joining.
-        if let metadata {
-            progressHandler?("Accepting family invitation...", 0.4)
-            logger.info("Invoking cloudKit.acceptShare(metadata)...")
-            do {
-                try await cloudKit.acceptShare(metadata: metadata)
-                logger.info("Accept family share succeeded.")
-            } catch {
-                logger.error("Accept family share failed: \(error, privacy: .private)")
-                // Preserve the underlying error (which carries the symbolic
-                // `CKError.Code`) so the caller can surface an
-                // invalid-or-expired-invitation message for the not-found codes
-                // instead of losing the classification behind a generic wrapper.
-                throw error
-            }
-        }
-
-        // Step 2: Discover shared zones. Fetched unconditionally because the
-        // metadata-absent test fallback needs `.first`; production derives the
-        // zone from the metadata root ID instead (a user can belong to several
-        // shared families, and zone-list order is not family-specific).
-        progressHandler?("Connecting to family Guild...", 0.65)
-        logger.info("Fetching shared zones from cloudKit...")
-        let sharedZones: [CKRecordZone]
-        do {
-            sharedZones = try await cloudKit.fetchSharedZones()
-            logger.info("Found \(sharedZones.count) shared zones.")
-        } catch {
-            logger.error("Fetching shared zones failed: \(error, privacy: .private)")
-            throw FamilyServiceError.joinFailed
-        }
+        try await acceptShareIfNeeded(metadata: metadata, progressHandler: progressHandler)
+        let sharedZones = try await fetchSharedZonesForJoin(progressHandler: progressHandler)
 
         let sharedDB = cloudKit.sharedDatabase
 
@@ -378,7 +351,8 @@ final class FamilyService: FamilyProfileFetching {
 
         do {
             family = try await cloudKit.fetch(Family.self, id: sharedFamilyID, using: sharedDB)
-            cacheService?.upsertFamily(family, isServerSync: true)
+            // Direct pre-session snapshot: ingestion drops rows until saveSession runs below.
+            await cacheService?.upsertFamily(family, isServerSync: true)
         } catch {
             throw FamilyServiceError.joinFailed
         }
@@ -451,7 +425,8 @@ final class FamilyService: FamilyProfileFetching {
             }
             didReuseActiveProfile = false
         }
-        cacheService?.upsertProfile(savedProfile, isServerSync: true)
+        // Direct pre-session mirror: ingestion drops rows until saveSession runs below.
+        await cacheService?.upsertProfile(savedProfile, isServerSync: true)
 
         appState.familyZoneID = zoneID
         appState.isZoneOwner = false
@@ -463,8 +438,13 @@ final class FamilyService: FamilyProfileFetching {
         // their own profile. Routine updates stay push-driven via CKSyncEngine.
         await refreshProfilesFromCloudKit(for: family)
 
-        // Re-upsert locally saved profile to ensure fresh joiner metadata is not overwritten by stale sync query.
-        cacheService?.upsertProfile(savedProfile, isServerSync: true)
+        // Re-ingest the just-saved profile so the roster hydration above cannot
+        // overwrite fresh joiner metadata with a stale snapshot.
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: [savedProfile],
+            databaseScope: .shared,
+            zoneID: zoneID
+        )
 
         // Hero bootstrap: seed per-hero defaults so the new member has a
         // complete local state before the first sync round trips.
@@ -485,7 +465,7 @@ final class FamilyService: FamilyProfileFetching {
     /// background updates flow through CKSyncEngine's push-driven pipeline, so no
     /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
     /// partial cache falls through to a single synchronous CloudKit query that
-    /// write-throughs the cache.
+    /// re-ingests server snapshots through the shared pipeline.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
@@ -504,7 +484,17 @@ final class FamilyService: FamilyProfileFetching {
             : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
         let db = cloudKit.database(isOwner: isOwner)
         let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-        cacheService?.upsertProfiles(all)
+        // Scope mirrors the database the query ran against, which this method
+        // resolves per-family rather than from the active session alone.
+        if let syncCoordinator {
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: isOwner ? .private : .shared,
+                zoneID: family.id.zoneID
+            )
+        } else {
+            await cacheService?.upsertProfiles(all, family: family.id.recordName)
+        }
         return all
             .filter { $0.role == .hero && $0.isActive }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -514,7 +504,7 @@ final class FamilyService: FamilyProfileFetching {
     /// background updates flow through CKSyncEngine's push-driven pipeline, so no
     /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
     /// partial cache falls through to a single synchronous CloudKit query that
-    /// write-throughs the cache.
+    /// re-ingests server snapshots through the shared pipeline.
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
@@ -537,7 +527,17 @@ final class FamilyService: FamilyProfileFetching {
             : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
         let db = cloudKit.database(isOwner: isOwner)
         let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-        cacheService?.upsertProfiles(all)
+        // Scope mirrors the database the query ran against, which this method
+        // resolves per-family rather than from the active session alone.
+        if let syncCoordinator {
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: isOwner ? .private : .shared,
+                zoneID: family.id.zoneID
+            )
+        } else {
+            await cacheService?.upsertProfiles(all, family: family.id.recordName)
+        }
         return all.sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive {
                 return lhs.isActive && !rhs.isActive
@@ -573,7 +573,7 @@ final class FamilyService: FamilyProfileFetching {
         var updated = profile
         updated.role = newRole
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
@@ -673,8 +673,35 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    /// Immediately re-queries a family's profiles from CloudKit and
-    /// write-throughs the cache via this service's own write path. Deduped by
+    private func acceptShareIfNeeded(metadata: CKShare.Metadata?, progressHandler: ((String, Double) -> Void)?) async throws {
+        guard let metadata else { return }
+        progressHandler?("Accepting family invitation...", 0.4)
+        logger.info("Invoking cloudKit.acceptShare(metadata)...")
+        do {
+            try await cloudKit.acceptShare(metadata: metadata)
+            logger.info("Accept family share succeeded.")
+        } catch {
+            logger.error("Accept family share failed: \(error, privacy: .private)")
+            // Preserve underlying CKError for invalid-invitation surfacing.
+            throw error
+        }
+    }
+
+    private func fetchSharedZonesForJoin(progressHandler: ((String, Double) -> Void)?) async throws -> [CKRecordZone] {
+        progressHandler?("Connecting to family Guild...", 0.65)
+        logger.info("Fetching shared zones from cloudKit...")
+        do {
+            let zones = try await cloudKit.fetchSharedZones()
+            logger.info("Found \(zones.count) shared zones.")
+            return zones
+        } catch {
+            logger.error("Fetching shared zones failed: \(error, privacy: .private)")
+            throw FamilyServiceError.joinFailed
+        }
+    }
+
+    /// Immediately re-queries a family's profiles from CloudKit and routes the
+    /// snapshots through the shared ingestion pipeline. Deduped by
     /// an actor-isolated in-flight guard keyed by operation + family, so
     /// concurrent callers collapse to a single query instead of racing
     /// CKSyncEngine's push-driven sync with duplicate
@@ -702,7 +729,17 @@ final class FamilyService: FamilyProfileFetching {
         let db = cloudKit.database(isOwner: isOwner)
         do {
             let fresh = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-            cacheService?.upsertProfiles(fresh)
+            // Scope mirrors the database the query ran against, which this
+            // method resolves per-family rather than from the active session alone.
+            if let syncCoordinator {
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: fresh,
+                    databaseScope: isOwner ? .private : .shared,
+                    zoneID: family.id.zoneID
+                )
+            } else {
+                await cacheService?.upsertProfiles(fresh, family: family.id.recordName)
+            }
         } catch {
             logger.warning("Failed to refresh profiles from CloudKit: \(error, privacy: .private)")
         }
@@ -752,7 +789,7 @@ final class FamilyService: FamilyProfileFetching {
         guard !missing.isEmpty else { return }
         // Batch upsert mirrors BackgroundCacheActor.batchUpsertNotificationPreferences
         // to keep the write off the per-row save path.
-        cacheService.upsertNotificationPreferences(missing, family: familyRecordName)
+        await cacheService.upsertNotificationPreferences(missing, family: familyRecordName)
         let isOwner = appState.isZoneOwner
         for pref in missing {
             syncCoordinator?.enqueueSave(recordID: pref.id, isOwner: isOwner)
@@ -804,7 +841,7 @@ final class FamilyService: FamilyProfileFetching {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
         )
-        cacheService.upsertAllowancePeriod(period)
+        await cacheService.upsertAllowancePeriod(period)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
     }
