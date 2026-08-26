@@ -174,23 +174,30 @@ struct TabBarView: View {
             }
             .tag(RootTab.payouts)
 
-        SettingsView()
-            .tabItem {
-                Label("Settings", systemImage: "gear")
-            }
-            .tag(RootTab.settings)
+        SettingsView(
+            familyRecordName: familyName,
+            profileRecordName: appState.currentProfile?.id.recordName
+        )
+        .tabItem {
+            Label("Settings", systemImage: "gear")
+        }
+        .tag(RootTab.settings)
     }
 
     @ViewBuilder
     private var heroTabs: some View {
         let familyName = appState.family?.id.recordName
 
-        ChildHubView(spending: spending, familyRecordName: familyName)
-            .id("hero-home-\(familyName ?? "")")
-            .tabItem {
-                Label("Home", systemImage: "house.fill")
-            }
-            .tag(RootTab.home)
+        ChildHubView(
+            spending: spending,
+            familyRecordName: familyName,
+            profileRecordName: appState.currentProfile?.id.recordName
+        )
+        .id("hero-home-\(familyName ?? "")")
+        .tabItem {
+            Label("Home", systemImage: "house.fill")
+        }
+        .tag(RootTab.home)
 
         MyChoresView(familyRecordName: familyName)
             .id("hero-quests-\(familyName ?? "")")
@@ -216,7 +223,8 @@ struct TabBarView: View {
         ProfileView(avatarService: avatarService,
                     xpService: xpService,
                     notificationService: notificationService,
-                    familyRecordName: familyName)
+                    familyRecordName: familyName,
+                    profileRecordName: appState.currentProfile?.id.recordName)
             .id("hero-profile-\(familyName ?? "")")
             .tabItem {
                 Label("Profile", systemImage: "person.crop.circle.fill")

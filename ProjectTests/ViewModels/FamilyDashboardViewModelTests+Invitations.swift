@@ -16,6 +16,7 @@ import Testing
 final class StubFamilyProfileFetcher: FamilyProfileFetching {
     private let profiles: [Profile]
     let cloudKit: MockCloudKitService
+    var refreshProfilesCallCount = 0
 
     init(profiles: [Profile] = [], cloudKit: MockCloudKitService = MockCloudKitService()) {
         self.profiles = profiles
@@ -24,6 +25,10 @@ final class StubFamilyProfileFetcher: FamilyProfileFetching {
 
     func fetchAllProfilesForFamily(_: Family) async throws -> [Profile] {
         profiles
+    }
+
+    func refreshProfilesFromCloudKit(for _: Family) async {
+        refreshProfilesCallCount += 1
     }
 
     func currentUserRecordName() async throws -> String {
@@ -59,6 +64,7 @@ final class StubFamilyProfileFetcher: FamilyProfileFetching {
 final class MutableStubFamilyProfileFetcher: FamilyProfileFetching {
     var profiles: [Profile]
     let cloudKit: MockCloudKitService
+    var refreshProfilesCallCount = 0
 
     init(profiles: [Profile] = [], cloudKit: MockCloudKitService = MockCloudKitService()) {
         self.profiles = profiles
@@ -67,6 +73,10 @@ final class MutableStubFamilyProfileFetcher: FamilyProfileFetching {
 
     func fetchAllProfilesForFamily(_: Family) async throws -> [Profile] {
         profiles
+    }
+
+    func refreshProfilesFromCloudKit(for _: Family) async {
+        refreshProfilesCallCount += 1
     }
 
     func currentUserRecordName() async throws -> String {
@@ -350,7 +360,7 @@ extension FamilyDashboardViewModelTests {
             family: familyRef,
             id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         )
-        let fetcher = MutableStubFamilyProfileFetcher(profiles: [hero])
+        let fetcher = MutableStubFamilyProfileFetcher(profiles: [])
         let (vm, cloudKit) = makeInvitationSUT(fetcher: fetcher, family: family)
         _ = try await cloudKit.simulateParticipation(key: "record:u1", rootRecordID: family.id, role: .hero)
 
@@ -362,6 +372,7 @@ extension FamilyDashboardViewModelTests {
 
         // The hero accepts: the roster now contains them, and the roster-change
         // refresh re-classifies the row out of the panel.
+        fetcher.profiles = [hero]
         vm.rebuildLists(
             profiles: [makeHeroCache(recordName: "hero1", iCloudUserRecordName: "u1")],
             quests: [],
@@ -414,5 +425,48 @@ extension FamilyDashboardViewModelTests {
 
         #expect(vm.invitations.isEmpty)
         #expect(!vm.invitations.contains { $0.identityRecordName == ownerRecordName })
+    }
+
+    @Test
+    func `refreshInvitations pulls missing accepted member profiles from CloudKit`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let family = Family(
+            name: "Test Family",
+            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let childHero = Profile(
+            displayName: "Child Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "child_user_1", zoneID: zoneID),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "child_profile_1", zoneID: zoneID)
+        )
+
+        let fetcher = MutableStubFamilyProfileFetcher(profiles: [childHero])
+        let (vm, cloudKit) = makeInvitationSUT(fetcher: fetcher, family: family)
+
+        // Simulate that child accepted the share link on CloudKit
+        _ = try await cloudKit.simulateParticipation(key: "record:child_user_1", rootRecordID: family.id, role: .hero)
+
+        // Local cache currently only has the parent (empty heroes)
+        vm.rebuildLists(
+            profiles: [],
+            quests: [],
+            logs: [],
+            ledgers: [],
+            allowancePeriods: [],
+            profileAchievements: [],
+            achievements: []
+        )
+
+        await vm.refreshInvitations()
+
+        // Verify that refreshProfilesFromCloudKit was invoked to fetch the missing member
+        #expect(fetcher.refreshProfilesCallCount > 0)
+        // Because the profile was fetched, it is excluded from invitations (not displayed as a pending invite)
+        #expect(!vm.invitations.contains { $0.identityRecordName == "child_user_1" })
+        #expect(vm.invitations.isEmpty)
     }
 }

@@ -408,7 +408,7 @@ final class LedgerImportService {
                 id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
             )
 
-            cacheService.upsertLedgerEntry(entry)
+            await cacheService.upsertLedgerEntry(entry)
             syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
             importedCount += 1
         }

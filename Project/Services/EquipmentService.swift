@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 
 enum EquipmentError: LocalizedError, Sendable, Equatable {
     case alreadyOwned
@@ -45,6 +46,12 @@ final class EquipmentService {
 
     private(set) var revision: Int = 0
 
+    /// Record names of profiles with an equipment change currently in flight.
+    /// Local double-tap guard: a second equip/unequip while a write is pending
+    /// skips instead of letting two overlapping persists clobber each other
+    /// across the await gap. Entries release when the write settles.
+    private let inFlightEquipmentChanges = Mutex<Set<String>>([])
+
     init(
         cloudKitService: any CloudKitServiceProtocol,
         gemService: GemService? = nil,
@@ -79,8 +86,8 @@ final class EquipmentService {
     /// Write-through persistence of an equipment mutation: optimistic SwiftData
     /// upsert (0ms UI) + `CKSyncEngineCoordinator` enqueue for CloudKit sync +
     /// `AppState.currentProfile` reconciliation when the active hero changed.
-    private func persist(_ profile: Profile) {
-        cacheService?.upsertProfile(profile)
+    private func persist(_ profile: Profile) async {
+        await cacheService?.upsertProfile(profile)
         let isOwner = appState?.isZoneOwner ?? false
         syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwner)
         if let appState, let current = appState.currentProfile, current.id == profile.id {
@@ -190,7 +197,7 @@ final class EquipmentService {
         }
         current.equippedItems.append(item.id)
 
-        persist(current)
+        await persist(current)
 
         logger.info("Successfully purchased \(item.name) for \(item.gemPrice) gems by profile \(profile.displayName)")
         activeSoundManager?.play(.shopPurchase)
@@ -206,16 +213,24 @@ final class EquipmentService {
         }
 
         if isEquipped(item: item, profile: profile) {
-            unequip(category: item.category, profile: profile)
+            await unequip(category: item.category, profile: profile)
         } else {
-            equip(item: item, profile: profile)
+            await equip(item: item, profile: profile)
         }
 
         let activeSoundManager = customSoundManager ?? soundManager
         activeSoundManager?.play(.equipItem)
     }
 
-    func equip(item: ShopItem, profile: Profile) {
+    func equip(item: ShopItem, profile: Profile) async {
+        let profileName = profile.id.recordName
+        let inserted = inFlightEquipmentChanges.withLock { $0.insert(profileName).inserted }
+        guard inserted else {
+            logger.warning("Equipment change already in flight for \(profileName); skipping duplicate tap")
+            return
+        }
+        defer { inFlightEquipmentChanges.withLock { _ = $0.remove(profileName) } }
+
         var current = resolvedProfile(profile) ?? profile
         // One equipped item per category: drop the existing one in this category.
         current.equippedItems.removeAll { id in
@@ -224,14 +239,22 @@ final class EquipmentService {
         if !current.equippedItems.contains(item.id) {
             current.equippedItems.append(item.id)
         }
-        persist(current)
+        await persist(current)
     }
 
-    func unequip(category: ShopCategory, profile: Profile) {
+    func unequip(category: ShopCategory, profile: Profile) async {
+        let profileName = profile.id.recordName
+        let inserted = inFlightEquipmentChanges.withLock { $0.insert(profileName).inserted }
+        guard inserted else {
+            logger.warning("Equipment change already in flight for \(profileName); skipping duplicate tap")
+            return
+        }
+        defer { inFlightEquipmentChanges.withLock { _ = $0.remove(profileName) } }
+
         var current = resolvedProfile(profile) ?? profile
         current.equippedItems.removeAll { id in
             ShopItem.item(withId: id)?.category == category
         }
-        persist(current)
+        await persist(current)
     }
 }

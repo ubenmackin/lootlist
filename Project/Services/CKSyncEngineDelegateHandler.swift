@@ -44,10 +44,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         self.conflictResolver.coordinator = coordinator
     }
 
-    func setAppState(_ appState: AppState) {
-        self.appState = appState
-    }
-
     func setNotificationService(_ notificationService: NotificationService) {
         self.notificationService = notificationService
     }
@@ -194,9 +190,10 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         logger.info("Zone deleted from server: \(zoneName, privacy: .private)")
         // A whole family zone was removed server-side (owner revoked the
         // zone or the family was deleted). Purge the matching family's
-        // cached rows on both background and main caches so no stale rows survive.
+        // cached rows through the single background writer; freshness
+        // watermarks are device-local and stay on CacheService.
         await backgroundCache?.purgeFamily(recordName: zoneName)
-        cacheService?.purgeFamily(recordName: zoneName)
+        cacheService?.invalidateFreshness(forFamilyRecordName: zoneName)
         coordinator?.noteChangesProcessed()
     }
 
@@ -429,7 +426,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         // as ingestion: applying deletions during a signed-out window would
         // purge rows against a stale family scope.
         if let activeFamily = appState?.family?.id.recordName,
-           appState?.familyZoneID != nil
+           let activeZone = appState?.familyZoneID
         {
             let dbScope = databaseScope ?? ((appState?.isZoneOwner == true) ? .private : .shared)
             for deletion in changes.deletions {
@@ -456,8 +453,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     familyRecordName: activeFamily
                 )
                 for type in CachedRecordType.allCases {
-                    await backgroundCache?.deleteRecord(identity: identity, type: type)
-                    cacheService?.invalidate(identity: identity, type: type)
+                    await backgroundCache?.deleteByIdentity(identity, type: type, expectedActiveZone: activeZone)
                 }
             }
         }
@@ -514,13 +510,14 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             }
         }
 
-        // Handle successful deletes — remove local cache rows on both background and main contexts.
-        // CloudKit's sentRecordZoneChanges supplies confirmed deletedRecordIDs without recordType,
+        // Handle successful deletes — remove local cache rows through the single
+        // background writer. CloudKit's sentRecordZoneChanges supplies confirmed deletedRecordIDs without recordType,
         // so we sweep CachedRecordType.allCases with the family- and zone-scoped identity.
-        // Because deletes are low-frequency user actions, sweeping the 10 cache tables imposes
-        // negligible overhead without cross-context contention while ensuring consistency across both contexts.
+        // Because deletes are low-frequency user actions, sweeping the cache tables imposes
+        // negligible overhead while ensuring no stale row survives a confirmed delete.
         if let activeFamily = appState?.family?.id.recordName {
             let scope = syncEngine.database.databaseScope
+            let activeZone = appState?.familyZoneID
             for deletedRecordID in sentEvent.deletedRecordIDs {
                 logger.info("Sent delete confirmed: \(deletedRecordID.recordName, privacy: .private)")
                 let identity = ScopedRecordIdentity(
@@ -530,8 +527,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     familyRecordName: activeFamily
                 )
                 for type in CachedRecordType.allCases {
-                    await backgroundCache?.deleteRecord(identity: identity, type: type)
-                    cacheService?.invalidate(identity: identity, type: type)
+                    await backgroundCache?.deleteByIdentity(identity, type: type, expectedActiveZone: activeZone)
                 }
                 coordinator?.noteChangesProcessed()
             }

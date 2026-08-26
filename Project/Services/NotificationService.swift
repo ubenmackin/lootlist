@@ -166,7 +166,7 @@ final class NotificationService {
             id: recordID
         )
 
-        cacheService?.upsertNotificationPreference(preference)
+        await cacheService?.upsertNotificationPreference(preference)
         mirrorToUserDefaults(event: event, enabled: enabled)
 
         let isOwner = appState.isZoneOwner

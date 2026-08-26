@@ -278,7 +278,7 @@ struct EquipmentServiceTests {
     }
 
     @Test
-    func `multiple category equipping and explicit unequip`() throws {
+    func `multiple category equipping and explicit unequip`() async throws {
         let env = try makeIsolatedEnvironment()
 
         let bandana = try #require(ShopItem.item(withId: "headwear_bandana"))
@@ -287,11 +287,11 @@ struct EquipmentServiceTests {
         let aura = try #require(ShopItem.item(withId: "aura_cosmic"))
         let dragon = try #require(ShopItem.item(withId: "companion_dragon_hatchling"))
 
-        env.equipmentService.equip(item: bandana, profile: env.profile)
-        env.equipmentService.equip(item: sword, profile: env.profile)
-        env.equipmentService.equip(item: cloak, profile: env.profile)
-        env.equipmentService.equip(item: aura, profile: env.profile)
-        env.equipmentService.equip(item: dragon, profile: env.profile)
+        await env.equipmentService.equip(item: bandana, profile: env.profile)
+        await env.equipmentService.equip(item: sword, profile: env.profile)
+        await env.equipmentService.equip(item: cloak, profile: env.profile)
+        await env.equipmentService.equip(item: aura, profile: env.profile)
+        await env.equipmentService.equip(item: dragon, profile: env.profile)
 
         let equipped = env.equipmentService.equippedItems(for: env.profile)
         #expect(equipped.count == 5)
@@ -301,7 +301,7 @@ struct EquipmentServiceTests {
         #expect(equipped[.auras] == aura)
         #expect(equipped[.companions] == dragon)
 
-        env.equipmentService.unequip(category: .weapons, profile: env.profile)
+        await env.equipmentService.unequip(category: .weapons, profile: env.profile)
         #expect(env.equipmentService.equippedItem(for: .weapons, profile: env.profile) == nil)
         #expect(env.equipmentService.equippedItems(for: env.profile).count == 4)
     }

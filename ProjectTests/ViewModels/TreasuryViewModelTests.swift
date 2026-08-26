@@ -599,7 +599,7 @@ struct TreasuryViewModelTests {
                   fromBucket: String? = nil,
                   toBucket: String? = nil)
         {
-            cache.upsertLedgerEntry(LedgerEntry(
+            cache.context?.insert(LedgerEntryCache(from: LedgerEntry(
                 profile: profileRef,
                 amount: amount,
                 description: name,
@@ -609,7 +609,8 @@ struct TreasuryViewModelTests {
                 toBucket: toBucket,
                 family: familyRef,
                 id: CKRecord.ID(recordName: name, zoneID: zoneID)
-            ))
+            )))
+            _ = cache.saveContext()
         }
 
         func entries() -> [LedgerEntryCache] {

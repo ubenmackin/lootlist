@@ -129,7 +129,15 @@ extension QuestService {
             in: quest.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        cacheService?.upsertQuestCompletions(all, family: quest.family.recordID.recordName)
+        if let syncCoordinator {
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                zoneID: quest.id.zoneID
+            )
+        } else {
+            await cacheService?.upsertQuestCompletions(all, family: quest.family.recordID.recordName)
+        }
         return all
     }
 
@@ -154,7 +162,15 @@ extension QuestService {
             in: profile.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        cacheService?.upsertQuestCompletions(all, family: profile.family.recordID.recordName)
+        if let syncCoordinator {
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                zoneID: profile.id.zoneID
+            )
+        } else {
+            await cacheService?.upsertQuestCompletions(all, family: profile.family.recordID.recordName)
+        }
         return all
     }
 
@@ -178,7 +194,15 @@ extension QuestService {
             in: family.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        cacheService?.upsertQuestCompletions(completions, family: family.id.recordName)
+        if let syncCoordinator {
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: completions,
+                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                zoneID: family.id.zoneID
+            )
+        } else {
+            await cacheService?.upsertQuestCompletions(completions, family: family.id.recordName)
+        }
         return completions
     }
 }

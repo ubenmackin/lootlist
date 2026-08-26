@@ -22,7 +22,7 @@ struct GoldCalculationTests {
     }
 
     @Test
-    func `isFullyCompleted returns false when targetCount is zero and approvedCount is zero`() throws {
+    func `isFullyCompleted returns false when targetCount is zero and approvedCount is zero`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -38,7 +38,7 @@ struct GoldCalculationTests {
             name: "Test Quest",
             id: CKRecord.ID(recordName: "quest1")
         )
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         guard let cached = service.fetchQuests(family: "fam").first else {
             Issue.record("Failed to fetch cached quest")
@@ -50,7 +50,7 @@ struct GoldCalculationTests {
     }
 
     @Test
-    func `isFullyCompleted returns true when approvedCount meets target`() throws {
+    func `isFullyCompleted returns true when approvedCount meets target`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -66,7 +66,7 @@ struct GoldCalculationTests {
             name: "Test Quest",
             id: CKRecord.ID(recordName: "quest1")
         )
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         guard let cached = service.fetchQuests(family: "fam").first else {
             Issue.record("Failed to fetch cached quest")
@@ -78,7 +78,7 @@ struct GoldCalculationTests {
     }
 
     @Test
-    func `isFullyCompleted returns false when approvedCount below target`() throws {
+    func `isFullyCompleted returns false when approvedCount below target`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -94,7 +94,7 @@ struct GoldCalculationTests {
             name: "Test Quest",
             id: CKRecord.ID(recordName: "quest1")
         )
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         guard let cached = service.fetchQuests(family: "fam").first else {
             Issue.record("Failed to fetch cached quest")
@@ -106,7 +106,7 @@ struct GoldCalculationTests {
     }
 
     @Test
-    func `isFullyCompleted returns true when approvedCount exceeds target`() throws {
+    func `isFullyCompleted returns true when approvedCount exceeds target`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -122,7 +122,7 @@ struct GoldCalculationTests {
             name: "Test Quest",
             id: CKRecord.ID(recordName: "quest1")
         )
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         guard let cached = service.fetchQuests(family: "fam").first else {
             Issue.record("Failed to fetch cached quest")
@@ -134,7 +134,7 @@ struct GoldCalculationTests {
     }
 
     @Test
-    func `isFullyCompleted guards against zero targetCount with positive approved`() throws {
+    func `isFullyCompleted guards against zero targetCount with positive approved`() async throws {
         let service = try makeService()
         let quest = Quest(
             template: ref("tpl"),
@@ -150,7 +150,7 @@ struct GoldCalculationTests {
             name: "Test Quest",
             id: CKRecord.ID(recordName: "quest1")
         )
-        service.upsertQuest(quest)
+        await service.upsertQuest(quest)
 
         guard let cached = service.fetchQuests(family: "fam").first else {
             Issue.record("Failed to fetch cached quest")

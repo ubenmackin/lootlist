@@ -14,12 +14,13 @@ import os
 extension TreasuryService {
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         let familyName = profile.family.recordID.recordName
+        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
         if let cache = cacheService {
             let cached = cache.fetchLedgerEntries(
                 profileRecordName: profile.id.recordName,
                 family: familyName
             )
-            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
+            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry, scope: scope) {
                 return cached.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
             }
             // Brand-new hero may not be marked fresh yet — fall back to cached
@@ -29,7 +30,11 @@ extension TreasuryService {
                     let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                     let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
                     let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-                    cacheService?.upsertLedgerEntries(entries)
+                    await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                        models: entries,
+                        databaseScope: scope,
+                        zoneID: profile.id.zoneID
+                    )
                     return entries
                 } catch {
                     logger.warning("fetchAllLedgerEntries fallback to cache: \(error, privacy: .private)")
@@ -42,7 +47,11 @@ extension TreasuryService {
                                     profileRef as CVarArg)
         do {
             let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            cacheService?.upsertLedgerEntries(entries)
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: entries,
+                databaseScope: scope,
+                zoneID: profile.id.zoneID
+            )
             return entries
         } catch {
             logger.warning("fetchAllLedgerEntries CloudKit failure with no cache: \(error, privacy: .private)")
@@ -58,9 +67,10 @@ extension TreasuryService {
 
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
         let familyName = family.id.recordName
+        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
         if let cache = cacheService {
             let cached = cache.fetchAllowancePeriods(family: familyName)
-            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
+            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod, scope: scope) {
                 return cached.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
             }
         }
@@ -79,17 +89,22 @@ extension TreasuryService {
             logger.warning("Failed to fetch allowance periods: \(error, privacy: .private)")
             all = []
         }
-        cacheService?.upsertAllowancePeriods(all)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: all,
+            databaseScope: scope,
+            zoneID: family.id.zoneID
+        )
         return all
     }
 
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
         let profileName = profile.id.recordName
         let familyName = profile.family.recordID.recordName
+        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
         if let cache = cacheService {
             let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
+            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry, scope: scope) {
                 return filtered.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
             }
             // Allow zero-history hero to use cache even when not stamped fresh.
@@ -103,7 +118,11 @@ extension TreasuryService {
                     dateRange.upperBound as CVarArg
                 )
                 let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-                cacheService?.upsertLedgerEntries(entries)
+                await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                    models: entries,
+                    databaseScope: scope,
+                    zoneID: profile.id.zoneID
+                )
                 return entries
             } catch {
                 logger.warning("fetchLedgerEntries fallback to cache: \(error, privacy: .private)")
@@ -120,7 +139,11 @@ extension TreasuryService {
         )
         do {
             let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            cacheService?.upsertLedgerEntries(entries)
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: entries,
+                databaseScope: scope,
+                zoneID: profile.id.zoneID
+            )
             return entries
         } catch {
             logger.warning("fetchLedgerEntries CloudKit failure: \(error, privacy: .private)")
@@ -136,12 +159,13 @@ extension TreasuryService {
                         weekStarting: Date,
                         weekEnding: Date) async throws -> [QuestCompletion]
     {
+        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName && $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion, scope: scope) {
                 return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
             }
             // Brand-new hero has zero logs; a missing freshness stamp must not
@@ -151,7 +175,11 @@ extension TreasuryService {
                     let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                     let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
                     let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
-                    cacheService?.upsertQuestCompletions(all)
+                    await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                        models: all,
+                        databaseScope: scope,
+                        zoneID: profile.id.zoneID
+                    )
                     return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
                 } catch {
                     logger.warning("fetchQuestLogs fallback to empty cache: \(error, privacy: .private)")
@@ -171,7 +199,11 @@ extension TreasuryService {
                 let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                 let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
                 let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
-                cacheService?.upsertQuestCompletions(all)
+                await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                    models: all,
+                    databaseScope: scope,
+                    zoneID: profile.id.zoneID
+                )
                 return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
             } catch {
                 logger.warning("fetchQuestLogs fallback to cached: \(error, privacy: .private)")
@@ -183,7 +215,11 @@ extension TreasuryService {
         let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
         do {
             let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
-            cacheService?.upsertQuestCompletions(all)
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: scope,
+                zoneID: profile.id.zoneID
+            )
             return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
         } catch {
             logger.warning("fetchQuestLogs CloudKit failure: \(error, privacy: .private)")
@@ -197,6 +233,7 @@ extension TreasuryService {
     {
         let payoutDay = profile.payoutDay ?? family.payoutDay
         let range = TreasuryService.weekRange(starting: WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay))
+        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuests(family: familyName)
@@ -205,7 +242,7 @@ extension TreasuryService {
                     $0.isActive &&
                     range.contains($0.weekOf)
             }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+            if cache.isCacheFresh(familyRecordName: familyName, type: .quest, scope: scope) {
                 return filtered.map { $0.toQuest(zoneID: family.id.zoneID) }
             }
             // New hero has no assigned quests this week; do not require a fresh
@@ -215,7 +252,11 @@ extension TreasuryService {
                     let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
                     let predicate = NSPredicate(format: "family == %@ AND isActive == 1", familyRef as CVarArg)
                     let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
-                    cacheService?.upsertQuests(all)
+                    await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                        models: all,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
                     return all.filter { range.contains($0.weekOf) && $0.assignee.recordID == profile.id }
                 } catch {
                     logger.warning("fetchAssignedQuests fallback to empty: \(error, privacy: .private)")
@@ -226,7 +267,11 @@ extension TreasuryService {
                 let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
                 let predicate = NSPredicate(format: "family == %@ AND isActive == 1", familyRef as CVarArg)
                 let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
-                cacheService?.upsertQuests(all)
+                await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                    models: all,
+                    databaseScope: scope,
+                    zoneID: family.id.zoneID
+                )
                 return all.filter { range.contains($0.weekOf) && $0.assignee.recordID == profile.id }
             } catch {
                 logger.warning("fetchAssignedQuests fallback to cached: \(error, privacy: .private)")
@@ -241,7 +286,11 @@ extension TreasuryService {
         )
         do {
             let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
-            cacheService?.upsertQuests(all)
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: scope,
+                zoneID: family.id.zoneID
+            )
             return all.filter { range.contains($0.weekOf) && $0.assignee.recordID == profile.id }
         } catch {
             logger.warning("fetchAssignedQuests CloudKit failure: \(error, privacy: .private)")
@@ -255,11 +304,12 @@ extension TreasuryService {
         let familyName = profile.family.recordID.recordName
         // Strict equality on normalized UTC week start matches stored AllowancePeriod.weekOf exactly.
         let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: weekOf)
+        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
                 .first { $0.weekOf == normalizedWeekStart }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
+            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod, scope: scope) {
                 return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
             }
             // Brand-new hero has no AllowancePeriod yet — that is a valid
@@ -270,7 +320,11 @@ extension TreasuryService {
                     let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                     let predicate = NSPredicate(format: "profile == %@ AND weekOf == %@", profileRef as CVarArg, normalizedWeekStart as CVarArg)
                     let periods = try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
-                    cacheService?.upsertAllowancePeriods(periods)
+                    await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                        models: periods,
+                        databaseScope: scope,
+                        zoneID: profile.id.zoneID
+                    )
                     return periods.first ?? cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
                 } catch {
                     logger.warning("fetchAllowancePeriod fallback to cached: \(error, privacy: .private)")
@@ -289,7 +343,11 @@ extension TreasuryService {
             let periods = try await cloudKit.query(AllowancePeriod.self,
                                                    predicate: predicate,
                                                    in: profile.id.zoneID)
-            cacheService?.upsertAllowancePeriods(periods)
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: periods,
+                databaseScope: scope,
+                zoneID: profile.id.zoneID
+            )
             return periods.first
         } catch {
             logger.warning("fetchAllowancePeriod CloudKit failure: \(error, privacy: .private)")
@@ -315,11 +373,16 @@ extension TreasuryService {
         {
             return scanned.toProfile(zoneID: recordID.zoneID)
         }
+        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
         let fetched = try await cloudKit.fetch(Profile.self, id: recordID)
         guard fetched.family.recordID.recordName == familyRecordName else {
             throw FamilyServiceError.unauthorized
         }
-        cacheService?.upsertProfile(fetched)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: [fetched],
+            databaseScope: scope,
+            zoneID: recordID.zoneID
+        )
         return fetched
     }
 
@@ -339,8 +402,9 @@ extension TreasuryService {
         let needed = Set(logs.map(\.quest.recordID.recordName))
         if let cache = cacheService {
             let familyName = family.id.recordName
+            let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
             let isFresh = await MainActor.run {
-                cache.isCacheFresh(familyRecordName: familyName, type: .quest)
+                cache.isCacheFresh(familyRecordName: familyName, type: .quest, scope: scope)
             }
             if isFresh {
                 let zoneID = family.id.zoneID

@@ -82,9 +82,10 @@ struct AutoPayoutCoordinatorTests {
         appState.isZoneOwner = cloudKit.activeIsOwner
         appState.authStatus = .authenticated
 
-        cache.upsertFamily(familyObj)
-        cache.upsertProfile(parentProfile)
-        cache.upsertProfile(heroProfile)
+        cache.context?.insert(FamilyCache(from: familyObj))
+        cache.context?.insert(ProfileCache(from: parentProfile))
+        cache.context?.insert(ProfileCache(from: heroProfile))
+        _ = cache.saveContext()
 
         cache.markCacheFresh(familyRecordName: familyObj.id.recordName, type: .profile)
 
@@ -131,7 +132,7 @@ struct AutoPayoutCoordinatorTests {
             paidPeriod.totalEarned = 15.0
             paidPeriod.paidAmount = 15.0
             paidPeriod.paidDate = now
-            ctx.cache.upsertAllowancePeriod(paidPeriod)
+            await ctx.cache.upsertAllowancePeriod(paidPeriod)
         }
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
 
@@ -176,7 +177,7 @@ struct AutoPayoutCoordinatorTests {
         paidPeriod.totalEarned = 5.0
         paidPeriod.paidAmount = 5.0
         paidPeriod.paidDate = now
-        ctx.cache.upsertAllowancePeriod(paidPeriod)
+        await ctx.cache.upsertAllowancePeriod(paidPeriod)
 
         let template = QuestTemplate(
             name: "Clean Castle",
@@ -188,7 +189,7 @@ struct AutoPayoutCoordinatorTests {
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
             id: CKRecord.ID(recordName: "template-1", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuestTemplate(template)
+        await ctx.cache.upsertQuestTemplate(template)
 
         let pastQuest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
@@ -205,7 +206,7 @@ struct AutoPayoutCoordinatorTests {
             name: "Clean Castle",
             id: CKRecord.ID(recordName: "past-quest-1", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuest(pastQuest)
+        await ctx.cache.upsertQuest(pastQuest)
         _ = try await ctx.cloudKit.save(pastQuest)
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
 
@@ -236,7 +237,7 @@ struct AutoPayoutCoordinatorTests {
         earlyPaidPeriod.totalEarned = 5.0
         earlyPaidPeriod.paidAmount = 5.0
         earlyPaidPeriod.paidDate = now
-        ctx.cache.upsertAllowancePeriod(earlyPaidPeriod)
+        await ctx.cache.upsertAllowancePeriod(earlyPaidPeriod)
 
         let template = QuestTemplate(
             name: "Clean Castle",
@@ -248,7 +249,7 @@ struct AutoPayoutCoordinatorTests {
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
             id: CKRecord.ID(recordName: "template-2", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuestTemplate(template)
+        await ctx.cache.upsertQuestTemplate(template)
 
         let currentQuest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
@@ -265,7 +266,7 @@ struct AutoPayoutCoordinatorTests {
             name: "Clean Castle",
             id: CKRecord.ID(recordName: "current-quest-1", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuest(currentQuest)
+        await ctx.cache.upsertQuest(currentQuest)
         _ = try await ctx.cloudKit.save(currentQuest)
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
 
@@ -289,7 +290,8 @@ struct AutoPayoutCoordinatorTests {
         period.totalEarned = 5.0
         period.paidAmount = 5.0
         period.paidDate = weekOf
-        ctx.cache.upsertAllowancePeriod(period)
+        ctx.cache.context?.insert(AllowancePeriodCache(from: period))
+        _ = ctx.cache.saveContext()
     }
 
     @discardableResult
@@ -318,7 +320,7 @@ struct AutoPayoutCoordinatorTests {
             isActive: templateIsActive,
             id: CKRecord.ID(recordName: templateRecordName, zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuestTemplate(template)
+        await ctx.cache.upsertQuestTemplate(template)
 
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
@@ -335,7 +337,7 @@ struct AutoPayoutCoordinatorTests {
             name: templateName,
             id: CKRecord.ID(recordName: questRecordName, zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
         _ = try await ctx.cloudKit.save(quest)
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
         return template
@@ -420,7 +422,7 @@ struct AutoPayoutCoordinatorTests {
             name: "Gone Quest",
             id: CKRecord.ID(recordName: "past-quest-deleted-tmpl", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
         _ = try await ctx.cloudKit.save(quest)
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
 
@@ -721,7 +723,7 @@ struct AutoPayoutCoordinatorTests {
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
             id: CKRecord.ID(recordName: "tmpl-payout-cutoff", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuestTemplate(template)
+        await ctx.cache.upsertQuestTemplate(template)
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
             assignee: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
@@ -737,7 +739,7 @@ struct AutoPayoutCoordinatorTests {
             name: "Guild Quest",
             id: CKRecord.ID(recordName: "quest-payout-cutoff", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
         let completion = QuestCompletion(
             quest: CKRecord.Reference(recordID: quest.id, action: .none),
             completedBy: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
@@ -745,7 +747,7 @@ struct AutoPayoutCoordinatorTests {
             weekOf: weekStart,
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none)
         )
-        ctx.cache.upsertQuestCompletion(completion)
+        await ctx.cache.upsertQuestCompletion(completion)
         let period = AllowancePeriod(
             weekOf: weekStart,
             profile: CKRecord.Reference(recordID: ctx.heroProfile.id, action: .none),
@@ -753,7 +755,7 @@ struct AutoPayoutCoordinatorTests {
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
             id: CKRecord.ID(recordName: "period-payout-cutoff", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertAllowancePeriod(period)
+        await ctx.cache.upsertAllowancePeriod(period)
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .questCompletion)
         ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
@@ -801,7 +803,7 @@ extension AutoPayoutCoordinatorTests {
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
             id: CKRecord.ID(recordName: "template-buckets", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuestTemplate(template)
+        ctx.cache.context?.insert(QuestTemplateCache(from: template))
 
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
@@ -818,7 +820,7 @@ extension AutoPayoutCoordinatorTests {
             name: "Bucket Quest",
             id: CKRecord.ID(recordName: "quest-buckets", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertQuest(quest)
+        ctx.cache.context?.insert(QuestCache(from: quest))
 
         let completion = QuestCompletion(
             quest: CKRecord.Reference(recordID: quest.id, action: .none),
@@ -827,7 +829,7 @@ extension AutoPayoutCoordinatorTests {
             weekOf: weekOf,
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none)
         )
-        ctx.cache.upsertQuestCompletion(completion)
+        ctx.cache.context?.insert(QuestCompletionCache(from: completion))
 
         let period = AllowancePeriod(
             weekOf: weekOf,
@@ -836,7 +838,8 @@ extension AutoPayoutCoordinatorTests {
             family: CKRecord.Reference(recordID: ctx.family.id, action: .none),
             id: CKRecord.ID(recordName: "period-buckets", zoneID: ctx.family.id.zoneID)
         )
-        ctx.cache.upsertAllowancePeriod(period)
+        ctx.cache.context?.insert(AllowancePeriodCache(from: period))
+        _ = ctx.cache.saveContext()
 
         for type in [CachedRecordType.quest, .questCompletion, .allowancePeriod, .ledgerEntry] {
             ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: type)

@@ -49,10 +49,13 @@ struct GuildInterestSectionView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Savings Interest")
-                .font(.headline)
-                .padding(.horizontal, 4)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Savings Interest")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
 
             VStack(alignment: .leading, spacing: 14) {
                 if heroes.isEmpty {
@@ -96,8 +99,8 @@ struct GuildInterestSectionView: View {
             }
             .padding(14)
             .background(cardBackground)
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
         .onAppear { reloadDraft() }
         .onChange(of: selectedHeroRecordName) { _, _ in reloadDraft() }
         .onChange(of: heroes) { _, _ in reloadDraft() }
@@ -311,10 +314,13 @@ struct GuildMatchSectionView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Parent Match")
-                .font(.headline)
-                .padding(.horizontal, 4)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Parent Match")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
 
             VStack(alignment: .leading, spacing: 14) {
                 if heroes.isEmpty {
@@ -357,8 +363,8 @@ struct GuildMatchSectionView: View {
             }
             .padding(14)
             .background(cardBackground)
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
         .onAppear { reloadDraft() }
         .onChange(of: selectedHeroRecordName) { _, _ in reloadDraft() }
         .onChange(of: heroes) { _, _ in reloadDraft() }

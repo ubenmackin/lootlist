@@ -72,12 +72,12 @@ extension QuestService {
                 // Persist the completion even when the reward claim was lost
                 // (applyReward returned early), so the @Query-driven UI reflects
                 // it and validateCanCompleteQuest prevents duplicates.
-                cacheService?.upsertQuestCompletion(log)
+                await cacheService?.upsertQuestCompletion(log)
                 let isOwner = appState.isZoneOwner
                 syncCoordinator?.enqueueSave(recordID: log.id, isOwner: isOwner)
             }
         } else {
-            cacheService?.upsertQuestCompletion(log)
+            await cacheService?.upsertQuestCompletion(log)
             let isOwner = appState.isZoneOwner
             syncCoordinator?.enqueueSave(recordID: log.id, isOwner: isOwner)
         }
@@ -115,7 +115,7 @@ extension QuestService {
         }
         updated.verificationStatus = .withdrawn
 
-        cacheService?.upsertQuestCompletion(updated)
+        await cacheService?.upsertQuestCompletion(updated)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }
@@ -162,7 +162,7 @@ extension QuestService {
         // next engine send. applyReward deduplicates this completion in its
         // approved-count math, and xpCredited stamping stays gated behind the
         // atomic server claim.
-        cacheService?.upsertQuestCompletion(updated)
+        await cacheService?.upsertQuestCompletion(updated)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
@@ -207,7 +207,7 @@ extension QuestService {
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
 
-        cacheService?.upsertQuestCompletion(updated)
+        await cacheService?.upsertQuestCompletion(updated)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 

@@ -100,8 +100,9 @@ struct TreasuryServiceRealTimeTests {
         /// Seeds an approved completion for the current week into the cache so
         /// `weeklyBreakdown`'s cache-first gates serve it deterministically.
         func seedEarned(goldReward: Double = 25.0) {
-            cache.upsertQuest(quest(goldReward: goldReward))
-            cache.upsertQuestCompletions([completion()])
+            cache.context?.insert(QuestCache(from: quest(goldReward: goldReward)))
+            cache.context?.insert(QuestCompletionCache(from: completion()))
+            _ = cache.saveContext()
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
@@ -238,9 +239,10 @@ struct TreasuryServiceRealTimeTests {
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
             mock.seedMockRecords([hero, guildMaster, family])
-            cache.upsertProfile(hero)
-            cache.upsertProfile(guildMaster)
-            cache.upsertFamily(family)
+            cache.context?.insert(ProfileCache(from: hero))
+            cache.context?.insert(ProfileCache(from: guildMaster))
+            cache.context?.insert(FamilyCache(from: family))
+            _ = cache.saveContext()
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
             appState.currentProfile = hero
@@ -274,8 +276,9 @@ struct TreasuryServiceRealTimeTests {
                 weekOf: weekOf,
                 family: CKRecord.Reference(recordID: family.id, action: .none)
             )
-            cache.upsertQuest(quest)
-            cache.upsertQuestCompletions([completion])
+            cache.context?.insert(QuestCache(from: quest))
+            cache.context?.insert(QuestCompletionCache(from: completion))
+            _ = cache.saveContext()
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)

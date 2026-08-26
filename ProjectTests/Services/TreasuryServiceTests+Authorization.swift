@@ -111,9 +111,9 @@ extension TreasuryServiceTests {
 
         // Seed cache so resolveProfile / resolveFamily / weeklyBreakdown
         // succeed without a CloudKit round-trip.
-        cache.upsertProfile(hero)
-        cache.upsertProfile(guildMaster)
-        cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
+        await cache.upsertProfile(guildMaster)
+        await cache.upsertFamily(family)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
         cache.markCacheFresh(familyRecordName: "fam1", type: .family)
         cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
@@ -145,8 +145,8 @@ extension TreasuryServiceTests {
             weekOf: monday,
             family: familyRef
         )
-        cache.upsertQuest(quest)
-        cache.upsertQuestCompletions([completion])
+        await cache.upsertQuest(quest)
+        await cache.upsertQuestCompletions([completion])
 
         let period = AllowancePeriod(
             weekOf: monday,
@@ -432,8 +432,8 @@ extension TreasuryServiceTests {
             weekOf: monday,
             family: familyRef
         )
-        cache.upsertQuest(quest)
-        cache.upsertQuestCompletions([completion])
+        await cache.upsertQuest(quest)
+        await cache.upsertQuestCompletions([completion])
         cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
 
         // Hero self-settlement: the acting profile matches the target.
@@ -637,12 +637,12 @@ extension TreasuryServiceTests {
         // Seed the cache (NOT CloudKit's mock store) with every record the
         // settlement path reads, and stamp each type fresh. A completed sync
         // pass would have produced exactly this state.
-        cache.upsertProfile(hero)
-        cache.upsertProfile(guildMaster)
-        cache.upsertFamily(family)
-        cache.upsertQuest(quest)
-        cache.upsertQuestCompletions([completion])
-        cache.upsertLedgerEntry(bonus)
+        await cache.upsertProfile(hero)
+        await cache.upsertProfile(guildMaster)
+        await cache.upsertFamily(family)
+        await cache.upsertQuest(quest)
+        await cache.upsertQuestCompletions([completion])
+        await cache.upsertLedgerEntry(bonus)
         cache.markCacheFresh(familyRecordName: familyID.recordName, type: .profile)
         cache.markCacheFresh(familyRecordName: familyID.recordName, type: .family)
         cache.markCacheFresh(familyRecordName: familyID.recordName, type: .quest)
@@ -751,11 +751,11 @@ extension TreasuryServiceTests {
         )
 
         // Seed cache and freshness stamps for local read path.
-        cache.upsertProfile(hero)
-        cache.upsertFamily(family)
-        cache.upsertQuest(quest)
-        cache.upsertQuestCompletions([completion])
-        cache.upsertLedgerEntry(bonus)
+        await cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertQuest(quest)
+        await cache.upsertQuestCompletions([completion])
+        await cache.upsertLedgerEntry(bonus)
         cache.markCacheFresh(familyRecordName: familyID.recordName, type: .profile)
         cache.markCacheFresh(familyRecordName: familyID.recordName, type: .family)
         cache.markCacheFresh(familyRecordName: familyID.recordName, type: .quest)

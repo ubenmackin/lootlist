@@ -110,9 +110,12 @@ struct HeroSettingsView: View {
 
     private var payoutDayOverrideSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Weekly Payout Day")
-                .font(.headline)
-                .padding(.horizontal, 4)
+            HStack {
+                Text("Weekly Payout Day")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
 
             HStack {
                 Label("Hero Payout Day", systemImage: "calendar.badge.clock")
@@ -153,17 +156,20 @@ struct HeroSettingsView: View {
             }
             .padding(14)
             .background(cardBackground)
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
     }
 
     // MARK: - Payout Policy Radio Section
 
     private var payoutPolicySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Allowance Payout Rule")
-                .font(.headline)
-                .padding(.horizontal, 4)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Allowance Payout Rule")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
 
             VStack(spacing: 12) {
                 payoutPolicyOptionRow(
@@ -182,8 +188,8 @@ struct HeroSettingsView: View {
                     )
                 }
             }
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
     }
 
     private func payoutPolicyOptionRow(policy: PayoutPolicy?,

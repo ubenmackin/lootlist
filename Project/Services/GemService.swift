@@ -51,7 +51,7 @@ final class GemService {
     }
 
     func updateProfile(_ profile: Profile) async throws {
-        cacheService?.upsertProfile(profile)
+        await cacheService?.upsertProfile(profile)
         syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: appState?.isZoneOwner ?? false)
     }
 
@@ -122,7 +122,7 @@ final class GemService {
             // incoming amount, and persists ledger and profile in a single save so
             // a partial failure can never leave them diverged.
             if let cacheService {
-                let inserted = cacheService.atomicallyApplyGemCredit(ledger: ledger, to: profile)
+                let inserted = await cacheService.atomicallyApplyGemCredit(ledger: ledger, to: profile)
                 if !inserted {
                     // `false` covers both "already existed" (idempotent retry) and
                     // "save failed". Re-check to distinguish: an existing row means
@@ -155,7 +155,7 @@ final class GemService {
                 logger.warning("GemService.creditGems: failed to compute balance — aborting profile mutation: \(error, privacy: .private)")
                 return false
             }
-            cacheService?.upsertProfile(updatedProfile)
+            await cacheService?.upsertProfile(updatedProfile)
             syncCoordinator?.enqueueSave(recordID: updatedProfile.id, isOwner: appState?.isZoneOwner ?? false)
 
             soundManager?.play(.gemEarned)
@@ -231,7 +231,7 @@ final class GemService {
                 return false
             }
 
-            cacheService?.applyGemDebit(profile: debit.profile, ledger: debit.ledger)
+            await cacheService?.applyGemDebit(profile: debit.profile, ledger: debit.ledger)
             syncCoordinator?.enqueueGemDebit(
                 profileID: debit.profile.id,
                 ledgerID: debit.ledger.id,

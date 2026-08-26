@@ -20,20 +20,28 @@ struct TrophyRoomView: View {
 
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
 
-    init(familyRecordName: String? = nil) {
+    private let profileRecordName: String?
+
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
         let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
+        let currentProfileFilter = #Predicate<ProfileCache> {
+            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
+        }
         _cachedAchievements = Query(
             filter: achievementFilter,
             sort: \AchievementCache.name
@@ -43,6 +51,16 @@ struct TrophyRoomView: View {
             sort: \ProfileAchievementCache.earnedDate,
             order: .reverse
         )
+        _currentProfileRows = Query(
+            filter: currentProfileFilter,
+            sort: \ProfileCache.displayName
+        )
+    }
+
+    /// Queried cache row for the active hero profile; nil when identity or
+    /// family scope has no synced row yet, keeping rendering fail-closed.
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
     }
 
     var body: some View {
@@ -107,7 +125,7 @@ struct TrophyRoomView: View {
                 TrophyHeaderCardView(
                     earnedCount: viewModel.earned.count,
                     totalCount: viewModel.allAchievements.count,
-                    heroName: appState.currentProfile?.displayName,
+                    heroName: currentProfileRow?.displayName,
                     latestTrophyName: viewModel.latestEarnedTrophyName
                 )
                 .padding(.horizontal)

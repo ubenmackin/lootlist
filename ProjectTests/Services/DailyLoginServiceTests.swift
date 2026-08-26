@@ -63,8 +63,9 @@ struct DailyLoginServiceTests {
         let family = makeFamily(zoneID: zoneID)
         var hero = makeProfile(zoneID: zoneID)
         hero.family = CKRecord.Reference(recordID: family.id, action: .none)
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        cache.context?.insert(FamilyCache(from: family))
+        cache.context?.insert(ProfileCache(from: hero))
+        _ = cache.saveContext()
         cloudKit.seedMockRecords([family, hero])
         appState.family = family
         appState.familyZoneID = zoneID
@@ -145,7 +146,7 @@ struct DailyLoginServiceTests {
 
         var updatedHero = hero
         updatedHero.dailyLoginLastClaimDay = nil // Profile has no claim date recorded.
-        cache.upsertProfile(updatedHero)
+        await cache.upsertProfile(updatedHero)
         fixture.appState.currentProfile = updatedHero
 
         // Seed an existing ledger for today's daily login event in the cache.
@@ -165,7 +166,7 @@ struct DailyLoginServiceTests {
             createdAt: Date(),
             id: ledgerID
         )
-        cache.upsertGemLedger(existingLedger)
+        await cache.upsertGemLedger(existingLedger)
 
         // Even though profile.dailyLoginLastClaimDay is nil, the ledger created today proves it was claimed.
         let status = dailyService.checkDailyLoginStatus(heroProfileRecordName: hero.id.recordName)
@@ -196,7 +197,7 @@ struct DailyLoginServiceTests {
         day1Hero.dailyLoginCycleDay = 2
         day1Hero.dailyLoginStreakDays = 1
         day1Hero.gems = 5
-        cache.upsertProfile(day1Hero)
+        await cache.upsertProfile(day1Hero)
         appState.currentProfile = day1Hero
 
         let status = dailyService.checkDailyLoginStatus(heroProfileRecordName: day1Hero.id.recordName)
@@ -244,14 +245,14 @@ struct DailyLoginServiceTests {
             createdAt: yesterdayDate,
             id: legacyLedgerID
         )
-        cache.upsertGemLedger(legacyLedger)
+        await cache.upsertGemLedger(legacyLedger)
 
         var day1Hero = hero
         day1Hero.dailyLoginLastClaimDay = today // Mismatched legacy claim date
         day1Hero.dailyLoginCycleDay = 2
         day1Hero.dailyLoginStreakDays = 1
         day1Hero.gems = 5
-        cache.upsertProfile(day1Hero)
+        await cache.upsertProfile(day1Hero)
         appState.currentProfile = day1Hero
 
         // Self-healing detects the ledger createdAt was prior to today, returning .available
@@ -273,7 +274,7 @@ struct DailyLoginServiceTests {
     }
 
     @Test
-    func `checkDailyLoginStatus returns streakBroken when a calendar day is skipped`() throws {
+    func `checkDailyLoginStatus returns streakBroken when a calendar day is skipped`() async throws {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
         let fixture = try makeFixture(calendar: cal)
@@ -289,7 +290,7 @@ struct DailyLoginServiceTests {
         skippedHero.dailyLoginLastClaimDay = twoDaysAgoStr
         skippedHero.dailyLoginCycleDay = 3
         skippedHero.dailyLoginStreakDays = 2
-        cache.upsertProfile(skippedHero)
+        await cache.upsertProfile(skippedHero)
         appState.currentProfile = skippedHero
 
         let status = dailyService.checkDailyLoginStatus(heroProfileRecordName: skippedHero.id.recordName)
@@ -316,7 +317,7 @@ struct DailyLoginServiceTests {
         shieldedHero.dailyLoginCycleDay = 4
         shieldedHero.dailyLoginStreakDays = 3
         shieldedHero.streakShields = 1
-        cache.upsertProfile(shieldedHero)
+        await cache.upsertProfile(shieldedHero)
         appState.currentProfile = shieldedHero
 
         let status = dailyService.checkDailyLoginStatus(heroProfileRecordName: shieldedHero.id.recordName)
@@ -349,7 +350,7 @@ struct DailyLoginServiceTests {
         unshieldedHero.dailyLoginCycleDay = 4
         unshieldedHero.dailyLoginStreakDays = 3
         unshieldedHero.streakShields = 0
-        cache.upsertProfile(unshieldedHero)
+        await cache.upsertProfile(unshieldedHero)
         appState.currentProfile = unshieldedHero
 
         let status = dailyService.checkDailyLoginStatus(heroProfileRecordName: unshieldedHero.id.recordName)
@@ -381,7 +382,7 @@ struct DailyLoginServiceTests {
         day7Hero.dailyLoginCycleDay = 7
         day7Hero.dailyLoginStreakDays = 6
         day7Hero.streakShields = 0
-        cache.upsertProfile(day7Hero)
+        await cache.upsertProfile(day7Hero)
         appState.currentProfile = day7Hero
 
         let gemsAwarded = try await dailyService.claimDailyReward(for: day7Hero, gemService: gemService, soundManager: sound)

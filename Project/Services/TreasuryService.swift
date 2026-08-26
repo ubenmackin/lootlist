@@ -222,7 +222,7 @@ final class TreasuryService {
             )
         )
 
-        cacheService?.upsertAllowancePeriod(period)
+        await cacheService?.upsertAllowancePeriod(period)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
         return period
@@ -270,7 +270,7 @@ final class TreasuryService {
             updated.questsTotal = questsTotal
         }
 
-        cacheService?.upsertAllowancePeriod(updated)
+        await cacheService?.upsertAllowancePeriod(updated)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
@@ -326,7 +326,7 @@ final class TreasuryService {
                 updated.paidAmount = 0
                 updated.totalEarned = breakdown.totalEarned
                 updated.questsCompleted = breakdown.questsCount
-                cacheService?.upsertAllowancePeriod(updated)
+                await cacheService?.upsertAllowancePeriod(updated)
                 let isOwner = appState.isZoneOwner
                 syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
                 return
@@ -343,7 +343,7 @@ final class TreasuryService {
         updated.paidDate = Date()
         updated.paidAmount = questGoldToPayout
 
-        cacheService?.upsertAllowancePeriod(updated)
+        await cacheService?.upsertAllowancePeriod(updated)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
@@ -480,7 +480,7 @@ final class TreasuryService {
             family: family,
             id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
         )
-        cacheService?.upsertLedgerEntry(entry)
+        await cacheService?.upsertLedgerEntry(entry)
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
     }
 }

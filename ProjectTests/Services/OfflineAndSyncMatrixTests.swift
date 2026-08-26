@@ -92,7 +92,7 @@ final class OfflineAndSyncMatrixTests: XCTestCase {
             id: CKRecord.ID(recordName: "q1", zoneID: zoneID)
         )
 
-        cacheService.upsertQuest(quest)
+        await cacheService.upsertQuest(quest)
         cacheService.markCacheFresh(familyRecordName: "fam1", type: .quest)
         cloudKit.fetchError = NSError(domain: "test", code: -1, userInfo: nil)
 

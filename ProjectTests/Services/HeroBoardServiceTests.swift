@@ -76,10 +76,11 @@ struct HeroBoardServiceTests {
 
             appState.currentProfile = hero
 
-            cache.upsertProfile(parent)
-            cache.upsertProfile(hero)
-            cache.upsertProfile(rivalHero)
-            cache.upsertFamily(family)
+            cache.context?.insert(ProfileCache(from: parent))
+            cache.context?.insert(ProfileCache(from: hero))
+            cache.context?.insert(ProfileCache(from: rivalHero))
+            cache.context?.insert(FamilyCache(from: family))
+            _ = cache.saveContext()
             cloudKit.seedMockRecords([parent, hero, rivalHero])
         }
 
@@ -126,7 +127,7 @@ struct HeroBoardServiceTests {
     func `claim persists claimer and timestamp on cached board quest`() async throws {
         let ctx = try Scaffold()
         let quest = ctx.makeBoardQuest(name: "Dishes", recordName: "quest1")
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
 
         let outcome = try await ctx.boardService.claim(quest, by: ctx.hero)
 
@@ -144,7 +145,7 @@ struct HeroBoardServiceTests {
             name: "Dishes", recordName: "quest1",
             claimedBy: ctx.rivalHero.id.recordName, claimedAt: originalClaimDate
         )
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
 
         let outcome = try await ctx.boardService.claim(quest, by: ctx.hero)
 
@@ -161,7 +162,7 @@ struct HeroBoardServiceTests {
             name: "Dishes", recordName: "quest1",
             claimedBy: ctx.hero.id.recordName, claimedAt: Date()
         )
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
 
         let outcome = try await ctx.boardService.claim(quest, by: ctx.hero)
 
@@ -178,7 +179,7 @@ struct HeroBoardServiceTests {
             name: "Dishes", recordName: "quest1",
             claimedBy: ctx.hero.id.recordName, claimedAt: Date()
         )
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
         ctx.appState.currentProfile = ctx.parent
 
         try await ctx.boardService.revoke(quest)
@@ -196,7 +197,7 @@ struct HeroBoardServiceTests {
             name: "Dishes", recordName: "quest1",
             claimedBy: ctx.rivalHero.id.recordName, claimedAt: Date()
         )
-        ctx.cache.upsertQuest(quest)
+        await ctx.cache.upsertQuest(quest)
 
         await #expect(throws: FamilyServiceError.unauthorized) {
             try await ctx.boardService.revoke(quest)
@@ -207,7 +208,7 @@ struct HeroBoardServiceTests {
     // MARK: - Board reads
 
     @Test
-    func `board fetch filters assigned quests and partitions available vs claimed rows`() throws {
+    func `board fetch filters assigned quests and partitions available vs claimed rows`() async throws {
         let ctx = try Scaffold()
         let available = ctx.makeBoardQuest(name: "Alpha Chore", recordName: "q-a")
         let claimed = ctx.makeBoardQuest(
@@ -220,7 +221,7 @@ struct HeroBoardServiceTests {
         )
         let inactive = ctx.makeBoardQuest(name: "Old Chore", recordName: "q-d", isActive: false)
         for quest in [available, claimed, assigned, inactive] {
-            ctx.cache.upsertQuest(quest)
+            await ctx.cache.upsertQuest(quest)
         }
         guard let family = ctx.appState.family else {
             Issue.record("Scaffold family missing")

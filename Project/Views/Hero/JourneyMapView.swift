@@ -127,7 +127,7 @@ struct JourneyMapView: View {
 
                 // Monotonically acknowledge that the hero reached this level on the map,
                 // syncing across all devices via CloudKit/SwiftData.
-                JourneyService.acknowledgeJourneyLevel(
+                await JourneyService.acknowledgeJourneyLevel(
                     targetLevel,
                     profileCache: profileCache,
                     appState: appState,

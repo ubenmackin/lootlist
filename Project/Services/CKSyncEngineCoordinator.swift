@@ -123,11 +123,6 @@ final class CKSyncEngineCoordinator {
         setupEngines()
     }
 
-    @available(*, deprecated, message: "Use init parameter instead")
-    func setAppState(_ appState: AppState) {
-        self.appState = appState
-    }
-
     private func setupEngines() {
         guard !TestEnvironment.isRunningUnitOrUITests else {
             logger.info("CKSyncEngine setup skipped: unit test environment")
@@ -262,6 +257,9 @@ final class CKSyncEngineCoordinator {
             logger.info("Fetch changes skipped: sync pass already in progress")
             return
         }
+        if privateSyncEngine == nil && sharedSyncEngine == nil {
+            initializeEngines()
+        }
         guard privateSyncEngine != nil || sharedSyncEngine != nil else {
             logger.info("Fetch changes skipped: no active sync engines initialized")
             postSyncDidComplete(outcome: .failed)
@@ -299,6 +297,9 @@ final class CKSyncEngineCoordinator {
         guard !isSyncing else {
             logger.info("Send changes skipped: sync pass already in progress")
             return
+        }
+        if privateSyncEngine == nil && sharedSyncEngine == nil {
+            initializeEngines()
         }
         guard privateSyncEngine != nil || sharedSyncEngine != nil else {
             postSyncDidComplete(outcome: .failed)

@@ -79,8 +79,6 @@ struct KidsSavingsGoalsView: View {
     private let focusedProfileRecordName: String?
 
     @Environment(AppState.self) private var appState
-    @Environment(\.modelContext) private var modelContext
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(GoalService.self) private var goalService: GoalService?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
@@ -339,6 +337,7 @@ struct KidsSavingsGoalsView: View {
                     } label: {
                         Label("Archive Goal", systemImage: "archivebox")
                     }
+                    .disabled(!canArchiveGoals)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .foregroundStyle(.secondary)
@@ -382,6 +381,7 @@ struct KidsSavingsGoalsView: View {
             } label: {
                 Label("Archive Goal", systemImage: "archivebox")
             }
+            .disabled(!canArchiveGoals)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel(goal: goal, hero: hero, percent: percent, remainingDollars: remainingDollars))
@@ -422,22 +422,19 @@ struct KidsSavingsGoalsView: View {
         return palette[abs(hash) % palette.count]
     }
 
+    // WHY: Without GoalService there is no sanctioned write path, so the archive affordance disables rather than falling back to local-only mutation.
+    private var canArchiveGoals: Bool {
+        goalService != nil
+    }
+
     private func archive(_ goal: GoalCache) {
-        guard let family = appState.family else {
-            toastManager?.show(message: "Could not archive goal. No active family.", type: .error)
+        guard let goalService else {
+            toastManager?.show(message: "Could not archive goal. Please try again.", type: .error)
             return
         }
-        let zoneID = appState.familyZoneID ?? family.id.zoneID
-        let domainGoal = goal.toGoal(zoneID: zoneID)
         Task {
             do {
-                if let goalService {
-                    try await goalService.archiveGoal(domainGoal, family: family)
-                } else {
-                    goal.isArchived = true
-                    try modelContext.save()
-                    syncCoordinator?.enqueueSave(recordID: domainGoal.id, isOwner: appState.isZoneOwner)
-                }
+                try await goalService.archiveGoal(goal, familyRecordName: appState.family?.id.recordName)
             } catch {
                 toastManager?.show(message: "Could not archive goal. Please try again.", type: .error)
             }

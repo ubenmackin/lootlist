@@ -95,7 +95,7 @@ final class InterestService {
         updated.interestRateBps = max(0, rateBps)
         updated.interestIsCompound = isCompound
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
@@ -185,7 +185,7 @@ final class InterestService {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: recordNameStr, zoneID: family.id.zoneID)
         )
-        cacheService?.upsertLedgerEntry(entry)
+        await cacheService?.upsertLedgerEntry(entry)
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
         logger.info("Credited monthly interest for \(profile.id.recordName, privacy: .private) in month \(Self.monthKey(for: date), privacy: .public)")
         return entry

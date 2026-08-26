@@ -74,6 +74,29 @@ enum JourneyService {
         )
     }
 
+    /// Cache-first variant of `journeyState(for:xpService:)` so presentation
+    /// layers derive the map from local `ProfileCache` rows instead of the
+    /// authenticated session identity.
+    static func journeyState(profileCache: ProfileCache, xpService: XPService) -> JourneyState {
+        let currentLevel = profileCache.level
+        let currentZone = JourneyZone.zone(forLevel: currentLevel)
+        let levelProgress = xpService.levelProgress(profileCache: profileCache)
+
+        let zonesUnlocked = JourneyZone.allCases.filter { zone in
+            zone.startLevel <= currentLevel
+        }
+
+        let milestones = buildMilestones(currentLevel: currentLevel)
+
+        return JourneyState(
+            currentLevel: currentLevel,
+            currentZone: currentZone,
+            zonesUnlocked: zonesUnlocked,
+            progress: levelProgress.progress,
+            milestones: milestones
+        )
+    }
+
     // MARK: - Private Helpers
 
     private static func buildMilestones(currentLevel: Int) -> [JourneyMilestone] {
@@ -107,9 +130,9 @@ enum JourneyService {
         appState: AppState?,
         cacheService: CacheService?,
         syncCoordinator: CKSyncEngineCoordinator?
-    ) {
+    ) async {
         guard let zoneID = appState?.familyZoneID else { return }
-        acknowledgeJourneyLevel(level, profile: profileCache.toProfile(zoneID: zoneID), appState: appState, cacheService: cacheService, syncCoordinator: syncCoordinator)
+        await acknowledgeJourneyLevel(level, profile: profileCache.toProfile(zoneID: zoneID), appState: appState, cacheService: cacheService, syncCoordinator: syncCoordinator)
     }
 
     static func acknowledgeJourneyLevel(
@@ -118,12 +141,12 @@ enum JourneyService {
         appState: AppState?,
         cacheService: CacheService?,
         syncCoordinator: CKSyncEngineCoordinator?
-    ) {
+    ) async {
         guard level > profile.journeyMapLastSeenLevel else { return }
         var updated = profile
         updated.journeyMapLastSeenLevel = level
 
-        cacheService?.upsertProfile(updated)
+        await cacheService?.upsertProfile(updated)
 
         if let current = appState?.currentProfile, current.id == updated.id {
             var reconciled = current

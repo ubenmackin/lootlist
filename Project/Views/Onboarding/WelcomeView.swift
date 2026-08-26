@@ -68,7 +68,7 @@ struct WelcomeView: View {
                     .padding(.vertical, 16)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.yellow)
+            .tint(Color(DesignSystemConstants.Colors.accentBlue))
             .padding(.horizontal, 32)
             .padding(.bottom, 24)
             .accessibilityIdentifier("welcome.startButton")
@@ -140,7 +140,7 @@ struct OnboardingCompletionView: View {
                     .padding(.vertical, 16)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .tint(Color(DesignSystemConstants.Colors.primaryGreen))
             .padding(.horizontal, 32)
             .padding(.bottom, 24)
             // Both builtFamily and builtProfile must be non-nil to proceed,

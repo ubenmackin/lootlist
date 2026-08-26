@@ -143,7 +143,7 @@ final class HeroBoardService {
         current.claimedByProfileRecordName = hero.id.recordName
         current.claimedAt = Date()
 
-        cacheService?.upsertQuest(current)
+        await cacheService?.upsertQuest(current)
         syncCoordinator?.enqueueSave(recordID: current.id, isOwner: appState.isZoneOwner)
         return .claimed
     }
@@ -173,7 +173,7 @@ final class HeroBoardService {
         released.claimedByProfileRecordName = nil
         released.claimedAt = nil
 
-        cacheService?.upsertQuest(released)
+        await cacheService?.upsertQuest(released)
         syncCoordinator?.enqueueSave(recordID: released.id, isOwner: appState.isZoneOwner)
     }
 
@@ -249,7 +249,7 @@ final class HeroBoardService {
             id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
 
-        cacheService?.upsertQuest(quest)
+        await cacheService?.upsertQuest(quest)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
         return quest

@@ -74,9 +74,10 @@ struct HeroBoardViewModelTests {
 
             appState.currentProfile = hero
 
-            cache.upsertProfile(parent)
-            cache.upsertProfile(hero)
-            cache.upsertFamily(family)
+            cache.context?.insert(ProfileCache(from: parent))
+            cache.context?.insert(ProfileCache(from: hero))
+            cache.context?.insert(FamilyCache(from: family))
+            _ = cache.saveContext()
         }
 
         func makeCacheRow(recordName: String,
@@ -163,7 +164,7 @@ struct HeroBoardViewModelTests {
     @Test
     func `successful claim moves row to claimed by current user`() async throws {
         let ctx = try Scaffold()
-        ctx.cache.upsertQuest(ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore").toQuest(zoneID: ctx.zoneID))
+        await ctx.cache.upsertQuest(ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore").toQuest(zoneID: ctx.zoneID))
         try ctx.viewModel.rebuildLists(quests: [#require(ctx.cachedQuest(recordName: "q-a"))], profiles: [ctx.heroProfileCache])
 
         let row = try #require(ctx.viewModel.availableRows.first)
@@ -188,7 +189,7 @@ struct HeroBoardViewModelTests {
             recordName: "q-a", name: "Alpha Chore",
             claimedBy: "hero2", claimedAt: rivalWinDate
         )
-        ctx.cache.upsertQuest(rivalWin.toQuest(zoneID: ctx.zoneID))
+        await ctx.cache.upsertQuest(rivalWin.toQuest(zoneID: ctx.zoneID))
 
         // The child's list still shows the stale unclaimed copy when they tap.
         let staleQuest = ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore").toQuest(zoneID: ctx.zoneID)
@@ -204,7 +205,7 @@ struct HeroBoardViewModelTests {
     @Test
     func `ingested rival claim after a local win surfaces conflict toast`() async throws {
         let ctx = try Scaffold()
-        ctx.cache.upsertQuest(ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore").toQuest(zoneID: ctx.zoneID))
+        await ctx.cache.upsertQuest(ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore").toQuest(zoneID: ctx.zoneID))
         try ctx.viewModel.rebuildLists(quests: [#require(ctx.cachedQuest(recordName: "q-a"))], profiles: [ctx.heroProfileCache])
 
         let row = try #require(ctx.viewModel.availableRows.first)
@@ -212,7 +213,7 @@ struct HeroBoardViewModelTests {
 
         // Server-wins ingest lands afterwards revealing the rival's claim.
         let rivalWin = ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore", claimedBy: "hero2", claimedAt: Date())
-        ctx.cache.upsertQuest(rivalWin.toQuest(zoneID: ctx.zoneID))
+        await ctx.cache.upsertQuest(rivalWin.toQuest(zoneID: ctx.zoneID))
 
         ctx.viewModel.rebuildLists(quests: [rivalWin], profiles: [ctx.heroProfileCache, ctx.rivalProfileCache])
 
@@ -225,7 +226,7 @@ struct HeroBoardViewModelTests {
     func `parent reset returns claimed quest to the board`() async throws {
         let ctx = try Scaffold()
         let claimedAt = Date(timeIntervalSince1970: 3_000_000)
-        ctx.cache.upsertQuest(
+        await ctx.cache.upsertQuest(
             ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore", claimedBy: "hero1", claimedAt: claimedAt)
                 .toQuest(zoneID: ctx.zoneID)
         )
@@ -249,7 +250,7 @@ struct HeroBoardViewModelTests {
     func `reset attempted by a hero shows error toast and leaves claim intact`() async throws {
         let ctx = try Scaffold()
         let claimedAt = Date(timeIntervalSince1970: 4_000_000)
-        ctx.cache.upsertQuest(
+        await ctx.cache.upsertQuest(
             ctx.makeCacheRow(recordName: "q-a", name: "Alpha Chore", claimedBy: "hero2", claimedAt: claimedAt)
                 .toQuest(zoneID: ctx.zoneID)
         )

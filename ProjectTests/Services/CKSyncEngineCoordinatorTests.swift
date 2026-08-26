@@ -89,7 +89,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     }
 
     func testSendPendingChangesDoesNotStampFreshness() async throws {
-        try cacheService.clearAll()
+        try await cacheService.clearAll()
 
         await coordinator.sendPendingChanges()
 

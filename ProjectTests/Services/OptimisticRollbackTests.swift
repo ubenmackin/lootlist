@@ -100,8 +100,8 @@ final class OptimisticRollbackTests: XCTestCase {
         )
 
         // Seed initial records
-        cacheService.upsertProfile(hero)
-        cacheService.upsertQuest(quest)
+        await cacheService.upsertProfile(hero)
+        await cacheService.upsertQuest(quest)
         cloudKit.seedMockRecords([hero, quest])
 
         // 1. A completion that already has xpCredited stamped
@@ -152,9 +152,9 @@ final class OptimisticRollbackTests: XCTestCase {
             id: parentID
         )
         appState.currentProfile = parent
-        cacheService.upsertProfile(parent)
-        cacheService.upsertProfile(hero)
-        cacheService.upsertFamily(family)
+        await cacheService.upsertProfile(parent)
+        await cacheService.upsertProfile(hero)
+        await cacheService.upsertFamily(family)
         cloudKit.seedMockRecords([parent, hero, family])
 
         let treasuryService = TreasuryService(
@@ -188,8 +188,8 @@ final class OptimisticRollbackTests: XCTestCase {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: "c_payout", zoneID: zoneID)
         )
-        cacheService.upsertQuest(quest)
-        cacheService.upsertQuestCompletion(completion)
+        await cacheService.upsertQuest(quest)
+        await cacheService.upsertQuestCompletion(completion)
         cloudKit.seedMockRecords([quest, completion])
 
         let periodRecordName = "period-\(family.id.recordName)-\(hero.id.recordName)-\(Int(weekStart.timeIntervalSince1970))"
@@ -204,7 +204,7 @@ final class OptimisticRollbackTests: XCTestCase {
         unfinalized.status = .active
         unfinalized.totalEarned = 25.0
         unfinalized.questsCompleted = 1
-        cacheService.upsertAllowancePeriod(unfinalized)
+        await cacheService.upsertAllowancePeriod(unfinalized)
         cloudKit.seedMockRecords([unfinalized])
 
         // First payout run: mints the deterministic payout ledger entry
@@ -241,9 +241,9 @@ final class OptimisticRollbackTests: XCTestCase {
             id: parentID
         )
         appState.currentProfile = parent
-        cacheService.upsertProfile(parent)
-        cacheService.upsertProfile(hero)
-        cacheService.upsertFamily(family)
+        await cacheService.upsertProfile(parent)
+        await cacheService.upsertProfile(hero)
+        await cacheService.upsertFamily(family)
         cloudKit.seedMockRecords([parent, hero, family])
 
         let treasuryService = TreasuryService(
@@ -277,8 +277,8 @@ final class OptimisticRollbackTests: XCTestCase {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: "c_rt", zoneID: zoneID)
         )
-        cacheService.upsertQuest(quest)
-        cacheService.upsertQuestCompletion(completion)
+        await cacheService.upsertQuest(quest)
+        await cacheService.upsertQuestCompletion(completion)
         cloudKit.seedMockRecords([quest, completion])
 
         let periodRecordName = "period-\(family.id.recordName)-\(hero.id.recordName)-\(Int(weekStart.timeIntervalSince1970))"
@@ -293,7 +293,7 @@ final class OptimisticRollbackTests: XCTestCase {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: "rt-\(periodRecordName)", zoneID: zoneID)
         )
-        cacheService.upsertLedgerEntry(rtLedger)
+        await cacheService.upsertLedgerEntry(rtLedger)
 
         let period = AllowancePeriod(
             weekOf: weekStart,
@@ -306,7 +306,7 @@ final class OptimisticRollbackTests: XCTestCase {
         unfinalized.status = .active
         unfinalized.totalEarned = 15.0
         unfinalized.questsCompleted = 1
-        cacheService.upsertAllowancePeriod(unfinalized)
+        await cacheService.upsertAllowancePeriod(unfinalized)
 
         try await treasuryService.runPayout(period: unfinalized)
 
@@ -431,8 +431,8 @@ final class OptimisticRollbackTests: XCTestCase {
             id: heroID
         )
         let testFamily = Family(name: "Guild", createdBy: heroID, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
-        cache.upsertFamily(testFamily)
-        cache.upsertProfile(localHero)
+        await cache.upsertFamily(testFamily)
+        await cache.upsertProfile(localHero)
         mock.seedMockRecords([testFamily, localHero])
         state.family = testFamily
         state.familyZoneID = zoneID
@@ -473,7 +473,8 @@ final class OptimisticRollbackTests: XCTestCase {
             id: heroID
         )
         hero.gems = 50
-        cache.upsertProfile(hero)
+        cache.context?.insert(ProfileCache(from: hero))
+        _ = cache.saveContext()
 
         let ledger = GemLedger(
             profileRecordName: heroID.recordName,
@@ -487,8 +488,8 @@ final class OptimisticRollbackTests: XCTestCase {
         updated.gems = 75
 
         cache.withBatch {
-            cache.upsertProfile(updated)
-            cache.upsertGemLedger(ledger)
+            cache.context?.insert(ProfileCache(from: updated))
+            cache.context?.insert(GemLedgerCache(from: ledger))
             cache.context?.rollback()
         }
 
@@ -516,8 +517,8 @@ final class OptimisticRollbackTests: XCTestCase {
             id: heroID
         )
         let family = Family(name: "Guild", createdBy: heroID, id: CKRecord.ID(recordName: "fam1", zoneID: lootZone))
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         mock.seedMockRecords([family, hero])
         state.family = family
         state.familyZoneID = lootZone
@@ -561,8 +562,8 @@ final class OptimisticRollbackTests: XCTestCase {
             id: heroID
         )
         let family = Family(name: "Guild", createdBy: heroID, id: CKRecord.ID(recordName: "fam1", zoneID: phantomZone))
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         mock.seedMockRecords([family, hero])
         state.family = family
         state.familyZoneID = phantomZone
@@ -610,7 +611,7 @@ final class OptimisticRollbackTests: XCTestCase {
             name: "Loser Quest",
             id: CKRecord.ID(recordName: "q-loser", zoneID: phantomZone)
         )
-        cache.upsertQuest(quest)
+        await cache.upsertQuest(quest)
         let completion = QuestCompletion(
             quest: CKRecord.Reference(recordID: quest.id, action: .none),
             completedBy: CKRecord.Reference(recordID: heroID, action: .none),
@@ -645,8 +646,8 @@ final class OptimisticRollbackTests: XCTestCase {
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let hero = Profile(displayName: "Hero", avatarClass: .mage, avatarPresetID: "mage_01", role: .hero, iCloudUserID: heroID, family: familyRef, id: heroID)
         let family = Family(name: "Guild", createdBy: heroID, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
-        cache.upsertFamily(family)
-        cache.upsertProfile(hero)
+        await cache.upsertFamily(family)
+        await cache.upsertProfile(hero)
         mock.seedMockRecords([family, hero])
         state.family = family
         state.familyZoneID = zoneID

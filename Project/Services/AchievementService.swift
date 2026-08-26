@@ -163,7 +163,7 @@ final class AchievementService {
         let toSeed = defaults.filter { !existingIDs.contains($0.id.recordName) }
 
         for achievement in toSeed {
-            cacheService?.upsertAchievement(achievement)
+            await cacheService?.upsertAchievement(achievement)
             let isOwner = appState.isZoneOwner
             syncCoordinator?.enqueueSave(recordID: achievement.id, isOwner: isOwner)
         }
@@ -329,7 +329,11 @@ final class AchievementService {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
         let results = try await cloudKit.query(Achievement.self, predicate: predicate, in: family.id.zoneID)
-        cacheService?.upsertAchievements(results)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: results,
+            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            zoneID: family.id.zoneID
+        )
         return results
     }
 
@@ -350,7 +354,11 @@ final class AchievementService {
             in: profile.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "earnedDate", ascending: false)]
         )
-        cacheService?.upsertProfileAchievements(results)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: results,
+            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            zoneID: profile.id.zoneID
+        )
         return results
     }
 
@@ -485,7 +493,7 @@ final class AchievementService {
             )
         )
 
-        cacheService?.upsertProfileAchievement(row)
+        await cacheService?.upsertProfileAchievement(row)
         let isOwner = appState?.isZoneOwner ?? false
         syncCoordinator?.enqueueSave(recordID: row.id, isOwner: isOwner)
         return row
@@ -512,7 +520,11 @@ final class AchievementService {
             predicate: NSPredicate(format: "completedBy == %@", profileRef),
             in: zoneID
         )
-        cacheService?.upsertQuestCompletions(questLogs)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: questLogs,
+            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            zoneID: zoneID
+        )
         return questLogs.filter {
             $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
         }
@@ -539,7 +551,11 @@ final class AchievementService {
             predicate: NSPredicate(format: "profile == %@", profileRef),
             in: zoneID
         )
-        cacheService?.upsertLedgerEntries(ledger)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: ledger,
+            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            zoneID: zoneID
+        )
         return ledger
     }
 
@@ -559,7 +575,11 @@ final class AchievementService {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef)
         let results = try await cloudKit.query(Goal.self, predicate: predicate, in: zoneID)
-        cacheService?.upsertGoals(results)
+        await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            models: results,
+            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            zoneID: zoneID
+        )
         return results
     }
 
@@ -591,22 +611,32 @@ final class AchievementService {
                 )
                 for quest in assignedQuests {
                     questCache[quest.id] = quest
-                    cacheService?.upsertQuest(quest)
                 }
+                await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                    models: assignedQuests,
+                    databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                    zoneID: zoneID
+                )
             } catch {
                 logger.error("Failed to query assigned quests for profile \(profileID.recordName, privacy: .private): \(error, privacy: .private)")
             }
 
             let missingQuestIDs = Set(completedLogs.map(\.quest.recordID)).subtracting(questCache.keys)
+            var fetchedMissing: [Quest] = []
             for questID in missingQuestIDs {
                 do {
                     let fetched = try await cloudKit.fetch(Quest.self, id: questID)
                     questCache[questID] = fetched
-                    cacheService?.upsertQuest(fetched)
+                    fetchedMissing.append(fetched)
                 } catch {
                     logger.debug("Failed to fetch quest \(questID.recordName, privacy: .private): \(error, privacy: .private)")
                 }
             }
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: fetchedMissing,
+                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                zoneID: zoneID
+            )
         }
         return questCache
     }

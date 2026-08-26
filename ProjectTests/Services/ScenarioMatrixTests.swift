@@ -187,7 +187,8 @@ struct ScenarioMatrixTests {
         let sut = try makeSUT()
         let zoneID = makeZoneID()
         let family = makeFamily(zoneID: zoneID)
-        sut.cache.upsertFamily(family)
+        sut.cache.context?.insert(FamilyCache(from: family))
+        _ = sut.cache.saveContext()
 
         let vm = FamilyDashboardViewModel(
             questService: sut.questService,
@@ -392,10 +393,11 @@ struct ScenarioMatrixTests {
 
         // Family defaults to perQuest; the hero overrides with allOrNothing.
         let family = makeFamily(zoneID: zoneID, payoutPolicy: .perQuest)
-        sut.cache.upsertFamily(family)
+        sut.cache.context?.insert(FamilyCache(from: family))
 
         let heroProfile = makeHero(idName: "hero1", displayName: "Override Hero", zoneID: zoneID, payoutPolicy: .allOrNothing)
-        sut.cache.upsertProfile(heroProfile)
+        sut.cache.context?.insert(ProfileCache(from: heroProfile))
+        _ = sut.cache.saveContext()
 
         let quests = [
             makeQuestCache(
@@ -458,8 +460,8 @@ struct ScenarioMatrixTests {
         sut.appState.family = family
         sut.appState.familyZoneID = zoneID
         sut.cloudKit.activeFamilyZoneID = zoneID
-        sut.cache.upsertFamily(family)
-        sut.cache.upsertProfile(hero)
+        await sut.cache.upsertFamily(family)
+        await sut.cache.upsertProfile(hero)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
@@ -577,8 +579,8 @@ struct ScenarioMatrixTests {
 
         let family = makeFamily(zoneID: zoneID)
         let hero = makeHero(idName: "hero1", displayName: "Overdraft Hero", zoneID: zoneID)
-        sut.cache.upsertFamily(family)
-        sut.cache.upsertProfile(hero)
+        await sut.cache.upsertFamily(family)
+        await sut.cache.upsertProfile(hero)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
@@ -607,8 +609,8 @@ struct ScenarioMatrixTests {
 
         let family = makeFamily(zoneID: zoneID, payoutPolicy: .realTime)
         let hero = makeHero(idName: "hero1", displayName: "RealTime Hero", zoneID: zoneID, payoutPolicy: .realTime)
-        sut.cache.upsertFamily(family)
-        sut.cache.upsertProfile(hero)
+        await sut.cache.upsertFamily(family)
+        await sut.cache.upsertProfile(hero)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
@@ -638,8 +640,9 @@ struct ScenarioMatrixTests {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: "log_rt", zoneID: zoneID)
         )
-        sut.cache.upsertQuest(quest)
-        sut.cache.upsertQuestCompletions([completion])
+        await sut.cache.upsertQuest(quest)
+        await sut.cache.upsertQuestCompletions([completion])
+        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
         sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
         sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
         sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
@@ -674,8 +677,8 @@ struct ScenarioMatrixTests {
 
         let family = makeFamily(zoneID: zoneID)
         let hero = makeHero(idName: "hero1", displayName: "Removed Hero", zoneID: zoneID)
-        sut.cache.upsertFamily(family)
-        sut.cache.upsertProfile(hero)
+        await sut.cache.upsertFamily(family)
+        await sut.cache.upsertProfile(hero)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 
@@ -696,7 +699,7 @@ struct ScenarioMatrixTests {
             name: "Remove Quest",
             id: CKRecord.ID(recordName: "quest_removed", zoneID: zoneID)
         )
-        sut.cache.upsertQuest(quest)
+        await sut.cache.upsertQuest(quest)
         _ = try await sut.cloudKit.save(quest)
 
         // unassignActiveQuests guards on appState.family being set.

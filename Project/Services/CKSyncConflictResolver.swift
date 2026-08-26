@@ -164,11 +164,11 @@ final class CKSyncConflictResolver {
         let parsedMergedRecord = ParsedRecord.parse(record: mergedQuest.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged Quest failed to re-parse (\(mergedQuest.id.recordName, privacy: .private)); committing via main-context upsert instead")
-            cacheService?.upsertQuest(mergedQuest, isServerSync: true)
+            await cacheService?.upsertQuest(mergedQuest, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
         } else {
-            cacheService?.upsertQuest(mergedQuest, isServerSync: true)
+            await cacheService?.upsertQuest(mergedQuest, isServerSync: true)
         }
 
         let mergedRecord = mergedQuest.toRecord()
@@ -283,11 +283,11 @@ final class CKSyncConflictResolver {
         let parsedMergedRecord = ParsedRecord.parse(record: mergedProfile.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged Profile failed to re-parse (\(mergedProfile.id.recordName, privacy: .private)); committing via main-context upsert instead")
-            cacheService?.upsertProfile(mergedProfile, isServerSync: true)
+            await cacheService?.upsertProfile(mergedProfile, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
         } else {
-            cacheService?.upsertProfile(mergedProfile, isServerSync: true)
+            await cacheService?.upsertProfile(mergedProfile, isServerSync: true)
         }
 
         let mergedRecord = mergedProfile.toRecord()
@@ -330,11 +330,11 @@ final class CKSyncConflictResolver {
         let parsedMergedRecord = ParsedRecord.parse(record: merged.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged QuestCompletion failed to re-parse (\(merged.id.recordName, privacy: .private)); committing via main-context upsert instead")
-            cacheService?.upsertQuestCompletion(merged, isServerSync: true)
+            await cacheService?.upsertQuestCompletion(merged, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
         } else {
-            cacheService?.upsertQuestCompletion(merged, isServerSync: true)
+            await cacheService?.upsertQuestCompletion(merged, isServerSync: true)
         }
 
         let mergedRecord = merged.toRecord()
@@ -397,11 +397,11 @@ final class CKSyncConflictResolver {
         let parsedMergedRecord = ParsedRecord.parse(record: merged.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged AllowancePeriod failed to re-parse (\(merged.id.recordName, privacy: .private)); committing via main-context upsert instead")
-            cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
+            await cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
         } else if let backgroundCache {
             await backgroundCache.batchUpsertParsedRecords([parsedMergedRecord])
         } else {
-            cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
+            await cacheService?.upsertAllowancePeriod(merged, isServerSync: true)
         }
 
         let mergedRecord = merged.toRecord()
@@ -463,16 +463,20 @@ final class CKSyncConflictResolver {
                 "Record \(recordID.recordName, privacy: .private) deleted server-side (scope=\(databaseScope.rawValue), zone=\(recordID.zoneID.zoneName, privacy: .private)); invalidating local cache"
             )
         if let cachedType = CachedRecordType.recordType(for: recordType) {
-            if let cacheService {
-                cacheService.invalidate(
-                    identity: identity,
-                    type: cachedType
-                )
-            }
+            let expectedActiveZone = appState?.familyZoneID
             if let backgroundCache {
-                await backgroundCache.deleteRecord(
+                await backgroundCache.deleteByIdentity(
+                    identity,
+                    type: cachedType,
+                    expectedActiveZone: expectedActiveZone
+                )
+            } else {
+                // No background writer (in-memory stores): fall back to the
+                // legacy main-actor invalidation so deletions still apply.
+                await cacheService?.invalidate(
                     identity: identity,
-                    type: cachedType
+                    type: cachedType,
+                    expectedActiveZone: expectedActiveZone
                 )
             }
         }

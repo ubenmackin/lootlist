@@ -99,7 +99,13 @@ class SpendingService {
                 sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
                 using: db
             )
-            cacheService?.upsertLedgerEntries(all)
+            // Scope mirrors the database the query itself ran against, which
+            // this method resolves per-zone rather than from the active session.
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: isOwner ? .private : .shared,
+                zoneID: targetZoneID
+            )
             return all.filter { dateRange.contains($0.date) }
         } catch {
             logger.warning("fetchTransactions CloudKit query failed, falling back to cache: \(error, privacy: .private)")
@@ -195,7 +201,7 @@ class SpendingService {
             id: makeLedgerID(source: "manual", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
         )
 
-        cacheService?.upsertLedgerEntry(entry)
+        await cacheService?.upsertLedgerEntry(entry)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
@@ -240,7 +246,7 @@ class SpendingService {
             id: makeLedgerID(source: "deposit", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
         )
 
-        cacheService?.upsertLedgerEntry(entry)
+        await cacheService?.upsertLedgerEntry(entry)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
@@ -285,7 +291,7 @@ class SpendingService {
             id: makeLedgerID(source: "withdrawal", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
         )
 
-        cacheService?.upsertLedgerEntry(entry)
+        await cacheService?.upsertLedgerEntry(entry)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
@@ -309,7 +315,7 @@ class SpendingService {
         try ActiveFamilyScopeGuard.requireActiveFamily(familyRef: entry.family, appState: appState)
 
         let name = entry.id.recordName
-        cacheService?.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
+        await cacheService?.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
         let isOwner = appState.isZoneOwner
         syncCoordinator?.enqueueDelete(recordID: entry.id, isOwner: isOwner)
     }

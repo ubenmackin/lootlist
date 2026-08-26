@@ -191,14 +191,14 @@ struct JourneyServiceTests {
     // MARK: - Level Acknowledgment & CloudKit Sync
 
     @Test
-    func `acknowledgeJourneyLevel advances journeyMapLastSeenLevel when higher`() throws {
+    func `acknowledgeJourneyLevel advances journeyMapLastSeenLevel when higher`() async throws {
         var profile = makeProfile(level: 5, xp: 500)
         profile.journeyMapLastSeenLevel = 2
 
         let cache = try CacheService(inMemory: true)
-        cache.upsertProfile(profile)
+        await cache.upsertProfile(profile)
 
-        JourneyService.acknowledgeJourneyLevel(
+        await JourneyService.acknowledgeJourneyLevel(
             5,
             profile: profile,
             appState: nil,
@@ -211,14 +211,14 @@ struct JourneyServiceTests {
     }
 
     @Test
-    func `acknowledgeJourneyLevel ignores lower or equal level`() throws {
+    func `acknowledgeJourneyLevel ignores lower or equal level`() async throws {
         var profile = makeProfile(level: 5, xp: 500)
         profile.journeyMapLastSeenLevel = 5
 
         let cache = try CacheService(inMemory: true)
-        cache.upsertProfile(profile)
+        await cache.upsertProfile(profile)
 
-        JourneyService.acknowledgeJourneyLevel(
+        await JourneyService.acknowledgeJourneyLevel(
             3,
             profile: profile,
             appState: nil,

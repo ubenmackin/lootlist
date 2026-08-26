@@ -22,6 +22,8 @@ private final class MockFamilyProfileFetcher: FamilyProfileFetching {
         return []
     }
 
+    func refreshProfilesFromCloudKit(for _: Family) async {}
+
     func currentUserRecordName() async throws -> String {
         try await cloudKit.currentUserRecordID().recordName
     }

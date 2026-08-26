@@ -19,6 +19,7 @@ struct HeroHomeView: View {
     @Query private var cachedTemplates: [QuestTemplateCache]
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var viewModel: HeroDashboardViewModel?
     @State private var showingJourneyMap = false
@@ -27,17 +28,24 @@ struct HeroHomeView: View {
 
     private let familyRecordName: String?
 
-    init(familyRecordName: String? = nil) {
+    private let profileRecordName: String?
+
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let currentProfileFilter = #Predicate<ProfileCache> {
+            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
+        }
 
         _cachedQuests = Query(
             filter: questFilter,
@@ -62,6 +70,17 @@ struct HeroHomeView: View {
             sort: \AllowancePeriodCache.weekOf,
             order: .reverse
         )
+        _currentProfileRows = Query(
+            filter: currentProfileFilter,
+            sort: \ProfileCache.displayName
+        )
+    }
+
+    /// Queried cache row for the active hero profile. Nil when the session
+    /// identity or family scope has no synced row yet, keeping rendering
+    /// fail-closed instead of falling back to the session snapshot.
+    private var currentProfileRow: ProfileCache? {
+        currentProfileRows.first
     }
 
     /// Quests assigned to the active hero profile.
@@ -123,9 +142,9 @@ struct HeroHomeView: View {
 
             playerCard
 
-            if let profile = appState.currentProfile {
-                journeyMapCard(profile: profile)
-                mascotBanner(profile: profile)
+            if let row = currentProfileRow {
+                journeyMapCard(row: row)
+                mascotBanner(row: row)
             }
         }
         .padding(.horizontal, DesignSystemConstants.Padding.standard)
@@ -133,16 +152,16 @@ struct HeroHomeView: View {
     }
 
     @ViewBuilder
-    private func journeyMapCard(profile: Profile) -> some View {
-        let state = JourneyService.journeyState(for: profile, xpService: xpService)
+    private func journeyMapCard(row: ProfileCache) -> some View {
+        let state = JourneyService.journeyState(profileCache: row, xpService: xpService)
         JourneyMapCardView(journeyState: state) {
             showingJourneyMap = true
         }
     }
 
-    private func mascotBanner(profile: Profile) -> some View {
+    private func mascotBanner(row: ProfileCache) -> some View {
         MascotBannerView(
-            profileCache: ProfileCache(from: profile),
+            profileCache: row,
             quests: profileQuests,
             completions: profileLogs,
             showBonusCard: true
@@ -151,9 +170,9 @@ struct HeroHomeView: View {
 
     @ViewBuilder
     private var journeyMapCover: some View {
-        if let profile = appState.currentProfile {
-            let state = JourneyService.journeyState(for: profile, xpService: xpService)
-            JourneyMapView(journeyState: state, profileCache: ProfileCache(from: profile))
+        if let row = currentProfileRow {
+            let state = JourneyService.journeyState(profileCache: row, xpService: xpService)
+            JourneyMapView(journeyState: state, profileCache: row)
         }
     }
 
@@ -187,16 +206,16 @@ struct HeroHomeView: View {
 
     @ViewBuilder
     private var playerCard: some View {
-        if let profile = appState.currentProfile {
-            let progress = xpService.levelProgress(profile: profile)
+        if let row = currentProfileRow {
+            let progress = xpService.levelProgress(profileCache: row)
             let earned = viewModel?.earnedThisWeek ?? 0
-            let streak = profile.dailyLoginStreakDays
-            let shields = profile.streakShields
+            let streak = row.dailyLoginStreakDays
+            let shields = row.streakShields
             let completed = viewModel?.completedQuestCount ?? 0
             let total = profileQuests.count
 
             VStack(spacing: 12) {
-                playerCardTopRow(profile: profile, progress: progress)
+                playerCardTopRow(row: row, progress: progress)
 
                 Divider()
                     .overlay(Color.secondary.opacity(0.15))
@@ -222,14 +241,14 @@ struct HeroHomeView: View {
         }
     }
 
-    private func playerCardTopRow(profile: Profile, progress: LevelProgress) -> some View {
+    private func playerCardTopRow(row: ProfileCache, progress: LevelProgress) -> some View {
         HStack(spacing: 12) {
-            ProfileAvatarView(profileCache: ProfileCache(from: profile))
+            ProfileAvatarView(profileCache: row)
                 .frame(width: 56, height: 56)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Text(profile.displayName)
+                    Text(row.displayName)
                         .font(.headline)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)

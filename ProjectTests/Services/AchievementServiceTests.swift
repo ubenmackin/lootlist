@@ -260,9 +260,9 @@ struct AchievementServiceTests {
             family: makeFamilyRef(zoneID)
         )
 
-        cache.upsertQuest(quest)
-        cache.upsertQuestCompletion(log)
-        cache.upsertAchievement(weeklyAchievement)
+        await cache.upsertQuest(quest)
+        await cache.upsertQuestCompletion(log)
+        await cache.upsertAchievement(weeklyAchievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
         cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
@@ -343,10 +343,10 @@ struct AchievementServiceTests {
             family: makeFamilyRef(zoneID)
         )
 
-        cache.upsertQuest(quest1)
-        cache.upsertQuest(quest2)
-        cache.upsertQuestCompletion(log)
-        cache.upsertAchievement(weeklyAchievement)
+        await cache.upsertQuest(quest1)
+        await cache.upsertQuest(quest2)
+        await cache.upsertQuestCompletion(log)
+        await cache.upsertAchievement(weeklyAchievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
         cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
         cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
@@ -752,7 +752,7 @@ struct AchievementServiceTests {
             requirementValue: 1,
             family: makeFamilyRef(zoneID)
         )
-        cache.upsertAchievement(firstGoalCreated)
+        await cache.upsertAchievement(firstGoalCreated)
         cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profileAchievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
@@ -766,7 +766,7 @@ struct AchievementServiceTests {
 
         // Create one goal
         let goal = makeGoal(zoneID, hero: hero, familyRef: makeFamilyRef(zoneID))
-        cache.upsertGoal(goal)
+        await cache.upsertGoal(goal)
         awarded = try await service.handleGoalCreated(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .firstGoalCreated })
 
@@ -811,8 +811,8 @@ struct AchievementServiceTests {
             requirementValue: 1,
             family: makeFamilyRef(zoneID)
         )
-        cache.upsertAchievement(goalGetter)
-        cache.upsertAchievement(firstCreated)
+        await cache.upsertAchievement(goalGetter)
+        await cache.upsertAchievement(firstCreated)
         cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profileAchievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
@@ -822,7 +822,7 @@ struct AchievementServiceTests {
 
         // Create incomplete goal — should award firstGoalCreated but NOT goalGetter
         let incomplete = makeGoal(zoneID, hero: hero, familyRef: makeFamilyRef(zoneID), completed: false)
-        cache.upsertGoal(incomplete)
+        await cache.upsertGoal(incomplete)
         var awarded = try await service.evaluateAll(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .firstGoalCreated })
         #expect(!awarded.contains { $0.requirementType == .goalGetter })
@@ -830,7 +830,7 @@ struct AchievementServiceTests {
         // Complete the goal — should now award goalGetter
         var completed = incomplete
         completed.completedAt = Date()
-        cache.upsertGoal(completed)
+        await cache.upsertGoal(completed)
         awarded = try await service.handleGoalCompleted(for: hero, family: family)
         #expect(awarded.contains { $0.requirementType == .goalGetter })
 
@@ -864,7 +864,7 @@ struct AchievementServiceTests {
                 requirementValue: 1,
                 family: makeFamilyRef(zoneID)
             )
-            cache.upsertAchievement(ach)
+            await cache.upsertAchievement(ach)
         }
         cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profileAchievement)
@@ -968,8 +968,9 @@ private extension AchievementServiceTests {
                 requirementValue: spec.value,
                 family: familyRef
             )
-            cache.upsertAchievement(achievement)
+            cache.context?.insert(AchievementCache(from: achievement))
         }
+        _ = cache.saveContext()
         cache.markCacheFresh(familyRecordName: "fam1", type: .achievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .profileAchievement)
         cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
@@ -992,7 +993,8 @@ private extension AchievementServiceTests {
             // Ensure verificationStatus is autoApproved (default from init is verified/autoApproved).
             var verified = log
             verified.verificationStatus = .autoApproved
-            cache.upsertQuestCompletion(verified)
+            cache.context?.insert(QuestCompletionCache(from: verified))
         }
+        _ = cache.saveContext()
     }
 }

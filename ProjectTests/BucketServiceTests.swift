@@ -133,7 +133,7 @@ struct BucketServiceTests {
     // MARK: - Balance Attribution
 
     @Test
-    func `bucket balances attribute only bucketKind tagged entries`() throws {
+    func `bucket balances attribute only bucketKind tagged entries`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cache = try CacheService(inMemory: true)
         let buckets = BucketService(cacheService: cache)
@@ -156,14 +156,14 @@ struct BucketServiceTests {
             )
         }
 
-        cache.upsertLedgerEntry(entry("a-spend", amount: 15.0, bucketKind: BucketKind.spend.rawValue))
-        cache.upsertLedgerEntry(entry("b-short", amount: 6.25, bucketKind: BucketKind.shortTermSave.rawValue))
+        await cache.upsertLedgerEntry(entry("a-spend", amount: 15.0, bucketKind: BucketKind.spend.rawValue))
+        await cache.upsertLedgerEntry(entry("b-short", amount: 6.25, bucketKind: BucketKind.shortTermSave.rawValue))
         // Negative amounts are spending drawn out of an attributed bucket.
-        cache.upsertLedgerEntry(entry("c-spend-drain", amount: -5.0, bucketKind: BucketKind.spend.rawValue))
+        await cache.upsertLedgerEntry(entry("c-spend-drain", amount: -5.0, bucketKind: BucketKind.spend.rawValue))
         // Legacy unattributed row predating V8 stays out of bucket totals.
-        cache.upsertLedgerEntry(entry("d-legacy", amount: 9.0, bucketKind: nil))
+        await cache.upsertLedgerEntry(entry("d-legacy", amount: 9.0, bucketKind: nil))
         // Unknown raw values must never silently become a bucket.
-        cache.upsertLedgerEntry(entry("e-vault", amount: 4.0, bucketKind: "vault"))
+        await cache.upsertLedgerEntry(entry("e-vault", amount: 4.0, bucketKind: "vault"))
 
         let balances = buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
         #expect(balances[.spend] == 10.0)
@@ -239,9 +239,10 @@ struct BucketServiceTests {
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
             mock.seedMockRecords([hero, guildMaster, family])
-            cache.upsertProfile(hero)
-            cache.upsertProfile(guildMaster)
-            cache.upsertFamily(family)
+            cache.context?.insert(ProfileCache(from: hero))
+            cache.context?.insert(ProfileCache(from: guildMaster))
+            cache.context?.insert(FamilyCache(from: family))
+            _ = cache.saveContext()
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
         }
@@ -272,8 +273,9 @@ struct BucketServiceTests {
                 weekOf: weekOf,
                 family: CKRecord.Reference(recordID: family.id, action: .none)
             )
-            cache.upsertQuest(quest)
-            cache.upsertQuestCompletions([completion])
+            cache.context?.insert(QuestCache(from: quest))
+            cache.context?.insert(QuestCompletionCache(from: completion))
+            _ = cache.saveContext()
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)

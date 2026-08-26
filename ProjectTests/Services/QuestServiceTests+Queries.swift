@@ -22,7 +22,7 @@ extension QuestServiceTests {
 
         // Rejected seed keeps the local alreadyCompleted check below target
         // without any CloudKit read.
-        scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
+        await scaffold.cache.upsertQuestCompletions([scaffold.completion(status: .rejected)])
 
         let service = scaffold.questService
         let quest = scaffold.quest
@@ -50,10 +50,10 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
 
         // Seed quest, hero, and a pending completion into the cache only.
-        scaffold.cache.upsertQuest(scaffold.quest)
-        scaffold.cache.upsertProfile(scaffold.hero)
+        await scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertProfile(scaffold.hero)
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         // A completed sync pass stamped this family's quest/profile/completion
         // caches as fresh, so verify's cache-first resolution is trusted.
@@ -87,7 +87,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold(cloudKitOverride: cloudKit)
 
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         // reject is parent-only — override the scaffold's default hero acting
         // session to the parent performing the rejection.
@@ -114,7 +114,7 @@ extension QuestServiceTests {
     func `verify throws unauthorized when acting profile is a hero`() async throws {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         // The authenticated session is a hero; passing the hero as the
         // verifier must be rejected before any status flip occurs.
@@ -133,7 +133,7 @@ extension QuestServiceTests {
     func `reject throws unauthorized when acting profile is a hero`() async throws {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         scaffold.appState.currentProfile = scaffold.hero
         await #expect(throws: FamilyServiceError.unauthorized) {
@@ -149,11 +149,11 @@ extension QuestServiceTests {
     func `verify succeeds when acting profile is a ranger parent`() async throws {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
         // Seed quest + hero so verify's post-save reward resolution is served
         // from cache rather than a CloudKit fetch.
-        scaffold.cache.upsertQuest(scaffold.quest)
-        scaffold.cache.upsertProfile(scaffold.hero)
+        await scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertProfile(scaffold.hero)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
         scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
@@ -181,7 +181,7 @@ extension QuestServiceTests {
     func `verify throws unauthorized when acting hero passes another parent's profile`() async throws {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         // The authenticated session is a hero. Because parent Profiles are
         // visible to every family member, the hero attempts to self-approve
@@ -213,7 +213,7 @@ extension QuestServiceTests {
     func `reject throws unauthorized when acting hero passes another parent's profile`() async throws {
         let scaffold = try MarkCompleteScaffold()
         let pending = scaffold.completion(status: .pending)
-        scaffold.cache.upsertQuestCompletion(pending)
+        await scaffold.cache.upsertQuestCompletion(pending)
 
         // Same forgery attempt as verify: a hero passing another parent's
         // Profile to reject must throw unauthorized, leaving the completion
@@ -323,7 +323,7 @@ extension QuestServiceTests {
             family: scaffold.familyRef,
             id: CKRecord.ID(recordName: "tmpl_edit", zoneID: scaffold.zoneID)
         )
-        scaffold.cache.upsertQuestTemplate(template)
+        await scaffold.cache.upsertQuestTemplate(template)
 
         // Authenticated session is a hero — updateTemplate is parent-only.
         scaffold.appState.currentProfile = scaffold.hero
@@ -348,7 +348,7 @@ extension QuestServiceTests {
             family: scaffold.familyRef,
             id: CKRecord.ID(recordName: "tmpl_deactivate", zoneID: scaffold.zoneID)
         )
-        scaffold.cache.upsertQuestTemplate(template)
+        await scaffold.cache.upsertQuestTemplate(template)
 
         scaffold.appState.currentProfile = scaffold.hero
 
@@ -372,7 +372,7 @@ extension QuestServiceTests {
             family: scaffold.familyRef,
             id: CKRecord.ID(recordName: "tmpl_assign", zoneID: scaffold.zoneID)
         )
-        scaffold.cache.upsertQuestTemplate(template)
+        await scaffold.cache.upsertQuestTemplate(template)
 
         // Authenticated session is a hero — assignQuest is parent-only.
         scaffold.appState.currentProfile = scaffold.hero
@@ -419,7 +419,7 @@ extension QuestServiceTests {
     @Test
     func `updateQuest rejects non-parent`() async throws {
         let scaffold = try MarkCompleteScaffold()
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuest(scaffold.quest)
 
         scaffold.appState.currentProfile = scaffold.hero
 
@@ -431,7 +431,7 @@ extension QuestServiceTests {
     @Test
     func `unassignQuest rejects a stranger hero`() async throws {
         let scaffold = try MarkCompleteScaffold()
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuest(scaffold.quest)
 
         // A non-parent hero who is NOT the quest's assignee cannot unassign
         // another hero's quest.
@@ -454,7 +454,7 @@ extension QuestServiceTests {
     @Test
     func `unassignQuest rejects unauthenticated actor`() async throws {
         let scaffold = try MarkCompleteScaffold()
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuest(scaffold.quest)
 
         scaffold.appState.currentProfile = nil
 
@@ -466,7 +466,7 @@ extension QuestServiceTests {
     @Test
     func `unassignQuest allows the assignee hero to unassign their own quest`() async throws {
         let scaffold = try MarkCompleteScaffold()
-        scaffold.cache.upsertQuest(scaffold.quest)
+        await scaffold.cache.upsertQuest(scaffold.quest)
         scaffold.seedMockRecords([scaffold.quest])
 
         // The quest's own assignee may unassign it (self-service leave
@@ -559,7 +559,7 @@ extension QuestServiceTests {
             family: scaffold.familyRef,
             id: CKRecord.ID(recordName: "tmpl_aon", zoneID: scaffold.zoneID)
         )
-        scaffold.cache.upsertQuestTemplate(template)
+        await scaffold.cache.upsertQuestTemplate(template)
 
         // Default: inherits false from template
         let qDefault = try await scaffold.questService.assignQuest(

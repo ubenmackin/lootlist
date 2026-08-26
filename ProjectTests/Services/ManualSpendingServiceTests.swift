@@ -134,7 +134,7 @@ struct SpendingServiceTests {
             source: "manual",
             family: familyRef
         )
-        cache.upsertLedgerEntry(entry)
+        await cache.upsertLedgerEntry(entry)
         #expect(!cache.fetchLedgerEntries(profileRecordName: hero.id.recordName).isEmpty)
 
         try await service.delete(entry)
@@ -218,7 +218,7 @@ struct SpendingServiceTests {
             source: "manual",
             family: makeFamilyRef(zoneID)
         )
-        cache.upsertLedgerEntry(entry)
+        await cache.upsertLedgerEntry(entry)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: actor)
 
         do {
@@ -252,7 +252,7 @@ struct SpendingServiceTests {
             source: "manual",
             family: makeFamilyRef(zoneID)
         )
-        cache.upsertLedgerEntry(entry)
+        await cache.upsertLedgerEntry(entry)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         try await service.delete(entry)
@@ -281,7 +281,7 @@ struct SpendingServiceTests {
             source: "manual",
             family: makeFamilyRef(zoneID)
         )
-        cache.upsertLedgerEntry(entry)
+        await cache.upsertLedgerEntry(entry)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: parent)
 
         try await service.delete(entry)
@@ -310,7 +310,7 @@ struct SpendingServiceTests {
             family: makeFamilyRef(zoneID),
             id: CKRecord.ID(recordName: "rt-period1", zoneID: zoneID)
         )
-        cache.upsertLedgerEntry(questEntry)
+        await cache.upsertLedgerEntry(questEntry)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
 
         do {
@@ -344,8 +344,8 @@ struct SpendingServiceTests {
             createdBy: CKRecord.ID(recordName: "parentB", zoneID: zoneID),
             id: CKRecord.ID(recordName: "famB", zoneID: zoneID)
         )
-        cache.upsertFamily(familyA)
-        cache.upsertFamily(familyB)
+        await cache.upsertFamily(familyA)
+        await cache.upsertFamily(familyB)
 
         let heroRefA = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let familyRefA = CKRecord.Reference(recordID: familyA.id, action: .none)
@@ -358,7 +358,7 @@ struct SpendingServiceTests {
             family: familyRefA,
             id: heroRefA
         )
-        cache.upsertProfile(hero)
+        await cache.upsertProfile(hero)
 
         let legacyFamilyB = LedgerEntryCache(
             recordName: "legacy_famB_entry",
@@ -370,7 +370,7 @@ struct SpendingServiceTests {
             source: "manual",
             changeTag: "v1"
         )
-        cache.upsertLedgerEntry(legacyFamilyB.toLedgerEntry(zoneID: zoneID))
+        await cache.upsertLedgerEntry(legacyFamilyB.toLedgerEntry(zoneID: zoneID))
 
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: familyA, actingProfile: hero)
         cache.ledgerEntryFetchScopes = []
@@ -548,7 +548,8 @@ struct SpendingServiceTests {
             family: familyRef,
             id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
         )
-        cache.upsertLedgerEntry(entry)
+        cache.context?.insert(LedgerEntryCache(from: entry))
+        _ = cache.saveContext()
     }
 
     @Test

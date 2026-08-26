@@ -447,9 +447,7 @@ final class AppLifecycleCoordinator {
         guard let appState,
               !appState.isZoneOwner,
               let family = appState.family,
-              let zoneID = appState.familyZoneID,
-              let cacheService = appState.cacheService,
-              let syncCoordinator
+              let zoneID = appState.familyZoneID
         else {
             return
         }
@@ -491,81 +489,54 @@ final class AppLifecycleCoordinator {
             let serverEntryNames = Set(entries.map(\.id.recordName))
             let serverCompletionNames = Set(completions.map(\.id.recordName))
             let serverPeriodNames = Set(periods.map(\.id.recordName))
-            let staleQuests = cacheService.fetchQuests(family: family.id.recordName)
-                .filter { !serverQuestNames.contains($0.recordName) }
-            let staleEntries = cacheService.fetchLedgerEntries(family: family.id.recordName)
-                .filter { !serverEntryNames.contains($0.recordName) }
-            let staleCompletions = cacheService.fetchQuestCompletions(family: family.id.recordName)
-                .filter { !serverCompletionNames.contains($0.recordName) }
-            let stalePeriods = cacheService.fetchAllowancePeriods(family: family.id.recordName)
-                .filter { !serverPeriodNames.contains($0.recordName) }
-            for staleQuest in staleQuests {
-                cacheService.invalidate(
-                    identity: ScopedRecordIdentity(
-                        databaseScope: .shared,
-                        zoneID: zoneID,
-                        recordID: CKRecord.ID(recordName: staleQuest.recordName, zoneID: zoneID),
-                        familyRecordName: family.id.recordName
-                    ),
-                    type: .quest
-                )
-            }
-            for staleEntry in staleEntries {
-                cacheService.invalidate(
-                    identity: ScopedRecordIdentity(
-                        databaseScope: .shared,
-                        zoneID: zoneID,
-                        recordID: CKRecord.ID(recordName: staleEntry.recordName, zoneID: zoneID),
-                        familyRecordName: family.id.recordName
-                    ),
-                    type: .ledgerEntry
-                )
-            }
-            for staleCompletion in staleCompletions {
-                cacheService.invalidate(
-                    identity: ScopedRecordIdentity(
-                        databaseScope: .shared,
-                        zoneID: zoneID,
-                        recordID: CKRecord.ID(recordName: staleCompletion.recordName, zoneID: zoneID),
-                        familyRecordName: family.id.recordName
-                    ),
-                    type: .questCompletion
-                )
-            }
-            for stalePeriod in stalePeriods {
-                cacheService.invalidate(
-                    identity: ScopedRecordIdentity(
-                        databaseScope: .shared,
-                        zoneID: zoneID,
-                        recordID: CKRecord.ID(recordName: stalePeriod.recordName, zoneID: zoneID),
-                        familyRecordName: family.id.recordName
-                    ),
-                    type: .allowancePeriod
-                )
-            }
 
-            // Hydrated rows must ride the single ingestion pipeline rather than
-            // being upserted directly: a direct write drops the record's
-            // encoded system fields and can clobber unsynced local edits.
-            // The round-trip through `toRecord()` preserves them.
+            // An entirely empty snapshot usually means the shared scope has not
+            // settled yet (fresh join, account recovery) rather than a genuinely
+            // emptied family; pruning against it would wipe the local cache.
+            guard !serverQuestNames.isEmpty || !serverEntryNames.isEmpty
+                || !serverCompletionNames.isEmpty || !serverPeriodNames.isEmpty
+            else { return }
+
+            // Records travel as CKRecords and are re-parsed canonically so each
+            // upsert keeps its changeTag and encoded system fields; a direct
+            // domain-struct write would drop them and clobber unsynced local
+            // edits on the next merge.
             let inboundRecords = quests.map { $0.toRecord() }
                 + entries.map { $0.toRecord() }
                 + completions.map { $0.toRecord() }
                 + periods.map { $0.toRecord() }
-            guard !inboundRecords.isEmpty else { return }
-            guard let engineCoordinator = syncCoordinator as? CKSyncEngineCoordinator else {
-                logger.info("Participant cache reconciliation skipped without a sync engine coordinator")
+            guard let backgroundCache = appState.backgroundCacheActor else {
+                logger.info("Participant cache reconciliation skipped without a background cache actor")
                 return
             }
-            await engineCoordinator.delegateHandler.ingest(
+            // Upsert and prune land in one transaction: a failure leaves rows
+            // in place for the next pass instead of invalidating ahead of
+            // their replacement. Reconciliation is not a user event — any
+            // notifications these records warranted already fired on whichever
+            // device authored them.
+            guard let outcome = await backgroundCache.reconcileParticipantSet(
                 records: inboundRecords,
+                validRecordNamesByType: [
+                    .quest: serverQuestNames,
+                    .ledgerEntry: serverEntryNames,
+                    .questCompletion: serverCompletionNames,
+                    .allowancePeriod: serverPeriodNames
+                ],
+                familyRecordName: family.id.recordName,
                 databaseScope: .shared,
-                zoneID: zoneID,
-                // Hydration is a server→local reconciliation pass, not a new
-                // event the user acted on — the records it ingests already
-                // fired their notifications on whichever device authored them.
-                notifiesOnCompletion: false
+                zoneID: zoneID
             )
+            else { return }
+
+            // Failures log here rather than flowing into the sync-pass
+            // counters: reconciliation runs outside the fetch pass they gate.
+            if !outcome.commitSucceeded {
+                logger.error(
+                    "Participant cache reconciliation commit failed; \(outcome.recordCount, privacy: .public) record(s) left for the next pass"
+                )
+            } else if outcome.parseFailures > 0 {
+                logger.warning("Participant cache reconciliation dropped \(outcome.parseFailures, privacy: .public) unparseable record(s)")
+            }
         } catch {
             logger.error("Participant cache reconciliation failed: \(error, privacy: .private)")
         }
@@ -621,6 +592,11 @@ final class AppLifecycleCoordinator {
         defer { exitManualSync() }
 
         logger.info("Starting manual sync")
+        if let concrete = syncCoordinator as? CKSyncEngineCoordinator,
+           concrete.privateSyncEngine == nil, concrete.sharedSyncEngine == nil
+        {
+            concrete.initializeEngines()
+        }
         await syncCoordinator?.fetchChanges()
         await syncCoordinator?.sendPendingChanges()
         await reconcileParticipantCacheFromSharedDatabase()
