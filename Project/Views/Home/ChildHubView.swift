@@ -147,22 +147,7 @@ struct ChildHubView: View {
                     profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
                 )
             }
-            .task {
-                if viewModel == nil {
-                    viewModel = ChildHubViewModel(
-                        appState: appState,
-                        cacheService: AppDependencies.shared?.cacheService
-                    )
-                }
-                if treasuryViewModel == nil {
-                    treasuryViewModel = TreasuryViewModel(
-                        treasury: treasury,
-                        spending: spending,
-                        appState: appState
-                    )
-                }
-                rebuild()
-            }
+            .task { ensureViewModels() }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedTemplates) { _, _ in rebuild() }
@@ -455,6 +440,23 @@ struct ChildHubView: View {
     }
 
     // MARK: - Rebuild
+
+    private func ensureViewModels() {
+        ViewLifecycle.ensure(&viewModel, factory: {
+            ChildHubViewModel(
+                appState: appState,
+                cacheService: AppDependencies.shared?.cacheService
+            )
+        })
+        ViewLifecycle.ensure(&treasuryViewModel, factory: {
+            TreasuryViewModel(
+                treasury: treasury,
+                spending: spending,
+                appState: appState
+            )
+        })
+        rebuild()
+    }
 
     private func rebuild() {
         appState.updateCurrentProfileFromCache()

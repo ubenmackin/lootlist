@@ -50,15 +50,7 @@ struct HeroBoardView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Hero Board")
             .navigationBarTitleDisplayMode(.large)
-            .task {
-                if viewModel == nil {
-                    viewModel = HeroBoardViewModel(
-                        boardService: HeroBoardService(questService: questService),
-                        appState: appState
-                    )
-                }
-                rebuildViewModel()
-            }
+            .task { ensureViewModel() }
             .refreshable {
                 rebuildViewModel()
             }
@@ -70,6 +62,15 @@ struct HeroBoardView: View {
             }
             .toastOverlay()
         }
+    }
+
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            HeroBoardViewModel(
+                boardService: HeroBoardService(questService: questService),
+                appState: appState
+            )
+        }, rebuild: { _ in rebuildViewModel() })
     }
 
     private func rebuildViewModel() {

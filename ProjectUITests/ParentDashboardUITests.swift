@@ -87,9 +87,7 @@ final class ParentDashboardUITests: XCTestCase {
     func testKidsSavingsGoalsShowsPerChildSectionsAndProgress() {
         openChildAccount(Self.mayaRecordName)
 
-        let savingsGoalsLink = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH 'View savings goals for'")
-        ).firstMatch
+        let savingsGoalsLink = anyElement("heroDetail.savingsGoalsNavCard")
         XCTAssertTrue(savingsGoalsLink.waitForExistence(timeout: 10.0), "Savings Goals entry point should render on the child detail screen")
         savingsGoalsLink.tap()
 
@@ -104,14 +102,25 @@ final class ParentDashboardUITests: XCTestCase {
         let mayaArtCard = scrollToElement(anyElement("kidsGoals.goalCard-goal_maya_art"))
         XCTAssertTrue(mayaArtCard.exists, "Maya's seeded goal card should render")
 
-        let mayaEditLink = scrollToElement(anyElement("kidsGoals.editLink-\(Self.mayaRecordName)"))
-        XCTAssertTrue(mayaEditLink.exists,
-                      "Per-child savings settings link should render")
-
         // Progress bars are exposed through the goal card's combined
         // accessibility label rather than as separate elements.
         let leoSkateboardCard = scrollToElement(anyElement("kidsGoals.goalCard-goal_leo_skateboard"))
         waitForLabel(of: leoSkateboardCard, contains: "percent earned")
+    }
+
+    func testInterestMatchEntryPointOpensConfigurationSheet() {
+        openChildAccount(Self.mayaRecordName)
+
+        let interestMatchLink = anyElement("heroDetail.interestMatchRow")
+        XCTAssertTrue(interestMatchLink.waitForExistence(timeout: 10.0), "Interest & Match entry point should render on child hub")
+        interestMatchLink.tap()
+
+        let interestHeader = anyElement("Monthly Interest")
+        XCTAssertTrue(interestHeader.waitForExistence(timeout: 10.0), "Interest & Match sheet should render")
+
+        let cancelBtn = app.buttons["Cancel"]
+        XCTAssertTrue(cancelBtn.waitForExistence(timeout: 5.0))
+        cancelBtn.tap()
     }
 
     // MARK: - Ledger Export
@@ -119,9 +128,9 @@ final class ParentDashboardUITests: XCTestCase {
     func testLedgerExportInvokesShareSheet() {
         openChildAccount(Self.leoRecordName)
 
-        let treasurySegment = app.segmentedControls.buttons["Treasury"]
-        XCTAssertTrue(treasurySegment.waitForExistence(timeout: 10.0), "Treasury segment should exist on the child detail screen")
-        treasurySegment.tap()
+        let treasuryNavCard = anyElement("heroDetail.treasuryNavCard")
+        XCTAssertTrue(treasuryNavCard.waitForExistence(timeout: 10.0), "Treasury navigation card should exist on the child detail screen")
+        treasuryNavCard.tap()
 
         let exportButton = app.buttons["square.and.arrow.up"]
         XCTAssertTrue(exportButton.waitForExistence(timeout: 10.0), "Export toolbar button should render for parents")
@@ -214,9 +223,52 @@ final class ParentDashboardUITests: XCTestCase {
         }
 
         let card = anyElement("dashboard.childAccount-\(recordName)")
+        if !card.exists {
+            popToFamilyDashboard()
+        }
+
         scrollToHittable(card)
         XCTAssertTrue(card.exists, "Child account card for \(recordName) should render")
         card.tap()
+    }
+
+    private func tapBackButton() {
+        let backButton = app.navigationBars.buttons.matching(
+            NSPredicate(format: "label != 'square.and.arrow.up' AND identifier != 'square.and.arrow.up' AND NOT (label CONTAINS[c] 'Export')")
+        ).firstMatch
+        if backButton.waitForExistence(timeout: 5.0) {
+            backButton.tap()
+        }
+    }
+
+    private func popToFamilyDashboard() {
+        // If in Treasury, pop back to Child Hub
+        if app.navigationBars["Treasury"].waitForExistence(timeout: 3.0) {
+            tapBackButton()
+        }
+        // If in Child Hub, pop back to Family Dashboard
+        let treasuryNav = anyElement("heroDetail.treasuryNavCard")
+        if treasuryNav.waitForExistence(timeout: 5.0) {
+            tapBackButton()
+        }
+        _ = anyElement("dashboard.outflowCard").waitForExistence(timeout: 5.0)
+    }
+
+    private func assertChildLedgerContains(childRecordName: String, descriptionFragment: String) {
+        openChildAccount(childRecordName)
+
+        let treasuryNavCard = anyElement("heroDetail.treasuryNavCard")
+        XCTAssertTrue(treasuryNavCard.waitForExistence(timeout: 10.0))
+        treasuryNavCard.tap()
+
+        let importedRow = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", descriptionFragment)
+        ).firstMatch
+        scrollToElement(importedRow)
+        XCTAssertTrue(importedRow.exists,
+                      "Confirmed import should place '\(descriptionFragment)' in \(childRecordName)'s ledger")
+
+        popToFamilyDashboard()
     }
 
     private func openQuickAction(_ identifier: String, expectingFieldPlaceholder placeholder: String) {
@@ -295,23 +347,6 @@ final class ParentDashboardUITests: XCTestCase {
         fallbackOption.tap()
     }
 
-    private func assertChildLedgerContains(childRecordName: String, descriptionFragment: String) {
-        openChildAccount(childRecordName)
-
-        let treasurySegment = app.segmentedControls.buttons["Treasury"]
-        XCTAssertTrue(treasurySegment.waitForExistence(timeout: 10.0))
-        treasurySegment.tap()
-
-        let importedRow = app.staticTexts.matching(
-            NSPredicate(format: "label CONTAINS[c] %@", descriptionFragment)
-        ).firstMatch
-        scrollToHittable(importedRow)
-        XCTAssertTrue(importedRow.exists,
-                      "Confirmed import should place '\(descriptionFragment)' in \(childRecordName)'s ledger")
-
-        app.navigationBars.buttons.firstMatch.tap()
-    }
-
     // MARK: - Fixture handling
 
     /// The bundled sample uses date placeholders so staged rows always fall
@@ -375,19 +410,19 @@ final class ParentDashboardUITests: XCTestCase {
         if element.waitForExistence(timeout: 2.0) {
             return element
         }
-        // Try scrolling up (swipe down) in case the element is above the current viewport
+        // Try scrolling down (swipe up) in case the element is below the current viewport
         var swipes = 0
         while !element.exists, swipes < maxSwipes {
-            app.swipeDown()
+            app.swipeUp()
             swipes += 1
             if element.waitForExistence(timeout: 2.0) {
                 return element
             }
         }
-        // Try scrolling down (swipe up) in case the element is below the current viewport
+        // Try scrolling up (swipe down) in case the element is above the current viewport
         swipes = 0
         while !element.exists, swipes < maxSwipes {
-            app.swipeUp()
+            app.swipeDown()
             swipes += 1
             if element.waitForExistence(timeout: 2.0) {
                 return element

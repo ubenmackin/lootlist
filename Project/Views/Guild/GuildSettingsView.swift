@@ -18,8 +18,6 @@ struct GuildSettingsView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
     @Environment(FamilyService.self) private var familyService
-    @Environment(InterestService.self) private var interestService
-    @Environment(MatchService.self) private var matchService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
@@ -90,30 +88,14 @@ struct GuildSettingsView: View {
                 await viewModel?.refreshInvitations()
             }
             .task {
-                if viewModel == nil {
-                    viewModel = FamilyDashboardViewModel(
-                        questService: questService,
-                        treasury: treasury,
-                        achievementService: achievementService,
-                        familyService: familyService,
-                        appState: appState
-                    )
-                }
+                ensureViewModel()
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 await lifecycleCoordinator?.performManualSync()
-                rebuildViewModel()
                 await viewModel?.refresh()
-                rebuildViewModel()
                 await viewModel?.refreshInvitations()
             }
             .onDisappear {
                 viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
-            }
-            .onAppear {
-                rebuildViewModel()
-                Task {
-                    await viewModel?.refreshInvitations()
-                }
             }
             .onChange(of: sharePresentation?.id) { _, newID in
                 if newID == nil, sharePresentation == nil {
@@ -186,6 +168,18 @@ struct GuildSettingsView: View {
         }
     }
 
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            FamilyDashboardViewModel(
+                questService: questService,
+                treasury: treasury,
+                achievementService: achievementService,
+                familyService: familyService,
+                appState: appState
+            )
+        }, rebuild: { _ in rebuildViewModel() })
+    }
+
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
         vm.rebuildLists(
@@ -211,12 +205,6 @@ struct GuildSettingsView: View {
         )
         if appState.currentProfile?.role == .guildMaster {
             GuildPayoutDefaultsSectionView(isPayoutPolicyExpanded: $isPayoutPolicyExpanded)
-        }
-        // Savings automation section. Interest config lives here; the
-        // parent-match config composes alongside it in the same area.
-        if appState.currentProfile?.role == .guildMaster {
-            GuildInterestSectionView(heroes: cachedProfiles.filter { $0.roleEnum == .hero && $0.isActive })
-            GuildMatchSectionView(heroes: cachedProfiles.filter { $0.roleEnum == .hero && $0.isActive })
         }
         GuildDangerZoneSectionView(isSigningOut: $isSigningOut)
     }

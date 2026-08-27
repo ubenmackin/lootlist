@@ -35,6 +35,14 @@ struct SpendingLogRow: Identifiable, Equatable {
         self.source = source
         self.rawCache = rawCache
     }
+
+    var bucketKind: String? {
+        rawCache?.bucketKind
+    }
+
+    var bucketKindEnum: BucketKind? {
+        bucketKind.flatMap { BucketKind(rawValue: $0) }
+    }
 }
 
 @MainActor

@@ -46,6 +46,13 @@ enum HeroTransactionMode: Sendable {
         }
     }
 
+    var actionIconName: String {
+        switch self {
+        case .deposit: "plus"
+        case .withdraw: "minus"
+        }
+    }
+
     var iconTintColor: Color {
         switch self {
         case .deposit: Color.gold
@@ -114,17 +121,27 @@ struct HeroTransactionView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(viewModel.isLoading)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                    }
+                    .accessibilityLabel("Cancel")
+                    .accessibilityIdentifier("transaction.cancelButton")
+                    .disabled(viewModel.isLoading)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(action: save) {
                         if viewModel.isLoading {
                             ProgressView()
                         } else {
-                            Text(mode.buttonTitle)
+                            Image(systemName: mode.actionIconName)
+                                .font(.body.weight(.semibold))
                         }
                     }
+                    .accessibilityLabel(mode.buttonTitle)
+                    .accessibilityIdentifier(mode == .deposit ? "transaction.depositButton" : "transaction.withdrawButton")
                     .disabled(viewModel.isLoading)
                     .modifier(OptionalForegroundModifier(color: mode.confirmButtonTintColor))
                 }

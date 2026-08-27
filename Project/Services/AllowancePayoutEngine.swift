@@ -72,11 +72,12 @@ extension TreasuryService {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
-        let entryDescription = "Quest earnings (week of \(formatter.string(from: weekOf)))"
         let zoneID = family.recordID.zoneID
 
         for share in receiving {
             let recordName = receiving.count == 1 ? baseRecordName : "\(baseRecordName)-\(share.kind.rawValue)"
+            let bucketSuffix = receiving.count > 1 ? " · \(share.kind.displayName)" : ""
+            let entryDescription = "Quest earnings (week of \(formatter.string(from: weekOf)))\(bucketSuffix)"
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(recordID: profile.id, action: .none),
                 amount: Double(share.pennies) / 100.0,

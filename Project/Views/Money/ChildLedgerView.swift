@@ -177,11 +177,33 @@ struct ChildLedgerView: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
 
-                // Subtitle: formatted relative date or short date for older
-                // entries.
-                Text(formattedDate(entry.date))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if let bucket = entry.bucketKindEnum {
+                        HStack(spacing: 3) {
+                            Image(systemName: bucket.iconSystemName)
+                                .font(.system(size: 9))
+                            Text(bucket.shortName)
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule()
+                                .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
+                        )
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+
+                        Text("•")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Subtitle: formatted relative date or short date for older
+                    // entries.
+                    Text(formattedDate(entry.date))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()

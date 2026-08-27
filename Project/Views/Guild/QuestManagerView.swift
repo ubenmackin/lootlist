@@ -71,29 +71,25 @@ struct QuestManagerView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                tabPicker
                 if let vm = viewModel {
-                    tabPicker
                     switch selectedTab {
                     case .assignments:
                         assignmentsTab(vm: vm)
                     case .templates:
                         templatesTab(vm: vm)
                     }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Manage")
             .navigationBarTitleDisplayMode(.large)
             .task {
+                ensureViewModel()
                 await lifecycleCoordinator?.performManualSync()
-                if viewModel == nil {
-                    viewModel = QuestManagerViewModel(
-                        questService: questService,
-                        familyService: familyService,
-                        appState: appState
-                    )
-                }
-                rebuildViewModel()
             }
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
@@ -181,6 +177,16 @@ struct QuestManagerView: View {
         default:
             break
         }
+    }
+
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            QuestManagerViewModel(
+                questService: questService,
+                familyService: familyService,
+                appState: appState
+            )
+        }, rebuild: { _ in rebuildViewModel() })
     }
 
     private func rebuildViewModel() {

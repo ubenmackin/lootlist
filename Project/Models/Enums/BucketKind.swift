@@ -24,4 +24,22 @@ enum BucketKind: String, CaseIterable, Sendable {
         case .longTermSave: "Long-Term Save"
         }
     }
+
+    /// Compact label for pill badges and condensed ledger rows.
+    var shortName: String {
+        switch self {
+        case .spend: "Spend"
+        case .shortTermSave: "Short Save"
+        case .longTermSave: "Long Save"
+        }
+    }
+
+    /// SF Symbol name representing each bucket.
+    var iconSystemName: String {
+        switch self {
+        case .spend: "wallet.pass.fill"
+        case .shortTermSave: "target"
+        case .longTermSave: "lock.shield.fill"
+        }
+    }
 }

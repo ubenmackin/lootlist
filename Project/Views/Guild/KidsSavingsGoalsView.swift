@@ -8,11 +8,8 @@
 import SwiftData
 import SwiftUI
 
-// WHY: FIFO allocation must stay in one helper so a future GoalService can reuse it without duplicating bucket math.
 enum GoalProgressCalculator {
-    /// Returns saved pennies per goalRecordName.
     static func allocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
-        // If any ledger row uses the deterministic contribution ID scheme, attribute directly.
         let hasContribIDs = ledgerEntries.contains { $0.recordName.hasPrefix("contrib-") }
         if hasContribIDs {
             return directContributionAllocations(goals: goals, ledgerEntries: ledgerEntries)
@@ -31,7 +28,6 @@ enum GoalProgressCalculator {
                 }
             result[goal.recordName] = max(pennies, 0)
         }
-        // Ensure archived or missing goals map to zero so callers never force-unwrap.
         for goal in goals where result[goal.recordName] == nil {
             result[goal.recordName] = 0
         }
@@ -85,8 +81,8 @@ struct KidsSavingsGoalsView: View {
     @Query private var profileCaches: [ProfileCache]
     @Query private var ledgerCaches: [LedgerEntryCache]
 
-    @State private var goalToArchive: GoalCache?
-    @State private var showArchiveConfirm: Bool = false
+    @State private var goalToEdit: GoalCache?
+    @State private var goalToDelete: GoalCache?
 
     init(familyRecordName: String? = nil, focusedProfileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
@@ -102,7 +98,7 @@ struct KidsSavingsGoalsView: View {
 
     private var heroProfiles: [ProfileCache] {
         let heroes = profileCaches.filter { $0.roleEnum == .hero && $0.isActive }
-        // Keep focused hero at top so the deep-link from HeroDetail lands without scrolling.
+        // WHY: HeroDetail deep-link must land with focused hero visible without scrolling.
         guard let focused = focusedProfileRecordName else { return heroes }
         return heroes.sorted { lhs, rhs in
             if lhs.recordName == focused {
@@ -122,7 +118,6 @@ struct KidsSavingsGoalsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
-                headerTitle
                 if heroProfiles.isEmpty {
                     emptyState
                 } else {
@@ -135,29 +130,42 @@ struct KidsSavingsGoalsView: View {
             .padding(.horizontal, 16)
         }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
-        .navigationTitle("KIDS SAVINGS GOALS")
-        .navigationBarTitleDisplayMode(.large)
-        .alert("Archive Goal?", isPresented: $showArchiveConfirm, presenting: goalToArchive) { goal in
-            Button("Archive", role: .destructive) { archive(goal) }
-            Button("Cancel", role: .cancel) { goalToArchive = nil }
+        .navigationTitle("Savings Goals")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $goalToEdit) { goal in
+            GoalEditorSheet(
+                goal: goal,
+                onSave: { draft in
+                    try await updateGoal(goal, draft: draft)
+                },
+                onDelete: {
+                    try await deleteGoal(goal)
+                }
+            )
+        }
+        .alert(
+            "Delete Goal?",
+            isPresented: Binding(
+                get: { goalToDelete != nil },
+                set: {
+                    if !$0 {
+                        goalToDelete = nil
+                    }
+                }
+            ),
+            presenting: goalToDelete
+        ) { goal in
+            Button("Delete", role: .destructive) {
+                Task {
+                    try? await deleteGoal(goal)
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                goalToDelete = nil
+            }
         } message: { goal in
-            Text("Archive \"\(goal.name)\" for \(displayName(for: goal.profileRecordName))? It will be hidden from the active goals list but kept for history.")
+            Text("Are you sure you want to delete “\(goal.name)” for \(displayName(for: goal.profileRecordName))?")
         }
-    }
-
-    private var headerTitle: some View {
-        VStack(spacing: 6) {
-            Text("KIDS SAVINGS GOALS")
-                .font(.title2.weight(.heavy))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityAddTraits(.isHeader)
-            Text("All children's savings targets in one place. Tap Edit to adjust interest and match settings.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 4)
     }
 
     private var emptyState: some View {
@@ -188,7 +196,6 @@ struct KidsSavingsGoalsView: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             heroHeader(hero: hero, accent: accent)
-            savingsConfigSummary(for: hero)
 
             if goals.isEmpty {
                 Text("No active goals")
@@ -233,68 +240,7 @@ struct KidsSavingsGoalsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            // WHY: Parents need a discoverable path to the per-child savings engine without leaving context.
-            NavigationLink(destination: GuildSettingsView(familyRecordName: familyRecordName)) {
-                HStack(spacing: 4) {
-                    Image(systemName: "gearshape")
-                        .font(.caption2.weight(.bold))
-                    Text("Edit")
-                        .font(.caption.weight(.semibold))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(accent.opacity(0.14)))
-                .foregroundStyle(accent)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Edit savings settings for \(hero.displayName)")
-            .accessibilityIdentifier("kidsGoals.editLink-\(hero.recordName)")
         }
-    }
-
-    private func savingsConfigSummary(for hero: ProfileCache) -> some View {
-        let interestText: String = {
-            guard hero.interestEnabled, let bucket = hero.interestBucketEnum else { return "Interest off" }
-            let pct = Double(hero.interestRateBps) / 100.0
-            let rate = pct.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f%%", pct) : String(format: "%.1f%%", pct)
-            let kind = bucket == .shortTermSave ? "Short-Term" : bucket == .longTermSave ? "Long-Term" : "Spend"
-            let mode = hero.interestIsCompound ? "compound" : "simple"
-            return "Interest \(rate) → \(kind) (\(mode))"
-        }()
-        let matchText: String = {
-            guard hero.matchEnabled else { return "Match off" }
-            let pct = Double(hero.matchRateBps) / 100.0
-            let rate = pct.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f%%", pct) : String(format: "%.1f%%", pct)
-            if let cap = hero.matchMonthlyCapPennies {
-                let dollars = Double(cap) / 100.0
-                return "Match \(rate) cap \(CurrencyFormatter.string(dollars))/mo"
-            }
-            return "Match \(rate) no cap"
-        }()
-
-        return HStack(spacing: 4) {
-            Image(systemName: "percent")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text("\(interestText) · \(matchText)")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-            Spacer()
-            NavigationLink(destination: GuildSettingsView(familyRecordName: familyRecordName)) {
-                Image(systemName: "pencil")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.tint)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Edit interest and match for \(hero.displayName)")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(.tertiarySystemGroupedBackground))
-        )
     }
 
     private func goalCard(goal: GoalCache, hero: ProfileCache, accent: Color) -> some View {
@@ -311,7 +257,7 @@ struct KidsSavingsGoalsView: View {
                 Text(goal.emojiIcon ?? "🎯")
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(attributedTitle(goal: goal, hero: hero))
+                    Text(goal.name)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                     if let category = goal.category, !category.isEmpty {
@@ -330,13 +276,19 @@ struct KidsSavingsGoalsView: View {
                         .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.14)))
                 }
                 Menu {
-                    Button(role: .destructive) {
-                        goalToArchive = goal
-                        showArchiveConfirm = true
+                    Button {
+                        goalToEdit = goal
                     } label: {
-                        Label("Archive Goal", systemImage: "archivebox")
+                        Label("Edit Goal", systemImage: "pencil")
                     }
-                    .disabled(!canArchiveGoals)
+                    .disabled(!canModifyGoals)
+
+                    Button(role: .destructive) {
+                        goalToDelete = goal
+                    } label: {
+                        Label("Delete Goal", systemImage: "trash")
+                    }
+                    .disabled(!canModifyGoals)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .foregroundStyle(.secondary)
@@ -374,23 +326,23 @@ struct KidsSavingsGoalsView: View {
                 .fill(Color(.tertiarySystemGroupedBackground))
         )
         .contextMenu {
-            Button(role: .destructive) {
-                goalToArchive = goal
-                showArchiveConfirm = true
+            Button {
+                goalToEdit = goal
             } label: {
-                Label("Archive Goal", systemImage: "archivebox")
+                Label("Edit Goal", systemImage: "pencil")
             }
-            .disabled(!canArchiveGoals)
+            .disabled(!canModifyGoals)
+
+            Button(role: .destructive) {
+                goalToDelete = goal
+            } label: {
+                Label("Delete Goal", systemImage: "trash")
+            }
+            .disabled(!canModifyGoals)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel(goal: goal, hero: hero, percent: percent, remainingDollars: remainingDollars))
         .accessibilityIdentifier("kidsGoals.goalCard-\(goal.recordName)")
-    }
-
-    private func attributedTitle(goal: GoalCache, hero: ProfileCache) -> String {
-        // WHY: Parent view must make ownership obvious at a glance — emoji plus "Maya's Target" avoids confusion when multiple children share a goal name.
-        let emoji = goal.emojiIcon ?? hero.avatarEmoji ?? "🎯"
-        return "\(emoji) \(hero.displayName)'s \(goal.name)"
     }
 
     private func bucketLabel(for kind: BucketKind?) -> String {
@@ -426,22 +378,35 @@ struct KidsSavingsGoalsView: View {
         return palette[abs(hash) % palette.count]
     }
 
-    // WHY: Without GoalService there is no sanctioned write path, so the archive affordance disables rather than falling back to local-only mutation.
-    private var canArchiveGoals: Bool {
+    private var canModifyGoals: Bool {
         goalService != nil
     }
 
-    private func archive(_ goal: GoalCache) {
+    private func updateGoal(_ goal: GoalCache, draft: GoalDraft) async throws {
         guard let goalService else {
-            toastManager?.show(message: "Could not archive goal. Please try again.", type: .error)
+            toastManager?.show(message: "Could not update goal.", type: .error)
             return
         }
-        Task {
-            do {
-                try await goalService.archiveGoal(goal, familyRecordName: appState.family?.id.recordName)
-            } catch {
-                toastManager?.show(message: "Could not archive goal. Please try again.", type: .error)
-            }
+        do {
+            try await goalService.updateGoal(goal, draft: draft, familyRecordName: appState.family?.id.recordName)
+            toastManager?.show(message: "Goal updated.", type: .success)
+        } catch {
+            toastManager?.show(message: "Could not update goal. Please try again.", type: .error)
+            throw error
+        }
+    }
+
+    private func deleteGoal(_ goal: GoalCache) async throws {
+        guard let goalService else {
+            toastManager?.show(message: "Could not delete goal.", type: .error)
+            return
+        }
+        do {
+            try await goalService.deleteGoal(goal, familyRecordName: appState.family?.id.recordName)
+            toastManager?.show(message: "Goal deleted.", type: .success)
+        } catch {
+            toastManager?.show(message: "Could not delete goal. Please try again.", type: .error)
+            throw error
         }
     }
 }

@@ -110,12 +110,7 @@ struct HeroHomeView: View {
             .fullScreenCover(isPresented: $showingJourneyMap) {
                 journeyMapCover
             }
-            .task {
-                if viewModel == nil {
-                    viewModel = HeroDashboardViewModel(appState: appState)
-                }
-                rebuildViewModel()
-            }
+            .task { ensureViewModel() }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
             }
@@ -398,6 +393,12 @@ struct HeroHomeView: View {
             logger.warning("HeroHomeView.gemsBalance: failed to fetch gem balance: \(error, privacy: .private)")
             return nil
         }
+    }
+
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            HeroDashboardViewModel(appState: appState)
+        }, rebuild: { _ in rebuildViewModel() })
     }
 
     private func rebuildViewModel() {
