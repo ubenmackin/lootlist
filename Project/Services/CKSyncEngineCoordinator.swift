@@ -69,6 +69,7 @@ final class CKSyncEngineCoordinator {
     var isSyncing: Bool = false
     var lastSyncedAt: Date?
     var syncError: String?
+    private(set) var lastPushReceivedAt: Date?
 
     var pendingUploadCount: Int {
         var count = 0
@@ -234,6 +235,15 @@ final class CKSyncEngineCoordinator {
 
     func enqueueRewardEvent(_ event: RewardEvent, isOwner: Bool) {
         enqueueSave(recordID: event.id, isOwner: isOwner)
+    }
+
+    /// Batch variant of `enqueueSave` — enqueues each recordID in a tight loop.
+    /// Cheap state mutation only; keeps `contributeToBucket`'s N+M saves to one
+    /// cache transaction and one logical enqueue pass.
+    func batchEnqueueSave(recordIDs: [CKRecord.ID], isOwner: Bool) {
+        for recordID in recordIDs {
+            enqueueSave(recordID: recordID, isOwner: isOwner)
+        }
     }
 
     /// Re-enqueues both records written by the conditional gem-debit
@@ -546,6 +556,7 @@ final class CKSyncEngineCoordinator {
             sharedSyncEngine = nil
             lastSyncedAt = nil
             syncError = nil
+            lastPushReceivedAt = nil
             logger.info("CKSyncEngine state reset for both private and shared databases (account: \(explicitAccountID, privacy: .private))")
             return
         }
@@ -567,7 +578,17 @@ final class CKSyncEngineCoordinator {
         sharedSyncEngine = nil
         lastSyncedAt = nil
         syncError = nil
+        lastPushReceivedAt = nil
         let logID = stableFamilyRecordName() ?? appState?.currentProfile?.id.recordName ?? "none"
         logger.info("CKSyncEngine state reset for both private and shared databases (account: \(logID, privacy: .private))")
+    }
+
+    // MARK: - Push Tracking
+
+    /// Records the time of the last inbound push or reconciliation pass.
+    /// Called from `CKSyncEngineDelegateHandler.handleIncomingZoneChanges`
+    /// and `AppLifecycleCoordinator.reconcileCacheFromCloudKit` completion.
+    func notePushReceived(at date: Date = Date()) {
+        lastPushReceivedAt = date
     }
 }

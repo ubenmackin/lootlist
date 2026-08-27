@@ -156,6 +156,7 @@
 		6E41E280C0612846283E2003 /* QuestEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20D5196A969CD5B4BE011D5B /* QuestEntity.swift */; };
 		6E61341D8B32F378D47D6CB9 /* QuestService+Completions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D31C4184B8F627D458937EC /* QuestService+Completions.swift */; };
 		6FA2480EF7ADF0CCDFBA04EF /* LedgerImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34FE13DD4A715B570394D68 /* LedgerImportService.swift */; };
+		6FB9B22B8861AE9F38FFE62C /* RecordBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3358E19E128D97849CED8D7D /* RecordBridgeTests.swift */; };
 		6FD53A560A40FCEE710A296C /* ChoreRowCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 216C19025568EED1B3FFEB60 /* ChoreRowCard.swift */; };
 		7159EF2FD2B5ED78E437733C /* DailyLoginBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1575EBBEF8423AD2BF534798 /* DailyLoginBannerView.swift */; };
 		72CF23B55240E40988F7149E /* FamilyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C47FAAAF5A2001034107C67 /* FamilyService.swift */; };
@@ -306,6 +307,7 @@
 		E34EE23B5C196960F948EBA3 /* AppSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE6285FFE10617D254E1E805 /* AppSyncCoordinator.swift */; };
 		E36683A28880AEC5B372B88E /* FamilyJoinView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6030F1A54F52EBA1F3AB0AF2 /* FamilyJoinView.swift */; };
 		E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE42F727DAE57B554FF83B5 /* ScopedRecordIdentity.swift */; };
+		E631DC9332F7895F52928787 /* BackgroundCacheActor+Maintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1340E21780794CFD5CA1E0 /* BackgroundCacheActor+Maintenance.swift */; };
 		E6422527DABCC4BFA26C4ABD /* JourneyZoneDecorations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3A5F8187EDF573AA7C593 /* JourneyZoneDecorations.swift */; };
 		E70AB0791C7BE6A45EB91F91 /* AppLifecycleCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D86F4AD3247A61B61DB1836 /* AppLifecycleCoordinatorTests.swift */; };
 		E84A0AA99B0109AC2CD5D8CF /* GoalCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88BE82D0CEA435EDBA36936 /* GoalCardView.swift */; };
@@ -378,6 +380,7 @@
 		098E28BD495DB56F9FB04926 /* CacheService+Upserts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheService+Upserts.swift"; sourceTree = "<group>"; };
 		09C85AB82ED7B176E2089731 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		09DEF8FEF0BE0600CAD65B9F /* SpendingLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingLogView.swift; sourceTree = "<group>"; };
+		0A1340E21780794CFD5CA1E0 /* BackgroundCacheActor+Maintenance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BackgroundCacheActor+Maintenance.swift"; sourceTree = "<group>"; };
 		0A411313D0D3B5E0F8A271E0 /* BucketServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BucketServiceTests.swift; sourceTree = "<group>"; };
 		0A9FD98BAD9A663A62C68DCF /* CalendarUtilsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarUtilsTests.swift; sourceTree = "<group>"; };
 		0B0EC00E4AAB40D272685DAB /* LedgerImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerImportView.swift; sourceTree = "<group>"; };
@@ -431,6 +434,7 @@
 		3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FatalCacheErrorView.swift; sourceTree = "<group>"; };
 		31F582325272A691D81E0B13 /* AutoPayoutCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPayoutCoordinator.swift; sourceTree = "<group>"; };
 		334F0806849AF68243D2E6A6 /* LootListUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		3358E19E128D97849CED8D7D /* RecordBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordBridgeTests.swift; sourceTree = "<group>"; };
 		35B40A26C97411D811F77F48 /* HeroBoardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroBoardViewModel.swift; sourceTree = "<group>"; };
 		36092757E94B117081454909 /* JourneyMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyMapView.swift; sourceTree = "<group>"; };
 		36EA737A10B28750AD5AE459 /* MatchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchService.swift; sourceTree = "<group>"; };
@@ -828,6 +832,7 @@
 				31F582325272A691D81E0B13 /* AutoPayoutCoordinator.swift */,
 				3733A863E64E1CB664EF4452 /* AvatarService.swift */,
 				8DFF66AC8F6E1EA894180119 /* BackgroundCacheActor.swift */,
+				0A1340E21780794CFD5CA1E0 /* BackgroundCacheActor+Maintenance.swift */,
 				F74A4F7F6BED8FEC9092351F /* BackgroundCacheActor+SystemFields.swift */,
 				2F4D55A65A228EFD564F4BBC /* BatchQuestFetcher.swift */,
 				F46685E47F7AB1256B295FAC /* BonusObjectiveService.swift */,
@@ -1003,6 +1008,7 @@
 				F8F44EBCC2806837BA32D571 /* QuestServiceTests+Migrations.swift */,
 				026B781537DB7624C07CE555 /* QuestServiceTests+Queries.swift */,
 				0866C01AF70A428642CA539D /* QuestServiceTests+Withdrawal.swift */,
+				3358E19E128D97849CED8D7D /* RecordBridgeTests.swift */,
 				7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */,
 				F1A9A7101EBC70CA783F90FC /* ScopedIdentityTests.swift */,
 				57E6DF9A305C00115C614D6E /* SpriteSnapshotRenderingTests.swift */,
@@ -1488,6 +1494,7 @@
 				45EC1C14F78F4C89775BD5BE /* AvatarSelectionView.swift in Sources */,
 				08CDCCB89655DC48BBC25803 /* AvatarService.swift in Sources */,
 				F4716A152964A87FF439BA7C /* AvatarView.swift in Sources */,
+				E631DC9332F7895F52928787 /* BackgroundCacheActor+Maintenance.swift in Sources */,
 				A8583FA64C5CD3647605036F /* BackgroundCacheActor+SystemFields.swift in Sources */,
 				D09F1FB036C47CA6702C67BB /* BackgroundCacheActor.swift in Sources */,
 				D0E34176AF5E13005EFE218E /* BalanceCardView.swift in Sources */,
@@ -1796,6 +1803,7 @@
 				6352FD719D25CFF60020D9E7 /* QuestServiceTests+Queries.swift in Sources */,
 				541165B4B56FB49890EC7709 /* QuestServiceTests+Withdrawal.swift in Sources */,
 				843998266FDE8735965AEE0C /* QuestServiceTests.swift in Sources */,
+				6FB9B22B8861AE9F38FFE62C /* RecordBridgeTests.swift in Sources */,
 				C33DCB3037CB75202C0E828F /* ScenarioMatrixTests.swift in Sources */,
 				15F8E71427319512CC71C5EF /* ScopedIdentityTests.swift in Sources */,
 				B332C3390E94185975D736AF /* SpriteSnapshotRenderingTests.swift in Sources */,

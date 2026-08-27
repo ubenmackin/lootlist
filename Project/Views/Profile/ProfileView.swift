@@ -179,7 +179,8 @@ struct ProfileView: View {
                 viewModel.refreshFreshness(
                     profile: appState.currentProfile,
                     family: appState.family,
-                    achievementService: achievementService
+                    achievementService: achievementService,
+                    appState: appState
                 )
             }
             .onChange(of: cachedProfileAchievements) { _, _ in recomputeCharacterFromCache() }
@@ -735,17 +736,19 @@ final class ProfileViewModel {
     func refreshFreshness(
         profile: Profile?,
         family: Family?,
-        achievementService: AchievementService
+        achievementService: AchievementService,
+        appState: AppState? = nil
     ) {
         guard let profile else { return }
         if let cache = achievementService.cacheService {
             let familyName = profile.family.recordID.recordName
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
             // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback handled at call site (FamilyService-style).
             let profileCount = cache.fetchProfileAchievements(profileRecordName: profile.id.recordName, family: familyName).count
-            let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, cachedCount: profileCount)
+            let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, scope: scope, cachedCount: profileCount)
             let achievementAuthoritative = family.map { fam in
                 let count = cache.fetchAchievements(family: fam.id.recordName).count
-                return cache.isCacheAuthoritative(familyRecordName: fam.id.recordName, type: .achievement, cachedCount: count)
+                return cache.isCacheAuthoritative(familyRecordName: fam.id.recordName, type: .achievement, scope: scope, cachedCount: count)
             } ?? true
             if profileAuthoritative, achievementAuthoritative {
                 return

@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 import os
 import SwiftData
+import Synchronization
 
 @MainActor
 @Observable
@@ -21,8 +22,12 @@ final class CacheService {
     /// service's own container so app-level wiring can hand the same instance
     /// to the sync stack. Nil for in-memory stores (unit/UI tests), where
     /// mutations fall back to the retained main-actor bodies and stay
-    /// synchronous.
-    let backgroundWriter: BackgroundCacheActor?
+    /// synchronous. Hoisted as a long-lived singleton; never recreate per-call
+    /// and never release while fetched models are alive.
+    private let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
+    var backgroundWriter: BackgroundCacheActor? {
+        backgroundWriterLock.withLock { $0 }
+    }
 
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var isBatching = false
@@ -39,9 +44,11 @@ final class CacheService {
     }
 
     let defaults: UserDefaults
+    private let inMemory: Bool
 
     init(inMemory: Bool = false, defaults: UserDefaults = .standard) throws {
         self.defaults = defaults
+        self.inMemory = inMemory
         let schema = Schema(LootListSchemaV8.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
@@ -71,9 +78,44 @@ final class CacheService {
             }
         }
         // In-memory stores keep main-actor writes so test seeding and
-        // assertions stay synchronous.
-        backgroundWriter = (!inMemory ? container : nil).map { BackgroundCacheActor(container: $0) }
+        // assertions stay synchronous. Persistent stores create the writer off
+        // the main actor to avoid inheriting main-thread affinity and stalling
+        // UI on saves. The writer is hoisted as a long-lived singleton and
+        // must never be recreated per-call.
+        if !inMemory, let container {
+            Task.detached { [weak self] in
+                let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
+                await MainActor.run { self?.attachBackgroundWriter(writer) }
+            }
+        }
         installDidSaveObserver()
+    }
+
+    /// Attaches a writer created off the main actor. The writer is hoisted as a
+    /// long-lived singleton; callers must not recreate it per-call.
+    /// WHY: Mutex-protected test-and-set ensures concurrent bootstrap paths never double-assign.
+    func attachBackgroundWriter(_ writer: BackgroundCacheActor) {
+        backgroundWriterLock.withLock { current in
+            if current == nil {
+                current = writer
+            }
+        }
+    }
+
+    /// Whether a background writer is attached; batched upserts can then
+    /// coalesce into a single `saveContext()` on that actor.
+    var hasBackgroundWriter: Bool {
+        backgroundWriterLock.withLock { $0 != nil }
+    }
+
+    /// Async bootstrap for call sites that can await before publishing. Creates
+    /// the writer off the main actor when needed and installs it before the
+    /// sync stack captures it, ensuring saves never contend on the main thread.
+    /// WHY: Mutex-guarded idempotent assignment prevents double-creation when init's Task.detached races with bootstrap.
+    func bootstrapBackgroundWriterIfNeeded() async {
+        guard !inMemory, !hasBackgroundWriter, let container else { return }
+        let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
+        attachBackgroundWriter(writer)
     }
 
     private static func errorCategory(_ error: Error) -> String {
@@ -178,23 +220,22 @@ final class CacheService {
         defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
     }
 
-    /// Single-point authoritative policy for serving cached rows without a
-    /// CloudKit refetch. WHY: freshness-only sole authority — stale cache must
-    /// re-validate via CloudKit even when non-empty; empty-cache-offline
-    /// rendering is handled explicitly at call sites, not hidden here.
-    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, cachedCount: Int) -> Bool {
-        _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored, stale non-empty must still refetch.
-        return isCacheFresh(familyRecordName: familyRecordName, type: type)
-    }
-
-    /// Scope-aware variant — same contract, resolved against a single database
-    /// scope.
+    /// Scope-aware variant — single-point authoritative policy for serving cached
+    /// rows without a CloudKit refetch against a single database scope.
     /// WHY: freshness-only sole authority — stale cache must re-validate via
     /// CloudKit even when non-empty; empty-cache-offline rendering is handled
     /// explicitly at call sites, not hidden here.
     func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, cachedCount: Int) -> Bool {
         _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored, stale non-empty must still refetch.
         return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
+    }
+
+    /// Legacy forwarding overload — preserves compatibility while the scope-aware variant is the sole authority.
+    /// WHY: Scope-isolated freshness is the only correct check; this forwarding exists only to avoid breaking existing call sites during migration.
+    @available(*, deprecated, message: "Use scope-aware isCacheAuthoritative(familyRecordName:type:scope:cachedCount:) — scope-isolated per §2")
+    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, cachedCount: Int) -> Bool {
+        _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored.
+        return isCacheFresh(familyRecordName: familyRecordName, type: type)
     }
 
     /// Invalidates legacy + both scopes. Scope-isolated — clears private/shared watermarks together (§2, CachedRecordType.fetchScopes).

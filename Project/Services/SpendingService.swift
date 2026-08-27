@@ -66,7 +66,8 @@ class SpendingService {
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
                 return filtered.map { cacheRow in
                     LedgerEntry(
                         profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),

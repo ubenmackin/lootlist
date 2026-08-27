@@ -21,13 +21,74 @@ struct SaveGateState {
 
 // MARK: - Test Doubles
 
+/// Lightweight spy that records `hydrateFromQuery` invocations while
+/// delegating to a real `CKSyncEngineDelegateHandler` backed by the test's
+/// in-memory `CacheService`/`BackgroundCacheActor`. Hydration still rides
+/// the single-save batch path.
+///
+/// WHY: `CKSyncEngineCoordinator` is `final` for Swift 6 concurrency.
+/// The spy composes a real coordinator instead of subclassing it.
+@MainActor
+final class TestSyncCoordinatorSpy {
+    /// Underlying coordinator that owns the engine lifecycle.
+    let coordinator: CKSyncEngineCoordinator
+    /// Handler that performs the single-save hydration.
+    let delegateHandler: CKSyncEngineDelegateHandler
+    /// Number of `hydrateFromQuery` calls observed.
+    var hydrateCallCount: Int {
+        delegateHandler.hydrateCallCount
+    }
+
+    init(cache: CacheService, appState: AppState, cloudKit: any CloudKitServiceProtocol, defaults: UserDefaults = .ephemeral()) {
+        let container = cache.container!
+        let bgActor = BackgroundCacheActor(container: container)
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let handler = CKSyncEngineDelegateHandler(
+            backgroundCache: bgActor,
+            conflictResolver: resolver,
+            cacheService: cache,
+            appState: appState
+        )
+        let coordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: handler,
+            appState: appState,
+            defaults: defaults
+        )
+        self.delegateHandler = handler
+        self.coordinator = coordinator
+    }
+}
+
 /// Counts CloudKit `query`/`fetch` calls and throws `networkUnavailable`
 /// for both, so tests can assert a mutation path performs zero CloudKit
 /// READS (the save path is left intact via the mock storage).
 class NetworkCountingCloudKitService: MockCloudKitService {
+    /// Optional coordinator double supplied by the scaffold for single-save testing.
+    var injectedSyncCoordinator: CKSyncEngineCoordinator?
+    /// Composition spy; when set its coordinator mirrors to `injectedSyncCoordinator`.
+    var injectedSpy: TestSyncCoordinatorSpy? {
+        didSet { injectedSyncCoordinator = injectedSpy?.coordinator }
+    }
+
     override init(zoneID: CKRecordZone.ID? = nil) {
         super.init()
         self.activeFamilyZoneID = zoneID
+    }
+
+    /// Convenience initializer that captures an optional sync coordinator double.
+    init(zoneID: CKRecordZone.ID? = nil, syncCoordinator: CKSyncEngineCoordinator? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+        self.injectedSyncCoordinator = syncCoordinator
+    }
+
+    /// Convenience initializer that captures a composition spy.
+    init(zoneID: CKRecordZone.ID? = nil, spy: TestSyncCoordinatorSpy? = nil) {
+        super.init()
+        self.activeFamilyZoneID = zoneID
+        self.injectedSpy = spy
+        self.injectedSyncCoordinator = spy?.coordinator
     }
 
     var readCallCount = 0
@@ -223,10 +284,13 @@ extension QuestServiceTests {
         let hero: Profile
         let quest: Quest
         let questRef: CKRecord.Reference
+        let syncSpy: TestSyncCoordinatorSpy?
 
         init(
             approvalMode: ApprovalMode = .parentVerify,
             cloudKitOverride: (any CloudKitServiceProtocol)? = nil,
+            syncCoordinator: Any? = nil,
+            useSingleSaveSpy: Bool = false,
             goldReward: Double = 10.0,
             xpReward: Int = 20,
             targetCount: Int = 1,
@@ -236,7 +300,8 @@ extension QuestServiceTests {
             let resolvedCloudKit = cloudKitOverride ?? MockCloudKitService()
             resolvedCloudKit.activeFamilyZoneID = zoneID
             cloudKit = resolvedCloudKit
-            cache = try CacheService(inMemory: true)
+            let defaults = UserDefaults.ephemeral()
+            cache = try CacheService(inMemory: true, defaults: defaults)
             // The XP-credit ledger now lives on CloudKit records
             // (`Quest.xpBanked` + `QuestCompletion.xpCredited`), so the reward
             // path needs no injected ledger state — the shared CloudKit mock
@@ -264,7 +329,7 @@ extension QuestServiceTests {
                 id: parentID
             )
 
-            appState = AppState(defaults: .ephemeral())
+            appState = AppState(defaults: defaults)
             appState.familyZoneID = zoneID
             appState.isZoneOwner = resolvedCloudKit.activeIsOwner
             appState.family = Family(
@@ -274,6 +339,31 @@ extension QuestServiceTests {
             )
             questService.appState = appState
             questService.xpService.appState = appState
+            // Wire appState cache so delegateHandler can resolve family scope.
+            appState.cacheService = cache
+            var resolvedSpy: TestSyncCoordinatorSpy?
+            if let spy = syncCoordinator as? TestSyncCoordinatorSpy {
+                questService.syncCoordinator = spy.coordinator
+                resolvedSpy = spy
+            } else if let coordinator = syncCoordinator as? CKSyncEngineCoordinator {
+                questService.syncCoordinator = coordinator
+            } else if let counting = resolvedCloudKit as? NetworkCountingCloudKitService {
+                if let spy = counting.injectedSpy {
+                    questService.syncCoordinator = spy.coordinator
+                    resolvedSpy = spy
+                } else if let injected = counting.injectedSyncCoordinator {
+                    questService.syncCoordinator = injected
+                } else if useSingleSaveSpy {
+                    let spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: resolvedCloudKit, defaults: defaults)
+                    questService.syncCoordinator = spy.coordinator
+                    resolvedSpy = spy
+                }
+            } else if useSingleSaveSpy {
+                let spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: resolvedCloudKit, defaults: defaults)
+                questService.syncCoordinator = spy.coordinator
+                resolvedSpy = spy
+            }
+            syncSpy = resolvedSpy
             let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
             hero = Profile(
                 displayName: "Hero",

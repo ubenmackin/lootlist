@@ -108,8 +108,29 @@ final class ChildHubViewModel {
     ) {
         guard let profile = appState.currentProfile,
               let familyName = appState.family?.id.recordName
-        else { return }
+        else {
+            bucketBalances = [:]
+            choreRows = []
+            weeklyCompleted = 0
+            weeklyGoal = 0
+            streak = 0
+            activeGoal = nil
+            return
+        }
         let profileName = profile.id.recordName
+
+        // Fail-closed when the cache row for the profile is missing (pruned or not yet reconciled).
+        if let cache = bucketService.cacheService,
+           cache.fetchProfile(recordName: profileName, family: familyName) == nil
+        {
+            bucketBalances = [:]
+            choreRows = []
+            weeklyCompleted = 0
+            weeklyGoal = 0
+            streak = 0
+            activeGoal = nil
+            return
+        }
 
         bucketBalances = bucketService.bucketBalances(profileRecordName: profileName, familyRecordName: familyName)
         let ledgerEntries = bucketService.cacheService?

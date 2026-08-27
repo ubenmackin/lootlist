@@ -17,11 +17,14 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     )
 
     private let cacheService: CacheService?
-    private let backgroundCache: BackgroundCacheActor?
+    private var backgroundCache: BackgroundCacheActor?
     private let conflictResolver: CKSyncConflictResolver
     private weak var appState: AppState?
     private weak var coordinator: CKSyncEngineCoordinator?
     private weak var notificationService: NotificationService?
+
+    /// Test-visible hydration accounting for single-save batch verification.
+    var hydrateCallCount = 0
 
     init(
         backgroundCache: BackgroundCacheActor? = nil,
@@ -46,6 +49,10 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
 
     func setNotificationService(_ notificationService: NotificationService) {
         self.notificationService = notificationService
+    }
+
+    func setBackgroundCache(_ backgroundCache: BackgroundCacheActor) {
+        self.backgroundCache = backgroundCache
     }
 
     // MARK: - CKSyncEngineDelegate Event Handling
@@ -250,10 +257,51 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         }
 
         let expectedDbScope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let (accepted, parseFailures) = processIngestRecords(
+            records,
+            databaseScope: databaseScope,
+            expectedDbScope: expectedDbScope,
+            activeFamily: activeFamily,
+            activeZone: activeZone
+        )
 
+        if parseFailures > 0 {
+            logger.warning("Ingestion dropped: \(parseFailures) record(s) failed to parse during incoming zone changes — check CKDecodingError")
+            for _ in 0 ..< parseFailures {
+                coordinator?.noteParseFailure()
+            }
+        }
+
+        guard !accepted.isEmpty else { return }
+
+        guard let backgroundCache else {
+            coordinator?.noteCacheWriteFailure()
+            logger.error("Cache write failure during incoming zone changes")
+            return
+        }
+
+        let writeSucceeded = await backgroundCache.batchUpsertParsedRecords(accepted)
+        guard writeSucceeded else {
+            coordinator?.noteCacheWriteFailure()
+            logger.error("Cache write failure during incoming zone changes")
+            return
+        }
+
+        coordinator?.noteChangesProcessed()
+        if notifiesOnCompletion {
+            await triggerSyncNotifications(for: accepted)
+        }
+    }
+
+    private func processIngestRecords(
+        _ records: [CKRecord],
+        databaseScope: CKDatabase.Scope,
+        expectedDbScope: CKDatabase.Scope,
+        activeFamily: String,
+        activeZone: CKRecordZone.ID
+    ) -> (accepted: [ParsedRecord], parseFailures: Int) {
         var accepted: [ParsedRecord] = []
         var parseFailures = 0
-
         for record in records {
             // WHY: Identity anchored on record's own zone so cross-zone records cannot self-validate and bypass the gate.
             let identity = ScopedRecordIdentity(
@@ -288,36 +336,23 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             case .ignoredSystemRecord:
                 logger.debug("Ignored system record: type=\(record.recordType, privacy: .public), id=\(record.recordID.recordName, privacy: .private)")
             default:
+                checkTransferSkew(record: record, parsed: parsed)
                 accepted.append(parsed)
             }
         }
+        return (accepted, parseFailures)
+    }
 
-        if parseFailures > 0 {
-            logger.warning("Ingestion dropped: \(parseFailures) record(s) failed to parse during incoming zone changes — check CKDecodingError")
-            for _ in 0 ..< parseFailures {
-                coordinator?.noteParseFailure()
-            }
-        }
-
-        guard !accepted.isEmpty else { return }
-
-        guard let backgroundCache else {
-            coordinator?.noteCacheWriteFailure()
-            logger.error("Cache write failure during incoming zone changes")
-            return
-        }
-
-        let writeSucceeded = await backgroundCache.batchUpsertParsedRecords(accepted)
-        guard writeSucceeded else {
-            coordinator?.noteCacheWriteFailure()
-            logger.error("Cache write failure during incoming zone changes")
-            return
-        }
-
-        coordinator?.noteChangesProcessed()
-        if notifiesOnCompletion {
-            await triggerSyncNotifications(for: accepted)
-        }
+    private func checkTransferSkew(record: CKRecord, parsed: ParsedRecord) {
+        guard case let .ledgerEntry(entry) = parsed, entry.source == "transfer" else { return }
+        let serverDate: Date? = record.creationDate ?? {
+            let data = record.encodedSystemFields
+            guard !data.isEmpty else { return nil }
+            return (try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data))?.creationDate
+        }()
+        guard let serverDate else { return }
+        // WHY: Centralized skew check so ingest and send paths share one warning string.
+        WeekMath.logTransferSkewIfNeeded(localDate: entry.date, serverDate: serverDate)
     }
 
     private func logIngestScopeMismatch(
@@ -477,6 +512,9 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         let records = changes.modifications.map(\.record)
         let eventZoneID = records.first?.recordID.zoneID ?? changes.deletions.first?.recordID.zoneID
         await handleIncomingRecordsDirectly(records, databaseScope: databaseScope, zoneID: eventZoneID)
+        // Track push age for debug overlay — records the wall-clock time of
+        // the last fetchedRecordZoneChanges delivery.
+        coordinator?.notePushReceived()
 
         // WHY: Deletion invalidation is fail-closed like ingestion — signed-out window would purge against stale scope.
         if let activeFamily = appState?.family?.id.recordName,
@@ -513,62 +551,104 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         syncEngine: CKSyncEngine
     ) async {
         if let activeFamily = appState?.family?.id.recordName {
-            // WHY: Refresh only server-stamped system fields — preserve local optimistic edits from merge path.
-            let refreshes = sentEvent.savedRecords.compactMap { savedRecord -> SystemFieldRefresh? in
-                guard let type = CachedRecordType.recordType(for: savedRecord.recordType) else {
-                    logger.debug("Skipping sent saved record with unmappable type: \(savedRecord.recordType, privacy: .public)")
-                    return nil
-                }
-                return SystemFieldRefresh(
-                    recordName: savedRecord.recordID.recordName,
-                    type: type,
-                    changeTag: savedRecord.recordChangeTag,
-                    encodedSystemFields: savedRecord.encodedSystemFields
-                )
-            }
-            // WHY: Accounting reflects actual cache writes only — save failure must surface, not collapse to no-op.
-            switch await backgroundCache?.updateSystemFields(refreshes, familyRecordName: activeFamily) ?? .noMatches {
-            case .updated:
-                coordinator?.noteChangesProcessed()
-            case .noMatches:
-                break
-            case .saveFailed:
-                logger.error("Post-send system-field refresh failed to commit for \(refreshes.count, privacy: .private) record(s)")
-                coordinator?.noteCacheWriteFailure()
-            }
+            checkSentTransferSkew(sentEvent, activeFamily: activeFamily)
+            await refreshSentSystemFields(sentEvent, activeFamily: activeFamily)
         }
+        await resolveFailedSaves(sentEvent, syncEngine: syncEngine)
+        await processSentDeletes(sentEvent, syncEngine: syncEngine)
+        processFailedDeletes(sentEvent, syncEngine: syncEngine)
+    }
 
+    private func checkSentTransferSkew(
+        _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
+        activeFamily: String
+    ) {
+        for savedRecord in sentEvent.savedRecords where savedRecord.recordType == LedgerEntry.recordType {
+            guard let source = savedRecord["source"] as? String, source == "transfer" else { continue }
+            let localDate: Date? = (savedRecord["date"] as? Date) ?? cacheService?.fetchLedgerEntry(recordName: savedRecord.recordID.recordName, family: activeFamily)?.date
+            guard let localDate else { continue }
+            let serverDate: Date? = savedRecord.creationDate ?? {
+                let data = savedRecord.encodedSystemFields
+                guard !data.isEmpty else { return nil }
+                return (try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data))?.creationDate
+            }()
+            guard let serverDate else { continue }
+            // WHY: Centralized skew check so ingest and send paths share one warning string.
+            WeekMath.logTransferSkewIfNeeded(localDate: localDate, serverDate: serverDate)
+        }
+    }
+
+    private func refreshSentSystemFields(
+        _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
+        activeFamily: String
+    ) async {
+        // WHY: Refresh only server-stamped system fields — preserve local optimistic edits from merge path.
+        let refreshes = sentEvent.savedRecords.compactMap { savedRecord -> SystemFieldRefresh? in
+            guard let type = CachedRecordType.recordType(for: savedRecord.recordType) else {
+                logger.debug("Skipping sent saved record with unmappable type: \(savedRecord.recordType, privacy: .public)")
+                return nil
+            }
+            return SystemFieldRefresh(
+                recordName: savedRecord.recordID.recordName,
+                type: type,
+                changeTag: savedRecord.recordChangeTag,
+                encodedSystemFields: savedRecord.encodedSystemFields
+            )
+        }
+        // WHY: Accounting reflects actual cache writes only — save failure must surface, not collapse to no-op.
+        switch await backgroundCache?.updateSystemFields(refreshes, familyRecordName: activeFamily) ?? .noMatches {
+        case .updated:
+            coordinator?.noteChangesProcessed()
+        case .noMatches:
+            break
+        case .saveFailed:
+            logger.error("Post-send system-field refresh failed to commit for \(refreshes.count, privacy: .private) record(s)")
+            coordinator?.noteCacheWriteFailure()
+        }
+    }
+
+    private func resolveFailedSaves(
+        _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
+        syncEngine: CKSyncEngine
+    ) async {
         for failedSave in sentEvent.failedRecordSaves {
             let record = failedSave.record
             let error = failedSave.error
             let scope = syncEngine.database.databaseScope
-
             if let resolvedRecord = await conflictResolver.resolveFailedSave(record: record, error: error, databaseScope: scope) {
                 let pendingSave = CKSyncEngine.PendingRecordZoneChange.saveRecord(resolvedRecord.recordID)
                 syncEngine.state.add(pendingRecordZoneChanges: [pendingSave])
             }
         }
+    }
 
+    private func processSentDeletes(
+        _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
+        syncEngine: CKSyncEngine
+    ) async {
+        guard let activeFamily = appState?.family?.id.recordName else { return }
+        let scope = syncEngine.database.databaseScope
+        let activeZone = appState?.familyZoneID
         // WHY: Sweep all cache types for confirmed deletes — deletions are low-frequency so full sweep has negligible cost.
-        if let activeFamily = appState?.family?.id.recordName {
-            let scope = syncEngine.database.databaseScope
-            let activeZone = appState?.familyZoneID
-            for deletedRecordID in sentEvent.deletedRecordIDs {
-                logger.info("Sent delete confirmed: \(deletedRecordID.recordName, privacy: .private)")
-                let identity = ScopedRecordIdentity(
-                    databaseScope: scope,
-                    zoneID: deletedRecordID.zoneID,
-                    recordID: deletedRecordID,
-                    familyRecordName: activeFamily
-                )
-                for type in CachedRecordType.allCases {
-                    await backgroundCache?.deleteByIdentity(identity, type: type, expectedActiveZone: activeZone)
-                }
-                coordinator?.noteChangesProcessed()
+        for deletedRecordID in sentEvent.deletedRecordIDs {
+            logger.info("Sent delete confirmed: \(deletedRecordID.recordName, privacy: .private)")
+            let identity = ScopedRecordIdentity(
+                databaseScope: scope,
+                zoneID: deletedRecordID.zoneID,
+                recordID: deletedRecordID,
+                familyRecordName: activeFamily
+            )
+            for type in CachedRecordType.allCases {
+                await backgroundCache?.deleteByIdentity(identity, type: type, expectedActiveZone: activeZone)
             }
+            coordinator?.noteChangesProcessed()
         }
+    }
 
-        // Handle failed deletes — log and retry
+    private func processFailedDeletes(
+        _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
+        syncEngine: CKSyncEngine
+    ) {
         for (recordID, error) in sentEvent.failedRecordDeletes {
             logger.error("Sent delete failed for \(recordID.recordName, privacy: .private): \(error, privacy: .private)")
             // Re-enqueue the delete for retry unless it's a permanent failure

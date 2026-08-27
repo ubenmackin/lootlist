@@ -679,6 +679,7 @@ struct ScenarioMatrixTests {
         let hero = makeHero(idName: "hero1", displayName: "Removed Hero", zoneID: zoneID)
         await sut.cache.upsertFamily(family)
         await sut.cache.upsertProfile(hero)
+        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 

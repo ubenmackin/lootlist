@@ -33,6 +33,10 @@ enum SyncOutcome: String, Sendable, Equatable {
 final class AppSyncCoordinator {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppSync")
 
+    /// Last time a CloudKit change notification was delivered. Exposed read-only
+    /// for the debug overlay to correlate silent-push health.
+    private(set) var lastNotificationReceivedAt: Date?
+
     // MARK: - Sync Events
 
     enum SyncEvent: Sendable {
@@ -111,6 +115,7 @@ final class AppSyncCoordinator {
     }
 
     func handleNotification(_ notification: CKNotification) {
+        lastNotificationReceivedAt = Date()
         // Route by notificationType (.recordZone for private DB, .database for shared DB).
         let subscriptionID: String
         switch notification.notificationType {
@@ -158,6 +163,7 @@ final class AppSyncCoordinator {
     }
 
     func handleDatabaseChange(subscriptionID: String) {
+        lastNotificationReceivedAt = Date()
         if continuations.isEmpty {
             logger.warning("Sync event dropped: no observers for recordChanged \(subscriptionID, privacy: .private)")
         }

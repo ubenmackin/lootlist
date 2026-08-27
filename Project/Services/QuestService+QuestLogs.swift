@@ -70,7 +70,8 @@ extension QuestService {
             // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback at call site (FamilyService-style).
             let isAuthoritative = await MainActor.run {
                 let count = cache.fetchQuests(family: familyName).count
-                return cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: count)
+                let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+                return cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: count)
             }
             if isAuthoritative {
                 let zoneID = family.id.zoneID
@@ -119,7 +120,8 @@ extension QuestService {
             let familyName = quest.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.questRecordName == questName }
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toQuestCompletion(zoneID: quest.id.zoneID) }
                     .sorted { $0.completedDate > $1.completedDate }
             }
@@ -152,7 +154,8 @@ extension QuestService {
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName }
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
                     .sorted { $0.completedDate > $1.completedDate }
             }
@@ -185,7 +188,8 @@ extension QuestService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toQuestCompletion(zoneID: family.id.zoneID) }
             }
         }

@@ -218,7 +218,8 @@ final class QuestService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuestTemplates(family: familyName)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questTemplate, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questTemplate, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toQuestTemplate(zoneID: family.id.zoneID) }
                     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             }
@@ -505,7 +506,8 @@ final class QuestService {
             let familyName = profile.family.recordID.recordName
             let allForFamily = cache.fetchQuests(family: familyName)
             let cached = allForFamily.filter { $0.assigneeRecordName == profileName && $0.isActive && range.contains($0.weekOf) }
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: allForFamily.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: allForFamily.count) {
                 return cached.map { $0.toQuest(zoneID: profile.id.zoneID) }
             }
         }
@@ -556,7 +558,8 @@ final class QuestService {
             let familyName = family.id.recordName
             let allForFamily = cache.fetchQuests(family: familyName)
             let cached = allForFamily.filter { $0.isActive && range.contains($0.weekOf) }
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: allForFamily.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: allForFamily.count) {
                 return cached.map { $0.toQuest(zoneID: family.id.zoneID) }
             }
         }
@@ -617,7 +620,8 @@ final class QuestService {
         let allowancePeriods: [AllowancePeriod]
         if let cache = cacheService {
             let cached = cache.fetchAllowancePeriods(family: familyName)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope, cachedCount: cached.count) {
                 allowancePeriods = cached.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
             } else {
                 let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -649,7 +653,8 @@ final class QuestService {
         let allQuests: [Quest]
         if let cache = cacheService {
             let cached = cache.fetchQuests(family: familyName).filter(\.isActive)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: cached.count) {
                 allQuests = cached.map { $0.toQuest(zoneID: family.id.zoneID) }
             } else {
                 let familyRef = CKRecord.Reference(recordID: family.id, action: .none)

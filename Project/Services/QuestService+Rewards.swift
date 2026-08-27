@@ -182,7 +182,8 @@ extension QuestService {
         let heroLogs = cache.fetchQuestCompletions(family: familyName)
             .filter { $0.completerRecordName == hero.id.recordName }
         // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback handled at call site (FamilyService-style).
-        if !cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: heroLogs.count) {
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        if !cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: heroLogs.count) {
             return hero.dailyLoginStreakDays
         }
         return StreakCalculator.computeStreak(from: heroLogs)

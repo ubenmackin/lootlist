@@ -640,4 +640,26 @@ struct QuestServiceTests {
             try await scaffold.questService.markComplete(quest: scaffold.quest, by: otherHero)
         }
     }
+
+    @Test
+    func `questService fetch via single-save spy hydrates exactly once`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let mock = MockCloudKitService(zoneID: zoneID)
+        let scaffold = try MarkCompleteScaffold(cloudKitOverride: mock, useSingleSaveSpy: true)
+        guard let spy = scaffold.syncSpy else {
+            Issue.record("Spy not created")
+            return
+        }
+        // Cache quest row is present but not marked fresh, so fetchActiveQuests must query and hydrate once.
+        scaffold.cache.invalidateAllFreshness()
+        let before = spy.hydrateCallCount
+        let quests = try await scaffold.questService.fetchActiveQuests(profile: scaffold.hero, weekOf: scaffold.quest.weekOf)
+        #expect(!quests.isEmpty)
+        #expect(spy.hydrateCallCount == before + 1, "fetchActiveQuests should hydrate exactly once via single-save batch")
+        // Subsequent cache-hit read must not re-hydrate.
+        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        let cached = try await scaffold.questService.fetchActiveQuests(profile: scaffold.hero, weekOf: scaffold.quest.weekOf)
+        #expect(!cached.isEmpty)
+        #expect(spy.hydrateCallCount == before + 1, "Cache-hit must not trigger additional hydrate")
+    }
 }

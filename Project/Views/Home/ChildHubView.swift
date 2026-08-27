@@ -18,6 +18,7 @@ struct ChildHubView: View {
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
     @Environment(QuestService.self) private var questService
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -25,6 +26,7 @@ struct ChildHubView: View {
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedProfiles: [ProfileCache]
     @Query private var currentProfileRows: [ProfileCache]
 
     @State private var viewModel: ChildHubViewModel?
@@ -62,6 +64,7 @@ struct ChildHubView: View {
         let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let currentProfileFilter = #Predicate<ProfileCache> {
             $0.recordName == targetProfile && $0.familyRecordName == targetFamily
         }
@@ -76,6 +79,7 @@ struct ChildHubView: View {
         _cachedGoals = Query(filter: goalFilter, sort: \GoalCache.createdAt)
         _cachedLedgers = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date, order: .reverse)
         _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf, order: .reverse)
+        _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
         _currentProfileRows = Query(
             filter: currentProfileFilter,
             sort: \ProfileCache.displayName
@@ -87,13 +91,38 @@ struct ChildHubView: View {
         currentProfileRows.first
     }
 
+    private var targetFamilyForFreshness: String {
+        familyRecordName ?? ""
+    }
+
+    private var isSyncingPlaceholder: Bool {
+        guard currentProfileRow == nil else { return false }
+        guard appState.authStatus == .authenticated else { return false }
+        guard !targetFamilyForFreshness.isEmpty else { return false }
+        let isEmpty = cachedQuests.isEmpty && cachedProfiles.isEmpty && cachedGoals.isEmpty
+        guard isEmpty else { return false }
+        let isFresh = appState.cacheService?.isCacheFresh(familyRecordName: targetFamilyForFreshness, type: .profile) ?? false
+        return !isFresh
+    }
+
+    private var isProfileNotFoundPlaceholder: Bool {
+        guard currentProfileRow == nil else { return false }
+        guard appState.authStatus == .authenticated else { return false }
+        guard !targetFamilyForFreshness.isEmpty else { return false }
+        return appState.cacheService?.isCacheFresh(familyRecordName: targetFamilyForFreshness, type: .profile) ?? false
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
                     header
 
-                    if let viewModel {
+                    if isSyncingPlaceholder {
+                        syncingBalanceCard
+                    } else if isProfileNotFoundPlaceholder {
+                        profileNotFoundCard
+                    } else if let viewModel {
                         balanceHeroCard(viewModel)
                         weeklyProgressCard(viewModel)
                         todaysChoresCard(viewModel)
@@ -106,6 +135,9 @@ struct ChildHubView: View {
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .refreshable {
+                await lifecycleCoordinator?.performManualSync()
+            }
             .overlay {
                 CelebrationOverlay(isPresented: showCelebration)
             }
@@ -154,35 +186,158 @@ struct ChildHubView: View {
             .onChange(of: cachedGoals) { _, _ in rebuild() }
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
+            .onChange(of: cachedProfiles) { _, _ in rebuild() }
+            .onChange(of: currentProfileRows) { _, _ in rebuild() }
         }
     }
 
     // MARK: - Header
 
+    @ViewBuilder
     private var header: some View {
-        HStack(spacing: DesignSystemConstants.Padding.medium) {
-            Text(currentProfileRow?.avatarEmoji ?? "🦸")
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
-                .overlay(Circle().strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.3), lineWidth: 1))
+        if isSyncingPlaceholder {
+            VStack(spacing: 8) {
+                ProgressView()
+                Text("Syncing your family...")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Syncing your family")
+            .accessibilityIdentifier("hub.syncingPlaceholder")
+        } else if isProfileNotFoundPlaceholder {
+            VStack(spacing: 8) {
+                Text("Profile not found — pull to refresh")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button {
+                    Task { await lifecycleCoordinator?.performManualSync() }
+                } label: {
+                    Text("Retry")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Retry sync")
+                .accessibilityIdentifier("hub.retryButton")
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Profile not found — pull to refresh")
+            .accessibilityIdentifier("hub.profileNotFoundPlaceholder")
+        } else if let row = currentProfileRow {
+            HStack(spacing: DesignSystemConstants.Padding.medium) {
+                Text(row.avatarEmoji ?? "🦸")
+                    .font(.title2)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
+                    .overlay(Circle().strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.3), lineWidth: 1))
 
-            Text("\(firstName)'s Hub")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
+                if let name = firstName {
+                    Text("\(name)'s Hub")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                } else {
+                    Text("\(row.displayName)'s Hub")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
 
-            Spacer()
+                Spacer()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("\(firstName ?? row.displayName)'s Hub")
+            .accessibilityIdentifier("hub.headerTitle")
+        } else {
+            HStack(spacing: DesignSystemConstants.Padding.medium) {
+                Text("🦸")
+                    .font(.title2)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
+                    .overlay(Circle().strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.3), lineWidth: 1))
+
+                Text("Your Hub")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Spacer()
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Your Hub")
+            .accessibilityIdentifier("hub.headerTitle")
         }
-        // Header is sole navigational identity; pending-review affordance lives in chore rows + tab badge.
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(firstName)'s Hub")
-        .accessibilityIdentifier("hub.headerTitle")
     }
 
-    private var firstName: String {
-        let name = currentProfileRow?.displayName ?? "Hero"
+    private var firstName: String? {
+        guard let name = currentProfileRow?.displayName, !name.isEmpty else { return nil }
         return name.split(separator: " ").first.map(String.init) ?? name
+    }
+
+    private var syncingBalanceCard: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("Syncing your family...")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 160)
+        .padding(DesignSystemConstants.Padding.large)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Syncing your family")
+        .accessibilityIdentifier("hub.syncingBalanceCard")
+    }
+
+    private var profileNotFoundCard: some View {
+        VStack(spacing: 16) {
+            Text("Profile not found — pull to refresh")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                Task { await lifecycleCoordinator?.performManualSync() }
+            } label: {
+                Text("Retry")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.accentColor))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Retry sync")
+            .accessibilityIdentifier("hub.retryButtonCard")
+        }
+        .frame(maxWidth: .infinity, minHeight: 160)
+        .padding(DesignSystemConstants.Padding.large)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Profile not found — pull to refresh")
+        .accessibilityIdentifier("hub.profileNotFoundCard")
     }
 
     // MARK: - Balance Hero Card
@@ -191,10 +346,19 @@ struct ChildHubView: View {
         VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.medium) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    // Warm in-card welcome; header above is sole navigational identity.
-                    Text("Hey \(firstName)! 👋")
-                        .font(.headline)
-                        .foregroundStyle(.white)
+                    if let name = firstName {
+                        Text("Hey \(name)! 👋")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                    } else if let row = currentProfileRow {
+                        Text("Hey \(row.displayName)! 👋")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                    } else {
+                        Text("Hey there! 👋")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                    }
                     Text("AVAILABLE BALANCE")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.white.opacity(0.85))

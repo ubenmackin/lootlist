@@ -152,6 +152,14 @@ final class AppState {
     /// refreshes it so views render published state instead of calling CloudKit.
     var cloudAccountStatus: CloudAccountStatus = .couldNotDetermine
 
+    /// Convenience for debug overlays — resolves the active family record name
+    /// without exposing CloudKit zone internals. Views read cached rows via
+    /// `@Query` and freshness via `CacheService`, but the family scope key
+    /// itself lives here as the single source of truth.
+    var activeFamilyRecordName: String? {
+        family?.id.recordName
+    }
+
     @ObservationIgnored
     private var quickActionTask: Task<Void, Never>?
 
