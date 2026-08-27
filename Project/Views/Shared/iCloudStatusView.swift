@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/26/26.
 //
 
+import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -13,6 +14,7 @@ import SwiftUI
         @Environment(AppState.self) private var appState
         @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
         @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+        @Environment(AppSyncCoordinator.self) private var appSyncCoordinator: AppSyncCoordinator?
         @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
         @Environment(ToastManager.self) private var toastManager: ToastManager?
 
@@ -164,6 +166,46 @@ import SwiftUI
             return lastSyncedAt.formatted(.relative(presentation: .named))
         }
 
+        // MARK: - Debug Helpers
+
+        private var debugFamilyRecordName: String? {
+            familyRecordName ?? appState.activeFamilyRecordName
+        }
+
+        private func relativeText(for date: Date?) -> String {
+            guard let date else { return "Never" }
+            return date.formatted(.relative(presentation: .named))
+        }
+
+        private func absoluteText(for date: Date?) -> String {
+            guard let date else { return "—" }
+            return date.formatted(date: .abbreviated, time: .shortened)
+        }
+
+        private func freshnessChip(isFresh: Bool) -> some View {
+            Text(isFresh ? "✅" : "❌")
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(
+                            isFresh
+                                ? Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.18)
+                                : Color(DesignSystemConstants.Colors.dangerRed).opacity(0.12)
+                        )
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(
+                            isFresh
+                                ? Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.35)
+                                : Color(DesignSystemConstants.Colors.dangerRed).opacity(0.25),
+                            lineWidth: 0.5
+                        )
+                )
+        }
+
         // MARK: Body
 
         var body: some View {
@@ -172,6 +214,7 @@ import SwiftUI
                 networkSection
                 recordCountsSection
                 cloudKitAccountSection
+                debugSyncHealthSection
                 actionsSection
             }
             .navigationTitle("iCloud Status")
@@ -340,7 +383,242 @@ import SwiftUI
             }
         }
 
-        // MARK: Section 5 — Actions
+        // MARK: Section 5 — Debug — Sync Health (DEBUG overlay, read-only)
+
+        // WHY: Field diagnosis of the silent-push regression class requires
+        // visibility beyond the user-facing status. This section is DEBUG-only
+        // (the whole view is `#if DEBUG`) so it never ships to users; it
+        // surfaces lastSyncedAt, syncError, push age, per-scope freshness,
+        // engine existence, pending counts, and lifecycle debounce state.
+        // No manual sync trigger — that control lives in AppLifecycleCoordinator.
+        private var debugSyncHealthSection: some View {
+            Section {
+                // lastSyncedAt — relative + absolute
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Last Synced")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(relativeText(for: syncCoordinator?.lastSyncedAt))
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(syncCoordinator?.lastSyncedAt == nil ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.primary)
+                    }
+                    HStack {
+                        Text(absoluteText(for: syncCoordinator?.lastSyncedAt))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+                .padding(.vertical, 2)
+
+                // syncError
+                if let error = syncCoordinator?.syncError, !error.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sync Error")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                // Push age — time since last fetchedRecordZoneChanges / reconciliation
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Last Push / Reconcile")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(relativeText(for: syncCoordinator?.lastPushReceivedAt))
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(syncCoordinator?.lastPushReceivedAt == nil ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.primary)
+                    }
+                    HStack {
+                        Text(absoluteText(for: syncCoordinator?.lastPushReceivedAt))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if let pushDate = syncCoordinator?.lastPushReceivedAt {
+                            Text(pushAgeText(for: pushDate))
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+
+                // Engine state
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Engine State")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 12) {
+                        Label(
+                            syncCoordinator?.activeEngine(isOwner: true) != nil ? "private: active" : "private: nil",
+                            systemImage: syncCoordinator?.activeEngine(isOwner: true) != nil ? "checkmark.circle.fill" : "xmark.circle"
+                        )
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(syncCoordinator?.activeEngine(isOwner: true) != nil ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary)
+
+                        Label(
+                            syncCoordinator?.activeEngine(isOwner: false) != nil ? "shared: active" : "shared: nil",
+                            systemImage: syncCoordinator?.activeEngine(isOwner: false) != nil ? "checkmark.circle.fill" : "xmark.circle"
+                        )
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(syncCoordinator?.activeEngine(isOwner: false) != nil ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary)
+                    }
+                    HStack {
+                        Text("Pending Uploads")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(syncCoordinator?.pendingUploadCount ?? 0)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle((syncCoordinator?.pendingUploadCount ?? 0) > 0 ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+
+                // Reconnect debounce
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Reconnect Debounce")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text("Interval")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(Int(lifecycleCoordinator?.reconnectDebounceIntervalForDebug ?? 45))s")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    }
+                    HStack {
+                        Text("Last Reconnect Sync")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(relativeText(for: lifecycleCoordinator?.lastReconnectTriggeredSyncAtForDebug))
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let lastReconnect = lifecycleCoordinator?.lastReconnectTriggeredSyncAtForDebug {
+                        HStack {
+                            Text(absoluteText(for: lastReconnect))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+
+                // AppSyncCoordinator last fetch / notification
+                if let lastNotification = appSyncCoordinator?.lastNotificationReceivedAt {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Push Notification")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Text("Last Push Notification")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text(relativeText(for: lastNotification))
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text(absoluteText(for: lastNotification))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                    }
+                    .padding(.vertical, 2)
+                } else {
+                    HStack {
+                        Text("Last Push Notification")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("No push yet")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                // Per-scope freshness — ✅/❌ chips per CachedRecordType
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Per-Scope Freshness")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("private / shared — ✅ fresh  ❌ stale")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    ForEach(CachedRecordType.allCases, id: \.rawValue) { type in
+                        let privateFresh = appState.cacheService?.isCacheFresh(
+                            familyRecordName: debugFamilyRecordName ?? "",
+                            type: type,
+                            scope: .private
+                        ) ?? false
+                        let sharedFresh = appState.cacheService?.isCacheFresh(
+                            familyRecordName: debugFamilyRecordName ?? "",
+                            type: type,
+                            scope: .shared
+                        ) ?? false
+                        HStack {
+                            Text(type.rawValue)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            HStack(spacing: 6) {
+                                HStack(spacing: 2) {
+                                    Text("P")
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundStyle(.secondary)
+                                    freshnessChip(isFresh: privateFresh)
+                                }
+                                HStack(spacing: 2) {
+                                    Text("S")
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundStyle(.secondary)
+                                    freshnessChip(isFresh: sharedFresh)
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+            } header: {
+                Text("Debug — Sync Health")
+            } footer: {
+                Text("Read-only diagnostics for push regression triage. No manual sync here — use Sync Now above.")
+                    .font(.caption2)
+            }
+        }
+
+        private func pushAgeText(for date: Date) -> String {
+            let seconds = Int(Date().timeIntervalSince(date))
+            if seconds < 60 {
+                return "\(seconds)s ago"
+            }
+            if seconds < 3600 {
+                return "\(seconds / 60)m ago"
+            }
+            if seconds < 86400 {
+                return "\(seconds / 3600)h ago"
+            }
+            return "\(seconds / 86400)d ago"
+        }
+
+        // MARK: Section 6 — Actions
 
         private var actionsSection: some View {
             Section {

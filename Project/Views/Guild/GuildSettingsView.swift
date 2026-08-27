@@ -30,6 +30,9 @@ struct GuildSettingsView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedGoals: [GoalCache]
+    @Query private var cachedGemLedgers: [GemLedgerCache]
+    @Query private var cachedRewardEvents: [RewardEventCache]
 
     @State private var draftFamilyName: String = ""
     @State private var isEditingFamilyName: Bool = false
@@ -56,6 +59,9 @@ struct GuildSettingsView: View {
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
         let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
+        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
+        let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
+        let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
 
         _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
         _cachedQuests = Query(filter: questFilter, sort: \QuestCache.weekOf, order: .reverse)
@@ -64,107 +70,128 @@ struct GuildSettingsView: View {
         _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf, order: .reverse)
         _cachedAchievements = Query(filter: achievementFilter, sort: \AchievementCache.name)
         _cachedProfileAchievements = Query(filter: profileAchievementFilter, sort: \ProfileAchievementCache.earnedDate, order: .reverse)
+        _cachedGoals = Query(filter: goalFilter, sort: \GoalCache.createdAt)
+        _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: \GemLedgerCache.createdAt, order: .reverse)
+        _cachedRewardEvents = Query(filter: rewardEventFilter, sort: \RewardEventCache.timestamp, order: .reverse)
+    }
+
+    private var isRevokeAlertPresented: Binding<Bool> {
+        Binding(
+            get: { revokeError != nil },
+            set: { isPresented in
+                if !isPresented {
+                    revokeError = nil
+                }
+            }
+        )
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    if let vm = viewModel {
-                        loadedContent(vm: vm)
-                    } else {
-                        loadingPlaceholder
+            scrollViewContent
+                .background(Color(.systemGroupedBackground).ignoresSafeArea())
+                .navigationTitle("Guild Settings")
+                .navigationBarTitleDisplayMode(.large)
+                .refreshable {
+                    await lifecycleCoordinator?.performManualSync()
+                    await viewModel?.refresh()
+                    rebuildViewModel()
+                    await viewModel?.refreshInvitations()
+                }
+                .task {
+                    ensureViewModel()
+                    viewModel?.subscribeToSyncEvents(appSyncCoordinator)
+                    await lifecycleCoordinator?.performManualSync()
+                    await viewModel?.refresh()
+                    await viewModel?.refreshInvitations()
+                }
+                .onDisappear {
+                    viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
+                }
+                .modifier(CacheObserversModifier(
+                    cachedProfiles: cachedProfiles,
+                    cachedQuests: cachedQuests,
+                    cachedCompletions: cachedCompletions,
+                    cachedLedgers: cachedLedgers,
+                    cachedAllowancePeriods: cachedAllowancePeriods,
+                    cachedAchievements: cachedAchievements,
+                    cachedProfileAchievements: cachedProfileAchievements,
+                    cachedGoals: cachedGoals,
+                    cachedGemLedgers: cachedGemLedgers,
+                    cachedRewardEvents: cachedRewardEvents,
+                    onProfilesChanged: {
+                        rebuildViewModel()
+                        Task { await viewModel?.refreshInvitations() }
+                    },
+                    onCacheChanged: {
+                        rebuildViewModel()
+                    }
+                ))
+                .sheet(isPresented: $showRolePicker) {
+                    InviteRolePickerView { role in
+                        await presentInviteShare(for: role)
                     }
                 }
-                .padding(.vertical, 14)
-            }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("Guild Settings")
-            .navigationBarTitleDisplayMode(.large)
-            .refreshable {
-                await lifecycleCoordinator?.performManualSync()
-                await viewModel?.refresh()
-                rebuildViewModel()
-                await viewModel?.refreshInvitations()
-            }
-            .task {
-                ensureViewModel()
-                viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                await lifecycleCoordinator?.performManualSync()
-                await viewModel?.refresh()
-                await viewModel?.refreshInvitations()
-            }
-            .onDisappear {
-                viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
-            }
-            .onChange(of: sharePresentation?.id) { _, newID in
-                if newID == nil, sharePresentation == nil {
-                    Task { await viewModel?.refreshInvitations() }
+                .sheet(item: $sharePresentation) { presentation in
+                    CloudSharingControllerWrapper(share: presentation.share, container: presentation.container)
                 }
-            }
-            .onChange(of: cachedProfiles) { _, _ in
-                rebuildViewModel()
-                Task { await viewModel?.refreshInvitations() }
-            }
-            .onChange(of: cachedQuests) { _, _ in rebuildViewModel() }
-            .onChange(of: cachedCompletions) { _, _ in rebuildViewModel() }
-            .onChange(of: cachedLedgers) { _, _ in rebuildViewModel() }
-            .onChange(of: cachedAllowancePeriods) { _, _ in rebuildViewModel() }
-            .onChange(of: cachedAchievements) { _, _ in rebuildViewModel() }
-            .onChange(of: cachedProfileAchievements) { _, _ in rebuildViewModel() }
-            .sheet(isPresented: $showRolePicker) {
-                InviteRolePickerView { role in
-                    await presentInviteShare(for: role)
+                .sheet(item: $heroToEdit) { hero in
+                    HeroSettingsView(hero: hero)
+                        .onDisappear {
+                            Task { await viewModel?.refresh() }
+                        }
                 }
-            }
-            .sheet(item: $sharePresentation) { presentation in
-                CloudSharingControllerWrapper(share: presentation.share, container: presentation.container)
-            }
-            .sheet(item: $heroToEdit) { hero in
-                HeroSettingsView(hero: hero)
-                    .onDisappear {
-                        Task { await viewModel?.refresh() }
-                    }
-            }
-            .onChange(of: viewModel?.loadError) { _, newError in
-                if let error = newError {
-                    toastManager.show(message: error, type: .error)
-                    revokeError = error
-                }
-            }
-            .alert("Revoke Failed",
-                   isPresented: Binding(
-                       get: { revokeError != nil },
-                       set: {
-                           if !$0 {
-                               revokeError = nil
-                           }
-                       }
-                   )) {
-                Button("OK", role: .cancel) { revokeError = nil }
-            } message: {
-                Text(revokeError ?? "Could not revoke access. Please try again.")
-            }
-            .alert("Transfer Guild Master Role?",
-                   isPresented: $isRoleTransferConfirmPresented)
-            {
-                Button("Transfer Ownership", role: .destructive) {
-                    if let target = showRoleTransferConfirm {
-                        Task { await confirmTransferGuildMaster(to: target) }
+                .onChange(of: sharePresentation?.id) { _, newID in
+                    if newID == nil, sharePresentation == nil {
+                        Task { await viewModel?.refreshInvitations() }
                     }
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("\(showRoleTransferConfirm?.displayName ?? "member") will become the Guild Master. You will become a Ranger.")
-            }
-            .overlay {
-                if isSigningOut {
-                    ProgressView("Signing out…")
-                        .padding(24)
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                .onChange(of: viewModel?.loadError) { _, newError in
+                    if let error = newError {
+                        toastManager.show(message: error, type: .error)
+                        revokeError = error
+                    }
+                }
+                .alert("Revoke Failed",
+                       isPresented: isRevokeAlertPresented)
+                {
+                    Button("OK", role: .cancel) { revokeError = nil }
+                } message: {
+                    Text(revokeError ?? "Could not revoke access. Please try again.")
+                }
+                .alert("Transfer Guild Master Role?",
+                       isPresented: $isRoleTransferConfirmPresented)
+                {
+                    Button("Transfer Ownership", role: .destructive) {
+                        if let target = showRoleTransferConfirm {
+                            Task { await confirmTransferGuildMaster(to: target) }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("\(showRoleTransferConfirm?.displayName ?? "member") will become the Guild Master. You will become a Ranger.")
+                }
+                .overlay {
+                    if isSigningOut {
+                        ProgressView("Signing out…")
+                            .padding(24)
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+                }
+        }
+    }
+
+    private var scrollViewContent: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                if let vm = viewModel {
+                    loadedContent(vm: vm)
+                } else {
+                    loadingPlaceholder
                 }
             }
+            .padding(.vertical, 14)
         }
     }
 
@@ -196,6 +223,7 @@ struct GuildSettingsView: View {
     @ViewBuilder
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         familyHeaderSection
+        savingsOverviewSection
         GuildRosterSectionView(
             viewModel: vm,
             onRebuild: { rebuildViewModel() },
@@ -207,6 +235,74 @@ struct GuildSettingsView: View {
             GuildPayoutDefaultsSectionView(isPayoutPolicyExpanded: $isPayoutPolicyExpanded)
         }
         GuildDangerZoneSectionView(isSigningOut: $isSigningOut)
+    }
+
+    private var savingsOverviewSection: some View {
+        let heroes = cachedProfiles.filter { $0.roleEnum == .hero }
+        return Group {
+            if !heroes.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Savings Overview")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(cachedGoals.count) goals · \(cachedGemLedgers.count) gems")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    .padding(.horizontal, 16)
+
+                    VStack(spacing: 0) {
+                        ForEach(heroes, id: \.recordName) { hero in
+                            HStack(spacing: 10) {
+                                if let emoji = hero.avatarEmoji, !emoji.isEmpty {
+                                    Text(emoji).font(.body)
+                                } else {
+                                    Image(systemName: "person.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(hero.displayName)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("\(hero.splitPercentSpend)% spend · \(hero.splitPercentShort)% short · \(hero.splitPercentLong)% long")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    if hero.interestEnabled || hero.matchEnabled {
+                                        HStack(spacing: 6) {
+                                            if hero.interestEnabled {
+                                                Label("\(Double(hero.interestRateBps) / 100.0, specifier: "%g")% interest", systemImage: "chart.line.uptrend.xyaxis")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                                            }
+                                            if hero.matchEnabled {
+                                                Label("\(Double(hero.matchRateBps) / 100.0, specifier: "%g")% match", systemImage: "arrow.trianglehead.branch")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                                            }
+                                        }
+                                    }
+                                    Text("Gems: \(hero.gemsTotal) · Rewards: \(cachedRewardEvents.filter { $0.profileRecordName == hero.recordName }.count)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            if hero.recordName != heroes.last?.recordName {
+                                Divider().padding(.leading, 44)
+                            }
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(.secondarySystemGroupedBackground))
+                    )
+                    .padding(.horizontal)
+                }
+            }
+        }
     }
 
     private var familyHeaderSection: some View {
@@ -333,5 +429,36 @@ struct GuildSettingsView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - CacheObserversModifier
+
+private struct CacheObserversModifier: ViewModifier {
+    let cachedProfiles: [ProfileCache]
+    let cachedQuests: [QuestCache]
+    let cachedCompletions: [QuestCompletionCache]
+    let cachedLedgers: [LedgerEntryCache]
+    let cachedAllowancePeriods: [AllowancePeriodCache]
+    let cachedAchievements: [AchievementCache]
+    let cachedProfileAchievements: [ProfileAchievementCache]
+    let cachedGoals: [GoalCache]
+    let cachedGemLedgers: [GemLedgerCache]
+    let cachedRewardEvents: [RewardEventCache]
+    let onProfilesChanged: () -> Void
+    let onCacheChanged: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: cachedProfiles) { _, _ in onProfilesChanged() }
+            .onChange(of: cachedQuests) { _, _ in onCacheChanged() }
+            .onChange(of: cachedCompletions) { _, _ in onCacheChanged() }
+            .onChange(of: cachedLedgers) { _, _ in onCacheChanged() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in onCacheChanged() }
+            .onChange(of: cachedAchievements) { _, _ in onCacheChanged() }
+            .onChange(of: cachedProfileAchievements) { _, _ in onCacheChanged() }
+            .onChange(of: cachedGoals) { _, _ in onCacheChanged() }
+            .onChange(of: cachedGemLedgers) { _, _ in onCacheChanged() }
+            .onChange(of: cachedRewardEvents) { _, _ in onCacheChanged() }
     }
 }

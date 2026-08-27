@@ -531,8 +531,13 @@ final class GoalService {
         ) ?? []
 
         let allocations = Self.allocate(amountPennies: amountPennies, goals: activeGoals)
+        guard !allocations.isEmpty else { return [] }
 
-        // Persist each allocation as an immutable ledger entry.
+        // Collect all ledger entries first — deterministic IDs preserved via
+        // `contrib-{goalRecordName}-{sourceEventID}`; FIFO cascade already
+        // resolved by `allocate()` above.
+        var ledgerEntries: [LedgerEntry] = []
+        ledgerEntries.reserveCapacity(allocations.count)
         for alloc in allocations {
             let recordName = Self.contributionRecordName(
                 goalRecordName: alloc.goalRecordName,
@@ -548,41 +553,57 @@ final class GoalService {
                 family: CKRecord.Reference(recordID: family.id, action: .none),
                 id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
             )
-            await cacheService?.upsertLedgerEntry(entry)
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwner = appState.isZoneOwner
-            if isOwner != storedOwner {
-                logger.warning("GoalService.contributeToBucket ledger isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-            }
-            syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
-
+            ledgerEntries.append(entry)
             logger.info("Contributed \(alloc.allocatedPennies)p to goal \(alloc.goalRecordName, privacy: .private)")
         }
 
-        // Detect completions: if a contribution fills the remaining target
-        // exactly, mark the goal complete and celebrate.
-        let completedGoalNames = detectCompletions(allocations: allocations, goals: activeGoals)
-        for goalCache in completedGoalNames {
+        // Detect completions before the batch write so `priorContributedPennies`
+        // sums from cache before these ledger entries land (read-before-write).
+        let completedGoalCaches = detectCompletions(allocations: allocations, goals: activeGoals)
+        var completedGoals: [Goal] = []
+        completedGoals.reserveCapacity(completedGoalCaches.count)
+        for goalCache in completedGoalCaches {
             let domain = goalCache.toGoal(zoneID: family.id.zoneID)
             var updated = domain
             updated.completedAt = contributionDate
-            await cacheService?.upsertGoal(updated)
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwner2 = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwner2 = appState.isZoneOwner
-            if isOwner2 != storedOwner2 {
-                logger.warning("GoalService.contributeToBucket completion isOwner corrected via creator anchor: stored=\(storedOwner2) resolved=\(isOwner2)")
-            }
-            syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner2)
+            completedGoals.append(updated)
+        }
 
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        // Deterministic routing must survive zone flips across the await: resolve before the write.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("GoalService.contributeToBucket isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+
+        // Single transaction: one `saveContext()` for all ledger entries + completions.
+        if !ledgerEntries.isEmpty || !completedGoals.isEmpty {
+            await cacheService?.batchUpsertLedgerEntriesAndGoals(
+                ledgerEntries: ledgerEntries,
+                goals: completedGoals,
+                familyRecordName: family.id.recordName
+            )
+        }
+
+        var allRecordIDs: [CKRecord.ID] = []
+        allRecordIDs.reserveCapacity(ledgerEntries.count + completedGoals.count)
+        allRecordIDs.append(contentsOf: ledgerEntries.map(\.id))
+        allRecordIDs.append(contentsOf: completedGoals.map(\.id))
+        if !allRecordIDs.isEmpty {
+            // Enqueue is cheap state mutation; one tight loop or batch call.
+            if let syncCoordinator {
+                syncCoordinator.batchEnqueueSave(recordIDs: allRecordIDs, isOwner: isOwner)
+            }
+        }
+
+        for completed in completedGoals {
             triggerGoalCompletionFeedback(
-                goalName: domain.name,
+                goalName: completed.name,
                 profile: CKRecord.Reference(recordID: profile.id, action: .none),
                 family: family
             )
-
-            logger.info("Goal \"\(domain.name, privacy: .private)\" completed via contribution")
+            logger.info("Goal \"\(completed.name, privacy: .private)\" completed via contribution")
         }
 
         return allocations

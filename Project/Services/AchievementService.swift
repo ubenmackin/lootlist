@@ -150,7 +150,8 @@ final class AchievementService {
         if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
             let cachedIDs = Set(cached.map(\.recordName))
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, cachedCount: cached.count),
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope, cachedCount: cached.count),
                defaults.allSatisfy({ cachedIDs.contains($0.id.recordName) })
             {
                 return
@@ -357,7 +358,8 @@ final class AchievementService {
         let familyName = family.id.recordName
         if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, cachedCount: cached.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
             }
         }
@@ -779,7 +781,8 @@ private extension AchievementService {
 
         if let cache = cacheService {
             let cachedQuests = cache.fetchQuests(family: familyName)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: cachedQuests.count) {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: cachedQuests.count) {
                 for questCacheRow in cachedQuests {
                     let questObj = questCacheRow.toQuest(zoneID: zoneID)
                     questCache[questObj.id] = questObj

@@ -19,7 +19,7 @@ final class CKSyncConflictResolver {
     )
 
     private let cacheService: CacheService?
-    private let backgroundCache: BackgroundCacheActor?
+    private var backgroundCache: BackgroundCacheActor?
     private weak var toastManager: ToastManager?
     private weak var appState: AppState?
     weak var coordinator: CKSyncEngineCoordinator?
@@ -36,6 +36,10 @@ final class CKSyncConflictResolver {
         self.toastManager = toastManager
         self.appState = appState
         self.coordinator = coordinator
+    }
+
+    func setBackgroundCache(_ backgroundCache: BackgroundCacheActor) {
+        self.backgroundCache = backgroundCache
     }
 
     /// Resolves a single failed record save. Returns a resolved `CKRecord` if the record

@@ -213,6 +213,10 @@ final class BucketService {
 
         let now = Date()
         let todayBucket = WeekMath.dayBucket(for: now)
+        logger
+            .debug(
+                "BucketService.transfer local dayBucket \(todayBucket, privacy: .public) transferID \(transferID ?? "nil", privacy: .private) timestamp \(now.timeIntervalSince1970, privacy: .public)"
+            )
         // WHY: Deterministic-ID contract — transferID must be dayBucket-from-to when supplied.
         if let transferID, !transferID.isEmpty {
             let expectedID = "\(todayBucket)-\(from.rawValue)-\(to.rawValue)"
@@ -283,6 +287,22 @@ final class BucketService {
             profileRecordName: profileRecordName,
             family: familyRecordName
         )
+        #if DEBUG
+            // WHY: Clock skew across UTC midnight can bypass the per-day guard or mismatch transferID; transfers within 2h of midnight hint at this window.
+            for entry in entries where entry.source == "transfer" && entry.fromBucket == from.rawValue && entry.toBucket == to.rawValue {
+                let entryBucket = WeekMath.dayBucket(for: entry.date)
+                guard entryBucket != dayBucket, abs(entryBucket - dayBucket) == 1 else { continue }
+                if WeekMath.isNearUTCMidnight(entry.date) {
+                    let eb = entryBucket
+                    let tb = dayBucket
+                    let ed = entry.date
+                    logger
+                        .warning(
+                            "Transfer near-midnight skew hint: existing dayBucket \(eb, privacy: .public) vs today \(tb, privacy: .public) date \(ed, privacy: .private) within 2h of UTC midnight"
+                        )
+                }
+            }
+        #endif
         return entries.contains { entry in
             entry.source == "transfer"
                 && entry.fromBucket == from.rawValue

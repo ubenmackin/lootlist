@@ -340,6 +340,22 @@ enum RecordBridge {
         Goal.recordType: Goal.managedFieldKeys
     ]
 
+    static func logTransferSkewIfNeeded(localDate: Date, serverDate: Date) {
+        // WHY: Single centralized skew helper lives in WeekMath; RecordBridge forwards to keep one warning string.
+        WeekMath.logTransferSkewIfNeeded(localDate: localDate, serverDate: serverDate)
+    }
+
+    static func checkTransferSkew(for record: CKRecord, localEntry: LedgerEntry) {
+        guard record.recordType == LedgerEntry.recordType, localEntry.source == "transfer" else { return }
+        let serverDate: Date? = record.creationDate ?? {
+            let data = record.encodedSystemFields
+            guard !data.isEmpty else { return nil }
+            return (try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data))?.creationDate
+        }()
+        guard let serverDate else { return }
+        WeekMath.logTransferSkewIfNeeded(localDate: localEntry.date, serverDate: serverDate)
+    }
+
     private static func prepareRecord(_ record: CKRecord, in zoneID: CKRecordZone.ID) -> CKRecord {
         if record.recordType != Family.recordType {
             if let familyRef = record["family"] as? CKRecord.Reference {

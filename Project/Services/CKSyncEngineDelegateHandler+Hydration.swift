@@ -16,12 +16,11 @@ extension CKSyncEngineDelegateHandler {
         databaseScope: CKDatabase.Scope,
         zoneID: CKRecordZone.ID
     ) async {
-        // Hydrated rows must ride the single ingestion pipeline rather than
-        // being upserted directly: a direct write drops the record's encoded
-        // system fields and can clobber unsynced local edits. The round-trip
-        // through `toRecord()` preserves them.
         let records = models.map { $0.toRecord() }
         guard !records.isEmpty else { return }
+        // WHY: Hydration must ride ingest() to preserve encodedSystemFields/changeTag for optimistic locking; otherwise RecordBridge would synthesize stale records without server system fields.
+        // Single-save batch accounting: track hydration entry for single-save verification.
+        hydrateCallCount += 1
         await ingest(
             records: records,
             databaseScope: databaseScope,

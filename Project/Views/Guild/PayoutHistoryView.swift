@@ -22,6 +22,7 @@ struct PayoutHistoryView: View {
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var cachedGoals: [GoalCache]
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var selectedPeriod: AllowancePeriodCache?
@@ -50,6 +51,7 @@ struct PayoutHistoryView: View {
         let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
             sort: \AllowancePeriodCache.weekOf,
@@ -72,6 +74,10 @@ struct PayoutHistoryView: View {
             filter: ledgerFilter,
             sort: \LedgerEntryCache.date,
             order: .reverse
+        )
+        _cachedGoals = Query(
+            filter: goalFilter,
+            sort: \GoalCache.createdAt
         )
     }
 
@@ -144,8 +150,15 @@ struct PayoutHistoryView: View {
                 .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
                 .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
                 .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
+                .onChange(of: cachedLedgers) { _, _ in rebuildFromCache() }
+                .onChange(of: cachedGoals) { _, _ in }
                 .sheet(item: $selectedPeriod) { period in
-                    PayoutDetailSheet(period: period, heroName: heroName(for: period))
+                    PayoutDetailSheet(
+                        period: period,
+                        heroName: heroName(for: period),
+                        ledgerEntries: cachedLedgers.filter { $0.profileRecordName == period.profileRecordName },
+                        goals: cachedGoals.filter { $0.profileRecordName == period.profileRecordName }
+                    )
                 }
         }
     }
@@ -326,7 +339,28 @@ struct PayoutHistoryView: View {
 private struct PayoutDetailSheet: View {
     let period: AllowancePeriodCache
     let heroName: String
+    var ledgerEntries: [LedgerEntryCache] = []
+    var goals: [GoalCache] = []
     @Environment(\.dismiss) private var dismiss
+
+    private var weekBucketEntries: [LedgerEntryCache] {
+        let weekStart = period.weekOf
+        // Ledger entries are already filtered to the hero; further filter to the payout week
+        // using WeekMath's half-open range semantics via date comparison.
+        let calendar = Calendar.current
+        guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) else { return [] }
+        return ledgerEntries.filter { $0.date >= weekStart && $0.date < weekEnd }
+    }
+
+    private var goalContributions: [(goal: GoalCache, amount: Double)] {
+        goals.compactMap { goal in
+            let prefix = "contrib-\(goal.recordName)-"
+            let total = weekBucketEntries
+                .filter { $0.recordName.hasPrefix(prefix) }
+                .reduce(0.0) { $0 + $1.amount }
+            return total > 0 ? (goal, total) : nil
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -339,6 +373,27 @@ private struct PayoutDetailSheet: View {
                     LabeledContent("Total Earned", value: CurrencyFormatter.string(period.totalEarned))
                     if let paidDate = period.paidDate {
                         LabeledContent("Paid Date", value: paidDate.formatted(.dateTime.month().day().year()))
+                    }
+                }
+
+                if !weekBucketEntries.isEmpty {
+                    Section("Bucket Split") {
+                        ForEach(BucketKind.allCases, id: \.self) { kind in
+                            let kindTotal = weekBucketEntries
+                                .filter { $0.bucketKind == kind.rawValue || $0.toBucket == kind.rawValue }
+                                .reduce(0.0) { $0 + $1.amount }
+                            if kindTotal != 0 {
+                                LabeledContent(kind.displayName, value: CurrencyFormatter.string(kindTotal))
+                            }
+                        }
+                    }
+                }
+
+                if !goalContributions.isEmpty {
+                    Section("Goal Contributions") {
+                        ForEach(goalContributions, id: \.goal.recordName) { item in
+                            LabeledContent(item.goal.name, value: CurrencyFormatter.string(item.amount))
+                        }
                     }
                 }
             }

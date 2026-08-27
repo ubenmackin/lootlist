@@ -6,8 +6,13 @@
 //
 
 import Foundation
+import os
 
 enum WeekMath {
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
+        category: "WeekMath"
+    )
     /// (targetWeekday%7)+1 rotates payoutDay to cycle start — Sat 7 wraps to Sun 1; iso8601UTC is UTC no-DST.
     /// weekRange is half-open [start,end) — end exclusive, Date==end is next week (gate at Monday 00:00).
     static func startOfWeek(for date: Date, payoutDay: PayoutDay = .sunday) -> Date {
@@ -70,6 +75,22 @@ enum WeekMath {
     /// Single-source UTC day bucket so bucket transfers and week cycles share one timezone.
     static func dayBucket(for date: Date) -> Int {
         Int(Calendar.iso8601UTC.startOfDay(for: date).timeIntervalSince1970 / 86400)
+    }
+
+    // WHY: Clock skew across UTC midnight can make local dayBucket differ from server dayBucket; compare server creationDate to local entry date for observability.
+    static func logTransferSkewIfNeeded(localDate: Date, serverDate: Date) {
+        let localBucket = dayBucket(for: localDate)
+        let serverBucket = dayBucket(for: serverDate)
+        if localBucket != serverBucket {
+            logger.warning("Transfer dayBucket skew detected: local \(localBucket, privacy: .public) vs server \(serverBucket, privacy: .public)")
+        }
+    }
+
+    // WHY: Clock skew across UTC midnight can bypass the per-day guard or mismatch transferID; transfers within 2h of midnight hint at this window.
+    static func isNearUTCMidnight(_ date: Date, threshold: TimeInterval = AppConstants.Sync.nearMidnightThreshold) -> Bool {
+        let start = Calendar.iso8601UTC.startOfDay(for: date)
+        let seconds = date.timeIntervalSince(start)
+        return seconds < threshold || seconds > 86400 - threshold
     }
 
     /// Today/Yesterday checks ride the shared UTC day bucket so day grouping

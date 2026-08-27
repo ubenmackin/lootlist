@@ -505,10 +505,13 @@ struct HeroDashboardViewModelTests {
         let familyRef: CKRecord.Reference
 
         init() throws {
-            cache = try CacheService(inMemory: true)
-            appState = AppState()
+            let defaults = UserDefaults.ephemeral()
+            cache = try CacheService(inMemory: true, defaults: defaults)
+            appState = AppState(defaults: defaults)
             appState.family = SampleData.family
             appState.currentProfile = SampleData.heroProfile
+            cache.context?.insert(ProfileCache(from: SampleData.heroProfile))
+            _ = cache.saveContext()
             viewModel = ChildHubViewModel(appState: appState, cacheService: cache)
             profileRef = CKRecord.Reference(recordID: SampleData.hero1ID, action: .none)
             familyRef = CKRecord.Reference(recordID: SampleData.familyID, action: .none)

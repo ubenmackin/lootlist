@@ -64,6 +64,7 @@ extension Profile: CloudKitRecord {
             "level",
             "gems",
             "streakShields",
+            "mascotCompanion",
             "iCloudUserID",
             "family",
             "isActive",

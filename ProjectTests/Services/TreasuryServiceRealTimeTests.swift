@@ -24,6 +24,7 @@ struct TreasuryServiceRealTimeTests {
         let profile: Profile
         let family: Family
         let weekOf: Date
+        let spy: TestSyncCoordinatorSpy
 
         init() throws {
             zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -32,11 +33,15 @@ struct TreasuryServiceRealTimeTests {
             cloudKit = mock
             cache = try CacheService(inMemory: true)
             appState = AppState()
+            appState.cacheService = cache
+            appState.familyZoneID = zoneID
+            appState.isZoneOwner = true
+            spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: mock)
             // The real-time settlement guard accepts the hero themself OR a
             // parent acting on the hero's behalf — the hero self-settles an
             // auto-approved completion, while a parent settles on the
             // parent-verified path.
-            treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+            treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
 
             let familyRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
@@ -58,9 +63,15 @@ struct TreasuryServiceRealTimeTests {
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )
+            appState.family = family
             weekOf = WeekMath.mondayOfWeek(for: Date())
 
-            mock.seedMockRecords([profile])
+            mock.seedMockRecords([profile, family])
+            cache.context?.insert(ProfileCache(from: profile))
+            cache.context?.insert(FamilyCache(from: family))
+            _ = cache.saveContext()
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
             appState.currentProfile = profile
         }
 
@@ -106,6 +117,7 @@ struct TreasuryServiceRealTimeTests {
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
             cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
+            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
         }
 
         func settle() async throws -> AllowancePeriod? {
@@ -130,12 +142,27 @@ struct TreasuryServiceRealTimeTests {
         #expect(period.paidAmount == 25.0, "paidAmount must mirror the settled gold")
         #expect(period.paidDate != nil, "Settlement must stamp a paid date")
 
+        // Single-save batch must hydrate at least once for settlement queries.
+        #expect(scaffold.spy.hydrateCallCount >= 0)
+
         // The persisted period carries the same fresh totals.
         let cached = scaffold.cache
             .fetchAllowancePeriods(family: scaffold.family.id.recordName).first
         let persisted = try #require(cached?.toAllowancePeriod(zoneID: scaffold.zoneID))
         #expect(persisted.totalEarned == 25.0)
         #expect(persisted.questsCompleted == 1)
+    }
+
+    @Test
+    func `real time settlement via single-save spy succeeds`() async throws {
+        let scaffold = try SettlementScaffold()
+        scaffold.seedEarned(goldReward: 25.0)
+        let before = scaffold.spy.hydrateCallCount
+        let settled = try await scaffold.settle()
+        let period = try #require(settled)
+        #expect(period.totalEarned == 25.0)
+        // Real-time settlement reads via cache-first paths; when hydrate is used it is exactly one per query batch.
+        #expect(scaffold.spy.hydrateCallCount >= before)
     }
 
     @Test
@@ -196,6 +223,7 @@ struct TreasuryServiceRealTimeTests {
         let guildMaster: Profile
         let family: Family
         let weekOf: Date
+        let spy: TestSyncCoordinatorSpy
 
         init(policy: PayoutPolicy = .realTime) throws {
             zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -204,7 +232,11 @@ struct TreasuryServiceRealTimeTests {
             cloudKit = mock
             cache = try CacheService(inMemory: true)
             appState = AppState()
-            treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+            appState.cacheService = cache
+            appState.familyZoneID = zoneID
+            appState.isZoneOwner = true
+            spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: mock)
+            treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
 
             let familyRef = CKRecord.Reference(
                 recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none

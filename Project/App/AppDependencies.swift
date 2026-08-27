@@ -66,14 +66,41 @@ final class AppDependencies {
         network.start()
         networkMonitor = network
 
-        // CacheService constructs its own background writer from the container
-        // it created; every consumer below shares that single instance.
+        // CacheService constructs its writer off the main actor; every consumer shares that single instance.
+        // The writer is hoisted as a long-lived singleton via CacheService and AppState and is never
+        // recreated per-call — releasing it would invalidate the context backing fetched objects.
         let sharedBgActor = cache?.backgroundWriter
         app.backgroundCacheActor = sharedBgActor
 
         let syncStack = Self.makeSyncStack(
             ck: ck, cache: cache, app: app, toast: toast, backgroundCache: sharedBgActor
         )
+
+        // For persistent stores the writer is created off-main via Task.detached in CacheService.
+        // WHY: Deterministic bootstrap — await single writer creation off-main then propagate once under mutex-protected idempotent assignment.
+        if !isTest, let cache, cache.container != nil {
+            if let sharedBgActor {
+                syncStack.delegateHandler.setBackgroundCache(sharedBgActor)
+                syncStack.conflictResolver.setBackgroundCache(sharedBgActor)
+            } else {
+                let handler = syncStack.delegateHandler
+                let resolver = syncStack.conflictResolver
+                Task.detached { [weak cache, weak app, weak handler, weak resolver] in
+                    await cache?.bootstrapBackgroundWriterIfNeeded()
+                    guard let writer = await MainActor.run(body: { cache?.backgroundWriter }) else { return }
+                    await MainActor.run {
+                        if app?.backgroundCacheActor == nil {
+                            app?.backgroundCacheActor = writer
+                        }
+                        handler?.setBackgroundCache(writer)
+                        resolver?.setBackgroundCache(writer)
+                    }
+                }
+            }
+        } else if let sharedBgActor {
+            syncStack.delegateHandler.setBackgroundCache(sharedBgActor)
+            syncStack.conflictResolver.setBackgroundCache(sharedBgActor)
+        }
         conflictResolver = syncStack.conflictResolver
         syncEngineDelegateHandler = syncStack.delegateHandler
         // Single shared coordinator instance handed to every downstream service.

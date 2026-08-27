@@ -237,6 +237,24 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         }
     }
 
+    func testSimulateFetchPassSettlementGatesFreshnessWhenHasParseFailuresTrue() {
+        // Direct flag path must also block stamping — single-save batch failure surfaces via hasParseFailures.
+        coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private], hasParseFailures: true)
+
+        for type in CachedRecordType.allCases {
+            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "hasParseFailures=true must block freshness for \(type)")
+        }
+    }
+
+    func testSimulateFetchPassSettlementGatesFreshnessWhenHasCacheWriteFailuresTrue() {
+        // Direct flag path must also block stamping — single-save batch failure surfaces via hasCacheWriteFailures.
+        coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private], hasCacheWriteFailures: true)
+
+        for type in CachedRecordType.allCases {
+            XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "active-family", type: type), "hasCacheWriteFailures=true must block freshness for \(type)")
+        }
+    }
+
     func testStatePersistenceWithoutAccountIDDoesNotWriteDefaultKey() {
         // When appState has no profile and no family, saving state must be safely skipped
         appState.family = nil

@@ -92,10 +92,11 @@ final class NotificationService {
         // first sync — or after `clearAll()` — the UserDefaults mirror is the
         // source of truth for first-launch continuity.
         // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback via UserDefaults at call site (FamilyService-style).
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cached = cachedPreference(for: eventType),
            let familyName = appState.family?.id.recordName,
            let cacheService,
-           cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .notificationPreference, cachedCount: 1)
+           cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .notificationPreference, scope: scope, cachedCount: 1)
         {
             return cached.enabled
         }

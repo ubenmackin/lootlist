@@ -37,6 +37,8 @@ enum AppConstants {
     enum Sync {
         static let maxPulseAttempts: Int = 3
         static let pulseDelayNanoseconds: UInt64 = 1_000_000_000
+        // WHY: 2h window around UTC midnight flags transfers that may straddle the day-bucket boundary due to clock skew.
+        static let nearMidnightThreshold: TimeInterval = 7200
     }
 
     enum Session {

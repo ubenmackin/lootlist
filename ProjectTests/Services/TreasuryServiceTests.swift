@@ -113,9 +113,14 @@ struct TreasuryServiceTests {
     @Test
     func `sumGold reads gold from cache with zero CloudKit fetches`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
+        let appState = AppState.testState()
+        appState.cacheService = cache
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        let countingCloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
+        let spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: countingCloudKit)
+        let treasury = TreasuryService(cloudKit: countingCloudKit, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
 
         let familyRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
@@ -170,6 +175,7 @@ struct TreasuryServiceTests {
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
+        appState.family = family
 
         await cache.upsertQuest(quest)
         await cache.upsertQuestCompletions([completion])
@@ -183,14 +189,22 @@ struct TreasuryServiceTests {
         // goldFromQuests would be 0 (empty mockRecords → fetch throws → try? swallows).
         #expect(breakdown.goldFromQuests == 25.0)
         #expect(breakdown.questsCount == 1)
+        // Cache-hit path must not touch CloudKit and must ride single-save spy with zero hydrations.
+        #expect(countingCloudKit.readCallCount == 0)
+        #expect(spy.hydrateCallCount == 0)
     }
 
     @Test
     func `weeklyBreakdown honors family payoutDay fallback when profile has none`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
+        let appState = AppState.testState()
+        appState.cacheService = cache
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        let countingCloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
+        let spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: countingCloudKit)
+        let treasury = TreasuryService(cloudKit: countingCloudKit, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
 
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
@@ -202,6 +216,7 @@ struct TreasuryServiceTests {
             payoutDay: .friday,
             id: familyID
         )
+        appState.family = family
         let profile = Profile(
             displayName: "Hero",
             avatarClass: .knight,
@@ -282,14 +297,21 @@ struct TreasuryServiceTests {
         // Saturday completion bucketed into the prior week, yielding 25.0/1.
         #expect(breakdown.goldFromQuests == 65.0)
         #expect(breakdown.questsCount == 2)
+        #expect(countingCloudKit.readCallCount == 0)
+        #expect(spy.hydrateCallCount == 0)
     }
 
     @Test
     func `weekly breakdown respects family level allOrNothing payout policy fallback`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
-        let cloudKit = MockCloudKitService(zoneID: zoneID)
         let cache = try CacheService(inMemory: true)
-        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache)
+        let appState = AppState.testState()
+        appState.cacheService = cache
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        let countingCloudKit = NetworkCountingCloudKitService(zoneID: zoneID)
+        let spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: countingCloudKit)
+        let treasury = TreasuryService(cloudKit: countingCloudKit, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
 
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
@@ -302,6 +324,7 @@ struct TreasuryServiceTests {
             payoutPolicy: .allOrNothing,
             id: familyID
         )
+        appState.family = family
         // Profile has default (nil) policy to inherit family default
         let profile = Profile(
             displayName: "Hero",
@@ -368,6 +391,8 @@ struct TreasuryServiceTests {
         // 1 out of 2 quests completed under family .allOrNothing policy must yield 0 gold
         #expect(breakdown.goldFromQuests == 0.0)
         #expect(breakdown.questsCount == 1)
+        #expect(countingCloudKit.readCallCount == 0)
+        #expect(spy.hydrateCallCount == 0)
     }
 
     @Test
@@ -422,6 +447,7 @@ struct TreasuryServiceTests {
         let guildMaster: Profile
         let family: Family
         let weekOf: Date
+        let spy: TestSyncCoordinatorSpy
 
         init(spendPercent: Int, shortPercent: Int, longPercent: Int) throws {
             zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
@@ -470,7 +496,8 @@ struct TreasuryServiceTests {
             appState.isZoneOwner = true
             appState.currentProfile = guildMaster
 
-            treasury = TreasuryService(cloudKit: mock, cacheService: cache, appState: appState)
+            spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: mock)
+            treasury = TreasuryService(cloudKit: mock, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
 
             // Bucket transfers require every dependency non-nil, including the
             // sync coordinator; engines stay inert under the unit-test gate.
@@ -615,5 +642,54 @@ struct TreasuryServiceTests {
 
         // One ledger row carries both sides of the movement.
         #expect(fixture.ledgerEntries().count == 4)
+    }
+
+    @Test
+    func `weeklyBreakdown via single-save spy does not double save`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let appState = AppState(defaults: defaults)
+        appState.cacheService = cache
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        let mock = MockCloudKitService(zoneID: zoneID)
+        // Seed a quest and completion into CloudKit to force hydration.
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let profile = Profile(displayName: "Hero", avatarClass: .knight, avatarPresetID: "knight_01", role: .hero, iCloudUserID: profileID, family: familyRef, id: profileID)
+        let family = Family(name: "Hydrate Guild", createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        appState.family = family
+        appState.currentProfile = profile
+        let monday = WeekMath.mondayOfWeek(for: Date())
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: profileID, action: .none),
+            goldReward: 25.0,
+            xpReward: 50,
+            scheduleType: .weeklyFlexible,
+            isAllOrNothing: false,
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            createdBy: familyRef,
+            family: familyRef,
+            name: "Hydrate Quest",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        )
+        var completion = QuestCompletion(
+            quest: CKRecord.Reference(recordID: quest.id, action: .none),
+            completedBy: CKRecord.Reference(recordID: profileID, action: .none),
+            approvalMode: .autoApprove,
+            weekOf: monday,
+            family: familyRef
+        )
+        completion.verificationStatus = .autoApproved
+        mock.seedMockRecords([profile, family, quest, completion])
+        let spy = TestSyncCoordinatorSpy(cache: cache, appState: appState, cloudKit: mock, defaults: defaults)
+        let treasury = TreasuryService(cloudKit: mock, cacheService: cache, appState: appState, syncCoordinator: spy.coordinator)
+        // Cache is empty and not fresh, so weeklyBreakdown will query and hydrate.
+        let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
+        #expect(breakdown.goldFromQuests == 25.0)
+        #expect(spy.hydrateCallCount == 1)
     }
 }

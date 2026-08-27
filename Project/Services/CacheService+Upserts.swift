@@ -469,6 +469,74 @@ extension CacheService {
         )
     }
 
+    /// Batch upserts ledger entries and goals in one transaction.
+    /// WHY: canonical grouped-family batch lives on BackgroundCacheActor via
+    /// batchUpsertWithoutSave with isServerSync=false and single saveContext();
+    /// this wrapper delegates there to avoid duplicating grouping, fan-out, and
+    /// family-mismatch logic. In-memory/test stores coalesce via withBatch so
+    /// only one main-context save fires, preserving deterministic IDs and FIFO.
+    func batchUpsertLedgerEntriesAndGoals(
+        ledgerEntries: [LedgerEntry],
+        goals: [Goal],
+        familyRecordName: String? = nil
+    ) async {
+        guard !ledgerEntries.isEmpty || !goals.isEmpty else { return }
+        if let backgroundWriter {
+            _ = await backgroundWriter.batchUpsertLedgerEntriesAndGoals(
+                ledgerEntries: ledgerEntries,
+                goals: goals,
+                familyRecordName: familyRecordName
+            )
+            return
+        }
+        // WHY: in-memory fallback keeps the same single-save, isServerSync=false
+        // contract via withBatch tight-loop; no grouped fan-out duplication.
+        withBatch {
+            for entry in ledgerEntries {
+                let fam = familyRecordName ?? entry.family.recordID.recordName
+                if let explicit = familyRecordName, explicit != entry.family.recordID.recordName {
+                    logFamilyMismatch(
+                        action: "Explicit family mismatch rejecting",
+                        entityName: "LedgerEntry batch upsert",
+                        recordName: entry.id.recordName,
+                        requestedFamily: explicit,
+                        actualFamily: entry.family.recordID.recordName
+                    )
+                    continue
+                }
+                applyUpsert(
+                    entry,
+                    type: LedgerEntryCache.self,
+                    recordName: entry.id.recordName,
+                    familyRecordName: fam,
+                    isServerSync: false,
+                    entityName: "LedgerEntry"
+                )
+            }
+            for goal in goals {
+                let fam = familyRecordName ?? goal.family.recordID.recordName
+                if let explicit = familyRecordName, explicit != goal.family.recordID.recordName {
+                    logFamilyMismatch(
+                        action: "Explicit family mismatch rejecting",
+                        entityName: "Goal batch upsert",
+                        recordName: goal.id.recordName,
+                        requestedFamily: explicit,
+                        actualFamily: goal.family.recordID.recordName
+                    )
+                    continue
+                }
+                applyUpsert(
+                    goal,
+                    type: GoalCache.self,
+                    recordName: goal.id.recordName,
+                    familyRecordName: fam,
+                    isServerSync: false,
+                    entityName: "Goal"
+                )
+            }
+        }
+    }
+
     func upsertProfileAchievement(_ pa: ProfileAchievement, family familyRecordName: String? = nil, isServerSync: Bool = false) async {
         if let backgroundWriter {
             await backgroundWriter.upsertDomainModel(

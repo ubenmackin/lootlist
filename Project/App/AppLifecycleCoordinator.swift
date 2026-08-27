@@ -78,6 +78,21 @@ final class AppLifecycleCoordinator {
     /// snapshot pass — connectivity flaps within this window coalesce into one.
     private static let reconnectSyncMinimumInterval: TimeInterval = 45
 
+    // MARK: - Debug Overlay Exposure
+
+    // WHY: Read-only debug overlay surface exposes Mutex-protected reconnect state so push health can be correlated with debounce without exposing the Mutex itself; interval references reconnectSyncMinimumInterval to avoid duplicating the 45s magic.
+
+    /// Last time a reconnect-triggered sync was issued. Exposed read-only for
+    /// the debug overlay so push health can be correlated with debounce state.
+    var lastReconnectTriggeredSyncAtForDebug: Date? {
+        state.withLock { $0.lastReconnectTriggeredSyncAt }
+    }
+
+    /// Debounce interval applied to reconnect-triggered syncs. Read-only for overlay.
+    var reconnectDebounceIntervalForDebug: TimeInterval {
+        Self.reconnectSyncMinimumInterval
+    }
+
     // MARK: - Test Accessors
 
     /// Exposed for tests to assert the coordinator's current phase via the public enum.
@@ -590,6 +605,11 @@ final class AppLifecycleCoordinator {
             } else if let backgroundCache = appState.backgroundCacheActor {
                 let parsed = snapshot.inboundRecords.map { ParsedRecord.parse(record: $0) }
                 await backgroundCache.batchUpsertParsedRecords(parsed)
+            }
+            // Track push age for debug overlay — completion of the snapshot
+            // reconciliation pass represents a successful push-driven refresh.
+            if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
+                concrete.notePushReceived()
             }
         } catch {
             logger.error("Cache reconciliation failed: \(error, privacy: .private)")
