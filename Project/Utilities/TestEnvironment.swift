@@ -51,6 +51,11 @@ enum TestEnvironment {
         CommandLine.arguments.contains("--uitesting")
     }
 
+    /// True only when running unit tests (hosted in app process without UI test launch args).
+    static var isRunningUnitTests: Bool {
+        isRunningUnitOrUITests && !isRunningUITests
+    }
+
     /// The scenario selected via `--uitest-seed=<name>`. Falls back to the
     /// legacy bare flags (`--onboarding`, `--parent`) so pre-existing suites
     /// keep their behavior, and finally to the seeded child default. Unknown

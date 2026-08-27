@@ -8,6 +8,13 @@
 import CloudKit
 import Foundation
 
+/// Container for resolved invitation link metadata and diagnostic fields.
+struct InvitationLinkResolution: Sendable {
+    let metadata: CKShare.Metadata
+    let title: String
+    let zoneName: String
+}
+
 // MARK: - Invitation Management
 
 extension FamilyService {
@@ -30,6 +37,24 @@ extension FamilyService {
     /// caller must verify that guard first.
     func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare {
         try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
+    }
+
+    /// Pairs a prepared invitation share with the container the sharing sheet
+    /// needs to register it with `UICloudSharingController`. Assembled here so
+    /// views never reach through to the raw CloudKit container.
+    func invitePresentation(for share: CKShare) -> CloudSharePresentation {
+        CloudSharePresentation(share: share, container: cloudKit.container)
+    }
+
+    /// Resolves a pasted invitation link into share acceptance metadata. The
+    /// title and zone name ride along so callers can log the resolution
+    /// without touching raw CloudKit types; container access stays behind the
+    /// service boundary.
+    func resolveInvitationLink(_ url: URL) async throws -> InvitationLinkResolution {
+        let metadata = try await cloudKit.shareMetadata(for: url)
+        let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
+        let zoneName = metadata.hierarchicalRootRecordID?.zoneID.zoneName ?? "nil"
+        return InvitationLinkResolution(metadata: metadata, title: title, zoneName: zoneName)
     }
 
     // MARK: Participant Queries

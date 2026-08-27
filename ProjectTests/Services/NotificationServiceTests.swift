@@ -92,7 +92,7 @@ struct NotificationServiceTests {
         #expect(!saved.id.recordName.isEmpty)
 
         // Cache holds the post-save row (re-upserted after the CK save).
-        let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1")
+        let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1", family: "fam1")
         #expect(cachedRows.count == 1)
         #expect(cachedRows.first?.enabled == true)
         #expect(cachedRows.first?.eventType == NotificationEventType.questAssigned.rawValue)
@@ -236,14 +236,14 @@ struct NotificationServiceTests {
 
         // Sanity: cache reflects the snapshot (pre-mutation) before the save.
         let preRow = try #require(
-            cache.fetchNotificationPreferences(profileRecordName: "hero1")
+            cache.fetchNotificationPreferences(profileRecordName: "hero1", family: "fam1")
                 .first(where: { $0.recordName == existingID.recordName })
         )
         #expect(preRow.enabled == false)
 
         _ = try await service.updatePreference(event: .questAssigned, enabled: true)
 
-        let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1")
+        let cachedRows = cache.fetchNotificationPreferences(profileRecordName: "hero1", family: "fam1")
             .filter { $0.recordName == existingID.recordName }
         #expect(
             cachedRows.count == 1,

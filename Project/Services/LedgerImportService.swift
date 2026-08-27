@@ -223,7 +223,7 @@ enum LedgerCSVParser {
         return records
     }
 
-    /// Accepts "$12.50", "(12.50)", "-12.5", "1,234.56", and bare decimals.
+    /// Accepts currency amounts like "12.50", "(12.50)", "-12.5", "1,234.56", and bare decimals.
     /// Thousands separators are stripped before numeric conversion because
     /// bank-style exports quote amounts containing commas.
     static func parseAmount(_ raw: String) -> Double? {
@@ -235,7 +235,8 @@ enum LedgerCSVParser {
             negative = true
             text = String(text.dropFirst().dropLast())
         }
-        text = text.replacingOccurrences(of: "$", with: "")
+        // WHY: Strip locale currency symbol via CurrencyFormatter so no "$" literal is hard-coded.
+        text = text.replacingOccurrences(of: CurrencyFormatter.currencySymbol, with: "")
             .replacingOccurrences(of: ",", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -376,7 +377,7 @@ final class LedgerImportService {
             throw LedgerImportError.nothingToImport
         }
 
-        let zoneID = appState.familyZoneID ?? family.id.zoneID
+        let zoneID = appState.resolvedFamilyZoneID()
         var importedCount = 0
         var skippedDuplicates = 0
 
@@ -409,7 +410,13 @@ final class LedgerImportService {
             )
 
             await cacheService.upsertLedgerEntry(entry)
-            syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwner = appState.isZoneOwner
+            if isOwner != storedOwner {
+                logger.warning("LedgerImportService.finalizeImport isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+            }
+            syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
             importedCount += 1
         }
 

@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -22,6 +21,8 @@ struct MyGoalsView: View {
     @Query private var cachedLedgers: [LedgerEntryCache]
 
     @State private var isShowingGoalEditor: Bool = false
+    @State private var goalToEdit: GoalCache?
+    @State private var goalToDelete: GoalCache?
     @State private var errorMessage: String?
 
     private let familyRecordName: String?
@@ -135,6 +136,40 @@ struct MyGoalsView: View {
                     try await saveGoal(draft)
                 }
             }
+            .sheet(item: $goalToEdit) { goal in
+                GoalEditorSheet(
+                    goal: goal,
+                    onSave: { draft in
+                        try await updateGoal(goal, draft: draft)
+                    },
+                    onDelete: {
+                        try await deleteGoal(goal)
+                    }
+                )
+            }
+            .alert(
+                "Delete Goal?",
+                isPresented: Binding(
+                    get: { goalToDelete != nil },
+                    set: {
+                        if !$0 {
+                            goalToDelete = nil
+                        }
+                    }
+                ),
+                presenting: goalToDelete
+            ) { goal in
+                Button("Delete", role: .destructive) {
+                    Task {
+                        try? await deleteGoal(goal)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    goalToDelete = nil
+                }
+            } message: { goal in
+                Text("Are you sure you want to delete “\(goal.name)”?")
+            }
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
             }
@@ -165,7 +200,38 @@ struct MyGoalsView: View {
             }
 
             ForEach(goals, id: \.recordName) { goal in
-                goalCard(for: goal)
+                Button {
+                    goalToEdit = goal
+                } label: {
+                    goalCard(for: goal)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    Button {
+                        goalToEdit = goal
+                    } label: {
+                        Label("Edit Goal", systemImage: "pencil")
+                    }
+
+                    Button(role: .destructive) {
+                        goalToDelete = goal
+                    } label: {
+                        Label("Delete Goal", systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button(role: .destructive) {
+                        goalToDelete = goal
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                    Button {
+                        goalToEdit = goal
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .tint(Color(DesignSystemConstants.Colors.accentBlue))
+                }
             }
         }
     }
@@ -200,7 +266,7 @@ struct MyGoalsView: View {
 
             // Saved / Target status line.
             HStack(spacing: 4) {
-                Text(saved, format: .currency(code: Locale.current.currency?.identifier ?? "USD"))
+                Text(CurrencyFormatter.string(saved))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(
                         isCompleted
@@ -212,7 +278,7 @@ struct MyGoalsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text(target, format: .currency(code: Locale.current.currency?.identifier ?? "USD"))
+                Text(CurrencyFormatter.string(target))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -278,7 +344,7 @@ struct MyGoalsView: View {
         return "\(name), \(percent) percent saved\(completedText)"
     }
 
-    // MARK: - Save Goal
+    // MARK: - Save, Update & Delete Goal
 
     private func saveGoal(_ draft: GoalDraft) async throws {
         guard let service = resolvedGoalService,
@@ -295,6 +361,18 @@ struct MyGoalsView: View {
             for: profile,
             family: family
         )
+        HapticsService.lightImpact()
+    }
+
+    private func updateGoal(_ goal: GoalCache, draft: GoalDraft) async throws {
+        guard let service = resolvedGoalService else { return }
+        try await service.updateGoal(goal, draft: draft, familyRecordName: familyRecordName)
+        HapticsService.lightImpact()
+    }
+
+    private func deleteGoal(_ goal: GoalCache) async throws {
+        guard let service = resolvedGoalService else { return }
+        try await service.deleteGoal(goal, familyRecordName: familyRecordName)
         HapticsService.lightImpact()
     }
 

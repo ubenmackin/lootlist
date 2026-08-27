@@ -16,18 +16,51 @@ struct CloudKitLiveIntegrationTests {
     private let container = CloudKitService.defaultContainer
     private let cloudKitService = CloudKitService()
 
+    private func withRetry<T>(maxAttempts: Int = 4, operation: () async throws -> T) async throws -> T {
+        var lastError: Error?
+        for attempt in 1 ... maxAttempts {
+            do {
+                return try await operation()
+            } catch let error as CKError {
+                lastError = error
+                if attempt < maxAttempts,
+                   error.code == .networkFailure ||
+                   error.code == .networkUnavailable ||
+                   error.code == .serviceUnavailable ||
+                   error.code == .requestRateLimited ||
+                   error.code == .zoneBusy
+                {
+                    let delay = error.retryAfterSeconds ?? Double(attempt * 2)
+                    try? await Task.sleep(for: .seconds(delay))
+                    continue
+                }
+                throw error
+            } catch {
+                throw error
+            }
+        }
+        if let lastError {
+            throw lastError
+        }
+        throw CloudKitServiceError.networkUnavailable
+    }
+
     private func createUniqueTestZone() async throws -> CKRecordZone.ID {
-        let uniqueName = "TestZone_\(UUID().uuidString.prefix(8))"
-        let zoneID = CKRecordZone.ID(zoneName: uniqueName, ownerName: CKCurrentUserDefaultName)
-        let zone = CKRecordZone(zoneID: zoneID)
-        let pvtDB = container.privateCloudDatabase
-        _ = try await pvtDB.save(zone)
-        return zoneID
+        try await withRetry {
+            let uniqueName = "TestZone_\(UUID().uuidString.prefix(8))"
+            let zoneID = CKRecordZone.ID(zoneName: uniqueName, ownerName: CKCurrentUserDefaultName)
+            let zone = CKRecordZone(zoneID: zoneID)
+            let pvtDB = container.privateCloudDatabase
+            _ = try await pvtDB.save(zone)
+            return zoneID
+        }
     }
 
     private func cleanupZone(_ zoneID: CKRecordZone.ID) async {
         let pvtDB = container.privateCloudDatabase
-        _ = try? await pvtDB.deleteRecordZone(withID: zoneID)
+        _ = try? await withRetry {
+            try await pvtDB.deleteRecordZone(withID: zoneID)
+        }
     }
 
     private func withTestZone<T>(perform: (CKRecordZone.ID) async throws -> T) async throws -> T {
@@ -66,12 +99,18 @@ struct CloudKitLiveIntegrationTests {
 
         let zoneID = try await createUniqueTestZone()
         let pvtDB = container.privateCloudDatabase
-        let fetchedZone = try await pvtDB.recordZone(for: zoneID)
+        let fetchedZone = try await withRetry {
+            try await pvtDB.recordZone(for: zoneID)
+        }
         #expect(fetchedZone.zoneID == zoneID)
 
-        _ = try await pvtDB.deleteRecordZone(withID: zoneID)
+        _ = try await withRetry {
+            try await pvtDB.deleteRecordZone(withID: zoneID)
+        }
         do {
-            _ = try await pvtDB.recordZone(for: zoneID)
+            _ = try await withRetry {
+                try await pvtDB.recordZone(for: zoneID)
+            }
             #expect(Bool(false), "Expected zone to be deleted")
         } catch let error as CKError {
             #expect(error.code == .zoneNotFound || error.code == .unknownItem)

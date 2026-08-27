@@ -67,7 +67,8 @@ struct MascotBannerView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(12)
-                .background(Color(UIColor.secondarySystemGroupedBackground))
+                // WHY: Speech bubble is card chrome on scenery background — use cardSurface token for contrast.
+                .background(Color(DesignSystemConstants.Colors.cardSurface))
                 .cornerRadius(DesignSystemConstants.CornerRadius.small)
                 .overlay(
                     RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small)
@@ -79,7 +80,7 @@ struct MascotBannerView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Image(systemName: "star.circle.fill")
-                                .foregroundStyle(Color.gold)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                             Text("Daily Bonus")
                                 .font(.caption)
                                 .fontWeight(.bold)
@@ -109,7 +110,7 @@ struct MascotBannerView: View {
                                 Text("Claimed!")
                                     .font(.caption)
                                     .fontWeight(.bold)
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                             } else if eval.isComplete {
                                 Button {
                                     claimBonus(objective: objective)
@@ -121,7 +122,7 @@ struct MascotBannerView: View {
                                     .font(.caption.bold())
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .tint(Color.gold)
+                                .tint(Color(DesignSystemConstants.Colors.pendingAmber))
                                 .disabled(isClaiming)
                                 .overlay {
                                     if showConfetti {
@@ -135,18 +136,19 @@ struct MascotBannerView: View {
                                     Text("💎 \(objective.gemReward)")
                                 }
                                 .font(.caption.bold())
-                                .foregroundStyle(Color.gold)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                             }
                         }
                     }
                     .padding(12)
-                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .background(Color(DesignSystemConstants.Colors.cardSurface))
                     .cornerRadius(DesignSystemConstants.CornerRadius.small)
                 }
             }
         }
         .padding()
-        .background(Color(UIColor.systemGroupedBackground))
+        // WHY: Mascot scenery container uses background token to sit behind cardSurface bubbles.
+        .background(Color(DesignSystemConstants.Colors.background))
         .cornerRadius(DesignSystemConstants.CornerRadius.card)
         .task {
             while !Task.isCancelled {
@@ -229,7 +231,14 @@ private struct ClaimConfettiView: View {
                     let particleY = size.height / 2 + sin(angle) * dist
                     let opacity = 1 - progress
 
-                    let colors: [Color] = [.red, .blue, .green, .yellow, .purple, .orange]
+                    let colors: [Color] = [
+                        Color(DesignSystemConstants.Colors.dangerRed),
+                        Color(DesignSystemConstants.Colors.accentBlue),
+                        Color(DesignSystemConstants.Colors.primaryGreen),
+                        Color(DesignSystemConstants.Colors.pendingAmber),
+                        Color(DesignSystemConstants.Colors.accentBlue),
+                        Color(DesignSystemConstants.Colors.pendingAmber)
+                    ]
                     let color = colors[sparkIndex % colors.count]
 
                     var localCtx = ctx

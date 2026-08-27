@@ -200,7 +200,9 @@ struct ProfileView: View {
             quests: cachedQuests,
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements,
-            zoneID: appState.currentProfile?.id.zoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
+            zoneID: appState.currentProfile?.id.zoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID,
+            // Payout cycle anchoring: profile override → family → Sunday default.
+            payoutDay: appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
         )
     }
 
@@ -220,7 +222,7 @@ struct ProfileView: View {
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.bordered)
-                .tint(Color.gold)
+                .tint(Color(DesignSystemConstants.Colors.pendingAmber))
                 .accessibilityIdentifier("profile.changeAvatarButton")
 
                 if row.roleEnum == .hero {
@@ -232,7 +234,7 @@ struct ProfileView: View {
                             .font(.caption.weight(.semibold))
                     }
                     .buttonStyle(.bordered)
-                    .tint(Color.gold)
+                    .tint(Color(DesignSystemConstants.Colors.pendingAmber))
                     .accessibilityIdentifier("profile.renameButton")
                 }
             }
@@ -244,15 +246,15 @@ struct ProfileView: View {
             ZStack {
                 LinearGradient(
                     colors: [
-                        Color.purple.opacity(0.35),
-                        Color.blue.opacity(0.30),
-                        Color.indigo.opacity(0.50)
+                        Color(DesignSystemConstants.Colors.accentBlue).opacity(0.35),
+                        Color(DesignSystemConstants.Colors.accentBlue).opacity(0.30),
+                        Color(DesignSystemConstants.Colors.accentBlue).opacity(0.50)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
                 RadialGradient(
-                    colors: [Color.gold.opacity(0.20), .clear],
+                    colors: [Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.20), .clear],
                     center: .center,
                     startRadius: 0, endRadius: 0.85
                 )
@@ -261,7 +263,7 @@ struct ProfileView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(Color.gold.opacity(0.45), lineWidth: 1)
+                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.45), lineWidth: 1)
         )
         .padding(.horizontal)
         .padding(.top, 4)
@@ -308,7 +310,7 @@ struct ProfileView: View {
         return HStack(spacing: 10) {
             streakBadge(
                 icon: "flame.fill",
-                color: .orange,
+                color: Color(DesignSystemConstants.Colors.pendingAmber),
                 count: questStreak,
                 label: questStreak == 1 ? "day" : "days"
             )
@@ -352,7 +354,7 @@ struct ProfileView: View {
                 .minimumScaleFactor(0.75)
             Text(spec.levelTitle)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.gold)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             Text("\(row.avatarClassEnum?.displayName ?? (row.roleEnum ?? .hero).genericRoleName) • \((row.roleEnum ?? .hero).displayName)")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.85))
@@ -376,7 +378,7 @@ struct ProfileView: View {
             Capsule()
                 .fill(Color.white.opacity(0.18))
                 .overlay(
-                    Capsule().strokeBorder(Color.gold.opacity(0.70), lineWidth: 1)
+                    Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.70), lineWidth: 1)
                 )
         )
     }
@@ -396,13 +398,14 @@ struct ProfileView: View {
                 value: Double(progress.xpIntoCurrentLevel),
                 maximum: Double(max(progress.xpForNextLevel, 1)),
                 label: nil,
-                tint: Color.gold,
+                tint: Color(DesignSystemConstants.Colors.pendingAmber),
                 height: 10
             )
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
+            // Structural scrim: darkens the XP block so white copy stays legible over the gradient card.
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.black.opacity(0.28))
         )
@@ -456,7 +459,7 @@ struct ProfileView: View {
                             icon: "sparkles",
                             title: "Gem Shop",
                             subtitle: "Cosmetics, gear, and companion pets",
-                            tint: Color.gold
+                            tint: Color(DesignSystemConstants.Colors.pendingAmber)
                         )
                     }
                     .buttonStyle(.plain)
@@ -471,15 +474,15 @@ struct ProfileView: View {
 
                 NavigationLink {
                     TrophyRoomView(
-                        familyRecordName: familyRecordName,
-                        profileRecordName: appState.currentProfile?.id.recordName
+                        familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+                        profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
                     )
                 } label: {
                     actionRow(
                         icon: "trophy.fill",
                         title: "Trophies",
                         subtitle: "Hall of Heroes — view unlocked achievements",
-                        tint: Color.gold
+                        tint: Color(DesignSystemConstants.Colors.pendingAmber)
                     )
                 }
                 .buttonStyle(.plain)
@@ -518,7 +521,7 @@ struct ProfileView: View {
                     icon: "rectangle.portrait.and.arrow.right",
                     title: "Sign Out",
                     subtitle: "Sign out of this device; your Guild stays in iCloud",
-                    tint: .red
+                    tint: Color(DesignSystemConstants.Colors.dangerRed)
                 )
             }
             .buttonStyle(.plain)
@@ -687,7 +690,8 @@ final class ProfileViewModel {
         quests _: [QuestCache],
         profileAchievements: [ProfileAchievementCache],
         achievements: [AchievementCache],
-        zoneID: CKRecordZone.ID
+        zoneID: CKRecordZone.ID,
+        payoutDay: PayoutDay
     ) {
         guard let profile else {
             reset()
@@ -701,7 +705,8 @@ final class ProfileViewModel {
         // Savings streak: weeks where the hero contributed to save buckets.
         savingsStreak = StreakCalculator.computeSavingsStreak(
             from: ledgers,
-            profileRecordName: profileName
+            profileRecordName: profileName,
+            payoutDay: payoutDay
         )
 
         // Persist the highest savings-streak milestone reached so alternate app
@@ -735,9 +740,14 @@ final class ProfileViewModel {
         guard let profile else { return }
         if let cache = achievementService.cacheService {
             let familyName = profile.family.recordID.recordName
-            let profileFresh = cache.isCacheFresh(familyRecordName: familyName, type: .profileAchievement)
-            let achievementFresh = family.map { cache.isCacheFresh(familyRecordName: $0.id.recordName, type: .achievement) } ?? true
-            if profileFresh, achievementFresh {
+            // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback handled at call site (FamilyService-style).
+            let profileCount = cache.fetchProfileAchievements(profileRecordName: profile.id.recordName, family: familyName).count
+            let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, cachedCount: profileCount)
+            let achievementAuthoritative = family.map { fam in
+                let count = cache.fetchAchievements(family: fam.id.recordName).count
+                return cache.isCacheAuthoritative(familyRecordName: fam.id.recordName, type: .achievement, cachedCount: count)
+            } ?? true
+            if profileAuthoritative, achievementAuthoritative {
                 return
             }
         }

@@ -15,7 +15,7 @@ Domain rules agents must not misinterpret:
   - Goal contributions: `contrib-{goalRecordName}-{sourceEventID}`
   - Interest credits: `interest-{profileRecordName}-{yyyy-MM}` (monthly, check-before-apply)
   - Parent match: `match-{goalRecordName}-{sourceContributionEventID}`
-  - Bucket transfers: `transfer-{profileRecordName}-{unixDayTimestamp}-{from}-{to}`
+  - Bucket transfers: `transfer-{profileRecordName}-{transferID}` (or timestamp+nonce when unkeyed)
   - CSV imports: `import-{rowContentHash}` (re-import idempotent)
 - Buckets are exactly three (`BucketKind`): spend, shortTermSave, longTermSave. A child's split percentages apply to FUTURE payouts/deposits only — never retroactively rebalance.
 - Goals fill FIFO within their bucket: oldest incomplete non-archived goal fills first; overflow cascades; surplus past all goals sits unallocated in the bucket.
@@ -31,12 +31,13 @@ Domain rules agents must not misinterpret:
 - Strict constraints:
   - Views/ViewModels NEVER call CloudKit directly or hold raw `CKRecord`s/domain structs for presentation. All reads are `@Query` on `*Cache` models.
   - All mutations go through Services → `CacheService` write + `CKSyncEngineCoordinator.enqueueSave/enqueueDelete`.
-  - Engine-delivered and query-derived server→cache record writes ride ONE entry point: `CKSyncEngineDelegateHandler.ingest(records:databaseScope:zoneID:notifiesOnCompletion:)`. Exactly two sanctioned exceptions: participant cache reconciliation via `BackgroundCacheActor.reconcileParticipantSet` (§4) and pre-session bootstrap mirrors in FamilyService during family creation/join, where ingest fails closed before a session exists. Never query-then-upsert directly into cache outside those two doors.
+  - Engine-delivered and query-derived server→cache record writes ride ONE entry point: `CKSyncEngineDelegateHandler.ingest(records:databaseScope:zoneID:notifiesOnCompletion:)`. Exactly two sanctioned exceptions: non-owner cache reconciliation via `BackgroundCacheActor.reconcileParticipantSet` (§4) and pre-session bootstrap mirrors in FamilyService during family creation/join, where ingest fails closed before a session exists (the owner-side §4 snapshot pass is NOT an exception — it rides ingest() via `handleIncomingRecordsDirectly`). Never query-then-upsert directly into cache outside those two doors.
   - Every `*Cache` row is family-scoped (`FamilyScopedCache`, composite index familyRecordName + recordName). Cross-family isolation enforced at fetch/store layer, not downstream filtering.
   - Conflict merge semantics are FROZEN: quest banked XP max-merge capped at xpReward; Profile XP additive vs lastSyncedXP baseline with max-floor fallback; xpCredited non-nil preserve; AllowancePeriod uses monotonic-advance merge (highest-rank status wins) rather than strict server authority, and paidDate uses server-preferred-with-client-fallback, with client-wins display overlays. Changes require architecture review. Hero Board claim races resolve via standard server-wins conflict resolution (loser's ingest reveals the other claimer).
   - Services and AppState depend on `any CloudKitServiceProtocol` (narrower seams exist where useful). Do not concrete-type CloudKit dependencies.
-  - UserDefaults is device-local only: session keys, migration flags, freshness watermarks, `FeatureFlags.rpgImmersive`, badge/icon eligibility. NEVER authoritative cross-device domain data (balances, counters, credits).
-  - Every screen supports light AND dark mode via semantic design tokens (`DesignSystemConstants` / asset-catalog colors). No hardcoded colors in views.
+   - UserDefaults is device-local only: session keys, migration flags, freshness watermarks, `FeatureFlags.rpgImmersive`, badge/icon eligibility. NEVER authoritative cross-device domain data (balances, counters, credits).
+   - Cache reads are freshness-only authoritative: `CacheService.isCacheAuthoritative` returns true only when a freshness watermark exists for the family/type/scope; stale cache — even non-empty — is never authoritative and must re-validate via CloudKit. Offline or cold-start fallback rendering is handled explicitly at call sites (FamilyService-style), not hidden in the authoritative predicate.
+   - Every screen supports light AND dark mode via semantic design tokens (`DesignSystemConstants` / asset-catalog colors). No hardcoded colors in views.
 
 ## 3. Directory Structure & Component Roles
 
@@ -89,14 +90,15 @@ Adding a new cached record type REQUIRES all of: `*Cache` @Model conforming `Fam
 `View action → Service → CacheService mutation (instant UI) + coordinator.enqueueSave(recordID)` → CKSyncEngine sends later. For deletes: capture the ScopedRecordIdentity BEFORE invalidating the cache row, then enqueueDelete — tombstone IDs must survive local deletion.
 
 **Outbound:** engine requests batch → `RecordBridge` synthesizes current CKRecord from SwiftData, rehydrating stored changeTag + encodedSystemFields (optimistic locking). Dangling pending saves whose cache row vanished resolve fail-closed via `confirmedLocalDeletion` before converting save→delete. After successful send: persist ONLY the server-acked changeTag/encodedSystemFields. Never re-upsert sent record payloads.
+- *Scope Correction Escape Hatch:* In `RecordBridge.validateScopedRecord`, a `QuestCompletionCache` row stored with `sourceDatabaseScope == "private"` is permitted to bridge to `.shared` ONLY when BOTH `familyRecordName` and `sourceZoneName` strictly match the expected family and zone. This is a sanctioned, tightly gated escape hatch for the "pending-review stall" (when a participant device records a completion before scope metadata fully resolves). Cross-family and cross-zone isolation remain strictly preserved by the preceding equality checks.
 
 **Inbound (engine ingestion path):**
 `CKRecord[] → ingest() → fail-closed guards → parse + scope validation → BackgroundCacheActor.batchUpsertParsedRecords (single-save batch commit) → accounting → optional sync notifications`.
 
 Ingestion contract:
 - Drop records when no active session OR caller zone ≠ active family zone (re-delivered later via persisted change tokens).
-- Private (owner) and shared (participant) scopes ride the identical ingest() pipeline; the sole sanctioned exception is participant cache reconciliation below.
-- Participant cache reconciliation is a sanctioned second door for NON-owner devices: at the end of every lifecycle sync pass (bootstrap, foreground/manual/remote-notification sync, family-zone change), AppLifecycleCoordinator queries the shared-database snapshot of quests, ledger entries, quest completions, and allowance periods, round-trips the results to CKRecords, and feeds `BackgroundCacheActor.reconcileParticipantSet(records:validRecordNamesByType:familyRecordName:databaseScope:zoneID:)` directly instead of ingest(). Records re-parse canonically on the main actor (`ParsedRecord.parse`, preserving changeTag + encodedSystemFields), then commit under SerialMutationQueue as ONE atomic upsert+prune pass — cached rows absent from the server-authoritative name sets are purged and exactly one saveContext() lands per pass, so @Query never observes a half-reconciled cache; a failed upsert or save leaves the context uncommitted and rows intact until the next pass. Two fail-safes gate it: `databaseScope` must be `.shared` (owner-side flows always ride ingest()), and an entirely empty snapshot — read as a shared scope that has not settled after fresh join or account recovery — aborts the pass instead of pruning the local cache. Reconciliation emits no sync notifications; any notifications these records warranted already fired on whichever device authored them.
+- Private (owner) and shared (participant) scopes ride the identical ingest() pipeline; the sole sanctioned exception is the non-owner reconciliation pass below.
+- Cache reconciliation is a sanctioned second door that runs for EVERY device — owner and non-owner alike — at the end of each lifecycle sync pass. Triggers: bootstrap, foreground sync, manual sync, remote-notification sync, family-zone change, and network reconnect. Reconnect-triggered syncs are debounced: reconnect notifications arriving within a 45-second window coalesce into one pass (stamped under the coordinator's lifecycle Mutex), so connectivity flaps don't each fire the full snapshot query set. On every trigger, AppLifecycleCoordinator queries the family snapshot across thirteen record types — quests, ledger entries, quest completions, allowance periods, goals, profiles, quest templates, families, achievements, profile achievements, notification preferences, gem ledgers, reward events — round-trips the results to CKRecords, then branches on `appState.isZoneOwner`. The owner-side pass feeds the records through `CKSyncEngineDelegateHandler.handleIncomingRecordsDirectly` with `databaseScope == .private`, riding the standard ingest() pipeline (upsert-only, no prune). The non-owner pass feeds `BackgroundCacheActor.reconcileParticipantSet(records:validRecordNamesByType:familyRecordName:databaseScope:zoneID:)` with `databaseScope == .shared` directly instead of ingest(); records re-parse canonically on the main actor (`ParsedRecord.parse`, preserving changeTag + encodedSystemFields), then commit under SerialMutationQueue as ONE atomic upsert+prune pass — cached rows absent from the server-authoritative name sets are purged and exactly one saveContext() lands per pass, so @Query never observes a half-reconciled cache; a failed upsert or save leaves the context uncommitted and rows intact until the next pass. One fail-safe gates BOTH branches: an entirely empty snapshot — read as a scope that has not settled after fresh join or account recovery — aborts the pass instead of pruning the local cache. Reconciliation emits no sync notifications; any notifications these records warranted already fired on whichever device authored them.
 - Any parse/cache-write failure marks the sync pass failed; freshness watermarks stamp ONLY after a full pass across all active scopes with zero failures.
 
 **Conflicts:** serverRecordChanged → resolver applies frozen merge rules → merged result persists via single-record background batch carrying post-merge changeTag/encodedSystemFields; merged CKRecord returned for engine re-save.
@@ -127,11 +129,13 @@ Ingestion contract:
 
 **Testing:** production app has NO mock layer — unit tests inject MockCloudKitService explicitly as protocol doubles; TestEnvironment gates only in-memory cache, engine instantiation skip, and seed data. Tests exercising ingestion must establish an active session first. Deterministic-ID money flows get dedicated double-run/idempotency tests (interest, match, transfer, import).
 
+**UI — decimal pad dismissal (cross-cutting write-time convention):** Every `TextField` using `.keyboardType(.decimalPad)` must provide a keyboard dismissal path. Pattern: `@FocusState private var isAmountFocused: Bool` on the view, `.focused($isAmountFocused)` on the `TextField`, plus a keyboard toolbar `ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { isAmountFocused = false }.font(.body.weight(.semibold)) }`. SwiftUI merges the `.keyboard` toolbar with any `cancellationAction`/`confirmationAction` toolbars on the same `NavigationStack`. For reuse, future decimalPad fields should apply `DecimalPadDismissModifier` / `View.decimalPadDoneToolbar(isFocused:)` from `Project/Views/Shared/DecimalPadDismissModifier.swift` or replicate this exact pattern. This is a write-time convention — apply it when adding any new decimalPad field.
+
 ## 6. Agent Rules & Anti-Patterns
 
 DO:
 - Read/write data exclusively through `*Cache` models; convert to domain structs only at service/mutation boundaries.
-- Route EVERY engine-delivered and query-derived server→cache write through `ingest(...)` — sanctioned exceptions: the participant-reconciliation door (§4) and FamilyService pre-session bootstrap mirrors (ingest fails closed before session establishment).
+- Route EVERY engine-delivered and query-derived server→cache write through `ingest(...)` — sanctioned exceptions: the non-owner reconciliation door (`reconcileParticipantSet`, §4; the owner-side §4 pass rides ingest() via `handleIncomingRecordsDirectly`) and FamilyService pre-session bootstrap mirrors (ingest fails closed before session establishment).
 - Enforce family scoping in the fetch itself (predicate/index level).
 - Capture delete identities before cache invalidation.
 - Persist changeTag always; encodedSystemFields whenever writing a server-sourced snapshot.
@@ -142,7 +146,7 @@ DO:
 
 DON'T:
 - Don't call CKDatabase/cloudKitService methods from Views or ViewModels — add a cache-first service method instead.
-- Don't write query results directly into CacheService/BackgroundCacheActor outside `ingest()` or the two sanctioned doors: participant reconciliation (`reconcileParticipantSet`, §4) and FamilyService pre-session bootstrap mirrors.
+- Don't write query results directly into CacheService/BackgroundCacheActor outside `ingest()` or the sanctioned doors: non-owner reconciliation (`reconcileParticipantSet`, §4) and FamilyService pre-session bootstrap mirrors.
 - Don't re-upsert sent records after successful sends; only refresh their system fields.
 - Don't alter conflict merge formulas, XP ledger semantics, or watermark stamping conditions without explicit architecture review.
 - Don't put authoritative domain state in UserDefaults.
@@ -219,3 +223,11 @@ This register codifies deliberate, load-bearing security decisions that are **ac
 Authenticated write-gating happens in the service layer (client-side role checks) plus the `creatorUserRecordName` owner anchor for the highest-privilege operations, as documented in the Authorization Model. This extends to client-side interest/match crediting under the deterministic-ID scheme.
 
 **Security-audit directive:** This is an accepted residual risk; do not fail the gate on the absence of a server unless a concrete in-scope vulnerability is shown.
+
+### AR-003 — Server-wins conflict resolution for secondary records
+
+**Status:** ACCEPTED (intentional design).
+
+Conflict resolution in `CKSyncConflictResolver` applies dedicated field/additive merges for core mutable records (`Quest`, `Profile`, `QuestCompletion`, `AllowancePeriod`). For secondary records (`LedgerEntry`, `Goal`, `GemLedger`, `RewardEvent`, `Achievement`, `ProfileAchievement`, `NotificationPreference`, `Family`), conflict resolution adopts the server record into cache on conflict (`serverRecordChanged`). All money-movement and credit records rely on deterministic record IDs (`contrib-*`, `interest-*`, `reward-*`, `transfer-*`, `import-*`) to prevent concurrent write collisions.
+
+**Security-audit directive:** Server-wins conflict resolution for secondary records is accepted risk and intentional; do not classify the absence of multi-device client-wins field merging for secondary entities as a defect.

@@ -55,46 +55,42 @@ extension CacheService {
     /// `(try? context.fetch(...)) ?? []` pattern used elsewhere in this service).
     /// Constrained to `FamilyScopedCache` so the family predicate compiles
     /// without per-type duplication.
+    /// WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func familyScopedFetch<T: FamilyScopedCache>(
         _ type: T.Type,
         family: String?,
         sortBy: [SortDescriptor<T>] = []
     ) -> [T] {
-        let predicate: Predicate<T>?
-        if let family {
-            predicate = #Predicate<T> { $0.familyRecordName == family }
-        } else {
-            predicate = nil
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("familyScopedFetch<\(String(describing: T.self), privacy: .private)> called without family scope — returning empty (fail-closed)")
+            return []
         }
+        let predicate: Predicate<T> = #Predicate<T> { $0.familyRecordName == family }
         return fetch(type, predicate: predicate, sortBy: sortBy)
     }
 
     // MARK: - Public fetch API
 
     /// Fetches quests, optionally filtered by family and/or a week range.
+    /// WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchQuests(family: String?, weekInRange: Range<Date>? = nil) -> [QuestCache] {
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchQuests called without family scope — returning empty (fail-closed)")
+            return []
+        }
         let predicate: Predicate<QuestCache>?
         if let range = weekInRange {
             let start = range.lowerBound
             let end = range.upperBound
-            if let family {
-                predicate = #Predicate { item in
-                    item.familyRecordName == family
-                        && item.weekOf >= start
-                        && item.weekOf < end
-                }
-            } else {
-                predicate = #Predicate { item in
-                    item.weekOf >= start
-                        && item.weekOf < end
-                }
+            predicate = #Predicate { item in
+                item.familyRecordName == family
+                    && item.weekOf >= start
+                    && item.weekOf < end
             }
-        } else if let family {
+        } else {
             predicate = #Predicate { item in
                 item.familyRecordName == family
             }
-        } else {
-            predicate = nil
         }
         return fetch(QuestCache.self, predicate: predicate)
     }
@@ -108,8 +104,13 @@ extension CacheService {
         return fetchQuest(recordName: identity.recordID.recordName, family: family)
     }
 
+    // WHY: Pending-review completions (`verificationStatus == "pending"`) are the stall case — this fetch must not filter them out; parent `@Query` badge depends on them.
     func fetchQuestCompletions(family: String?) -> [QuestCompletionCache] {
-        familyScopedFetch(QuestCompletionCache.self, family: family)
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchQuestCompletions called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(QuestCompletionCache.self, family: family)
     }
 
     func fetchQuestCompletion(recordName: String, family: String) -> QuestCompletionCache? {
@@ -130,12 +131,22 @@ extension CacheService {
         return fetchProfile(recordName: identity.recordID.recordName, family: family)
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchProfiles(family: String?) -> [ProfileCache] {
-        familyScopedFetch(ProfileCache.self, family: family)
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchProfiles called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(ProfileCache.self, family: family)
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchQuestTemplates(family: String?) -> [QuestTemplateCache] {
-        familyScopedFetch(QuestTemplateCache.self, family: family)
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchQuestTemplates called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(QuestTemplateCache.self, family: family)
     }
 
     func fetchQuestTemplate(recordName: String, family: String) -> QuestTemplateCache? {
@@ -200,84 +211,96 @@ extension CacheService {
         return fetchNotificationPreference(recordName: identity.recordID.recordName, family: family)
     }
 
+    // WHY: a profile-scoped fetch without a family scope would read rows across
+    // ALL families — fail closed instead of leaking cross-family data.
     func fetchLedgerEntries(profileRecordName: String, family: String? = nil) -> [LedgerEntryCache] {
         #if DEBUG
             ledgerEntryFetchScopes.append(family)
         #endif
-        if let family {
-            return fetch(
-                LedgerEntryCache.self,
-                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
-                sortBy: [SortDescriptor(\.date, order: .reverse)]
-            )
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchLedgerEntries(profileRecordName:) called without family scope — returning empty (fail-closed)")
+            return []
         }
         return fetch(
             LedgerEntryCache.self,
-            predicate: #Predicate { $0.profileRecordName == profileRecordName },
+            predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchLedgerEntries(family: String?) -> [LedgerEntryCache] {
-        familyScopedFetch(
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchLedgerEntries(family:) called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(
             LedgerEntryCache.self,
             family: family,
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
     }
 
+    // WHY: a profile-scoped fetch without a family scope would read rows across
+    // ALL families — fail closed instead of leaking cross-family data.
     func fetchAllowancePeriods(profileRecordName: String, family: String? = nil) -> [AllowancePeriodCache] {
-        if let family {
-            return fetch(
-                AllowancePeriodCache.self,
-                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
-                sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
-            )
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchAllowancePeriods(profileRecordName:) called without family scope — returning empty (fail-closed)")
+            return []
         }
         return fetch(
             AllowancePeriodCache.self,
-            predicate: #Predicate { $0.profileRecordName == profileRecordName },
+            predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
             sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
         )
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache] {
-        familyScopedFetch(
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchAllowancePeriods(family:) called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(
             AllowancePeriodCache.self,
             family: family,
             sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
         )
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchAchievements(family: String?) -> [AchievementCache] {
-        familyScopedFetch(AchievementCache.self, family: family)
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchAchievements called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(AchievementCache.self, family: family)
     }
 
+    // WHY: a profile-scoped fetch without a family scope would read rows across
+    // ALL families — fail closed instead of leaking cross-family data.
     func fetchProfileAchievements(profileRecordName: String, family: String? = nil) -> [ProfileAchievementCache] {
-        if let family {
-            return fetch(
-                ProfileAchievementCache.self,
-                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
-                sortBy: [SortDescriptor(\.earnedDate, order: .reverse)]
-            )
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchProfileAchievements(profileRecordName:) called without family scope — returning empty (fail-closed)")
+            return []
         }
         return fetch(
             ProfileAchievementCache.self,
-            predicate: #Predicate { $0.profileRecordName == profileRecordName },
+            predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
             sortBy: [SortDescriptor(\.earnedDate, order: .reverse)]
         )
     }
 
+    // WHY: a profile-scoped fetch without a family scope would read rows across
+    // ALL families — fail closed instead of leaking cross-family data.
     func fetchNotificationPreferences(profileRecordName: String, family: String? = nil) -> [NotificationPreferenceCache] {
-        if let family {
-            return fetch(
-                NotificationPreferenceCache.self,
-                predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family }
-            )
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchNotificationPreferences(profileRecordName:) called without family scope — returning empty (fail-closed)")
+            return []
         }
         return fetch(
             NotificationPreferenceCache.self,
-            predicate: #Predicate { $0.profileRecordName == profileRecordName }
+            predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family }
         )
     }
 
@@ -292,16 +315,26 @@ extension CacheService {
         ).first
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchGemLedgers(family: String?) -> [GemLedgerCache] {
-        familyScopedFetch(GemLedgerCache.self, family: family)
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchGemLedgers called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(GemLedgerCache.self, family: family)
     }
 
     func fetchGemLedger(recordName: String, family: String) -> GemLedgerCache? {
         fetch(GemLedgerCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchRewardEvents(family: String?) -> [RewardEventCache] {
-        familyScopedFetch(RewardEventCache.self, family: family)
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchRewardEvents called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(RewardEventCache.self, family: family)
     }
 
     func fetchRewardEvent(recordName: String, family: String) -> RewardEventCache? {
@@ -313,8 +346,13 @@ extension CacheService {
         return fetchRewardEvent(recordName: identity.recordID.recordName, family: family)
     }
 
+    // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchGoals(family: String?) -> [GoalCache] {
-        familyScopedFetch(GoalCache.self, family: family)
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("fetchGoals called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return familyScopedFetch(GoalCache.self, family: family)
     }
 
     /// FIFO fill order for a single bucket: oldest incomplete non-archived

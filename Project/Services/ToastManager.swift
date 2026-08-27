@@ -29,10 +29,10 @@ enum ToastType: Sendable {
     /// Tint applied to the icon and (where supported) the banner accent.
     var color: Color {
         switch self {
-        case .error: .red
-        case .warning: .orange
-        case .success: .green
-        case .info: .blue
+        case .error: Color(DesignSystemConstants.Colors.dangerRed)
+        case .warning: Color(DesignSystemConstants.Colors.pendingAmber)
+        case .success: Color(DesignSystemConstants.Colors.primaryGreen)
+        case .info: Color(DesignSystemConstants.Colors.accentBlue)
         }
     }
 }

@@ -111,7 +111,7 @@ struct AchievementServiceTests {
         }
 
         // Cache must remain empty — guard fires before any optimistic write.
-        let cached = cache.fetchProfileAchievements(profileRecordName: victim.id.recordName)
+        let cached = cache.fetchProfileAchievements(profileRecordName: victim.id.recordName, family: family.id.recordName)
         #expect(cached.isEmpty, "award must not write a ProfileAchievement when unauthorized")
     }
 
@@ -606,12 +606,12 @@ struct AchievementServiceTests {
 
         let first = try await service.evaluateAll(for: hero, family: family)
         #expect(first.contains { $0.requirementType == .questCount10 })
-        let beforeCount = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName).count
+        let beforeCount = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName, family: family.id.recordName).count
 
         // Second evaluation without new completions must award nothing.
         let second = try await service.evaluateAll(for: hero, family: family)
         #expect(second.isEmpty, "Second evaluateAll must be idempotent — already earned trophies are not re-awarded")
-        let afterCount = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName).count
+        let afterCount = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName, family: family.id.recordName).count
         #expect(beforeCount == afterCount, "Deterministic ProfileAchievement IDs must prevent duplicate rows on re-evaluate")
 
         // Third evaluation also empty — verify stable idempotency.
@@ -717,7 +717,7 @@ struct AchievementServiceTests {
         let thirdReplay = try await service.handleQuestCompleted(for: hero, family: family)
         #expect(thirdReplay.isEmpty, "Replayed completion events must not re-award earned trophies")
 
-        let cachedRows = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName)
+        let cachedRows = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cachedRows.count == first.count, "One ProfileAchievement row per earned trophy — no duplicates from event replay")
 
         let firstQuestRow = cachedRows.first { $0.recordName == ProfileAchievement.recordID(
@@ -773,7 +773,7 @@ struct AchievementServiceTests {
         // Idempotent — second handle should not re-award.
         let second = try await service.handleGoalCreated(for: hero, family: family)
         #expect(second.isEmpty)
-        let cached = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchProfileAchievements(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.filter { $0.achievementRecordName == "fam1-\(AchievementRequirement.firstGoalCreated.rawValue)" }.count == 1)
     }
 

@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import os
 import SwiftData
 import SwiftUI
@@ -15,7 +14,6 @@ struct GuildSettingsView: View {
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
-    @Environment(CloudKitService.self) private var cloudKitService
     @Environment(QuestService.self) private var questService
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
@@ -311,17 +309,20 @@ struct GuildSettingsView: View {
             toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
             return
         }
-        guard share.url != nil else {
+        // WHY: the container pairing is assembled by the service so this view
+        // never reaches through to the raw CloudKit container.
+        let presentation = familyService.invitePresentation(for: share)
+        guard presentation.shareURL != nil else {
             toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
             return
         }
-        sharePresentation = CloudSharePresentation(share: share, container: cloudKitService.container)
+        sharePresentation = presentation
     }
 
     @MainActor
     private func confirmTransferGuildMaster(to newOwner: ProfileCache) async {
         guard let current = appState.currentProfile else { return }
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? newOwner.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: newOwner)
         do {
             try await familyService.updateMemberRole(profile: newOwner.toProfile(zoneID: zoneID), newRole: .guildMaster)
             try await familyService.updateMemberRole(profile: current, newRole: .ranger)

@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import os
 import SwiftUI
 
@@ -14,8 +13,7 @@ struct FamilyJoinView: View {
 
     @Bindable var viewModel: OnboardingViewModel
 
-    @Environment(AppState.self) private var appState
-    @Environment(CloudKitService.self) private var cloudKitService
+    @Environment(FamilyService.self) private var familyService
     @Environment(ToastManager.self) private var toastManager
 
     #if DEBUG
@@ -36,7 +34,7 @@ struct FamilyJoinView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color.blue.opacity(0.15)],
+                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15)],
                 startPoint: .top, endPoint: .bottom
             )
         )
@@ -87,7 +85,7 @@ struct FamilyJoinView: View {
 
             ProgressView()
                 .controlSize(.large)
-                .tint(.blue)
+                .tint(Color(DesignSystemConstants.Colors.accentBlue))
 
             VStack(spacing: 12) {
                 Text(viewModel.joinProgressStatus ?? "Joining Guild...")
@@ -97,7 +95,7 @@ struct FamilyJoinView: View {
                 if let fraction = viewModel.joinProgressFraction {
                     ProgressView(value: fraction)
                         .progressViewStyle(.linear)
-                        .tint(.blue)
+                        .tint(Color(DesignSystemConstants.Colors.accentBlue))
                         .frame(maxWidth: 240)
                         .animation(.easeInOut(duration: 0.3), value: fraction)
                 }
@@ -127,7 +125,7 @@ struct FamilyJoinView: View {
                     .font(.system(size: 64))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.blue, .purple],
+                            colors: [Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.75)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
@@ -174,8 +172,9 @@ struct FamilyJoinView: View {
         /// Development-only stand-in for an incoming Apple Messages share link: the
         /// Simulator can't generate or receive CloudKit invites, so let the tester
         /// paste a share URL and push it through the same accept machinery as a
-        /// real device tap — `container.shareMetadata(for:)` resolves the URL into
-        /// `pendingShareMetadata`, which the `.onChange(of:)` above then accepts.
+        /// real device tap — the ViewModel resolves the URL into
+        /// `pendingShareMetadata` via the service layer, which the
+        /// `.onChange(of:)` above then accepts.
         @MainActor
         private func simulateShareLink() async {
             let trimmed = debugShareURLText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -185,25 +184,7 @@ struct FamilyJoinView: View {
                 toastManager.show(message: "That doesn't look like a valid URL.", type: .error)
                 return
             }
-            viewModel.joinProgressStatus = "Reading invitation link..."
-            viewModel.joinProgressFraction = 0.15
-            logger.info("Requesting container.shareMetadata(for: URL)...")
-            do {
-                let metadata = try await cloudKitService.container.shareMetadata(for: url)
-                let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
-                let zone = metadata.hierarchicalRootRecordID?.zoneID.zoneName ?? "nil"
-                logger.info("Resolved share metadata: zone='\(zone, privacy: .private)' title='\(title, privacy: .private)'")
-                viewModel.joinProgressStatus = "Invitation verified! Connecting to family..."
-                viewModel.joinProgressFraction = 0.3
-                viewModel.pendingShareMetadata = metadata
-            } catch {
-                viewModel.joinProgressStatus = nil
-                viewModel.joinProgressFraction = nil
-                logger.error("Resolving share metadata failed: \(error, privacy: .private)")
-                let friendlyMessage = friendlyInviteAcceptError(error)
-                    ?? "Could not read that share link. Please try again."
-                viewModel.error = friendlyMessage
-            }
+            await viewModel.simulateInviteLink(url)
         }
     #endif
 
@@ -222,7 +203,7 @@ struct FamilyJoinView: View {
                     .font(.system(size: 64))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.blue, .purple],
+                            colors: [Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.75)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
@@ -255,9 +236,9 @@ struct FamilyJoinView: View {
             HStack(spacing: 16) {
                 Image(systemName: hero.profile.avatarClass?.iconSystemName ?? hero.profile.role.iconSystemName)
                     .font(.system(size: 32))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                     .frame(width: 56, height: 56)
-                    .background(Color.blue.opacity(0.15))
+                    .background(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15))
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -272,8 +253,8 @@ struct FamilyJoinView: View {
                             .font(.caption.weight(.bold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.2))
-                            .foregroundStyle(.blue)
+                            .background(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.2))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                             .clipShape(Capsule())
                     }
                 }
@@ -308,12 +289,11 @@ struct FamilyJoinView: View {
             Button {
                 guard let hero = viewModel.detectedHero else { return }
                 Task {
-                    await appState.acceptDetectedFamily(
+                    await familyService.acceptDetectedFamily(
                         family: hero.family,
                         profile: hero.profile,
                         zoneID: hero.zoneID,
-                        isOwner: false,
-                        cloudKit: cloudKitService
+                        isOwner: false
                     )
                 }
             } label: {
@@ -323,7 +303,7 @@ struct FamilyJoinView: View {
                     .padding(.vertical, 16)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .tint(Color(DesignSystemConstants.Colors.primaryGreen))
             .accessibilityIdentifier("detectedHero.reconnectButton")
 
             Button {
@@ -335,7 +315,7 @@ struct FamilyJoinView: View {
                     .padding(.vertical, 12)
             }
             .buttonStyle(.bordered)
-            .tint(.blue)
+            .tint(Color(DesignSystemConstants.Colors.accentBlue))
             .accessibilityIdentifier("detectedHero.differentButton")
         }
     }

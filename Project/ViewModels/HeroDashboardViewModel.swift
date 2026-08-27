@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import Foundation
 import Observation
 
@@ -45,22 +44,8 @@ final class HeroDashboardViewModel {
 
     private var templatesByID: [String: QuestTemplateCache] = [:]
 
-    // MARK: - Initialization
-
-    /// Last authoritative CloudKit error when an async wallet fetch fails.
-    /// Surfaces via `HeroDashboardView` as a toast with pull-to-retry; the
-    /// cache-driven `earnedThisWeek` value is preserved so the UI never hangs.
-    private(set) var lastGoldError: String?
-
-    /// Optional toast surface for the async `refreshEarnedThisWeek` throw path.
-    /// Mirrors `TreasuryService.toastManager` wiring via `AppDependencies`;
-    /// when nil the error is still preserved in `lastGoldError` for the view
-    /// to toast via its own `@Environment(ToastManager.self)`.
-    var toastManager: ToastManager?
-
-    init(appState: AppState, toastManager: ToastManager? = nil) {
+    init(appState: AppState) {
         self.appState = appState
-        self.toastManager = toastManager
         // Default mirrors the effective payout fallback (.sunday) used in
         // rebuildLists so the initial weekDays do not shift by one day before
         // the first cache-driven rebuild.
@@ -69,43 +54,16 @@ final class HeroDashboardViewModel {
 
     // MARK: - List Building
 
-    /// Async authoritative refresh for callers that need `QuestService.earnedThisWeek`
-    /// (which delegates to `GoldCalculation.totalCredit` and **throws** on fetch failure).
-    /// Cache-only `rebuildLists` / `Self.earnedThisWeek` below must remain `sync`/`non-throwing`
-    /// so `HeroDashboardView` hydrates instantly offline. This async boundary is the
-    /// `do/catch` + toast + retry path for the throwing CloudKit variant:
-    /// it preserves `earnedThisWeek` on failure and sets `lastGoldError` for the view
-    /// to toast and offer retry. Consistent with `TreasuryService.updateAllowance`'s
-    /// tolerant catch and `QuestService.applyReward`'s detached `Task` handling of
-    /// `processRealTimeSettlement` throws.
-    func refreshEarnedThisWeek(questService: QuestService) async {
-        guard let profile = appState.currentProfile else { return }
-        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: profile.payoutDay ?? appState.family?.payoutDay ?? .sunday)
-        do {
-            let gold = try await questService.earnedThisWeek(profile: profile, weekOf: weekOf)
-            earnedThisWeek = gold
-            lastGoldError = nil
-        } catch {
-            // Preserve last successful totals so the hero card never hangs empty;
-            // surface the failure via error state that the view toasts with retry.
-            lastGoldError = "Could not load earnings. Pull to retry."
-            toastManager?.show(message: lastGoldError ?? "Could not load earnings. Pull to retry.", type: .warning)
-        }
-    }
-
     /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
-    /// intentionally **does not throw** and does not call
-    /// `QuestService.earnedThisWeek` / `GoldCalculation.totalCredit`.
-    /// It derives gold via `GoldCalculation.netWeeklyGold` (pure cache math)
-    /// so the hero dashboard hydrates instantly offline and never hangs on a
-    /// network failure. Throwing CloudKit work belongs in
-    /// `refreshEarnedThisWeek(_:)` above, which callers invoke with `do/catch` + toast + retry.
+    /// intentionally does not throw or call out to CloudKit directly.
+    /// It derives gold via `Self.earnedThisWeek(...)` (pure cache math)
+    /// so the hero dashboard hydrates instantly offline and updates automatically via UDF.
     func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache] = [], allowancePeriods: [AllowancePeriodCache] = []) {
         guard let profileName = appState.currentProfile?.id.recordName,
               appState.family != nil
         else { return }
 
-        let payoutDay = appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
+        let payoutDay = appState.resolvedPayoutDay
         weekDays = HeroDashboardViewModel.currentWeekDays(payoutDay: payoutDay)
         let todayCode = HeroDashboardViewModel.todayWeekdayCode()
 
@@ -307,45 +265,34 @@ final class HeroDashboardViewModel {
     // MARK: - Date Helpers
 
     static func todayWeekdayCode(calendar: Calendar = .iso8601UTC) -> String {
-        let weekdayIndex = calendar.component(.weekday, from: Date()) - 1
-        let codes = AppConstants.weekdayCodes
-        let safe = max(0, min(codes.count - 1, weekdayIndex))
-        return codes[safe]
+        // WHY: single source for weekday codes — delegates to WeekMath to stay payout-anchored and UTC-consistent.
+        WeekMath.todayWeekdayCode(calendar: calendar)
     }
 
     // MARK: - Week Strip
 
     static func currentWeekDays(for date: Date = Date(), payoutDay: PayoutDay = .sunday, calendar: Calendar = .iso8601UTC) -> [DayInfo] {
-        // Cycle starts the day after payoutDay (Sunday payout → Monday start),
-        // matching WeekMath.startOfWeek's (targetWeekday % 7) + 1 rotation so
-        // the strip and stored weekOf values anchor on the same weekday.
-        let firstDayOfWeek = payoutDay.nextDay.weekdayNumber // 1 (Sun) .. 7 (Sat)
-        let weekday = calendar.component(.weekday, from: date)
-        let diff = (firstDayOfWeek - weekday)
-        let daysToStart = diff > 0 ? diff - 7 : diff
-        guard let startDate = calendar.date(byAdding: .day, value: daysToStart, to: calendar.startOfDay(for: date)) else {
-            return []
-        }
+        // WHY: week boundaries owned exclusively by WeekMath so the strip and stored weekOf anchor on same weekday.
+        let startDate = WeekMath.startOfWeek(for: date, payoutDay: payoutDay)
 
-        let codes = AppConstants.weekdayCodes
-        let shortNames = AppConstants.weekdayShort
         let todayStart = calendar.startOfDay(for: date)
 
         return (0 ..< 7).compactMap { offset in
             guard let dayDate = calendar.date(byAdding: .day, value: offset, to: startDate) else { return nil }
             let dayStart = calendar.startOfDay(for: dayDate)
-            let isToday = calendar.isDate(dayStart, inSameDayAs: todayStart)
-            let isPast = dayStart < todayStart
-            let isFuture = dayStart > todayStart
+            // WHY: Today/past/future bucket via UTC day math so strip matches WeekMath's single timezone.
+            let isToday = WeekMath.dayBucket(for: dayStart) == WeekMath.dayBucket(for: todayStart)
+            let isPast = WeekMath.dayBucket(for: dayStart) < WeekMath.dayBucket(for: todayStart)
+            let isFuture = WeekMath.dayBucket(for: dayStart) > WeekMath.dayBucket(for: todayStart)
             let dayNum = calendar.component(.day, from: dayDate)
-            let rawIndex = calendar.component(.weekday, from: dayDate) - 1
-            let safeIndex = max(0, min(codes.count - 1, rawIndex))
+            // WHY: weekday mapping via WeekMath keeps hub/dashboard due-text and strip on same UTC source.
+            let weekdayCode = WeekMath.weekdayCode(for: dayDate, calendar: calendar)
 
             return DayInfo(
-                id: codes[safeIndex],
+                id: weekdayCode,
                 date: dayDate,
-                weekdayCode: codes[safeIndex],
-                shortName: shortNames[safeIndex],
+                weekdayCode: weekdayCode,
+                shortName: WeekMath.shortName(for: weekdayCode),
                 dayNumber: dayNum,
                 isToday: isToday,
                 isPast: isPast,

@@ -143,7 +143,9 @@ struct LootListApp: App {
 
     @ViewBuilder
     private var rootViewContent: some View {
-        if let error = appState.cacheInitError {
+        if TestEnvironment.isRunningUnitTests {
+            Color.clear
+        } else if let error = appState.cacheInitError {
             #if DEBUG
                 let debugMessage: String = switch error {
                 case let .cacheInitializationFailed(msg): msg

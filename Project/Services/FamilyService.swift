@@ -282,6 +282,17 @@ final class FamilyService: FamilyProfileFetching {
     /// CloudKit for existing definitions before enqueuing saves, using the
     /// deterministic recordName `<familyRecordName>-<requirementRawValue>`.
     private func seedDefaultAchievements(for family: Family) async {
+        if let cacheService {
+            let familyName = family.id.recordName
+            let cached = cacheService.fetchAchievements(family: familyName)
+            if cached.isEmpty {
+                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                let defaults = AchievementService.defaultAchievements(for: familyRef)
+                for ach in defaults {
+                    await cacheService.upsertAchievement(ach)
+                }
+            }
+        }
         if let achievementService {
             do {
                 try await achievementService.seedDefaultAchievements(family: family)
@@ -450,6 +461,7 @@ final class FamilyService: FamilyProfileFetching {
         // complete local state before the first sync round trips.
         await seedNotificationPreferences(for: savedProfile, family: family)
         await seedAllowancePeriod(for: savedProfile, family: family)
+        await seedDefaultAchievements(for: family)
 
         progressHandler?("Joined Guild!", 1.0)
         return JoinedFamilyResult(
@@ -470,6 +482,7 @@ final class FamilyService: FamilyProfileFetching {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let allProfiles = cache.fetchProfiles(family: familyName)
+            // WHY: stale cache must re-validate via CloudKit — profiles are roster-critical and must not serve stale partial data.
             if cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
                 return allProfiles
                     .filter { $0.role == UserRole.hero.rawValue && $0.isActive }
@@ -479,9 +492,8 @@ final class FamilyService: FamilyProfileFetching {
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let isOwner = (family.id.recordName == appState.family?.id.recordName)
-            ? appState.isZoneOwner
-            : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
+        // WHY: per-family owner uses anchor when family == active family, else shared (false) — never zoneOwner heuristic.
+        let isOwner = resolvedIsOwner(for: family)
         let db = cloudKit.database(isOwner: isOwner)
         let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
         // Scope mirrors the database the query ran against, which this method
@@ -509,6 +521,7 @@ final class FamilyService: FamilyProfileFetching {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchProfiles(family: familyName)
+            // WHY: stale cache must re-validate via CloudKit — profiles are roster-critical and must not serve stale partial data.
             if cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
                 return cached.map { $0.toProfile(zoneID: family.id.zoneID) }
                     .sorted { lhs, rhs in
@@ -522,9 +535,8 @@ final class FamilyService: FamilyProfileFetching {
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let isOwner = (family.id.recordName == appState.family?.id.recordName)
-            ? appState.isZoneOwner
-            : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
+        // WHY: per-family owner uses anchor when family == active family, else shared (false) — never zoneOwner heuristic.
+        let isOwner = resolvedIsOwner(for: family)
         let db = cloudKit.database(isOwner: isOwner)
         let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
         // Scope mirrors the database the query ran against, which this method
@@ -577,7 +589,12 @@ final class FamilyService: FamilyProfileFetching {
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updateMemberRole isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }
 
@@ -673,6 +690,14 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
+    // WHY: per-family owner uses creator anchor when family == active family; otherwise shared (false) — zoneOwner heuristic is fragile.
+    private func resolvedIsOwner(for family: Family) -> Bool {
+        if family.id.recordName == appState.family?.id.recordName {
+            return ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        }
+        return false
+    }
+
     private func acceptShareIfNeeded(metadata: CKShare.Metadata?, progressHandler: ((String, Double) -> Void)?) async throws {
         guard let metadata else { return }
         progressHandler?("Accepting family invitation...", 0.4)
@@ -723,9 +748,8 @@ final class FamilyService: FamilyProfileFetching {
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let isOwner = (family.id.recordName == appState.family?.id.recordName)
-            ? appState.isZoneOwner
-            : (family.id.zoneID.ownerName == CKCurrentUserDefaultName)
+        // WHY: per-family owner uses anchor when family == active family, else shared (false) — never zoneOwner heuristic.
+        let isOwner = resolvedIsOwner(for: family)
         let db = cloudKit.database(isOwner: isOwner)
         do {
             let fresh = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
@@ -790,7 +814,12 @@ final class FamilyService: FamilyProfileFetching {
         // Batch upsert mirrors BackgroundCacheActor.batchUpsertNotificationPreferences
         // to keep the write off the per-row save path.
         await cacheService.upsertNotificationPreferences(missing, family: familyRecordName)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.seedNotificationPreferences isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         for pref in missing {
             syncCoordinator?.enqueueSave(recordID: pref.id, isOwner: isOwner)
         }
@@ -842,7 +871,12 @@ final class FamilyService: FamilyProfileFetching {
             id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
         )
         await cacheService.upsertAllowancePeriod(period)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.seedAllowancePeriod isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
     }
 
@@ -871,7 +905,8 @@ final class FamilyService: FamilyProfileFetching {
 
     func familyContext(for recordID: CKRecord.ID) -> (zone: CKRecordZone.ID, db: CKDatabase?) {
         let zoneID = recordID.zoneID
-        let isOwner = (recordID.zoneID.ownerName == CKCurrentUserDefaultName) || (appState.family?.id.recordName == recordID.recordName && appState.isZoneOwner)
+        let isOwner = (recordID.zoneID.ownerName == CKCurrentUserDefaultName) ||
+            (appState.family?.id.recordName == recordID.recordName && ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState))
         let db = cloudKit.database(isOwner: isOwner)
         return (zoneID, db)
     }

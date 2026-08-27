@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import Foundation
 import Observation
 import OSLog
@@ -257,40 +256,6 @@ final class QuestManagerViewModel {
             createdBy: parent,
             family: family
         )
-    }
-
-    func fetchPendingQuestLogs() async throws -> [QuestCompletion] {
-        guard let family = appState.family else {
-            throw QuestServiceError.missingSession
-        }
-        let all = try await questService.fetchQuestsForFamilyWeek(
-            family: family,
-            weekOf: QuestService.startOfWeek(for: Date(), payoutDay: family.payoutDay)
-        )
-
-        // Single batch fetch — replaces per-quest N+1 queries.
-        let allCompletions: [QuestCompletion]
-        do {
-            allCompletions = try await questService.fetchQuestCompletionsForFamily(family: family)
-        } catch {
-            logger.warning("Failed to fetch quest completions for family: \(error, privacy: .private)")
-            allCompletions = []
-        }
-
-        var completionsByQuest: [String: [QuestCompletion]] = [:]
-        for completion in allCompletions {
-            completionsByQuest[completion.quest.recordID.recordName, default: []].append(completion)
-        }
-
-        // Collect all pending completions across quests in descending date order.
-        var pending: [QuestCompletion] = []
-        for quest in all where quest.approvalMode == .parentVerify {
-            let logs = completionsByQuest[quest.id.recordName] ?? []
-            for log in logs where log.verificationStatus == .pending {
-                pending.append(log)
-            }
-        }
-        return pending
     }
 
     private(set) var heroes: [ProfileCache] = []

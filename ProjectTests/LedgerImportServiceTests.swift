@@ -271,7 +271,7 @@ struct LedgerImportServiceTests {
         let summary = try await service.finalize([makeAssignedRow()], family: family)
 
         #expect(summary.importedCount == 1)
-        let cached = cache.fetchLedgerEntries(profileRecordName: "hero1")
+        let cached = cache.fetchLedgerEntries(profileRecordName: "hero1", family: family.id.recordName)
         #expect(cached.count == 1)
         #expect(cached.first?.source == "import")
         #expect(cached.first?.location == "Amazon")
@@ -298,7 +298,7 @@ struct LedgerImportServiceTests {
         #expect(secondRun.importedCount == 0)
         #expect(secondRun.skippedDuplicates == 1)
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: "hero1")
+        let cached = cache.fetchLedgerEntries(profileRecordName: "hero1", family: family.id.recordName)
         #expect(cached.count == 1, "Re-import must not duplicate ledger entries")
     }
 
@@ -329,7 +329,7 @@ struct LedgerImportServiceTests {
         #expect(secondRun.importedCount == 0)
         #expect(secondRun.skippedDuplicates == 1)
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: "hero1")
+        let cached = cache.fetchLedgerEntries(profileRecordName: "hero1", family: family.id.recordName)
         #expect(cached.count == 1, "Literal apostrophe text must not duplicate on re-import")
         #expect(cached.first?.entryDescription == "'90s toy")
 
@@ -374,7 +374,7 @@ struct LedgerImportServiceTests {
         await #expect(throws: LedgerImportError.self) {
             _ = try await service.finalize([unassigned], family: family)
         }
-        #expect(cache.fetchLedgerEntries(profileRecordName: "hero1").isEmpty)
+        #expect(cache.fetchLedgerEntries(profileRecordName: "hero1", family: family.id.recordName).isEmpty)
     }
 
     @Test
@@ -394,7 +394,7 @@ struct LedgerImportServiceTests {
 
         let summary = try await service.finalize([malformed, valid], family: family)
         #expect(summary.importedCount == 1)
-        #expect(cache.fetchLedgerEntries(profileRecordName: "hero1").count == 1)
+        #expect(cache.fetchLedgerEntries(profileRecordName: "hero1", family: family.id.recordName).count == 1)
     }
 
     @Test
@@ -414,6 +414,6 @@ struct LedgerImportServiceTests {
         } catch {
             #expect(error is FamilyServiceError)
         }
-        #expect(cache.fetchLedgerEntries(profileRecordName: "hero1").isEmpty)
+        #expect(cache.fetchLedgerEntries(profileRecordName: "hero1", family: family.id.recordName).isEmpty)
     }
 }

@@ -70,8 +70,6 @@ final class QuestService {
         cloudKit
     }
 
-    let calendar: Calendar = .iso8601UTC
-
     /// Record names of quests with a completion save currently in flight.
     /// Local double-submit guard: a second `markComplete` tap for the
     /// same quest while a save is pending is a no-op/toast instead of a
@@ -152,7 +150,12 @@ final class QuestService {
         )
 
         await cacheService?.upsertQuestTemplate(template)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.createTemplate isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: template.id, isOwner: isOwner)
         return template
     }
@@ -172,7 +175,12 @@ final class QuestService {
         )
 
         await cacheService?.upsertQuestTemplate(template)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.updateTemplate isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: template.id, isOwner: isOwner)
         return template
     }
@@ -195,7 +203,12 @@ final class QuestService {
         deactivated.isActive = false
 
         await cacheService?.upsertQuestTemplate(deactivated)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.deactivateTemplate isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: deactivated.id, isOwner: isOwner)
         return deactivated
     }
@@ -205,7 +218,7 @@ final class QuestService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuestTemplates(family: familyName)
-            if cache.isCacheFresh(familyRecordName: familyName, type: .questTemplate) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questTemplate, cachedCount: cached.count) {
                 return cached.map { $0.toQuestTemplate(zoneID: family.id.zoneID) }
                     .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             }
@@ -213,14 +226,27 @@ final class QuestService {
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = try await cloudKit.query(QuestTemplate.self, predicate: predicate, in: family.id.zoneID)
-        await syncCoordinator?.delegateHandler.hydrateFromQuery(
-            models: all,
-            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-            zoneID: family.id.zoneID
-        )
-        return all
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        do {
+            let all = try await cloudKit.query(QuestTemplate.self, predicate: predicate, in: family.id.zoneID)
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                zoneID: family.id.zoneID
+            )
+            return all
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        } catch {
+            // WHY: stale cache must re-validate via CloudKit; offline fallback renders stale cache explicitly at call site, not via authoritative predicate.
+            logger.warning("fetchTemplates CloudKit query failed, falling back to stale cache: \(error, privacy: .private)")
+            if let cache = cacheService {
+                let cached = cache.fetchQuestTemplates(family: family.id.recordName)
+                if !cached.isEmpty {
+                    return cached.map { $0.toQuestTemplate(zoneID: family.id.zoneID) }
+                        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                }
+            }
+            throw error
+        }
     }
 
     /// Cache-first single-template read for presentation paths. On a cache
@@ -242,7 +268,7 @@ final class QuestService {
         let template = try await cloudKit.fetch(QuestTemplate.self, id: id)
         await syncCoordinator?.delegateHandler.hydrateFromQuery(
             models: [template],
-            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+            databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
             zoneID: id.zoneID
         )
         return template
@@ -304,7 +330,12 @@ final class QuestService {
         )
 
         await cacheService?.upsertQuest(quest)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.assignQuest isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
         sendAssignmentNotification(to: assignee, questName: questName)
         return quest
@@ -330,7 +361,12 @@ final class QuestService {
         }
 
         await cacheService?.upsertQuest(updatedQuest)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.updateQuest isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updatedQuest.id, isOwner: isOwner)
         return updatedQuest
     }
@@ -406,7 +442,12 @@ final class QuestService {
         )
 
         await cacheService?.upsertQuest(quest)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.assignQuickQuest isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
         sendAssignmentNotification(to: assignee, questName: name)
         return quest
@@ -425,7 +466,12 @@ final class QuestService {
             cloudKit: cloudKit
         )
 
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.unassignQuest isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         let shouldRetainTombstone = acting.role.isParent && isCarryForwardSuppressible(quest)
         if shouldRetainTombstone {
             var tombstone = quest
@@ -457,29 +503,47 @@ final class QuestService {
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let familyName = profile.family.recordID.recordName
-            let cached = cache.fetchQuests(family: familyName, weekInRange: range)
-                .filter { $0.assigneeRecordName == profileName && $0.isActive && range.contains($0.weekOf) }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+            let allForFamily = cache.fetchQuests(family: familyName)
+            let cached = allForFamily.filter { $0.assigneeRecordName == profileName && $0.isActive && range.contains($0.weekOf) }
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: allForFamily.count) {
                 return cached.map { $0.toQuest(zoneID: profile.id.zoneID) }
             }
         }
 
         let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
-        let all = try await cloudKit.query(Quest.self, predicate: predicate, in: profile.id.zoneID)
-        let stampedAll = await stampAllQuests(all)
-        if let syncCoordinator {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: stampedAll,
-                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-                zoneID: profile.id.zoneID
-            )
-        } else {
-            await cacheService?.upsertQuests(stampedAll)
+        do {
+            let all = try await cloudKit.query(Quest.self, predicate: predicate, in: profile.id.zoneID)
+            let stampedAll = await stampAllQuests(all)
+            if let syncCoordinator {
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: stampedAll,
+                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    zoneID: profile.id.zoneID
+                )
+            } else {
+                await cacheService?.upsertQuests(stampedAll)
+            }
+            return stampedAll
+                .filter { $0.active && range.contains($0.weekOf) }
+                .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
+        } catch {
+            // WHY: stale cache must re-validate via CloudKit; offline fallback renders stale cache explicitly at call site, not via authoritative predicate.
+            logger.warning("fetchActiveQuests CloudKit query failed, falling back to stale cache: \(error, privacy: .private)")
+            if let cache = cacheService {
+                let familyName = profile.family.recordID.recordName
+                let allForFamily = cache.fetchQuests(family: familyName)
+                let cached = allForFamily.filter { $0.assigneeRecordName == profile.id.recordName && $0.isActive && range.contains($0.weekOf) }
+                if !cached.isEmpty {
+                    return cached.map { $0.toQuest(zoneID: profile.id.zoneID) }
+                }
+                // Also return stale filtered empty when CloudKit fails offline — caller handles empty-cache-offline rendering.
+                if !allForFamily.isEmpty {
+                    return cached.map { $0.toQuest(zoneID: profile.id.zoneID) }
+                }
+            }
+            throw error
         }
-        return stampedAll
-            .filter { $0.active && range.contains($0.weekOf) }
-            .sorted { $0.template.recordID.recordName < $1.template.recordID.recordName }
     }
 
     /// Cache-first read. On cold cache miss, falls back to a single synchronous
@@ -490,29 +554,46 @@ final class QuestService {
 
         if let cache = cacheService {
             let familyName = family.id.recordName
-            let cached = cache.fetchQuests(family: familyName, weekInRange: range)
-                .filter { $0.isActive && range.contains($0.weekOf) }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
+            let allForFamily = cache.fetchQuests(family: familyName)
+            let cached = allForFamily.filter { $0.isActive && range.contains($0.weekOf) }
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: allForFamily.count) {
                 return cached.map { $0.toQuest(zoneID: family.id.zoneID) }
             }
         }
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
-        let stampedAll = await stampAllQuests(all)
-        if let syncCoordinator {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: stampedAll,
-                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-                zoneID: family.id.zoneID
-            )
-        } else {
-            await cacheService?.upsertQuests(stampedAll)
+        do {
+            let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
+            let stampedAll = await stampAllQuests(all)
+            if let syncCoordinator {
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: stampedAll,
+                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    zoneID: family.id.zoneID
+                )
+            } else {
+                await cacheService?.upsertQuests(stampedAll)
+            }
+            return stampedAll
+                .filter { $0.active && range.contains($0.weekOf) }
+                .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
+        } catch {
+            // WHY: stale cache must re-validate via CloudKit; offline fallback renders stale cache explicitly at call site, not via authoritative predicate.
+            logger.warning("fetchQuestsForFamilyWeek CloudKit query failed, falling back to stale cache: \(error, privacy: .private)")
+            if let cache = cacheService {
+                let allForFamily = cache.fetchQuests(family: family.id.recordName)
+                let cached = allForFamily.filter { $0.isActive && range.contains($0.weekOf) }
+                if !cached.isEmpty {
+                    return cached.map { $0.toQuest(zoneID: family.id.zoneID) }
+                }
+                // Return stale filtered (empty) when offline — caller handles empty-cache-offline rendering.
+                if !allForFamily.isEmpty {
+                    return cached.map { $0.toQuest(zoneID: family.id.zoneID) }
+                }
+            }
+            throw error
         }
-        return stampedAll
-            .filter { $0.active && range.contains($0.weekOf) }
-            .sorted { $0.assignee.recordID.recordName < $1.assignee.recordID.recordName }
     }
 
     /// Deactivates uncompleted quests from past weeks whose payouts have been
@@ -534,9 +615,20 @@ final class QuestService {
 
         // Query allowance periods to identify weeks whose payouts have been completed (.paid)
         let allowancePeriods: [AllowancePeriod]
-        if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod) {
-            allowancePeriods = cache.fetchAllowancePeriods(family: familyName)
-                .map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
+        if let cache = cacheService {
+            let cached = cache.fetchAllowancePeriods(family: familyName)
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, cachedCount: cached.count) {
+                allowancePeriods = cached.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
+            } else {
+                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                let predicate = NSPredicate(format: "family == %@", familyRef)
+                do {
+                    allowancePeriods = try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: family.id.zoneID)
+                } catch {
+                    logger.warning("Failed to fetch allowance periods from CloudKit: \(error, privacy: .private)")
+                    allowancePeriods = cached.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
+                }
+            }
         } else {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
@@ -555,10 +647,20 @@ final class QuestService {
         let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map(\.weekOf))
 
         let allQuests: [Quest]
-        if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .quest) {
-            allQuests = cache.fetchQuests(family: familyName)
-                .filter(\.isActive)
-                .map { $0.toQuest(zoneID: family.id.zoneID) }
+        if let cache = cacheService {
+            let cached = cache.fetchQuests(family: familyName).filter(\.isActive)
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: cached.count) {
+                allQuests = cached.map { $0.toQuest(zoneID: family.id.zoneID) }
+            } else {
+                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                let predicate = NSPredicate(format: "family == %@", familyRef)
+                do {
+                    allQuests = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID).filter(\.active)
+                } catch {
+                    logger.warning("Failed to fetch quests from CloudKit: \(error, privacy: .private)")
+                    allQuests = cached.map { $0.toQuest(zoneID: family.id.zoneID) }
+                }
+            }
         } else {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
@@ -567,7 +669,12 @@ final class QuestService {
         }
 
         var deactivated: [Quest] = []
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("QuestService.sweepExpiredQuests isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         for var quest in allQuests {
             // Resolve effective payout day (profile override -> family -> .sunday fallback).
             let effectivePayoutDay = cacheService?.fetchProfile(recordName: quest.assignee.recordID.recordName, family: quest.family.recordID.recordName)?.payoutDayEnum
@@ -616,7 +723,7 @@ final class QuestService {
         if let zoneID = stamped.first?.id.zoneID {
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: nameStamped,
-                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
                 zoneID: zoneID
             )
         }
@@ -673,15 +780,7 @@ final class QuestService {
     }
 
     private func weekdayCodes(inWeekOf weekOf: Date) -> Set<String> {
-        let codes = AppConstants.weekdayCodes
-        var found: Set<String> = []
-        for offset in 0 ..< 7 {
-            let day = calendar.date(byAdding: .day, value: offset, to: weekOf) ?? weekOf
-            let weekday = calendar.component(.weekday, from: day)
-            let index = max(0, min(codes.count - 1, weekday - 1))
-            found.insert(codes[index])
-        }
-        return found
+        WeekMath.weekdayCodes(inWeekOf: weekOf)
     }
 
     /// True when `quest` is exactly what the weekly carry-forward engine would
@@ -698,7 +797,7 @@ final class QuestService {
             ?? cacheService?.fetchFamily(recordName: quest.family.recordID.recordName)?.payoutDayEnum
             ?? .sunday
         let currentWeekStart = WeekMath.startOfWeek(for: Date(), payoutDay: assigneePayoutDay)
-        guard Calendar.iso8601UTC.startOfDay(for: quest.weekOf) == Calendar.iso8601UTC.startOfDay(for: currentWeekStart) else {
+        guard WeekMath.dayBucket(for: quest.weekOf) == WeekMath.dayBucket(for: currentWeekStart) else {
             return false
         }
         return cacheService?.fetchQuestTemplates(family: quest.family.recordID.recordName)

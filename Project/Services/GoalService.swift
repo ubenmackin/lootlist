@@ -209,7 +209,18 @@ final class GoalService {
         )
 
         await cacheService?.upsertGoal(goal)
-        syncCoordinator?.enqueueSave(recordID: goal.id, isOwner: appState.isZoneOwner)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("GoalService.createGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: goal.id, isOwner: isOwner)
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
+        }
 
         logger.info("Created goal \"\(name, privacy: .private)\" for profile \(targetProfile.id.recordName, privacy: .private)")
 
@@ -258,7 +269,18 @@ final class GoalService {
         }()
 
         await cacheService?.upsertGoal(updatedGoal)
-        syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: appState.isZoneOwner)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("GoalService.archiveGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: isOwner)
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
+        }
 
         logger.info("Archived goal \"\(goal.name, privacy: .private)\"")
 
@@ -277,8 +299,144 @@ final class GoalService {
         if let supplied = familyRecordName, supplied != family.id.recordName {
             throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: supplied)
         }
-        let zoneID = appState.familyZoneID ?? family.id.zoneID
+        let zoneID = appState.resolvedFamilyZoneID()
         try await archiveGoal(goalCache.toGoal(zoneID: zoneID), family: family)
+    }
+
+    // MARK: - Update Goal
+
+    /// Updates an existing savings goal. The acting profile must match the goal's owner
+    /// (hero updates own) OR be a parent (parents may update any goal).
+    @discardableResult
+    func updateGoal(_ goal: Goal,
+                    name: String,
+                    category: String? = nil,
+                    emojiIcon: String? = nil,
+                    targetAmountPennies: Int64,
+                    bucketKind: BucketKind,
+                    family: Family) async throws -> Goal
+    {
+        guard let appState, let acting = appState.currentProfile else {
+            throw GoalServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
+
+        // Hero may update own goals; parent may update any child's goal.
+        if acting.role == .hero {
+            guard acting.id.recordName == goal.profile.recordID.recordName else {
+                throw GoalServiceError.unauthorized
+            }
+        } else {
+            guard acting.role.isParent else {
+                throw GoalServiceError.unauthorized
+            }
+        }
+
+        var updated = goal
+        updated.name = name
+        updated.category = category
+        updated.emojiIcon = emojiIcon
+        updated.targetAmountPennies = targetAmountPennies
+        updated.bucketKind = bucketKind.rawValue
+
+        await cacheService?.upsertGoal(updated)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("GoalService.updateGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
+        }
+
+        logger.info("Updated goal \"\(name, privacy: .private)\" for profile \(goal.profile.recordID.recordName, privacy: .private)")
+        return updated
+    }
+
+    /// Updates straight from a `GoalCache` row.
+    func updateGoal(_ goalCache: GoalCache,
+                    draft: GoalDraft,
+                    familyRecordName: String?) async throws
+    {
+        guard let appState, let family = appState.family else {
+            throw ScopeViolation.noActiveFamily
+        }
+        if let supplied = familyRecordName, supplied != family.id.recordName {
+            throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: supplied)
+        }
+        let zoneID = appState.resolvedFamilyZoneID()
+        let goal = goalCache.toGoal(zoneID: zoneID)
+        try await updateGoal(
+            goal,
+            name: draft.name,
+            category: draft.category,
+            emojiIcon: draft.emojiIcon,
+            targetAmountPennies: draft.targetAmountPennies,
+            bucketKind: draft.bucketKind,
+            family: family
+        )
+    }
+
+    // MARK: - Delete Goal
+
+    /// Deletes a savings goal. The acting profile must match the goal's owner
+    /// OR be a parent.
+    func deleteGoal(_ goal: Goal, family: Family) async throws {
+        guard let appState, let acting = appState.currentProfile else {
+            throw GoalServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
+
+        if acting.role == .hero {
+            guard acting.id.recordName == goal.profile.recordID.recordName else {
+                throw GoalServiceError.unauthorized
+            }
+        } else {
+            guard acting.role.isParent else {
+                throw GoalServiceError.unauthorized
+            }
+        }
+
+        await cacheService?.invalidate(recordName: goal.id.recordName, family: family.id.recordName, type: .goal)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("GoalService.deleteGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueDelete(recordID: goal.id, isOwner: isOwner)
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
+        }
+
+        logger.info("Deleted goal \"\(goal.name, privacy: .private)\"")
+    }
+
+    /// Deletes straight from a `GoalCache` row.
+    func deleteGoal(_ goalCache: GoalCache, familyRecordName: String?) async throws {
+        guard let appState, let family = appState.family else {
+            throw ScopeViolation.noActiveFamily
+        }
+        if let supplied = familyRecordName, supplied != family.id.recordName {
+            throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: supplied)
+        }
+        let zoneID = appState.resolvedFamilyZoneID()
+        let goal = goalCache.toGoal(zoneID: zoneID)
+        try await deleteGoal(goal, family: family)
     }
 
     // MARK: - Complete Goal Manually
@@ -314,7 +472,18 @@ final class GoalService {
         }()
 
         await cacheService?.upsertGoal(updatedGoal)
-        syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: appState.isZoneOwner)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("GoalService.completeGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: isOwner)
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
+        }
 
         // Centralized celebration hook.
         triggerGoalCompletionFeedback(goalName: goal.name, profile: goal.profile, family: family)
@@ -380,7 +549,13 @@ final class GoalService {
                 id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
             )
             await cacheService?.upsertLedgerEntry(entry)
-            syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwner = appState.isZoneOwner
+            if isOwner != storedOwner {
+                logger.warning("GoalService.contributeToBucket ledger isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+            }
+            syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
 
             logger.info("Contributed \(alloc.allocatedPennies)p to goal \(alloc.goalRecordName, privacy: .private)")
         }
@@ -393,7 +568,13 @@ final class GoalService {
             var updated = domain
             updated.completedAt = contributionDate
             await cacheService?.upsertGoal(updated)
-            syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: appState.isZoneOwner)
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwner2 = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwner2 = appState.isZoneOwner
+            if isOwner2 != storedOwner2 {
+                logger.warning("GoalService.contributeToBucket completion isOwner corrected via creator anchor: stored=\(storedOwner2) resolved=\(isOwner2)")
+            }
+            syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner2)
 
             triggerGoalCompletionFeedback(
                 goalName: domain.name,

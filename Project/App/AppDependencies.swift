@@ -140,6 +140,7 @@ final class AppDependencies {
             appSyncCoordinator: appSync, dataMigrationsCoordinator: migrations,
             autoPayoutCoordinator: autoPayout
         )
+        lifecycle.achievementService = achievement
 
         appState = app
         cloudKitService = ck

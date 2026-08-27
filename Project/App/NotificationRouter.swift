@@ -159,7 +159,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
         }
 
         Task {
-            let zoneID = deps.appState.familyZoneID ?? deps.appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
+            let zoneID = deps.appState.resolvedFamilyZoneID()
             let recordID = CKRecord.ID(recordName: questLogID, zoneID: zoneID)
 
             let verificationAction: VerificationAction

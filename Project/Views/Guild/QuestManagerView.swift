@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -151,7 +150,7 @@ struct QuestManagerView: View {
             }
             .sheet(item: $editingQuest) { quest in
                 if let vm = viewModel {
-                    QuestAssignmentView(mode: .edit(questID: quest.id), viewModel: vm, familyRecordName: appState.family?.id.recordName)
+                    QuestAssignmentView(mode: .edit(questRecordName: quest.id.recordName), viewModel: vm, familyRecordName: appState.family?.id.recordName)
                 }
             }
             .sheet(isPresented: $showAddTemplateSheet) {
@@ -225,7 +224,7 @@ struct QuestManagerView: View {
     }
 
     private func assignmentRow(quest: QuestCache, vm: QuestManagerViewModel) -> some View {
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? quest.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: quest)
         let approvalMode = quest.approvalModeEnum ?? .autoApprove
         let rarity = quest.rarityEnum ?? .common
         return Button {
@@ -233,7 +232,7 @@ struct QuestManagerView: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: approvalMode.iconSystemName)
-                    .foregroundStyle(approvalMode == .parentVerify ? .indigo : .green)
+                    .foregroundStyle(approvalMode == .parentVerify ? Color(DesignSystemConstants.Colors.accentBlue) : Color(DesignSystemConstants.Colors.primaryGreen))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(quest.questName)
                         .font(.subheadline.bold())
@@ -292,7 +291,7 @@ struct QuestManagerView: View {
     }
 
     private func templateRow(template: QuestTemplateCache, vm: QuestManagerViewModel) -> some View {
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? template.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
         let scheduleType = template.scheduleTypeEnum ?? .weeklyFlexible
         let rarity = template.rarityEnum ?? .common
         return HStack(spacing: 12) {
@@ -309,7 +308,7 @@ struct QuestManagerView: View {
                 if !template.isActive {
                     Text("Deactivated")
                         .font(.caption2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                 }
             }
             Spacer()
@@ -336,7 +335,7 @@ struct QuestManagerView: View {
                     Label("Deactivate", systemImage: "trash.slash")
                 }
                 .disabled(isSubmitting)
-                .tint(.orange)
+                .tint(Color(DesignSystemConstants.Colors.pendingAmber))
             } else {
                 Button {
                     guard !isSubmitting else { return }
@@ -353,7 +352,7 @@ struct QuestManagerView: View {
                     Label("Activate", systemImage: "arrow.clockwise.circle.fill")
                 }
                 .disabled(isSubmitting)
-                .tint(.green)
+                .tint(Color(DesignSystemConstants.Colors.primaryGreen))
             }
         }
     }

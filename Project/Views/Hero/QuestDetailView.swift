@@ -81,7 +81,7 @@ struct QuestDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
         .scrollContentBackground(.hidden)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
@@ -111,7 +111,7 @@ struct QuestDetailView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
     }
 
@@ -119,7 +119,7 @@ struct QuestDetailView: View {
         HStack(spacing: 18) {
             rewardPill(icon: "banknote",
                        label: CurrencyFormatter.string(quest.goldReward),
-                       tint: .yellow)
+                       tint: Color(DesignSystemConstants.Colors.pendingAmber))
             // Rarity renders as a plain effort label while the immersive
             // layer is off; the XP figure stays hidden.
             rewardPill(icon: "sparkles",
@@ -130,7 +130,7 @@ struct QuestDetailView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
     }
 
@@ -147,7 +147,8 @@ struct QuestDetailView: View {
     private var approvalCard: some View {
         HStack(spacing: 8) {
             Image(systemName: (quest.approvalModeEnum ?? .autoApprove).iconSystemName)
-                .foregroundStyle((quest.approvalModeEnum ?? .autoApprove) == .parentVerify ? .indigo : .green)
+                .foregroundStyle((quest.approvalModeEnum ?? .autoApprove) == .parentVerify ? Color(DesignSystemConstants.Colors.accentBlue) :
+                    Color(DesignSystemConstants.Colors.primaryGreen))
             Text((quest.approvalModeEnum ?? .autoApprove).displayName)
                 .font(.subheadline)
             Spacer()
@@ -160,7 +161,7 @@ struct QuestDetailView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
     }
 
@@ -172,18 +173,18 @@ struct QuestDetailView: View {
                 .font(.headline)
 
             ProgressView(value: Double(approvedCount), total: Double(targetCount))
-                .tint(isFullyCompleted ? .green : .accentColor)
+                .tint(isFullyCompleted ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.accentBlue))
 
             if isFullyCompleted {
                 Label("All completions logged!", systemImage: "checkmark.seal.fill")
                     .font(.subheadline.bold())
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             }
         }
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
     }
 
@@ -243,7 +244,8 @@ struct QuestDetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(isFullyCompleted ? .green : (hasPendingLog ? .purple : .green))
+            .tint(isFullyCompleted ? Color(DesignSystemConstants.Colors.primaryGreen) :
+                (hasPendingLog ? Color(DesignSystemConstants.Colors.accentBlue) : Color(DesignSystemConstants.Colors.primaryGreen)))
             .disabled(completeButtonDisabled)
             .opacity(completeButtonDisabled ? 0.5 : 1)
 

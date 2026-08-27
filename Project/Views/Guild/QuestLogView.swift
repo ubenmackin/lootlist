@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -210,8 +209,8 @@ struct QuestLogView: View {
                                 .font(.caption2.weight(.bold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Capsule().fill(.red.opacity(0.15)))
-                                .foregroundStyle(.red)
+                                .background(Capsule().fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.15)))
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                         }
                         Spacer()
                         Text(row.quest.weekOf, format: .dateTime.month().day())
@@ -241,8 +240,7 @@ struct QuestLogView: View {
                                     if let pendingLog = cachedCompletions
                                         .first(where: { $0.questRecordName == questName && $0.verificationStatus == VerificationStatus.pending.rawValue })
                                     {
-                                        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? pendingLog
-                                            .validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+                                        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: pendingLog)
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
                                         if let parent = appState.currentProfile {
                                             do {
@@ -256,10 +254,10 @@ struct QuestLogView: View {
                             } label: {
                                 Text("Reject")
                                     .font(.caption.weight(.bold))
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
-                                    .background(Capsule().fill(Color.red.opacity(0.12)))
+                                    .background(Capsule().fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.12)))
                             }
                             .buttonStyle(.plain)
 
@@ -269,8 +267,7 @@ struct QuestLogView: View {
                                     if let pendingLog = cachedCompletions
                                         .first(where: { $0.questRecordName == questName && $0.verificationStatus == VerificationStatus.pending.rawValue })
                                     {
-                                        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? pendingLog
-                                            .validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+                                        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: pendingLog)
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
                                         if let parent = appState.currentProfile {
                                             do {
@@ -288,7 +285,7 @@ struct QuestLogView: View {
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 4)
-                                    .background(Capsule().fill(Color.green))
+                                    .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen)))
                             }
                             .buttonStyle(.plain)
                         }
@@ -310,19 +307,19 @@ struct QuestLogView: View {
         case .pending:
             Text("⏳ Pending")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
         case let .inProgress(completed, target):
             Text("⏳ In Progress (\(completed)/\(target))")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
         case .completed:
             Text("✓ Completed")
                 .font(.caption)
-                .foregroundStyle(.green)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
         case .rejected:
             Text("✗ Rejected")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
         }
     }
 

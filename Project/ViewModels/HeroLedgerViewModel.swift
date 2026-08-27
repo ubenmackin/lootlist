@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/8/26.
 //
 
-import CloudKit
 import Foundation
 import Observation
 import os
@@ -35,17 +34,25 @@ final class HeroLedgerViewModel {
         ledgers: [LedgerEntryCache],
         quests: [QuestCache] = [],
         completions: [QuestCompletionCache] = [],
+        allowancePeriods: [AllowancePeriodCache] = [],
         scope: CalendarScope
     ) {
-        let heroLedgers = ledgers.filter { $0.profileRecordName == heroProfile.recordName }
-        balance = heroLedgers.reduce(0.0) { $0 + $1.amount }
+        // WHY: Balance derives from shared ledger-total formula; keeps Treasury + HeroLedger on one Double-sum path.
+        balance = TreasuryViewModel.ledgerBalance(for: ledgers, profileRecordName: heroProfile.recordName)
 
         let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
-        let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+        let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let effectivePolicy = heroProfile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
-        let hasPaidQuestThisWeek = heroLedgers.contains { $0.source == "quest" && weekRange.contains($0.date) }
-        if hasPaidQuestThisWeek || effectivePolicy == .realTime {
+        let hasPaidQuestThisWeek = ledgers.filter { $0.profileRecordName == heroProfile.recordName }.contains { $0.source == "quest" && weekRange.contains($0.date) }
+        // WHY: AllowancePeriod.status == .paid is the atomic double-run skip-guard; replicate Treasury's payoutStatus == .paid check so pending zeros after payout.
+        let currentAllowance = allowancePeriods.first {
+            $0.profileRecordName == heroProfile.recordName &&
+                WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
+        }
+        let payoutStatus = currentAllowance?.statusEnum
+        if hasPaidQuestThisWeek || payoutStatus == .paid || effectivePolicy == .realTime {
             pendingQuestGold = 0.0
         } else {
             pendingQuestGold = GoldCalculation.netWeeklyGold(
@@ -57,19 +64,8 @@ final class HeroLedgerViewModel {
             )
         }
 
-        let filtered = heroLedgers.filter { scope.contains($0.date, payoutDay: payoutDay) }
-
-        ledgerRows = filtered.map { ledger in
-            SpendingLogRow(
-                id: ledger.recordName,
-                amount: ledger.amount,
-                description: ledger.entryDescription,
-                location: ledger.location,
-                date: ledger.date,
-                source: ledger.source,
-                rawCache: ledger
-            )
-        }.sorted { $0.date > $1.date }
+        // WHY: Single cache→row path shared via TreasuryViewModel; avoids duplicating profile/scope filter + sorted mapping.
+        ledgerRows = TreasuryViewModel.spendingRows(from: ledgers, profileRecordName: heroProfile.recordName, scope: scope, payoutDay: payoutDay)
     }
 
     func deposit(description: String, amount: Double, date: Date) async -> Bool {
@@ -77,7 +73,7 @@ final class HeroLedgerViewModel {
             errorMessage = "No family loaded."
             return false
         }
-        let zoneID = appState.familyZoneID ?? family.id.zoneID
+        let zoneID = appState.resolvedFamilyZoneID()
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
         isLoading = true
@@ -107,7 +103,7 @@ final class HeroLedgerViewModel {
             errorMessage = "No family loaded."
             return false
         }
-        let zoneID = appState.familyZoneID ?? family.id.zoneID
+        let zoneID = appState.resolvedFamilyZoneID()
         let profile = heroProfile.toProfile(zoneID: zoneID)
 
         isLoading = true

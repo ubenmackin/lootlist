@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import os
 import SwiftData
 import SwiftUI
@@ -45,19 +44,26 @@ struct GemShopView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: DesignSystemConstants.Padding.large) {
-                gemBalanceHeader
-                liveAvatarPreview
-                categoryPicker
-                itemsGrid
+        // WHY: Gem Shop is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1 gamification contract.
+        Group {
+            if !FeatureFlags.rpgImmersive {
+                ContentUnavailableView("Gem Shop Unavailable", systemImage: "diamond.slash", description: Text("The Gem Shop is part of the RPG layer, currently hidden."))
+            } else {
+                ScrollView {
+                    VStack(spacing: DesignSystemConstants.Padding.large) {
+                        gemBalanceHeader
+                        liveAvatarPreview
+                        categoryPicker
+                        itemsGrid
+                    }
+                    .padding(.horizontal, DesignSystemConstants.Padding.standard)
+                    .padding(.vertical, DesignSystemConstants.Padding.standard)
+                }
+                .background(Color(DesignSystemConstants.Colors.background))
+                .navigationTitle("Gem Shop")
+                .navigationBarTitleDisplayMode(.inline)
             }
-            .padding(.horizontal, DesignSystemConstants.Padding.standard)
-            .padding(.vertical, DesignSystemConstants.Padding.standard)
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Gem Shop")
-        .navigationBarTitleDisplayMode(.inline)
         .overlay {
             if showCelebration, let item = celebratedItem {
                 purchaseCelebrationOverlay(item: item)
@@ -99,7 +105,7 @@ struct GemShopView: View {
                 Circle()
                     .fill(
                         RadialGradient(
-                            colors: [Color.gold.opacity(0.35), Color.clear],
+                            colors: [Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.35), Color.clear],
                             center: .center,
                             startRadius: 0,
                             endRadius: 36
@@ -120,7 +126,7 @@ struct GemShopView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(gemBalance.map(String.init) ?? "–")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.gold)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         .contentTransition(.numericText())
 
                     Text("Gems")
@@ -138,7 +144,7 @@ struct GemShopView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .strokeBorder(Color.gold.opacity(0.35), lineWidth: 1)
+                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.35), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(gemBalance.map { "Current Gem Balance: \($0) Gems" } ?? "Current Gem Balance unavailable")
@@ -151,7 +157,7 @@ struct GemShopView: View {
             HStack {
                 Label("Hero Fitting Room", systemImage: "sparkles")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.gold)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                 Spacer()
                 Text("Live Gear Preview")
                     .font(.caption)
@@ -204,7 +210,7 @@ struct GemShopView: View {
 
                         Text(spec.levelTitle)
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.gold)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                     }
                 }
                 .padding(.vertical, DesignSystemConstants.Padding.medium)
@@ -231,15 +237,15 @@ struct GemShopView: View {
             ZStack {
                 LinearGradient(
                     colors: [
-                        Color.purple.opacity(0.20),
-                        Color.blue.opacity(0.15),
-                        Color.indigo.opacity(0.25)
+                        Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.20),
+                        Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15),
+                        Color(DesignSystemConstants.Colors.accentBlue).opacity(0.25)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
                 RadialGradient(
-                    colors: [Color.gold.opacity(0.12), .clear],
+                    colors: [Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12), .clear],
                     center: .center,
                     startRadius: 0,
                     endRadius: 100
@@ -249,7 +255,7 @@ struct GemShopView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
+                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
         )
     }
 
@@ -257,7 +263,7 @@ struct GemShopView: View {
         Circle()
             .fill(
                 RadialGradient(
-                    colors: [Color.gold.opacity(0.4), Color.blue.opacity(0.25), .clear],
+                    colors: [Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.4), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.25), .clear],
                     center: .center,
                     startRadius: 20,
                     endRadius: 90
@@ -266,7 +272,7 @@ struct GemShopView: View {
             .frame(width: 180, height: 180)
             .overlay(
                 Circle()
-                    .strokeBorder(Color.gold.opacity(0.6), lineWidth: 2)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.6), lineWidth: 2)
                     .scaleEffect(1.1)
             )
             .accessibilityHidden(true)
@@ -275,13 +281,13 @@ struct GemShopView: View {
     private func gearBadge(item: ShopItem, alignment _: Alignment) -> some View {
         ZStack {
             Circle()
-                .fill(Color.black.opacity(0.7))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface).opacity(0.7))
                 .frame(width: 28, height: 28)
             Image(systemName: item.iconSystemName)
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color.gold)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
         }
-        .overlay(Circle().strokeBorder(Color.gold.opacity(0.6), lineWidth: 1))
+        .overlay(Circle().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.6), lineWidth: 1))
         .accessibilityLabel("\(item.category.displayName): \(item.name)")
     }
 
@@ -289,15 +295,15 @@ struct GemShopView: View {
         HStack(spacing: 4) {
             Image(systemName: companion.iconSystemName)
                 .font(.system(size: 16))
-                .foregroundStyle(Color.gold)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             Text(companion.name)
                 .font(.caption2.bold())
                 .foregroundStyle(.white)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Capsule().fill(Color.black.opacity(0.75)))
-        .overlay(Capsule().strokeBorder(Color.gold.opacity(0.6), lineWidth: 1))
+        .background(Capsule().fill(Color(DesignSystemConstants.Colors.cardSurface).opacity(0.75)))
+        .overlay(Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.6), lineWidth: 1))
         .accessibilityLabel("Companion: \(companion.name)")
     }
 
@@ -362,12 +368,12 @@ struct GemShopView: View {
                         .padding(.vertical, 8)
                         .background(
                             Capsule()
-                                .fill(isSelected ? Color.gold : Color(.secondarySystemGroupedBackground))
+                                .fill(isSelected ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(.secondarySystemGroupedBackground))
                         )
-                        .foregroundStyle(isSelected ? Color.black : Color.primary)
+                        .foregroundStyle(isSelected ? Color(DesignSystemConstants.Colors.cardSurface) : Color.primary)
                         .overlay(
                             Capsule()
-                                .strokeBorder(isSelected ? Color.gold : Color.secondary.opacity(0.3), lineWidth: 1)
+                                .strokeBorder(isSelected ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary.opacity(0.3), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
@@ -410,7 +416,7 @@ struct GemShopView: View {
                             LinearGradient(
                                 colors: [
                                     categoryColor(for: item.category).opacity(0.35),
-                                    Color.black.opacity(0.3)
+                                    Color(DesignSystemConstants.Colors.cardSurface).opacity(0.3)
                                 ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
@@ -420,7 +426,7 @@ struct GemShopView: View {
 
                     Image(systemName: item.iconSystemName)
                         .font(.system(size: 36))
-                        .foregroundStyle(isLocked ? .secondary : Color.gold)
+                        .foregroundStyle(isLocked ? .secondary : Color(DesignSystemConstants.Colors.pendingAmber))
                         .symbolRenderingMode(.hierarchical)
 
                     // Badges
@@ -431,21 +437,21 @@ struct GemShopView: View {
                                     .font(.caption2.bold())
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 3)
-                                    .background(Capsule().fill(Color.black.opacity(0.75)))
-                                    .foregroundStyle(.orange)
+                                    .background(Capsule().fill(Color(DesignSystemConstants.Colors.cardSurface).opacity(0.75)))
+                                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                             } else if isEquipped {
                                 Label("EQUIPPED", systemImage: "checkmark")
                                     .font(.caption2.bold())
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 3)
-                                    .background(Capsule().fill(Color.green))
+                                    .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen)))
                                     .foregroundStyle(.white)
                             } else if isOwned {
                                 Text("OWNED")
                                     .font(.caption2.bold())
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 3)
-                                    .background(Capsule().fill(Color.blue.opacity(0.8)))
+                                    .background(Capsule().fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.8)))
                                     .foregroundStyle(.white)
                             }
                             Spacer()
@@ -481,7 +487,10 @@ struct GemShopView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .strokeBorder(isEquipped ? Color.green.opacity(0.6) : Color.gold.opacity(0.2), lineWidth: isEquipped ? 2 : 1)
+                    .strokeBorder(
+                        isEquipped ? Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.6) : Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.2),
+                        lineWidth: isEquipped ? 2 : 1
+                    )
             )
             .accessibilityElement(children: .combine)
             .accessibilityLabel(itemAccessibilityLabel(item: item, isLocked: isLocked, isEquipped: isEquipped, isOwned: isOwned))
@@ -534,7 +543,7 @@ struct GemShopView: View {
                 .padding(.vertical, 8)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .tint(Color(DesignSystemConstants.Colors.primaryGreen))
             .disabled(isChangingEquipment)
         } else if isOwned {
             Button {
@@ -552,7 +561,7 @@ struct GemShopView: View {
                     .padding(.vertical, 8)
             }
             .buttonStyle(.bordered)
-            .tint(Color.gold)
+            .tint(Color(DesignSystemConstants.Colors.pendingAmber))
             .disabled(isChangingEquipment)
         } else {
             Button {
@@ -567,18 +576,18 @@ struct GemShopView: View {
                 .padding(.vertical, 8)
             }
             .buttonStyle(.borderedProminent)
-            .tint(canAfford ? Color.gold : Color.gray)
+            .tint(canAfford ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
             .disabled(!canAfford || isPurchasing)
         }
     }
 
     private func categoryColor(for category: ShopCategory) -> Color {
         switch category {
-        case .headwear: .blue
-        case .weapons: .red
-        case .capes: .purple
-        case .auras: .orange
-        case .companions: .pink
+        case .headwear: Color(DesignSystemConstants.Colors.accentBlue)
+        case .weapons: Color(DesignSystemConstants.Colors.dangerRed)
+        case .capes: Color(DesignSystemConstants.Colors.pendingAmber)
+        case .auras: Color(DesignSystemConstants.Colors.pendingAmber)
+        case .companions: Color(DesignSystemConstants.Colors.primaryGreen)
         }
     }
 
@@ -629,25 +638,25 @@ struct GemShopView: View {
                 ZStack {
                     Circle()
                         .fill(LinearGradient(
-                            colors: [Color.gold.opacity(0.45), Color.orange.opacity(0.25)],
+                            colors: [Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.45), Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.25)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ))
                         .frame(width: 100, height: 100)
 
                     Circle()
-                        .strokeBorder(Color.gold, lineWidth: 2)
+                        .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber), lineWidth: 2)
                         .frame(width: 100, height: 100)
 
                     Image(systemName: item.iconSystemName)
                         .font(.system(size: 44))
-                        .foregroundStyle(Color.gold)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                 }
 
                 VStack(spacing: 6) {
                     Text("🎉 ITEM UNLOCKED!")
                         .font(.subheadline.bold())
-                        .foregroundStyle(Color.gold)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         .textCase(.uppercase)
 
                     Text(item.name)
@@ -662,7 +671,7 @@ struct GemShopView: View {
 
                     Text("Equipped to your Hero!")
                         .font(.caption.bold())
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                         .padding(.top, 4)
                 }
 
@@ -675,7 +684,7 @@ struct GemShopView: View {
                         .padding(.vertical, 10)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color.gold)
+                .tint(Color(DesignSystemConstants.Colors.pendingAmber))
                 .padding(.horizontal, 32)
             }
             .padding(28)
@@ -685,7 +694,7 @@ struct GemShopView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.modal, style: .continuous)
-                    .strokeBorder(Color.gold.opacity(0.5), lineWidth: 1.5)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.5), lineWidth: 1.5)
             )
             .padding(24)
             .scaleEffect(showCelebration ? 1.0 : DesignSystemConstants.Celebration.initialScale)

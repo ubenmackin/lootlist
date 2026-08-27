@@ -78,9 +78,16 @@ final class NetworkMonitor {
 
                 if wasConnected != self.isConnected {
                     self.logger.info("Network connectivity changed: isConnected=\(self.isConnected), type=\(self.connectionType.rawValue)")
+                    if self.isConnected, !wasConnected {
+                        NotificationCenter.default.post(name: .networkDidReconnect, object: self)
+                    }
                 }
             }
         }
         monitor.start(queue: queue)
     }
+}
+
+extension Notification.Name {
+    static let networkDidReconnect = Notification.Name("networkDidReconnect")
 }

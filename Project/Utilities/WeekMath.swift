@@ -34,4 +34,66 @@ enum WeekMath {
         let end = normalizedStart.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek))
         return normalizedStart ..< end
     }
+
+    /// Steps an existing payout-cycle start whole weeks forward/backward. Cycle
+    /// starts are UTC-midnight anchored on a fixed 7-day cadence, so whole-week
+    /// day stepping is exact (no DST drift under iso8601UTC).
+    static func weekStart(byAddingWeeks weekCount: Int, to start: Date) -> Date {
+        let cal = Calendar.iso8601UTC
+        return cal.date(byAdding: .day, value: weekCount * 7, to: cal.startOfDay(for: start)) ?? start
+    }
+
+    /// Weekday code for a given date — e.g. "monday" — aligned to iso8601UTC so
+    /// hub/dashboard due-text matches the payout-anchored week strip.
+    static func weekdayCode(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
+        let index = calendar.component(.weekday, from: date) - 1
+        let codes = AppConstants.weekdayCodes
+        return codes[max(0, min(codes.count - 1, index))]
+    }
+
+    static func todayWeekdayCode(calendar: Calendar = .iso8601UTC) -> String {
+        weekdayCode(for: Date(), calendar: calendar)
+    }
+
+    /// Weekday codes spanned by the 7 days of a payout cycle starting at
+    /// `weekOf` — schedule day-set derivation stays inside WeekMath.
+    static func weekdayCodes(inWeekOf weekOf: Date) -> Set<String> {
+        let cal = Calendar.iso8601UTC
+        var found: Set<String> = []
+        for offset in 0 ..< 7 {
+            let day = cal.date(byAdding: .day, value: offset, to: weekOf) ?? weekOf
+            found.insert(weekdayCode(for: day))
+        }
+        return found
+    }
+
+    /// Single-source UTC day bucket so bucket transfers and week cycles share one timezone.
+    static func dayBucket(for date: Date) -> Int {
+        Int(Calendar.iso8601UTC.startOfDay(for: date).timeIntervalSince1970 / 86400)
+    }
+
+    /// Today/Yesterday checks ride the shared UTC day bucket so day grouping
+    /// matches the app's single timezone instead of a device-local calendar.
+    static func isToday(_ date: Date) -> Bool {
+        dayBucket(for: date) == dayBucket(for: Date())
+    }
+
+    static func isYesterday(_ date: Date) -> Bool {
+        dayBucket(for: date) == dayBucket(for: Date()) - 1
+    }
+
+    /// WHY: Short display name owned by WeekMath so weekday rendering stays on the same UTC source as week boundaries.
+    static func shortName(for weekdayCode: String) -> String {
+        let codes = AppConstants.weekdayCodes
+        let short = AppConstants.weekdayShort
+        guard let idx = codes.firstIndex(of: weekdayCode), idx < short.count else { return weekdayCode }
+        return short[idx]
+    }
+
+    /// WHY: Next weekday helper keeps due-text ordering inside WeekMath instead of duplicating code→index math in views.
+    static func nextWeekdayCode(after todayCode: String, candidates: [String]) -> String? {
+        let codes = AppConstants.weekdayCodes
+        let todayIndex = codes.firstIndex(of: todayCode) ?? -1
+        return codes.first(where: { candidates.contains($0) && (codes.firstIndex(of: $0) ?? -1) > todayIndex })
+    }
 }

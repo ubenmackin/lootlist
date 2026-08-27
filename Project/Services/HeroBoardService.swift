@@ -144,7 +144,13 @@ final class HeroBoardService {
         current.claimedAt = Date()
 
         await cacheService?.upsertQuest(current)
-        syncCoordinator?.enqueueSave(recordID: current.id, isOwner: appState.isZoneOwner)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("HeroBoardService.claim isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: current.id, isOwner: isOwner)
         return .claimed
     }
 
@@ -174,7 +180,13 @@ final class HeroBoardService {
         released.claimedAt = nil
 
         await cacheService?.upsertQuest(released)
-        syncCoordinator?.enqueueSave(recordID: released.id, isOwner: appState.isZoneOwner)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("HeroBoardService.revoke isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: released.id, isOwner: isOwner)
     }
 
     // MARK: - Posting
@@ -250,7 +262,12 @@ final class HeroBoardService {
         )
 
         await cacheService?.upsertQuest(quest)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("HeroBoardService.postToBoard isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
         return quest
     }

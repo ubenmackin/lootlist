@@ -7,33 +7,52 @@
 
 import SwiftUI
 
-/// Sheet for creating a new savings goal. Collects emoji icon, name, optional
-/// category, target amount (dollars → pennies for CurrencyFormatter-safe storage),
-/// and bucket kind. The save callback receives validated goal draft data.
+/// Sheet for creating or editing a savings goal — collects icon, name, category, target amount, and bucket.
 struct GoalEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
+    private let initialGoal: GoalCache?
     private let onSave: (GoalDraft) async throws -> Void
+    private let onDelete: (() async throws -> Void)?
 
     // MARK: - State
 
-    @State private var selectedEmoji: String? = "🎯"
-    @State private var nameText: String = ""
-    @State private var categoryText: String = ""
-    @State private var targetAmountText: String = ""
-    @State private var bucketKind: BucketKind = .shortTermSave
+    @State private var selectedEmoji: String?
+    @State private var nameText: String
+    @State private var categoryText: String
+    @State private var targetAmountText: String
+    @State private var bucketKind: BucketKind
+    @FocusState private var isAmountFocused: Bool
     @State private var isSaving: Bool = false
+    @State private var isDeleting: Bool = false
+    @State private var showDeleteConfirmation: Bool = false
     @State private var parsingError: String?
 
-    init(onSave: @escaping (GoalDraft) async throws -> Void) {
+    init(
+        goal: GoalCache? = nil,
+        onSave: @escaping (GoalDraft) async throws -> Void,
+        onDelete: (() async throws -> Void)? = nil
+    ) {
+        self.initialGoal = goal
         self.onSave = onSave
+        self.onDelete = onDelete
+        _selectedEmoji = State(initialValue: goal?.emojiIcon ?? "🎯")
+        _nameText = State(initialValue: goal?.name ?? "")
+        _categoryText = State(initialValue: goal?.category ?? "")
+        if let goal {
+            let dollars = Double(goal.targetAmountPennies) / 100.0
+            _targetAmountText = State(initialValue: String(format: "%.2f", dollars))
+        } else {
+            _targetAmountText = State(initialValue: "")
+        }
+        _bucketKind = State(initialValue: goal?.bucketKindEnum ?? .shortTermSave)
     }
 
     // MARK: - Curated emoji set (standalone, roughly 40 emoji across themes).
 
     private static let emojiGrid: [[String]] = [
         ["🎯", "🌟", "🚀", "🎮", "🎸", "🎨", "📚", "🎓"],
-        ["🚲", "🎮", "💻", "📱", "🎧", "📸", "🎬", "🎹"],
+        ["🚲", "🧩", "💻", "📱", "🎧", "📸", "🎬", "🎹"],
         ["🏕️", "🎒", "🧸", "🛴", "🏀", "⚽", "🏈", "🎾"],
         ["🐶", "🐱", "🐰", "🦄", "🐉", "🌸", "🌊", "🏔️"],
         ["💰", "💎", "🎁", "🎪", "✈️", "🏰", "🎡", "🛍️"]
@@ -47,20 +66,32 @@ struct GoalEditorSheet: View {
                 categorySection
                 targetAmountSection
                 bucketPickerSection
+
+                if onDelete != nil {
+                    deleteSection
+                }
             }
-            .navigationTitle("New Goal")
+            .navigationTitle(initialGoal != nil ? "Edit Goal" : "New Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .disabled(isSaving)
+                        .disabled(isSaving || isDeleting)
                         .accessibilityIdentifier("goalEditor.cancelButton")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveGoal() }
-                        .disabled(!isValid || isSaving)
+                        .disabled(!isValid || isSaving || isDeleting)
                         .accessibilityIdentifier("goalEditor.saveButton")
                 }
+            }
+            .alert("Delete Goal?", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive) {
+                    deleteGoal()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Are you sure you want to delete “\(nameText)”? This action cannot be undone.")
             }
         }
     }
@@ -145,11 +176,14 @@ struct GoalEditorSheet: View {
     private var targetAmountSection: some View {
         Section {
             HStack(spacing: 4) {
-                Text(Locale.current.currency?.identifier == "USD" ? "$" : Locale.current.currencySymbol ?? "$")
+                // WHY: Use CurrencyFormatter symbol so no "$" literal is hard-coded.
+                Text(CurrencyFormatter.currencySymbol)
                     .foregroundStyle(.secondary)
 
                 TextField("0.00", text: $targetAmountText)
                     .keyboardType(.decimalPad)
+                    .focused($isAmountFocused)
+                    .decimalPadDoneToolbar(isFocused: $isAmountFocused)
                     .accessibilityIdentifier("goalEditor.amountField")
                     .onChange(of: targetAmountText) { _, newValue in
                         validateAmount(newValue)
@@ -180,6 +214,29 @@ struct GoalEditorSheet: View {
         }
     }
 
+    // MARK: - Delete Section
+
+    private var deleteSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                HStack {
+                    Spacer()
+                    if isDeleting {
+                        ProgressView()
+                    } else {
+                        Label("Delete Goal", systemImage: "trash")
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
+                    }
+                    Spacer()
+                }
+            }
+            .disabled(isSaving || isDeleting)
+            .accessibilityIdentifier("goalEditor.deleteButton")
+        }
+    }
+
     // MARK: - Validation & Save
 
     private var isValid: Bool {
@@ -188,9 +245,8 @@ struct GoalEditorSheet: View {
     }
 
     private var parsedPennies: Int64? {
-        let trimmed = targetAmountText.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty,
-              let dollars = Double(trimmed),
+        // WHY: Locale-aware parsing via CurrencyFormatter so comma decimals work and both sheets share one parser.
+        guard let dollars = CurrencyFormatter.decimalDouble(from: targetAmountText),
               dollars > 0
         else { return nil }
         return Int64((dollars * 100.0).rounded())
@@ -202,7 +258,8 @@ struct GoalEditorSheet: View {
             parsingError = nil
             return
         }
-        if Double(value) == nil {
+        // WHY: Single-source decimal parsing via CurrencyFormatter — matches BucketTransferView.parsedAmount.
+        if CurrencyFormatter.decimalDouble(from: value) == nil {
             parsingError = "Enter a valid dollar amount (e.g. 49.99)."
         } else {
             parsingError = nil
@@ -229,11 +286,25 @@ struct GoalEditorSheet: View {
                 try await onSave(draft)
                 await MainActor.run { dismiss() }
             } catch {
-                // Save errors surface via the parent's error handling;
-                // keep the sheet open so the user can retry.
+                // Keep sheet open on failure — parent surfaces the error.
                 parsingError = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription
                 isSaving = false
+            }
+        }
+    }
+
+    private func deleteGoal() {
+        guard let onDelete else { return }
+        isDeleting = true
+        Task {
+            do {
+                try await onDelete()
+                await MainActor.run { dismiss() }
+            } catch {
+                parsingError = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                isDeleting = false
             }
         }
     }
@@ -241,8 +312,7 @@ struct GoalEditorSheet: View {
 
 // MARK: - GoalDraft
 
-/// Lightweight value type carrying validated goal-creation data from the
-/// editor sheet back to the parent view's save handler.
+/// Validated goal-creation payload passed to the parent save handler.
 struct GoalDraft: Sendable {
     let name: String
     let emojiIcon: String?

@@ -163,7 +163,7 @@ struct HeroBoardView: View {
     private func claimedRow(_ row: HeroBoardViewModel.BoardRow, vm: HeroBoardViewModel) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.checkmark")
-                .foregroundStyle(.green)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.quest.displayName)
                     .font(.subheadline.bold())

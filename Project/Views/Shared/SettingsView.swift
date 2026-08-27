@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -109,7 +108,7 @@ struct SettingsView: View {
                             }
                         } icon: {
                             Image(systemName: "house.fill")
-                                .foregroundStyle(.purple)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                         }
                     }
                 }
@@ -129,7 +128,7 @@ struct SettingsView: View {
                                 }
                             } icon: {
                                 Image(systemName: "cloud.fill")
-                                    .foregroundStyle(.blue)
+                                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                             }
                         }
                     }
@@ -144,7 +143,7 @@ struct SettingsView: View {
                         Text("Dark").tag("dark")
                     } label: {
                         Label("Appearance", systemImage: "paintbrush.fill")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                     }
 
                     // Notifications
@@ -156,7 +155,7 @@ struct SettingsView: View {
                             )
                         } label: {
                             Label("Notifications", systemImage: "bell.badge.fill")
-                                .foregroundStyle(.red)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                         }
                     }
                 }
@@ -183,7 +182,7 @@ struct SettingsView: View {
 
                                     if icon == selectedIcon {
                                         Image(systemName: "checkmark")
-                                            .foregroundStyle(Color.accentColor)
+                                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                                     }
 
                                     if !isUnlocked {
@@ -228,7 +227,7 @@ struct SettingsView: View {
                             SpriteGalleryView()
                         } label: {
                             Label("Sprite Gallery", systemImage: "square.grid.2x2.fill")
-                                .foregroundStyle(.indigo)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                         }
                     }
                 }
@@ -237,7 +236,7 @@ struct SettingsView: View {
                 Section("About") {
                     HStack {
                         Label("Version", systemImage: "info.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                         Spacer()
                         Text(appVersionString)
                             .font(.subheadline)
@@ -246,7 +245,7 @@ struct SettingsView: View {
 
                     HStack {
                         Label("Family", systemImage: "shield.fill")
-                            .foregroundStyle(.yellow)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         Spacer()
                         Text("\(Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ?? "LootList") for Families")
                             .font(.subheadline)

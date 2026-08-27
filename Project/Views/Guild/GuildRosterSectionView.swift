@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import os
 import SwiftUI
 
@@ -172,7 +171,7 @@ struct GuildRosterSectionView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(.red.opacity(0.7))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.7))
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("settings.revokeInvite-\(invitation.id)")
@@ -194,9 +193,9 @@ struct GuildRosterSectionView: View {
         .padding(.vertical, 3)
         .background(
             Capsule()
-                .fill(role == .ranger ? Color.gold.opacity(0.20) : Color.blue.opacity(0.15))
+                .fill(role == .ranger ? Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.20) : Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15))
         )
-        .foregroundStyle(role == .ranger ? Color.gold : Color.blue)
+        .foregroundStyle(role == .ranger ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(DesignSystemConstants.Colors.accentBlue))
     }
 
     private static func invitationIcon(for kind: FamilyInvitationKind) -> String {
@@ -209,8 +208,8 @@ struct GuildRosterSectionView: View {
 
     private static func invitationTint(for kind: FamilyInvitationKind) -> Color {
         switch kind {
-        case .pendingInvite: .blue
-        case .departedMember: .orange
+        case .pendingInvite: Color(DesignSystemConstants.Colors.accentBlue)
+        case .departedMember: Color(DesignSystemConstants.Colors.pendingAmber)
         case .removedIdentity: .secondary
         }
     }
@@ -281,7 +280,7 @@ struct GuildRosterSectionView: View {
 
     @MainActor
     private func kickMember(_ member: ProfileCache) async {
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? member.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: member)
         do {
             let result = try await familyService.kickMember(profile: member.toProfile(zoneID: zoneID))
             await viewModel.refresh()
@@ -300,6 +299,6 @@ struct GuildRosterSectionView: View {
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
+            .fill(Color(DesignSystemConstants.Colors.cardSurface))
     }
 }

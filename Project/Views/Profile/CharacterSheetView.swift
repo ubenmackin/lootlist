@@ -81,9 +81,9 @@ struct CharacterSheetView: View {
         .background(
             LinearGradient(
                 colors: [
-                    Color.purple.opacity(0.30),
-                    Color.blue.opacity(0.25),
-                    Color.indigo.opacity(0.40)
+                    Color(DesignSystemConstants.Colors.accentBlue).opacity(0.30),
+                    Color(DesignSystemConstants.Colors.accentBlue).opacity(0.25),
+                    Color(DesignSystemConstants.Colors.accentBlue).opacity(0.40)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -103,25 +103,25 @@ struct CharacterSheetView: View {
             statTile(symbol: "number",
                      title: "Level",
                      value: "\(profileCache.level)",
-                     accent: .blue)
+                     accent: Color(DesignSystemConstants.Colors.accentBlue))
             statTile(symbol: "crown.fill",
                      title: "Title",
                      value: XPService.title(forLevel: profileCache.level),
-                     accent: .orange)
+                     accent: Color(DesignSystemConstants.Colors.pendingAmber))
             statTile(symbol: "star.fill",
                      title: "XP Total",
                      value: "\(profileCache.xpTotal)",
-                     accent: .yellow)
+                     accent: Color(DesignSystemConstants.Colors.pendingAmber))
             statTile(symbol: "arrow.up.right.circle.fill",
                      title: "XP to Next Level",
                      value: "\(progress.xpForNextLevel)",
-                     accent: .green)
+                     accent: Color(DesignSystemConstants.Colors.primaryGreen))
 
             HStack(spacing: 12) {
                 statTile(symbol: "flame.fill",
                          title: "Combo Streak",
                          value: streak.map { "\($0) days" } ?? "—",
-                         accent: .red)
+                         accent: Color(DesignSystemConstants.Colors.dangerRed))
                 statTile(symbol: "banknote",
                          title: "Money",
                          value: goldBalance.map { Self.formatGold($0) } ?? "—",
@@ -303,7 +303,7 @@ struct CharacterSheetView: View {
                     draftName = ""
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.blue)
+                .tint(Color(DesignSystemConstants.Colors.accentBlue))
                 .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .accessibilityIdentifier("characterSheet.renameSave")
             }

@@ -9,20 +9,19 @@ import Foundation
 
 enum StreakCalculator {
     /// Daily quest-completion streak (verified or auto-approved completions only).
+    /// Day identity rides WeekMath's UTC day buckets so streaks share the app's
+    /// single timezone.
     nonisolated static func computeStreak(from logs: [QuestCompletionCache]) -> Int {
-        let calendar = Calendar.iso8601UTC
-        var daySet: Set<Date> = []
+        var daySet: Set<Int> = []
         for log in logs where
             log.verificationStatusEnum == .autoApproved
             || log.verificationStatusEnum == .verified
         {
-            if let day = calendar.dateInterval(of: .day, for: log.completedDate)?.start {
-                daySet.insert(day)
-            }
+            daySet.insert(WeekMath.dayBucket(for: log.completedDate))
         }
 
-        let today = calendar.startOfDay(for: Date())
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        let today = WeekMath.dayBucket(for: Date())
+        let yesterday = today - 1
         let anchor = daySet.contains(today) ? today
             : (daySet.contains(yesterday) ? yesterday : nil)
         guard let anchor else { return 0 }
@@ -31,19 +30,19 @@ enum StreakCalculator {
         var cursor = anchor
         while daySet.contains(cursor) {
             streak += 1
-            guard let previousDay = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
-            cursor = previousDay
+            cursor -= 1 // Buckets are epoch-day integers, so -1 is exactly one day.
         }
         return streak
     }
 
     /// Weekly savings-streak: counts consecutive recent weeks in which the hero
     /// made at least one contribution to a save bucket (short-term or long-term).
+    /// Weeks are the hero's payout-day-aware cycles via WeekMath, not calendar weeks.
     nonisolated static func computeSavingsStreak(
         from ledgers: [LedgerEntryCache],
-        profileRecordName: String
+        profileRecordName: String,
+        payoutDay: PayoutDay = .sunday
     ) -> Int {
-        let calendar = Calendar.iso8601UTC
         var weekSet: Set<Date> = []
 
         for entry in ledgers where
@@ -51,14 +50,11 @@ enum StreakCalculator {
             && (entry.bucketKind == "shortTermSave" || entry.bucketKind == "longTermSave")
             && entry.amount > 0
         {
-            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: entry.date)?.start {
-                weekSet.insert(weekStart)
-            }
+            weekSet.insert(WeekMath.startOfWeek(for: entry.date, payoutDay: payoutDay))
         }
 
-        let now = Date()
-        guard let thisWeekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return 0 }
-        let lastWeekStart = calendar.date(byAdding: .weekOfYear, value: -1, to: thisWeekStart) ?? thisWeekStart
+        let thisWeekStart = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+        let lastWeekStart = WeekMath.weekStart(byAddingWeeks: -1, to: thisWeekStart)
         let anchor = weekSet.contains(thisWeekStart) ? thisWeekStart
             : (weekSet.contains(lastWeekStart) ? lastWeekStart : nil)
         guard let anchor else { return 0 }
@@ -67,8 +63,7 @@ enum StreakCalculator {
         var cursor = anchor
         while weekSet.contains(cursor) {
             streak += 1
-            guard let previousWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: cursor) else { break }
-            cursor = previousWeek
+            cursor = WeekMath.weekStart(byAddingWeeks: -1, to: cursor)
         }
         return streak
     }

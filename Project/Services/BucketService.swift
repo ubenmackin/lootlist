@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import Observation
+import os
 
 /// Transfer-specific errors surfaced to the UI with human-readable descriptions.
 enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
@@ -17,6 +18,7 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     case unauthorized
     case persistenceFailed
     case missingDependencies
+    case duplicateTodayTransfer
 
     var errorDescription: String? {
         switch self {
@@ -32,6 +34,8 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
             "Could not save the transfer. Please try again."
         case .missingDependencies:
             "Something went wrong. Please try again."
+        case .duplicateTodayTransfer:
+            "You already moved money between these buckets today. Try again tomorrow."
         }
     }
 }
@@ -43,6 +47,7 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
 @MainActor
 @Observable
 final class BucketService {
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BucketService")
     var cacheService: CacheService?
     var syncCoordinator: CKSyncEngineCoordinator?
     var appState: AppState?
@@ -117,10 +122,24 @@ final class BucketService {
 
     // MARK: - Balance Attribution
 
+    /// Single-source attribution formula for bucket balances: an entry credits
+    /// its `bucketKind`, and a transfer entry ALSO debits its `fromBucket` —
+    /// keeping ONE ledger row per transfer while both sides of the movement
+    /// reflect. Views feed their `@Query` rows through this same helper so the
+    /// view-side math can never drift from the service's.
+    static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Double]) {
+        if entry.source == "transfer",
+           let fromRaw = entry.fromBucket,
+           let fromKind = BucketKind(rawValue: fromRaw)
+        {
+            balances[fromKind, default: 0] -= entry.amount
+        }
+        guard let kind = entry.bucketKindEnum else { return }
+        balances[kind, default: 0] += entry.amount
+    }
+
     /// Balance per bucket, summed from ledger entries carrying an explicit
-    /// `bucketKind` attribution. Transfer entries (`source == "transfer"`) also
-    /// debit their `fromBucket` — this keeps ONE ledger entry per transfer while
-    /// both the source and destination buckets reflect the movement.
+    /// `bucketKind` attribution via the shared `applyBucketAttribution` formula.
     func bucketBalances(profileRecordName: String, familyRecordName: String) -> [BucketKind: Double] {
         guard let cacheService else { return [:] }
         var balances: [BucketKind: Double] = [:]
@@ -128,16 +147,7 @@ final class BucketService {
             profileRecordName: profileRecordName,
             family: familyRecordName
         ) {
-            // Transfer entries debit fromBucket separately so both sides of
-            // the movement are reflected without a second ledger row.
-            if entry.source == "transfer",
-               let fromRaw = entry.fromBucket,
-               let fromKind = BucketKind(rawValue: fromRaw)
-            {
-                balances[fromKind, default: 0] -= entry.amount
-            }
-            guard let kind = entry.bucketKindEnum else { continue }
-            balances[kind, default: 0] += entry.amount
+            Self.applyBucketAttribution(entry, to: &balances)
         }
         return balances
     }
@@ -145,9 +155,13 @@ final class BucketService {
     // MARK: - Transfers
 
     /// Moves money between two buckets for the given profile. Creates exactly
-    /// ONE ledger entry (source = "transfer", fromBucket → toBucket) with a
-    /// deterministic ID so CloudKit dedupes across devices. The debit side is
-    /// reflected by `bucketBalances` subtracting from `fromBucket` directly.
+    /// ONE ledger entry (source = "transfer", fromBucket → toBucket). The
+    /// documented contract is a caller-supplied `transferID` keyed to
+    /// (dayBucket, from, to): record name `transfer-{profile}-{dayBucket}-{from}-{to}`,
+    /// deterministic per (profile, UTC day, bucket pair) so CloudKit dedupes
+    /// double-runs across devices. Callers with no natural day-key (tests
+    /// exercising append-only behavior) fall back to a timestamp + nonce.
+    /// The debit side is reflected by `bucketBalances` subtracting from `fromBucket` directly.
     ///
     /// - Throws `BucketServiceError.insufficientFunds` when the source bucket
     ///   doesn't have enough; `.sameBucket` when from == to; `.unauthorized`
@@ -156,7 +170,8 @@ final class BucketService {
                   to: BucketKind,
                   amount: Double,
                   profile: Profile,
-                  family: Family) async throws -> LedgerEntry
+                  family: Family,
+                  transferID: String? = nil) async throws -> LedgerEntry
     {
         guard from != to else {
             throw BucketServiceError.sameBucket
@@ -196,16 +211,42 @@ final class BucketService {
             throw BucketServiceError.insufficientFunds(available: available, requested: amount)
         }
 
-        // Deterministic ID: one transfer per (profile, day, from, to) pair
-        // so a retry on the same day is idempotent at the CloudKit level.
-        let unixDay = Int(Date().timeIntervalSince1970 / 86400)
-        let recordName = "transfer-\(profile.id.recordName)-\(unixDay)-\(from.rawValue)-\(to.rawValue)"
+        let now = Date()
+        let todayBucket = WeekMath.dayBucket(for: now)
+        // WHY: Deterministic-ID contract — transferID must be dayBucket-from-to when supplied.
+        if let transferID, !transferID.isEmpty {
+            let expectedID = "\(todayBucket)-\(from.rawValue)-\(to.rawValue)"
+            guard transferID == expectedID else {
+                throw BucketServiceError.invalidAmount
+            }
+        }
+        // WHY: Per-day/per-pair guard — hoisted from view so the service is the mutation boundary.
+        guard !hasTransferredToday(
+            profileRecordName: profile.id.recordName,
+            familyRecordName: family.id.recordName,
+            dayBucket: todayBucket,
+            from: from,
+            to: to
+        ) else {
+            throw BucketServiceError.duplicateTodayTransfer
+        }
+
+        let recordName: String
+        if let transferID, !transferID.isEmpty {
+            recordName = "transfer-\(profile.id.recordName)-\(transferID)"
+        } else {
+            // WHY: nonce keeps unkeyed calls append-only; user-initiated transfers
+            // always arrive day-keyed so the deterministic dedupe contract holds.
+            let ms = Int(now.timeIntervalSince1970 * 1000)
+            let nonce = UUID().uuidString.prefix(6)
+            recordName = "transfer-\(profile.id.recordName)-\(ms)-\(from.rawValue)-\(to.rawValue)-\(nonce)"
+        }
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: amount,
             description: "Transfer from \(from.displayName) to \(to.displayName)",
-            date: Date(),
+            date: now,
             source: "transfer",
             bucketKind: to.rawValue,
             fromBucket: from.rawValue,
@@ -215,7 +256,38 @@ final class BucketService {
         )
 
         await cacheService.upsertLedgerEntry(entry)
-        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("BucketService.transfer isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
+    }
+
+    // MARK: - Per-Day/Per-Pair Guard
+
+    /// Returns true when a transfer between `from` → `to` already exists for
+    /// `profile` in `family` on the given UTC `dayBucket`.
+    private func hasTransferredToday(
+        profileRecordName: String,
+        familyRecordName: String,
+        dayBucket: Int,
+        from: BucketKind,
+        to: BucketKind
+    ) -> Bool {
+        guard let cacheService else { return false }
+        // WHY: Same predicate as BucketTransferView.hasTransferredToday — fetchLedgerEntries scoped fetch + WeekMath.dayBucket filter.
+        let entries = cacheService.fetchLedgerEntries(
+            profileRecordName: profileRecordName,
+            family: familyRecordName
+        )
+        return entries.contains { entry in
+            entry.source == "transfer"
+                && entry.fromBucket == from.rawValue
+                && entry.toBucket == to.rawValue
+                && WeekMath.dayBucket(for: entry.date) == dayBucket
+        }
     }
 }

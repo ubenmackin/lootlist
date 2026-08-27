@@ -117,8 +117,8 @@ struct EditAvatarSheet: View {
                 // Background radial glow
                 RadialGradient(
                     colors: [
-                        Color.purple.opacity(0.4),
-                        Color.blue.opacity(0.2),
+                        Color(DesignSystemConstants.Colors.accentBlue).opacity(0.4),
+                        Color(DesignSystemConstants.Colors.accentBlue).opacity(0.2),
                         Color.clear
                     ],
                     center: .center,
@@ -145,7 +145,10 @@ struct EditAvatarSheet: View {
                             Circle()
                                 .fill(
                                     LinearGradient(
-                                        colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
+                                        colors: [
+                                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.3),
+                                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.18)
+                                        ],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -247,7 +250,7 @@ struct EditAvatarSheet: View {
                             .frame(width: 38, height: 38)
                             .background(
                                 Circle()
-                                    .fill(isSelected ? Color.blue.opacity(0.25) : Color.clear)
+                                    .fill(isSelected ? Color(DesignSystemConstants.Colors.accentBlue).opacity(0.25) : Color.clear)
                             )
                             .overlay(
                                 Circle()
@@ -453,7 +456,7 @@ struct EditAvatarSheet: View {
                         .overlay(Circle().stroke(Color.gold, lineWidth: 2))
                 } else {
                     Circle()
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Color.secondary.opacity(0.2))
                         .frame(width: 50, height: 50)
                         .overlay(Image(systemName: "person.fill").foregroundStyle(.secondary))
                 }

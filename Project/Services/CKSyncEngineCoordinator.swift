@@ -119,7 +119,7 @@ final class CKSyncEngineCoordinator {
         }
 
         cloudKitService.activeFamilyZoneID = zoneID
-        cloudKitService.activeIsOwner = appState.isZoneOwner
+        cloudKitService.activeIsOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         setupEngines()
     }
 
@@ -129,28 +129,45 @@ final class CKSyncEngineCoordinator {
             return
         }
         guard let ckConcrete = cloudKitService as? CloudKitService else { return }
-        let container = ckConcrete.container
 
-        if privateSyncEngine == nil {
-            let privateSavedState = loadState(for: .private)
-            let privateConfig = CKSyncEngine.Configuration(
-                database: container.privateCloudDatabase,
-                stateSerialization: privateSavedState,
-                delegate: delegateHandler
-            )
-            privateSyncEngine = CKSyncEngine(privateConfig)
+        // Fail-closed: an unresolved session mints no engine — pending mutations
+        // stay buffered until an authenticated scope resolves, matching the
+        // activeEngine accessor contract.
+        guard let appState else {
+            logger.warning("CKSyncEngine setup skipped: unresolved session — pending changes stay buffered")
+            return
         }
 
-        if sharedSyncEngine == nil {
-            let sharedSavedState = loadState(for: .shared)
-            let sharedConfig = CKSyncEngine.Configuration(
-                database: container.sharedCloudDatabase,
-                stateSerialization: sharedSavedState,
-                delegate: delegateHandler
-            )
-            sharedSyncEngine = CKSyncEngine(sharedConfig)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("CKSyncEngineCoordinator.setupEngines isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        if isOwner {
+            if privateSyncEngine == nil {
+                privateSyncEngine = makeEngine(for: .private, container: ckConcrete.container)
+            }
+        } else {
+            if sharedSyncEngine == nil {
+                sharedSyncEngine = makeEngine(for: .shared, container: ckConcrete.container)
+            }
         }
         drainPendingEnqueueBuffers()
+    }
+
+    /// Single construction path for live engines — both scopes differ only in
+    /// database and persisted-state key, so the CKSyncEngine mint exists exactly once.
+    private func makeEngine(for scope: CKDatabase.Scope, container: CKContainer) -> CKSyncEngine {
+        let database = (scope == .private)
+            ? container.privateCloudDatabase
+            : container.sharedCloudDatabase
+        let config = CKSyncEngine.Configuration(
+            database: database,
+            stateSerialization: loadState(for: scope),
+            delegate: delegateHandler
+        )
+        return CKSyncEngine(config)
     }
 
     private func drainPendingEnqueueBuffers() {
@@ -186,6 +203,10 @@ final class CKSyncEngineCoordinator {
 
     // MARK: - Active Engine Selection
 
+    /// Fail-closed accessor: engines exist only after `initializeEngines`
+    /// passes the authenticated-scope gate, so a mutation arriving during a
+    /// signed-out or account-transition window buffers instead of minting a
+    /// live engine against a stale scope.
     func activeEngine(isOwner: Bool) -> CKSyncEngine? {
         isOwner ? privateSyncEngine : sharedSyncEngine
     }
@@ -252,6 +273,13 @@ final class CKSyncEngineCoordinator {
 
     // MARK: - Manual Trigger APIs
 
+    /// Manually triggers a remote fetch pass across active engines.
+    ///
+    /// Note on ordering: `fetchChanges()` and `sendPendingChanges()` are independent operations.
+    /// During initial bootstrap (`AppLifecycleCoordinator.initializeAndSyncActiveScope`), `fetchChanges()`
+    /// is called prior to `sendPendingChanges()` to hydrate server state before pushing optimistic local
+    /// writes. At runtime, calls may arrive in any order; the engine's conflict resolution resolves
+    /// any interleaved changes.
     func fetchChanges() async {
         guard !isSyncing else {
             logger.info("Fetch changes skipped: sync pass already in progress")
@@ -293,6 +321,11 @@ final class CKSyncEngineCoordinator {
         }
     }
 
+    /// Manually triggers a push pass for all queued saves and deletes.
+    ///
+    /// Operates independently of `fetchChanges()`. If called before a fetch pass, pending local
+    /// mutations are transmitted immediately; server conflicts will be reconciled on the subsequent
+    /// fetch pass via `CKSyncConflictResolver`.
     func sendPendingChanges() async {
         guard !isSyncing else {
             logger.info("Send changes skipped: sync pass already in progress")
@@ -348,17 +381,25 @@ final class CKSyncEngineCoordinator {
     private func completeSyncPass() {
         // §2 freshness gating: private-only must not stamp shared types.
         // Prevents empty hero list when shared scope never completed.
-        if activeFetchPassScopes.isSubset(of: completedFetchPassScopes),
+        if !activeFetchPassScopes.isEmpty,
+           activeFetchPassScopes.isSubset(of: completedFetchPassScopes),
            !currentPassHadParseFailures, !currentPassHadCacheWriteFailures
         {
-            if let appState, !appState.isZoneOwner, sharedSyncEngine != nil, !completedFetchPassScopes.contains(.shared) {
-                logger.warning(
-                    """
-                    Cache freshness stamping skipped: participant zone requires shared scope \
-                    activeScopes=\(self.activeFetchPassScopes), \
-                    completedScopes=\(self.completedFetchPassScopes)
-                    """
-                )
+            if let appState {
+                let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+                let storedOwner = appState.isZoneOwner
+                if !isOwner, sharedSyncEngine != nil, !completedFetchPassScopes.contains(.shared) {
+                    logger.warning(
+                        """
+                        Cache freshness stamping skipped: participant zone requires shared scope \
+                        stored=\(storedOwner) resolved=\(isOwner) \
+                        activeScopes=\(self.activeFetchPassScopes), \
+                        completedScopes=\(self.completedFetchPassScopes)
+                        """
+                    )
+                } else {
+                    stampCacheFreshness(scopes: completedFetchPassScopes)
+                }
             } else {
                 stampCacheFreshness(scopes: completedFetchPassScopes)
             }
@@ -406,9 +447,7 @@ final class CKSyncEngineCoordinator {
         else { return }
         let effectiveScopes = scopes.isEmpty ? completedFetchPassScopes : scopes
         guard !effectiveScopes.isEmpty else {
-            for type in CachedRecordType.allCases {
-                cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
-            }
+            logger.warning("Cache freshness stamping skipped: effectiveScopes is empty")
             return
         }
         for type in CachedRecordType.allCases where !type.fetchScopes.isDisjoint(with: effectiveScopes) {
@@ -500,6 +539,9 @@ final class CKSyncEngineCoordinator {
             defaults.removeObject(forKey: "ck_sync_engine_state.\(explicitAccountID).shared")
             defaults.removeObject(forKey: "ck_sync_engine_state_private")
             defaults.removeObject(forKey: "ck_sync_engine_state_shared")
+            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("cache_fresh_\(explicitAccountID)_") {
+                defaults.removeObject(forKey: key)
+            }
             privateSyncEngine = nil
             sharedSyncEngine = nil
             lastSyncedAt = nil
@@ -511,10 +553,13 @@ final class CKSyncEngineCoordinator {
         if let stableName = stableFamilyRecordName() {
             defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).private")
             defaults.removeObject(forKey: "ck_sync_engine_state.\(stableName).shared")
+            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("cache_fresh_\(stableName)_") {
+                defaults.removeObject(forKey: key)
+            }
         }
         defaults.removeObject(forKey: "ck_sync_engine_state_private")
         defaults.removeObject(forKey: "ck_sync_engine_state_shared")
-        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_sync_engine_state.") {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("ck_sync_engine_state.") || key.hasPrefix("cache_fresh_") {
             defaults.removeObject(forKey: key)
         }
 

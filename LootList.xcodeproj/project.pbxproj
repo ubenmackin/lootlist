@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01F7A09DEFCBDCD9D4B2FB0B /* QuestServiceTests+LocalFirst.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423766F3D49494CB7A8D2AD0 /* QuestServiceTests+LocalFirst.swift */; };
 		02BAED36804122341EDCED4B /* GemShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7524CAB4423538B7191015A0 /* GemShopView.swift */; };
 		0370ADCEF524F2B0D392255B /* VerificationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6333B737C7E26ABA1AFF02EE /* VerificationStatus.swift */; };
 		0527C262F4FF6F2BD21E23D9 /* CKSyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77ED22F2224016018806795B /* CKSyncEngineTests.swift */; };
@@ -81,12 +82,12 @@
 		3B2464646AC2862B4DEDEC29 /* JourneyZone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1839C89AA82B389CF7466AF9 /* JourneyZone.swift */; };
 		3B3890A05E057C1856045FE6 /* GuildRosterSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B52249FE484BE42702A41E09 /* GuildRosterSectionView.swift */; };
 		3BAFA13490A68A51609472C2 /* CKSyncEngineDelegateHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B6076B9096995404AD21385 /* CKSyncEngineDelegateHandler.swift */; };
+		3CD1D3266E5C898AB676AE43 /* BucketSplitEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5CB2F961343E801051F58D /* BucketSplitEntryRow.swift */; };
 		3D15240BE2A19C5E6BE4BC6C /* FamilyDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 975CB482406B3EB4588EC345 /* FamilyDashboardView.swift */; };
 		40646BE2CDF82664B3B2E032 /* ProfileAchievementCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A493B2D63AD2438369662C66 /* ProfileAchievementCache.swift */; };
 		41081C28F4838B129AA6E6E1 /* FamilyService+OwnerDedupe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594A3FD4CBF91B10B9A8AF29 /* FamilyService+OwnerDedupe.swift */; };
 		414B42FD4BE7ED21FD68D3F4 /* AvatarServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545576473F44072E1C3C7301 /* AvatarServiceTests.swift */; };
 		41A51D171301F8D6A3F741F5 /* LedgerImportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D1AAC2315FD1466EB3A1BA9 /* LedgerImportServiceTests.swift */; };
-		45CF33F9B2AFB34FABD2DC38 /* NumberFormatter+Gold.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1FB498C2B1F81977F3C8815 /* NumberFormatter+Gold.swift */; };
 		45EC1C14F78F4C89775BD5BE /* AvatarSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8927C4361B88112B84836480 /* AvatarSelectionView.swift */; };
 		46230B910FEDE4B1BB3B6260 /* GoldBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728481C95C3C2C620C57038C /* GoldBadge.swift */; };
 		46584BEAD23C267A9DCABF46 /* CelebrationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC47BB651069A93E615E07DB /* CelebrationManager.swift */; };
@@ -182,6 +183,7 @@
 		890FC79E0337FE1F1CF1E26C /* HeroAvatarSprites+PixelBases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5305E136352F0F0000B0088A /* HeroAvatarSprites+PixelBases.swift */; };
 		8BA26EB6C2E6425B81C827FC /* QuestRarity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */; };
 		8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8761871EDB01C4A39B494AA3 /* Profile.swift */; };
+		8CFA5C8F74CC69D17C998222 /* CurrencyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */; };
 		8D96EC37B3D9D14409727627 /* FamilyServiceTests+OwnerAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C8BE8C58884EE28C25F335 /* FamilyServiceTests+OwnerAnchor.swift */; };
 		8EF7931F2B14AB2B90388AEE /* HeroDashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD29C5382B850C0B63C0A7B /* HeroDashboardUITests.swift */; };
 		8F423B819E247D73BF293236 /* InterestServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C18CEAF67B8C5FB11FF2E43D /* InterestServiceTests.swift */; };
@@ -199,6 +201,7 @@
 		9C425F92E42E005BDD1ADDB5 /* RarityBorderModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906DCB4251799C136B0E9B40 /* RarityBorderModifier.swift */; };
 		9CA4A3AE779F12A599F703DE /* LedgerEntryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E333212CD54B711A588DF82 /* LedgerEntryCache.swift */; };
 		9CA9A3AB32C5FF1DACEBC5AA /* TreasuryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5340AFA0EE98F0109EF27FE6 /* TreasuryServiceTests.swift */; };
+		9D5BD529CAF7305FCD5E3414 /* DecimalPadDismissModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 465DD171C3B2E669A7EA9987 /* DecimalPadDismissModifier.swift */; };
 		9E3953C5BA275D545B1772B9 /* RewardEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C330ACAE67922B0B30148B77 /* RewardEvent.swift */; };
 		A0A078F5FB5E392E26CF1CFD /* SpriteGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE684DF487476858652A0E3 /* SpriteGalleryView.swift */; };
 		A0BA974108B526252089C3A0 /* InviteError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D92E8E4D26035A4AD79BA24 /* InviteError.swift */; };
@@ -281,6 +284,7 @@
 		D1B0D5D34C80FFF0EA775E20 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8DCAC9147DBA316A1D95311 /* SoundManager.swift */; };
 		D3BEF5587C4B06965E1A4C0B /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0787E35E82ABF461CAFEC9FF /* EmptyStateView.swift */; };
 		D6339246F3C6EF387CDE5424 /* MascotBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5654B6FEED4474DAD9AC22D /* MascotBannerView.swift */; };
+		D7A10CDBC5176DA9439EBF48 /* SavingsSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9B4CD12C1C887E6E21879A /* SavingsSplitView.swift */; };
 		D894D66ECFD63EB1F258765C /* FatalCacheErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */; };
 		D8A5B2891010FB02D4D54BDF /* FamilyScopedCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A45D8298C46FC546B3956B2 /* FamilyScopedCache.swift */; };
 		D8DCC631FE15C660A6FD2662 /* LogSpendingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBE1E6F95C4D05CA5E41B214 /* LogSpendingIntent.swift */; };
@@ -440,12 +444,14 @@
 		3BF2353F4534F87197328D31 /* TreasuryService+Fetches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TreasuryService+Fetches.swift"; sourceTree = "<group>"; };
 		3C0AD0E8223D235A61B7686E /* Family.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Family.swift; sourceTree = "<group>"; };
 		3C22B036E9EAF910A5DA8043 /* LedgerRowStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerRowStyle.swift; sourceTree = "<group>"; };
+		3D5CB2F961343E801051F58D /* BucketSplitEntryRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BucketSplitEntryRow.swift; sourceTree = "<group>"; };
 		3D6A7111F94AD58750003CD6 /* CelebrationOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelebrationOverlay.swift; sourceTree = "<group>"; };
 		3DCAA1B2A51F158C1633A551 /* AllowancePayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllowancePayoutEngine.swift; sourceTree = "<group>"; };
 		3F1A522EC782B6FC177DFBD4 /* QuickCreateFormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCreateFormView.swift; sourceTree = "<group>"; };
 		3F3D6CF1C8AF221417C51FF9 /* HeroAvatarSprites+Equipment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Equipment.swift"; sourceTree = "<group>"; };
 		4039275B8605DE1245A2643F /* HeroAvatarSprites.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroAvatarSprites.swift; sourceTree = "<group>"; };
 		41B23C330040CF5222E25760 /* InviteErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteErrorTests.swift; sourceTree = "<group>"; };
+		423766F3D49494CB7A8D2AD0 /* QuestServiceTests+LocalFirst.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestServiceTests+LocalFirst.swift"; sourceTree = "<group>"; };
 		4281781D7DC9B5AE88396307 /* FamilyServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyServiceTests.swift; sourceTree = "<group>"; };
 		42DD2D3B300527C894584603 /* ColorExtensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtensions.swift; sourceTree = "<group>"; };
 		42EBD8ED61436B7A7945BDDE /* LootDropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootDropService.swift; sourceTree = "<group>"; };
@@ -456,6 +462,7 @@
 		45F11998DECE2BF4D394F56D /* QuestDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestDetailView.swift; sourceTree = "<group>"; };
 		463E5A4BD2FEA066CE2E2449 /* TrophyCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyCardView.swift; sourceTree = "<group>"; };
 		4649822E975931113E419558 /* CKRecord+SystemFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CKRecord+SystemFields.swift"; sourceTree = "<group>"; };
+		465DD171C3B2E669A7EA9987 /* DecimalPadDismissModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecimalPadDismissModifier.swift; sourceTree = "<group>"; };
 		470436B9854D58D87A38076F /* HeroSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroSettingsView.swift; sourceTree = "<group>"; };
 		48927F8A21752DA1DF9D9AFA /* CompleteQuestIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompleteQuestIntent.swift; sourceTree = "<group>"; };
 		49F5B9AB44CCF6853B519183 /* LootListTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -589,6 +596,7 @@
 		ABEF2FC4366881264C70BF9E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ADCF93C3FA2FCF0F94FBA4EE /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
 		AEC44179BDF55FEEF8AE9EEA /* HeroAvatarSprites+Healer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Healer.swift"; sourceTree = "<group>"; };
+		AF9B4CD12C1C887E6E21879A /* SavingsSplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavingsSplitView.swift; sourceTree = "<group>"; };
 		B038A722AE55C6658ACBD6B3 /* GuildPayoutDefaultsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuildPayoutDefaultsSectionView.swift; sourceTree = "<group>"; };
 		B056EB995E57515E9AC46C06 /* HeroAvatarSprites+Rogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Rogue.swift"; sourceTree = "<group>"; };
 		B07EB2A1B1FF54F24EA4D541 /* FamilyService+Invitations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyService+Invitations.swift"; sourceTree = "<group>"; };
@@ -639,6 +647,7 @@
 		DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheService+Fetches.swift"; sourceTree = "<group>"; };
 		E12CEF7F5C434D5B4F157574 /* PayoutStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutStatus.swift; sourceTree = "<group>"; };
 		E2116AC4A8D9A7A6EEAE90FD /* FamilyShareReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyShareReconciler.swift; sourceTree = "<group>"; };
+		E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormatter.swift; sourceTree = "<group>"; };
 		E2F5A4EAC2699405B24BCCE8 /* InterestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterestService.swift; sourceTree = "<group>"; };
 		E32B2E2469AC328AFF8AB94A /* CelebrationOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelebrationOverlayView.swift; sourceTree = "<group>"; };
 		E3751E7F14A08F2974B39920 /* LootListShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListShortcuts.swift; sourceTree = "<group>"; };
@@ -663,7 +672,6 @@
 		F0EB1B2B8B423B9762DF42F6 /* GemService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemService.swift; sourceTree = "<group>"; };
 		F0FBEC41B0AE56DCBA885072 /* AchievementServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementServiceTests.swift; sourceTree = "<group>"; };
 		F1A9A7101EBC70CA783F90FC /* ScopedIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopedIdentityTests.swift; sourceTree = "<group>"; };
-		F1FB498C2B1F81977F3C8815 /* NumberFormatter+Gold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NumberFormatter+Gold.swift"; sourceTree = "<group>"; };
 		F2A3A5F8187EDF573AA7C593 /* JourneyZoneDecorations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyZoneDecorations.swift; sourceTree = "<group>"; };
 		F33C9B9CDE214B8BDBBE281D /* GoalServiceFIFOTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalServiceFIFOTests.swift; sourceTree = "<group>"; };
 		F3F86C8D054EEDE6F1B94F8E /* HeroHeaderCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroHeaderCardView.swift; sourceTree = "<group>"; };
@@ -794,6 +802,7 @@
 				830400052B99000D040CC4A2 /* ChildLedgerView.swift */,
 				4BD9F758DECE9F7A2BBCDBC1 /* GoalEditorSheet.swift */,
 				D23B352CD83E7478064E102B /* MyGoalsView.swift */,
+				AF9B4CD12C1C887E6E21879A /* SavingsSplitView.swift */,
 			);
 			path = Money;
 			sourceTree = "<group>";
@@ -942,6 +951,7 @@
 		485D76609EA932432B638F9A /* Components */ = {
 			isa = PBXGroup;
 			children = (
+				3D5CB2F961343E801051F58D /* BucketSplitEntryRow.swift */,
 				06C02C5B95CED04D567A0164 /* BucketTileView.swift */,
 				3D6A7111F94AD58750003CD6 /* CelebrationOverlay.swift */,
 				216C19025568EED1B3FFEB60 /* ChoreRowCard.swift */,
@@ -989,6 +999,7 @@
 				24F3F8CC0DD0E4E540306D55 /* QuestServiceTests+ActiveQuests.swift */,
 				6D3ABA527CBF69A8599AED80 /* QuestServiceTests+Concurrency.swift */,
 				FFEA73D94DB7183AB2335A52 /* QuestServiceTests+Helpers.swift */,
+				423766F3D49494CB7A8D2AD0 /* QuestServiceTests+LocalFirst.swift */,
 				F8F44EBCC2806837BA32D571 /* QuestServiceTests+Migrations.swift */,
 				026B781537DB7624C07CE555 /* QuestServiceTests+Queries.swift */,
 				0866C01AF70A428642CA539D /* QuestServiceTests+Withdrawal.swift */,
@@ -1110,13 +1121,13 @@
 				E32B2E2469AC328AFF8AB94A /* CelebrationOverlayView.swift */,
 				A1963A5C399D6D7074A33D08 /* CheckmarkMenu.swift */,
 				7D3BE16829C22EFEF849814C /* CloudSharingControllerWrapper.swift */,
+				465DD171C3B2E669A7EA9987 /* DecimalPadDismissModifier.swift */,
 				0787E35E82ABF461CAFEC9FF /* EmptyStateView.swift */,
 				3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */,
 				728481C95C3C2C620C57038C /* GoldBadge.swift */,
 				55D9B190E857B276A4369A5D /* iCloudStatusView.swift */,
 				3C22B036E9EAF910A5DA8043 /* LedgerRowStyle.swift */,
 				62308AD5DAFACA5867010034 /* LootDropOverlayView.swift */,
-				F1FB498C2B1F81977F3C8815 /* NumberFormatter+Gold.swift */,
 				976D7D6008F9585BF84BDCB5 /* PixelCanvasView.swift */,
 				9F48CBADCF880C81E40964C2 /* PresetPill.swift */,
 				9DAD3D016A4E252161F7DFD2 /* ProfileAvatarView.swift */,
@@ -1261,6 +1272,7 @@
 				BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */,
 				4649822E975931113E419558 /* CKRecord+SystemFields.swift */,
 				42DD2D3B300527C894584603 /* ColorExtensions.swift */,
+				E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */,
 				39FD1534CF37B76842F11715 /* DesignSystemConstants.swift */,
 				90BFC96A7EB4DB94588DE1F4 /* FeatureFlags.swift */,
 				EF2DC12FFCE65FB67EBD3F1A /* FlavorTextProvider.swift */,
@@ -1483,6 +1495,7 @@
 				BD00A621662AE33EFE44CD4C /* BonusObjectiveService.swift in Sources */,
 				5FCA983AF6092E382B71F58D /* BucketKind.swift in Sources */,
 				22894B030B12F7A1AD2ECE05 /* BucketService.swift in Sources */,
+				3CD1D3266E5C898AB676AE43 /* BucketSplitEntryRow.swift in Sources */,
 				2AD7FBB5C18CC6C68795389C /* BucketTileView.swift in Sources */,
 				15C5BDF7BA4627BE5B275478 /* BucketTransferView.swift in Sources */,
 				C304E6251241F303791BC7FB /* CKRecord+SystemFields.swift in Sources */,
@@ -1519,9 +1532,11 @@
 				AC6452ACDAFEC79DD628B3A1 /* CloudSharingControllerWrapper.swift in Sources */,
 				CBA9D5825F9C6A1EAA6A00F2 /* ColorExtensions.swift in Sources */,
 				CC15615BEAB36471C9EB15B4 /* CompleteQuestIntent.swift in Sources */,
+				8CFA5C8F74CC69D17C998222 /* CurrencyFormatter.swift in Sources */,
 				7159EF2FD2B5ED78E437733C /* DailyLoginBannerView.swift in Sources */,
 				AF86589B820F302081695128 /* DailyLoginService.swift in Sources */,
 				7D504C659F2008C130F84BC6 /* DataMigrationsCoordinator.swift in Sources */,
+				9D5BD529CAF7305FCD5E3414 /* DecimalPadDismissModifier.swift in Sources */,
 				FC1546A821F25B5E1E03684F /* DesignSystemConstants.swift in Sources */,
 				641704316F5157C996DF3927 /* DetectedFamilyView.swift in Sources */,
 				24D99B8D5C1336D44551756B /* EditAvatarSheet.swift in Sources */,
@@ -1622,7 +1637,6 @@
 				58016184F8CD11833A29870E /* NotificationRouter.swift in Sources */,
 				9C00E3EE402D5426E41E1538 /* NotificationService.swift in Sources */,
 				16624C674DB74641C5EB4A7E /* NotificationSettingsView.swift in Sources */,
-				45CF33F9B2AFB34FABD2DC38 /* NumberFormatter+Gold.swift in Sources */,
 				A9076D491EEFF5E99600A80F /* OnboardingViewModel.swift in Sources */,
 				92A1BCEE7F3A52E1A90168D7 /* PayoutDay.swift in Sources */,
 				64790F88A96707750A7A15F7 /* PayoutHistoryView.swift in Sources */,
@@ -1668,6 +1682,7 @@
 				A2E9EA095A9D80B67AE35B70 /* RewardEventCache.swift in Sources */,
 				B3125FAF2C74B619FF353428 /* RoleSelectionView.swift in Sources */,
 				C8CD8FF93EA85F62F2D74717 /* SampleData.swift in Sources */,
+				D7A10CDBC5176DA9439EBF48 /* SavingsSplitView.swift in Sources */,
 				4B2DDC650ED6CBC2A211C075 /* SceneDelegate.swift in Sources */,
 				E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */,
 				DB0A7BB32938897F61E0FE54 /* SectionHeader.swift in Sources */,
@@ -1776,6 +1791,7 @@
 				76C1348393E43ECA4CEAE7F1 /* QuestServiceTests+ActiveQuests.swift in Sources */,
 				ED673CFD1A44E8581AA95715 /* QuestServiceTests+Concurrency.swift in Sources */,
 				E20E04569DFB597642DEBCDC /* QuestServiceTests+Helpers.swift in Sources */,
+				01F7A09DEFCBDCD9D4B2FB0B /* QuestServiceTests+LocalFirst.swift in Sources */,
 				BAC0DD01FBB9A210753516AE /* QuestServiceTests+Migrations.swift in Sources */,
 				6352FD719D25CFF60020D9E7 /* QuestServiceTests+Queries.swift in Sources */,
 				541165B4B56FB49890EC7709 /* QuestServiceTests+Withdrawal.swift in Sources */,

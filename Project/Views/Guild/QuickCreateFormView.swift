@@ -22,6 +22,9 @@ struct QuickCreateFormView: View {
     @Binding var quickApproval: ApprovalMode
     @Binding var postToBoard: Bool
 
+    /// Decimal pad has no return key — Done button dismisses keyboard.
+    @FocusState private var isAmountFocused: Bool
+
     private static let weekdayCodes: [String] = AppConstants.weekdayCodes
 
     private var isMultiOccurrence: Bool {
@@ -70,7 +73,7 @@ struct QuickCreateFormView: View {
                     HStack(spacing: 8) {
                         ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
                             PresetPill(
-                                text: CurrencyFormatter.string(Double(preset) ?? 0),
+                                text: CurrencyFormatter.presetString(preset),
                                 isSelected: quickGoldText == preset,
                                 action: { quickGoldText = preset }
                             )
@@ -80,34 +83,36 @@ struct QuickCreateFormView: View {
                 }
                 TextField("1.00", text: $quickGoldText)
                     .keyboardType(.decimalPad)
+                    .focused($isAmountFocused)
+                    .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    // Rarity tiers still size rewards internally; parents pick
-                    // them by plain effort label while the XP figure stays
-                    // hidden.
-                    Text("Bonus Tier")
-                        .font(.subheadline)
-                    Spacer()
-                    Text("\(quickRarity.xpReward) bonus")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(quickRarity.color)
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(QuestRarity.allCases) { rarity in
-                            PresetPill(
-                                text: "\(FlavorTextProvider.rewardTierName(for: rarity)) (\(rarity.xpReward) bonus)",
-                                isSelected: quickRarity == rarity,
-                                action: { quickRarity = rarity },
-                                systemImage: rarity.iconSystemName,
-                                color: rarity.color
-                            )
-                        }
+            // WHY: Bonus Tier/XP picker is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+            if FeatureFlags.rpgImmersive {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Bonus Tier")
+                            .font(.subheadline)
+                        Spacer()
+                        Text("\(quickRarity.xpReward) bonus")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(quickRarity.color)
                     }
-                    .padding(.vertical, 2)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(QuestRarity.allCases) { rarity in
+                                PresetPill(
+                                    text: "\(FlavorTextProvider.rewardTierName(for: rarity)) (\(rarity.xpReward) bonus)",
+                                    isSelected: quickRarity == rarity,
+                                    action: { quickRarity = rarity },
+                                    systemImage: rarity.iconSystemName,
+                                    color: rarity.color
+                                )
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
                 }
             }
         }

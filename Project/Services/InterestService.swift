@@ -62,6 +62,21 @@ final class InterestService {
         "interest-\(profileRecordName)-\(monthKey)"
     }
 
+    // MARK: - Sync Owner Resolution
+
+    /// Resolved owner scope for sync enqueues, logging when it diverges from the stored flag.
+    /// WHY: Hero writes must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
+    private func correctedIsOwnerForSync() -> Bool {
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        // Hoisted local: Swift 6 requires explicit capture semantics for
+        // self-referencing property access inside the logger interpolation.
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            logger.warning("isOwner corrected via creator anchor for sync enqueue: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        return isOwner
+    }
+
     // MARK: - Config
 
     /// Parent-only edit of the hero's monthly interest config. Client-side
@@ -99,7 +114,7 @@ final class InterestService {
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: appState.isZoneOwner)
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: correctedIsOwnerForSync())
         return updated
     }
 
@@ -186,8 +201,13 @@ final class InterestService {
             id: CKRecord.ID(recordName: recordNameStr, zoneID: family.id.zoneID)
         )
         await cacheService?.upsertLedgerEntry(entry)
-        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: appState.isZoneOwner)
-        logger.info("Credited monthly interest for \(profile.id.recordName, privacy: .private) in month \(Self.monthKey(for: date), privacy: .public)")
+        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: correctedIsOwnerForSync())
+        // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
+        let formattedAmount = CurrencyFormatter.string(Double(creditPennies) / 100.0)
+        logger
+            .info(
+                "Credited \(formattedAmount, privacy: .public) monthly interest for \(profile.id.recordName, privacy: .private) in month \(Self.monthKey(for: date), privacy: .public)"
+            )
         return entry
     }
 

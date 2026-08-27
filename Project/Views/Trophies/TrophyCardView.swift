@@ -35,7 +35,7 @@ struct TrophyCardView: View {
     }
 
     private var cardContent: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             iconStack
 
             Text(achievement.name)
@@ -44,12 +44,19 @@ struct TrophyCardView: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: 38, alignment: .center)
+
+            Spacer(minLength: 4)
 
             Text(isEarned ? "Earned" : statusHint)
                 .font(.caption)
                 .foregroundStyle(isEarned ? Color.gold : Color.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
                 .padding(.horizontal, 10)
-                .padding(.vertical, 3)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, minHeight: 32)
                 .background(
                     Capsule()
                         .fill(isEarned ? Color.gold.opacity(0.18) : Color.secondary.opacity(0.12))
@@ -57,7 +64,7 @@ struct TrophyCardView: View {
         }
         .padding(.vertical, 16)
         .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: 180, maxHeight: .infinity, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(cardFill)

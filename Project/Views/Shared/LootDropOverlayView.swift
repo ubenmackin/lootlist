@@ -30,25 +30,30 @@ struct LootDropOverlayView: View {
     }
 
     var body: some View {
-        ZStack {
-            if isPresented, let loot {
-                Color.black.opacity(0.6)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        dismiss()
-                    }
+        // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        if !FeatureFlags.rpgImmersive {
+            EmptyView()
+        } else {
+            ZStack {
+                if isPresented, let loot {
+                    Color.black.opacity(0.6)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            dismiss()
+                        }
 
-                contentCard(for: loot)
-                    .padding(32)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Treasure Chest. \(phase == .opened ? "Opened. Loot: \(loot.gemAmount) gems, \(loot.description)" : "Opening...")")
-                    .accessibilityAddTraits(.isModal)
-                    .onAppear {
-                        startAnimationSequence()
-                    }
-                    .onDisappear {
-                        animationTask?.cancel()
-                    }
+                    contentCard(for: loot)
+                        .padding(32)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("Treasure Chest. \(phase == .opened ? "Opened. Loot: \(loot.gemAmount) gems, \(loot.description)" : "Opening...")")
+                        .accessibilityAddTraits(.isModal)
+                        .onAppear {
+                            startAnimationSequence()
+                        }
+                        .onDisappear {
+                            animationTask?.cancel()
+                        }
+                }
             }
         }
     }
@@ -88,7 +93,7 @@ struct LootDropOverlayView: View {
     private func chestAnimationArea(for loot: LootDrop) -> some View {
         ZStack {
             Circle()
-                .fill(Color.gold.opacity(0.3))
+                .fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.3))
                 .frame(width: 150, height: 150)
                 .scaleEffect(glowScale)
                 .opacity(glowOpacity)
@@ -98,7 +103,7 @@ struct LootDropOverlayView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 120, height: 120)
-                    .foregroundStyle(Color.gold, Color.orange.opacity(0.8))
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber), Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.8))
                     .rotationEffect(.degrees(chestRotation))
                     .scaleEffect(phase == .hidden ? 0.001 : 1.0)
             }
@@ -110,7 +115,7 @@ struct LootDropOverlayView: View {
 
                     Text("+\(loot.gemAmount) Gems!")
                         .font(.title.bold())
-                        .foregroundStyle(Color.gold)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
 
                     Text(loot.description)
                         .font(.subheadline)
@@ -132,7 +137,7 @@ struct LootDropOverlayView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(Color.gold)
+            .tint(Color(DesignSystemConstants.Colors.pendingAmber))
             .transition(.opacity.combined(with: .scale))
         } else {
             Button("Claim Loot") {}

@@ -8,6 +8,37 @@
 import CloudKit
 import Foundation
 
+/// WHY: Views must not hold CloudKit types; this value mirror carries account
+/// status across the service boundary for CK-free rendering.
+enum CloudAccountStatus: Equatable, Sendable {
+    case available
+    case noAccount
+    case restricted
+    case temporarilyUnavailable
+    case couldNotDetermine
+
+    init(_ status: CKAccountStatus) {
+        switch status {
+        case .available: self = .available
+        case .noAccount: self = .noAccount
+        case .restricted: self = .restricted
+        case .temporarilyUnavailable: self = .temporarilyUnavailable
+        case .couldNotDetermine: self = .couldNotDetermine
+        @unknown default: self = .couldNotDetermine
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .available: "Available"
+        case .noAccount: "No Account"
+        case .restricted: "Restricted"
+        case .temporarilyUnavailable: "Temporarily Unavailable"
+        case .couldNotDetermine: "Could Not Determine"
+        }
+    }
+}
+
 extension CloudKitService {
     func fetch<T: CloudKitRecord>(_: T.Type,
                                   id: CKRecord.ID,

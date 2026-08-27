@@ -158,6 +158,9 @@ final class AppSyncCoordinator {
     }
 
     func handleDatabaseChange(subscriptionID: String) {
+        if continuations.isEmpty {
+            logger.warning("Sync event dropped: no observers for recordChanged \(subscriptionID, privacy: .private)")
+        }
         for (_, continuation) in continuations {
             continuation.yield(.recordChanged(subscriptionID: subscriptionID))
         }

@@ -108,7 +108,7 @@ struct SpendingServiceTests {
         let entry = try await service.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Test Buy", amount: 10.0)
         #expect(entry.amount == -10.0)
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(!cached.isEmpty, "LedgerEntry must be written to cache immediately")
         #expect(cached.first?.amount == -10.0)
     }
@@ -135,11 +135,11 @@ struct SpendingServiceTests {
             family: familyRef
         )
         await cache.upsertLedgerEntry(entry)
-        #expect(!cache.fetchLedgerEntries(profileRecordName: hero.id.recordName).isEmpty)
+        #expect(!cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName).isEmpty)
 
         try await service.delete(entry)
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.isEmpty, "LedgerEntry must be deleted from cache immediately")
     }
 
@@ -194,7 +194,7 @@ struct SpendingServiceTests {
             #expect(error as? FamilyServiceError == .unauthorized)
         }
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: victim.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: victim.id.recordName, family: family.id.recordName)
         #expect(cached.isEmpty, "logManual must not write when the actor is not the target profile")
     }
 
@@ -229,7 +229,7 @@ struct SpendingServiceTests {
         }
 
         // The entry must remain in cache — the unauthorized delete must not invalidate it.
-        let cached = cache.fetchLedgerEntries(profileRecordName: otherHeroID.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: otherHeroID.recordName, family: family.id.recordName)
         #expect(cached.first?.amount == -10.0, "unauthorized delete must not touch the entry")
     }
 
@@ -257,7 +257,7 @@ struct SpendingServiceTests {
 
         try await service.delete(entry)
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.isEmpty, "self-owned entry should be deleted")
     }
 
@@ -286,7 +286,7 @@ struct SpendingServiceTests {
 
         try await service.delete(entry)
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: heroID.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: heroID.recordName, family: family.id.recordName)
         #expect(cached.isEmpty, "parent should be able to delete a hero's ledger entry")
     }
 
@@ -320,7 +320,7 @@ struct SpendingServiceTests {
             #expect(error as? SpendingServiceError == .unsupported)
         }
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.first?.amount == 50.0, "quest entry must not be deleted")
     }
 
@@ -418,7 +418,7 @@ struct SpendingServiceTests {
         #expect(entry.source == "deposit")
         #expect(entry.description == "Birthday gift from Grandpa")
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.count == 1)
         #expect(cached.first?.amount == 25.0)
         #expect(cached.first?.source == "deposit")
@@ -450,7 +450,7 @@ struct SpendingServiceTests {
         #expect(entry.source == "withdrawal")
         #expect(entry.description == "Camp cash")
 
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.count == 1)
         #expect(cached.first?.amount == -10.0)
         #expect(cached.first?.source == "withdrawal")
@@ -479,7 +479,7 @@ struct SpendingServiceTests {
         )
 
         #expect(entry.location == "Hobby Lobby")
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.count == 1)
         #expect(cached.first?.location == "Hobby Lobby")
     }
@@ -597,7 +597,7 @@ struct SpendingServiceTests {
         #expect(balances[.shortTermSave] == 5.00)
         #expect(balances[.longTermSave] == 3.00)
 
-        let walletTotal = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let walletTotal = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
             .reduce(0.0) { $0 + $1.amount }
         #expect(walletTotal == 14.00)
     }

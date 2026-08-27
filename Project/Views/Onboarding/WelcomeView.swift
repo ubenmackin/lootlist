@@ -29,7 +29,7 @@ struct WelcomeView: View {
                 .frame(width: 120, height: 120)
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [.yellow, .orange],
+                        colors: [Color.gold, Color(DesignSystemConstants.Colors.pendingAmber)],
                         startPoint: .top, endPoint: .bottom
                     )
                 )
@@ -43,7 +43,7 @@ struct WelcomeView: View {
                                   design: .rounded))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.yellow, .orange],
+                            colors: [Color.gold, Color(DesignSystemConstants.Colors.pendingAmber)],
                             startPoint: .leading, endPoint: .trailing
                         )
                     )
@@ -75,7 +75,7 @@ struct WelcomeView: View {
         }
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color.purple.opacity(0.15)],
+                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15)],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
@@ -111,7 +111,7 @@ struct OnboardingCompletionView: View {
 
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 80))
-                .foregroundStyle(.green)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
 
             Text("Ready to quest!")
                 .font(.system(size: 36, weight: .heavy, design: .rounded))
@@ -150,7 +150,7 @@ struct OnboardingCompletionView: View {
         }
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color.green.opacity(0.12)],
+                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.12)],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()

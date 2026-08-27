@@ -24,7 +24,7 @@ struct SpriteGalleryView: View {
             // Large sprite display
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.black.opacity(0.05))
+                    .fill(Color.secondary.opacity(0.1))
                 spriteView
                     .padding(20)
             }

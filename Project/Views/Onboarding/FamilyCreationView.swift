@@ -56,7 +56,7 @@ struct FamilyCreationView: View {
                         .padding(.vertical, 16)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.orange)
+                .tint(Color(DesignSystemConstants.Colors.pendingAmber))
                 .disabled(viewModel.familyName.trimmingCharacters(in: .whitespaces).isEmpty)
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
@@ -66,7 +66,7 @@ struct FamilyCreationView: View {
         .scrollDismissesKeyboard(.interactively)
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color.orange.opacity(0.12)],
+                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12)],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
@@ -90,7 +90,7 @@ struct FamilyCreationView: View {
                 .font(.system(size: 56))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [.yellow, .orange],
+                        colors: [Color.gold, Color(DesignSystemConstants.Colors.pendingAmber)],
                         startPoint: .top, endPoint: .bottom
                     )
                 )

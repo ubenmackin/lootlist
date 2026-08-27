@@ -655,6 +655,16 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         }
     }
 
+    func testEmptyScopePassSettlementDoesNotStampFreshness() async throws {
+        try await cacheService.clearAll()
+        coordinator.simulateFetchPassSettlement(activeScopes: [], completedScopes: [])
+
+        for type in CachedRecordType.allCases {
+            let isFresh = cacheService.isCacheFresh(familyRecordName: "active-family", type: type)
+            XCTAssertFalse(isFresh, "Cache should NOT be fresh for \(type) after empty scope settlement")
+        }
+    }
+
     // MARK: - Helpers
 
     private func makeValidSerializationData(pendingName: String, zoneID: CKRecordZone.ID) async throws -> Data {

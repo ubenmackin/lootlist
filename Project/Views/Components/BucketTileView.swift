@@ -7,11 +7,12 @@
 
 import SwiftUI
 
-/// Frosted sub-tile rendered inside the green balance hero card. Sits on a
-/// saturated gradient, so text is fixed white rather than semantic — the card
-/// behind it is the same in light and dark mode.
+/// Frosted sub-tile rendered inside the balance hero card. Sits on a
+/// saturated blue/indigo gradient chosen for white-text AA contrast in both
+/// light and dark mode, so text is fixed white rather than semantic — the
+/// card behind it is the same in light and dark mode.
 struct BucketTileView: View {
-    let emoji: String
+    let emoji: String?
 
     let title: String
 
@@ -21,11 +22,16 @@ struct BucketTileView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text("\(emoji) \(title)")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            HStack(spacing: 4) {
+                if let emoji, !emoji.isEmpty {
+                    Text(emoji)
+                }
+                Text(title)
+            }
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.white.opacity(0.9))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
 
             Text(amountText)
                 .font(.subheadline.weight(.bold))

@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -219,7 +218,7 @@ struct WeeklyBreakdownCard: View {
                 BreakdownRow(label: "Quests Completed",
                              value: "\(breakdown.questsCount)",
                              icon: "checkmark.seal.fill",
-                             tint: .green)
+                             tint: Color(DesignSystemConstants.Colors.primaryGreen))
                 BreakdownRow(label: "Earned from Quests",
                              value: GoldFormat.signed(breakdown.goldFromQuests),
                              icon: "banknote",
@@ -227,24 +226,24 @@ struct WeeklyBreakdownCard: View {
                 BreakdownRow(label: "Extra Bonus",
                              value: GoldFormat.signed(breakdown.bonusGold),
                              icon: "gift.fill",
-                             tint: .purple)
+                             tint: Color(DesignSystemConstants.Colors.accentBlue))
                 BreakdownRow(label: "Spent",
                              value: GoldFormat.signed(breakdown.spent),
                              icon: "arrow.down.circle.fill",
-                             tint: .red)
+                             tint: Color(DesignSystemConstants.Colors.dangerRed))
                 if let status = breakdown.payoutStatus {
                     Divider()
                     BreakdownRow(label: "Payout",
                                  value: payoutRowValue(status: status, paidAmount: breakdown.paidAmount),
                                  icon: status.iconSystemName,
-                                 tint: status == .paid ? .green : .orange,
+                                 tint: status == .paid ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.pendingAmber),
                                  isEmphasized: true)
                 }
                 Divider()
                 BreakdownRow(label: "Net for the Week",
                              value: GoldFormat.signed(breakdown.net),
                              icon: "scalemass.fill",
-                             tint: breakdown.net >= 0 ? .gold : .red,
+                             tint: breakdown.net >= 0 ? .gold : Color(DesignSystemConstants.Colors.dangerRed),
                              isEmphasized: true)
             } else {
                 HStack {

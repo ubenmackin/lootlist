@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftUI
 import UIKit
 
@@ -92,7 +91,7 @@ struct AvatarView: View {
                 Image(systemName: "person.crop.circle.fill")
                     .font(.system(size: size.glyphSize * 1.2, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(Color.gold)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                     .accessibilityHidden(true)
             }
 
@@ -100,14 +99,14 @@ struct AvatarView: View {
             if isStockPreset {
                 RoundedRectangle(cornerRadius: squircleRadius, style: .continuous)
                     .strokeBorder(
-                        Color.gold.opacity(0.75),
+                        Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.75),
                         lineWidth: max(1.0, size.diameter * 0.018)
                     )
                     .frame(width: size.diameter, height: size.diameter)
             } else {
                 Circle()
                     .strokeBorder(
-                        Color.gold.opacity(0.75),
+                        Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.75),
                         lineWidth: max(1.5, size.diameter * 0.025)
                     )
                     .frame(width: size.diameter, height: size.diameter)
@@ -126,7 +125,7 @@ struct AvatarView: View {
                 .minimumScaleFactor(0.75)
             Text(spec.levelTitle)
                 .font(titleFont)
-                .foregroundStyle(Color.gold)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
         }
     }
 
@@ -161,14 +160,14 @@ struct AvatarView: View {
 
     private var classColor: Color {
         guard let cls = spec.avatarClass else {
-            return spec.role.isParent ? Color.orange : Color.blue
+            return spec.role.isParent ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(DesignSystemConstants.Colors.accentBlue)
         }
         switch cls {
-        case .knight: return Color.blue
-        case .mage: return Color.purple
-        case .rogue: return Color.green
-        case .guardian: return Color.teal
-        case .healer: return Color.pink
+        case .knight: return Color(DesignSystemConstants.Colors.accentBlue)
+        case .mage: return Color(DesignSystemConstants.Colors.accentBlue)
+        case .rogue: return Color(DesignSystemConstants.Colors.primaryGreen)
+        case .guardian: return Color(DesignSystemConstants.Colors.accentBlue)
+        case .healer: return Color(DesignSystemConstants.Colors.dangerRed)
         }
     }
 

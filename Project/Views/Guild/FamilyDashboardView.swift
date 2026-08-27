@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -16,7 +15,6 @@ struct FamilyDashboardView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(TreasuryService.self) private var treasury
     @Environment(AchievementService.self) private var achievementService
-    @Environment(CloudKitService.self) private var cloudKitService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
@@ -42,7 +40,12 @@ struct FamilyDashboardView: View {
         self.spending = spending
         self.familyRecordName = familyRecordName
 
+        // WHY: Fail closed — empty family yields zero rows, never an unscoped cross-family query.
         let targetFamily = familyRecordName ?? ""
+        #if DEBUG
+            // WHY: Empty predicate silently matches nothing and can mask stale-cache reads; assert in DEBUG unless running tests.
+            assert(!targetFamily.isEmpty || TestEnvironment.isRunningUnitOrUITests, "FamilyDashboardView: empty familyRecordName — predicate will match no rows (fail-closed)")
+        #endif
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
@@ -111,36 +114,6 @@ struct FamilyDashboardView: View {
                     }
                     .padding(.vertical, 14)
                 }
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            withAnimation {
-                                scrollProxy.scrollTo("pendingQueueAnchor", anchor: .top)
-                            }
-                            HapticsService.rigid()
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "bell.fill")
-                                    .font(.body)
-
-                                if pendingCount > 0 {
-                                    Text("\(pendingCount)")
-                                        .font(.system(size: 10, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(
-                                            Capsule()
-                                                .fill(Color(DesignSystemConstants.Colors.dangerRed))
-                                        )
-                                        .offset(x: 8, y: -6)
-                                }
-                            }
-                        }
-                        .accessibilityLabel("\(pendingCount) pending approvals")
-                        .accessibilityIdentifier("dashboard.pendingBell")
-                    }
-                }
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle(appState.family?.name ?? "Guild")
@@ -148,7 +121,6 @@ struct FamilyDashboardView: View {
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
                 await viewModel?.refresh()
-                await viewModel?.refreshWeekSummary()
             }
             .task {
                 if viewModel == nil {
@@ -246,7 +218,7 @@ private extension FamilyDashboardView {
                 title: "FAMILY OUTFLOW",
                 value: CurrencyFormatter.string(vm.familyOutflow),
                 icon: "banknote.fill",
-                tint: Color.gold,
+                tint: Color(DesignSystemConstants.Colors.primaryGreen),
                 accessibilityID: "dashboard.outflowCard"
             )
 
@@ -296,7 +268,9 @@ private extension FamilyDashboardView {
                 }
                 .onPreferenceChange(ChildCardHeightPreferenceKey.self) { newHeight in
                     if newHeight > 0, maxChildCardHeight != newHeight {
-                        maxChildCardHeight = newHeight
+                        DispatchQueue.main.async {
+                            maxChildCardHeight = newHeight
+                        }
                     }
                 }
                 .padding(.horizontal)
@@ -338,7 +312,7 @@ private extension FamilyDashboardView {
 
                 Text("\(CurrencyFormatter.string(card.balance)) available")
                     .font(.caption2.weight(.medium).monospacedDigit())
-                    .foregroundStyle(Color.gold)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
 
                 if card.pendingReviewCount > 0 {
                     HStack(spacing: 4) {
@@ -392,11 +366,11 @@ private extension FamilyDashboardView {
         VStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(Color.orange.opacity(0.15))
+                    .fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.15))
                     .frame(width: 64, height: 64)
                 Image(systemName: "person.badge.plus")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             }
 
             VStack(spacing: 6) {
@@ -420,7 +394,7 @@ private extension FamilyDashboardView {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1.5)
+                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.35), lineWidth: 1.5)
         )
         .padding(.horizontal)
     }
@@ -437,7 +411,7 @@ private extension FamilyDashboardView {
                     quickActionButton(
                         title: "Deposit",
                         icon: "plus.circle.fill",
-                        color: .green,
+                        color: Color(DesignSystemConstants.Colors.primaryGreen),
                         identifier: "dashboard.depositButton"
                     ) {
                         selectedChildForTransaction = vm.childAccountCards.first?.profile
@@ -447,7 +421,7 @@ private extension FamilyDashboardView {
                     quickActionButton(
                         title: "Withdraw",
                         icon: "minus.circle.fill",
-                        color: .orange,
+                        color: Color(DesignSystemConstants.Colors.pendingAmber),
                         identifier: "dashboard.withdrawButton"
                     ) {
                         selectedChildForTransaction = vm.childAccountCards.first?.profile
@@ -629,9 +603,7 @@ private extension FamilyDashboardView {
     }
 
     private func approveCompletion(_ completion: QuestCompletionCache) async {
-        let zoneID = appState.familyZoneID
-            ?? appState.family?.id.zoneID
-            ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
         let domainLog = completion.toQuestCompletion(zoneID: zoneID)
         guard let parent = appState.currentProfile else { return }
         do {
@@ -647,9 +619,7 @@ private extension FamilyDashboardView {
     }
 
     private func rejectCompletion(_ completion: QuestCompletionCache) async {
-        let zoneID = appState.familyZoneID
-            ?? appState.family?.id.zoneID
-            ?? completion.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
         let domainLog = completion.toQuestCompletion(zoneID: zoneID)
         guard let parent = appState.currentProfile else { return }
         do {
@@ -683,7 +653,7 @@ private extension FamilyDashboardView {
                         if allRealTime, summary.totalEarned > 0 {
                             Text("\(lootDayTitle) · Real-time Settled")
                                 .font(.caption2.weight(.medium))
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                         } else {
                             Text(isPending ? "\(lootDayTitle) · Pending Payout" : lootDayTitle)
                                 .font(.caption2.weight(.medium))
@@ -714,7 +684,7 @@ private extension FamilyDashboardView {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
             )
             .padding(.horizontal)
         }
@@ -726,21 +696,21 @@ private extension FamilyDashboardView {
                 icon: isPending ? "hourglass" : "banknote",
                 value: CurrencyFormatter.string(isPending ? summary.pendingPayoutAmount : summary.totalEarned),
                 label: isPending ? "Pending" : "Earned",
-                tint: isPending ? .orange : .gold
+                tint: isPending ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(DesignSystemConstants.Colors.primaryGreen)
             )
             Divider()
             statBlock(
                 icon: "checkmark.circle.fill",
                 value: "\(summary.totalQuestsCompleted)",
                 label: "Quests",
-                tint: .green
+                tint: Color(DesignSystemConstants.Colors.primaryGreen)
             )
             Divider()
             statBlock(
                 icon: "person.2.fill",
                 value: "\(summary.heroSummaries.count)",
                 label: "Heroes",
-                tint: .purple
+                tint: Color(DesignSystemConstants.Colors.accentBlue)
             )
         }
         .frame(maxWidth: .infinity)
@@ -770,7 +740,7 @@ private extension FamilyDashboardView {
         isProcessingPayout = true
         defer { isProcessingPayout = false }
         guard appState.family != nil else { return }
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID
+        let zoneID = appState.resolvedFamilyZoneID()
         let matchingPeriods = cachedAllowancePeriods.filter { period in
             let status = period.statusEnum
             return status == .active || status == .payoutPending
@@ -806,7 +776,7 @@ private extension FamilyDashboardView {
                 Capsule()
                     .fill(Color(.secondarySystemGroupedBackground))
                     .overlay(
-                        Capsule().strokeBorder(Color.gold.opacity(0.45), lineWidth: 1)
+                        Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.45), lineWidth: 1)
                     )
             )
         }
@@ -820,11 +790,14 @@ private extension FamilyDashboardView {
             toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
             return
         }
-        guard share.url != nil else {
+        // WHY: the container pairing is assembled by the service so this view
+        // never reaches through to the raw CloudKit container.
+        let presentation = familyService.invitePresentation(for: share)
+        guard presentation.shareURL != nil else {
             toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
             return
         }
-        sharePresentation = CloudSharePresentation(share: share, container: cloudKitService.container)
+        sharePresentation = presentation
     }
 
     // MARK: - Loading Placeholder
@@ -863,8 +836,8 @@ private struct ProcessPayoutButtonView: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(Capsule().fill(Color.gold.opacity(0.20)))
-            .foregroundStyle(Color.gold)
+            .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.20)))
+            .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
         }
         .buttonStyle(.plain)
         .disabled(isProcessingPayout)

@@ -21,7 +21,13 @@ extension FamilyService {
         // members (Rangers/Heroes), the profile deactivation above is the authoritative
         // leave; the owner-side share reconciler and Invitations panel observe the
         // departed identity and surface it for owner-side revocation.
-        if appState.isZoneOwner {
+        // WHY: owner check uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwnerForShare = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwnerForShare = appState.isZoneOwner
+        if isOwnerForShare != storedOwnerForShare {
+            logger.warning("FamilyService.leaveFamily isOwner corrected via creator anchor: stored=\(storedOwnerForShare) resolved=\(isOwnerForShare)")
+        }
+        if isOwnerForShare {
             let family = await family(for: profile)
             let rootRecordID = family?.id ?? profile.family.recordID
             do {
@@ -91,7 +97,7 @@ extension FamilyService {
             )
             throw FamilyServiceError.persistenceFailed
         }
-        let nextWeek = Calendar.iso8601UTC.date(byAdding: .weekOfYear, value: 1, to: currentWeek) ?? currentWeek
+        let nextWeek = WeekMath.weekStart(byAddingWeeks: 1, to: currentWeek)
         let nextQuests: [Quest]
         do {
             nextQuests = try await questService.fetchActiveQuests(profile: profile, weekOf: nextWeek)
@@ -141,7 +147,12 @@ extension FamilyService {
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.deactivateProfile isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }
 
@@ -158,10 +169,16 @@ extension FamilyService {
 
         let isOwner = await isFamilyOwner(family)
         let actingRoleIsParent = appState.currentProfile?.role.isParent ?? false
+        // WHY: owner check uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwnerFallback = appState.isZoneOwner
+        if resolvedOwner != storedOwnerFallback {
+            logger.warning("FamilyService.deleteFamilyAndReset fallback isOwner corrected via creator anchor: stored=\(storedOwnerFallback) resolved=\(resolvedOwner)")
+        }
         let isAuthorized: Bool = if let anchor = family.creatorUserRecordName, anchor != "__defaultOwner__", anchor != "_defaultOwner_" {
             isOwner
         } else {
-            appState.isZoneOwner && actingRoleIsParent
+            resolvedOwner && actingRoleIsParent
         }
         guard isAuthorized else {
             throw FamilyServiceError.unauthorized
@@ -176,6 +193,29 @@ extension FamilyService {
         }
 
         // 2. Clear CloudKit active state, purge family cache, reset sync coordinator, and clear session.
+        appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
+    }
+
+    // MARK: - Session & Detected Family Facades (CloudKit isolation)
+
+    // WHY: Views must not hold CloudKitService or CKSyncEngineCoordinator; this facade keeps CloudKit scope and session transitions inside the service layer.
+    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool) async {
+        await appState.acceptDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneIDString: zoneIDString, isOwner: isOwner, cloudKit: cloudKit)
+    }
+
+    func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool) async {
+        await appState.acceptDetectedFamily(family: family, profile: profile, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
+    }
+
+    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool) async {
+        await appState.rejectDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneIDString: zoneIDString, isOwner: isOwner, cloudKit: cloudKit)
+    }
+
+    func signOutAndDiscover() async {
+        await appState.signOutAndDiscover(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
+    }
+
+    func clearSessionAndScope() {
         appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
 }

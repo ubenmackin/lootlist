@@ -289,6 +289,12 @@ class MockCloudKitService: CloudKitServiceProtocol {
         return share
     }
 
+    func shareMetadata(for _: URL) async throws -> CKShare.Metadata {
+        // CKShare.Metadata cannot be synthesized outside CloudKit, so the
+        // mock cannot resolve pasted invitation links.
+        throw CloudKitServiceError.underlying("MockCloudKitService cannot resolve share metadata")
+    }
+
     func acceptShare(metadata _: CKShare.Metadata) async throws {}
 
     func removeParticipant(iCloudUserRecordName: String, from rootRecordID: CKRecord.ID) async throws {

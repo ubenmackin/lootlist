@@ -29,6 +29,42 @@ enum DesignSystemConstants {
 
         /// Light #FF3B30 / Dark #FF453A — destructive actions, overdue.
         static let dangerRed = "dangerRed"
+
+        /// Light #D9A834 / Dark #E8C05C — legacy gold identifier sanctioned per ARCH §1; asset-backed semantic token.
+        static let gold = "gold"
+
+        // Rarity palette — semantic asset tokens for QuestRarity per §2 (maps to pendingAmber/accentBlue spectrum).
+        static let rarityCommon = "rarityCommon"
+        static let rarityRare = "rarityRare"
+        static let rarityEpic = "rarityEpic"
+        static let rarityLegendary = "rarityLegendary"
+
+        // Journey map art palette — game-art owned by JourneyZone.ZonePalette; asset-catalog backed tokens per §2 exception.
+        static let journeyStartingMeadowPath = "journeyStartingMeadowPath"
+        static let journeyStartingMeadowGround = "journeyStartingMeadowGround"
+        static let journeyStartingMeadowAccent = "journeyStartingMeadowAccent"
+        static let journeyStartingMeadowSkyTop = "journeyStartingMeadowSkyTop"
+        static let journeyStartingMeadowSkyBottom = "journeyStartingMeadowSkyBottom"
+        static let journeyDenseForestPath = "journeyDenseForestPath"
+        static let journeyDenseForestGround = "journeyDenseForestGround"
+        static let journeyDenseForestAccent = "journeyDenseForestAccent"
+        static let journeyDenseForestSkyTop = "journeyDenseForestSkyTop"
+        static let journeyDenseForestSkyBottom = "journeyDenseForestSkyBottom"
+        static let journeyMountainPassPath = "journeyMountainPassPath"
+        static let journeyMountainPassGround = "journeyMountainPassGround"
+        static let journeyMountainPassAccent = "journeyMountainPassAccent"
+        static let journeyMountainPassSkyTop = "journeyMountainPassSkyTop"
+        static let journeyMountainPassSkyBottom = "journeyMountainPassSkyBottom"
+        static let journeyDragonsReachPath = "journeyDragonsReachPath"
+        static let journeyDragonsReachGround = "journeyDragonsReachGround"
+        static let journeyDragonsReachAccent = "journeyDragonsReachAccent"
+        static let journeyDragonsReachSkyTop = "journeyDragonsReachSkyTop"
+        static let journeyDragonsReachSkyBottom = "journeyDragonsReachSkyBottom"
+        static let journeyEternalRealmPath = "journeyEternalRealmPath"
+        static let journeyEternalRealmGround = "journeyEternalRealmGround"
+        static let journeyEternalRealmAccent = "journeyEternalRealmAccent"
+        static let journeyEternalRealmSkyTop = "journeyEternalRealmSkyTop"
+        static let journeyEternalRealmSkyBottom = "journeyEternalRealmSkyBottom"
     }
 
     enum CornerRadius {

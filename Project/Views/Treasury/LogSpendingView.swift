@@ -19,6 +19,7 @@ struct LogSpendingView: View {
     @State private var description: String = ""
     @State private var location: String = ""
     @State private var amountText: String = ""
+    @FocusState private var isAmountFocused: Bool
     @State private var date: Date = .init()
     @State private var isSaving: Bool = false
 
@@ -86,6 +87,7 @@ struct LogSpendingView: View {
                             .foregroundStyle(Color.gold)
                         TextField("2.50", text: $amountText)
                             .keyboardType(.decimalPad)
+                            .focused($isAmountFocused)
                             .font(.body.monospacedDigit())
                     }
                 } header: {
@@ -103,22 +105,35 @@ struct LogSpendingView: View {
             .formStyle(.grouped)
             .navigationTitle("Scroll of Spending")
             .navigationBarTitleDisplayMode(.inline)
+            // Icon-only toolbar prevents title truncation; accessibilityLabel preserves affordance.
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(isSaving)
+                    Button {
+                        dismiss()
+                    } label: {
+                        Label("Cancel", systemImage: "xmark")
+                            .labelStyle(.iconOnly)
+                    }
+                    .accessibilityLabel("Cancel")
+                    .accessibilityIdentifier("logSpending.cancelButton")
+                    .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(action: save) {
                         if isSaving {
                             ProgressView()
                         } else {
-                            Text("Add to Scroll")
+                            Label("Add to Scroll", systemImage: "plus")
+                                .labelStyle(.iconOnly)
                         }
                     }
+                    .accessibilityLabel("Add to Scroll")
+                    .accessibilityIdentifier("logSpending.confirmButton")
+                    .tint(Color(DesignSystemConstants.Colors.primaryGreen))
                     .disabled(isSaving)
                 }
             }
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             .interactiveDismissDisabled(isSaving)
             .toastOverlay()
         }

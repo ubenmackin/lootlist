@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -325,10 +324,10 @@ struct KidsSavingsGoalsView: View {
                 if isCompleted {
                     Label("Done", systemImage: "checkmark.circle.fill")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(Color.green.opacity(0.14)))
+                        .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.14)))
                 }
                 Menu {
                     Button(role: .destructive) {
@@ -417,7 +416,12 @@ struct KidsSavingsGoalsView: View {
 
     private func accentColor(for hero: ProfileCache) -> Color {
         // WHY: Deterministic per-child color keeps each hero's goals visually grouped without storing an extra field.
-        let palette: [Color] = [.blue, .purple, .orange, .green, .pink, .teal, .indigo]
+        let palette: [Color] = [
+            Color(DesignSystemConstants.Colors.accentBlue),
+            Color(DesignSystemConstants.Colors.primaryGreen),
+            Color(DesignSystemConstants.Colors.pendingAmber),
+            Color(DesignSystemConstants.Colors.dangerRed)
+        ]
         let hash = hero.recordName.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
         return palette[abs(hash) % palette.count]
     }

@@ -14,12 +14,14 @@ struct FatalCacheErrorView: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.14, green: 0.04, blue: 0.04),
-                    Color(red: 0.22, green: 0.06, blue: 0.06)
+                    Color(DesignSystemConstants.Colors.dangerRed),
+                    Color(DesignSystemConstants.Colors.dangerRed).opacity(0.75)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
+            // Structural scrim: darkens the danger-token gradient so white copy keeps contrast in both modes.
+            .overlay(Color.black.opacity(0.25))
             .ignoresSafeArea()
 
             VStack(spacing: 20) {
@@ -27,12 +29,15 @@ struct FatalCacheErrorView: View {
                     .font(.system(size: 56, weight: .bold))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.red, .orange],
+                            colors: [
+                                Color(DesignSystemConstants.Colors.dangerRed),
+                                Color(DesignSystemConstants.Colors.pendingAmber)
+                            ],
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
-                    .shadow(color: .red.opacity(0.4), radius: 12, x: 0, y: 4)
+                    .shadow(color: Color(DesignSystemConstants.Colors.dangerRed).opacity(0.4), radius: 12, x: 0, y: 4)
 
                 VStack(spacing: 8) {
                     Text("Cache Initialization Failed")
@@ -45,7 +50,7 @@ struct FatalCacheErrorView: View {
                             + "if the problem persists, reinstalling LootList will reset the cache."
                     )
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 24)
@@ -60,6 +65,7 @@ struct FatalCacheErrorView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(12)
                                 .background(
+                                    // Structural scrim backing the mono text for legibility on the gradient.
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(Color.black.opacity(0.35))
                                 )
@@ -81,7 +87,10 @@ struct FatalCacheErrorView: View {
                             Capsule()
                                 .fill(
                                     LinearGradient(
-                                        colors: [.red, .orange],
+                                        colors: [
+                                            Color(DesignSystemConstants.Colors.dangerRed),
+                                            Color(DesignSystemConstants.Colors.pendingAmber)
+                                        ],
                                         startPoint: .leading,
                                         endPoint: .trailing
                                     )

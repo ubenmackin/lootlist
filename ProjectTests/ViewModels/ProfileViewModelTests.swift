@@ -117,7 +117,8 @@ struct ProfileViewModelTests {
             quests: [quest],
             profileAchievements: [],
             achievements: [],
-            zoneID: test.zoneID
+            zoneID: test.zoneID,
+            payoutDay: .sunday
         )
 
         // Wallet balance must equal ledger sum (10.0 + 5.0 - 3.0 = 12.0)
@@ -159,7 +160,8 @@ struct ProfileViewModelTests {
             quests: [],
             profileAchievements: [],
             achievements: [],
-            zoneID: test.zoneID
+            zoneID: test.zoneID,
+            payoutDay: .sunday
         )
 
         #expect(viewModel.goldBalance == 20.0)

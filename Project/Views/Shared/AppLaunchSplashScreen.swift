@@ -12,8 +12,8 @@ struct AppLaunchSplashScreen: View {
         ZStack {
             LinearGradient(
                 colors: [
-                    Color(red: 0.08, green: 0.08, blue: 0.14),
-                    Color(red: 0.14, green: 0.10, blue: 0.22)
+                    Color(DesignSystemConstants.Colors.accentBlue),
+                    Color(DesignSystemConstants.Colors.accentBlue).opacity(0.75)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -37,7 +37,7 @@ struct AppLaunchSplashScreen: View {
                         .font(.system(size: 64, weight: .bold))
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [.gold, .orange],
+                                colors: [.gold, Color(DesignSystemConstants.Colors.pendingAmber)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )

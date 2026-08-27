@@ -17,9 +17,29 @@ extension QuestService {
         Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
     }
 
+    private func resolvedIsOwner() -> Bool {
+        ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+    }
+
+    /// Resolved owner scope for sync enqueues, logging when it diverges from the stored flag.
+    /// WHY: Hero completions must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
+    private func correctedIsOwnerForSync() -> Bool {
+        let isOwner = resolvedIsOwner()
+        // Hoisted local: Swift 6 requires explicit capture semantics for
+        // self-referencing property access inside the logger interpolation.
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            logger.warning("markComplete isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        return isOwner
+    }
+
     @discardableResult
     func markComplete(quest: QuestCache, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        guard let zoneID = appState?.familyZoneID else { throw FamilyServiceError.unauthorized }
+        guard let zoneID = appState?.familyZoneID else {
+            logger.warning("markComplete aborted: no active family zone")
+            throw FamilyServiceError.unauthorized
+        }
         return try await markComplete(quest: quest.toQuest(zoneID: zoneID), by: profile, at: completedDate)
     }
 
@@ -28,14 +48,17 @@ extension QuestService {
         guard let appState, let acting = appState.currentProfile,
               acting.id == profile.id
         else {
+            logger.warning("markComplete aborted: acting profile mismatch for quest \(quest.id.recordName, privacy: .private)")
             throw FamilyServiceError.unauthorized
         }
         guard quest.assignee.recordID.recordName == profile.id.recordName || acting.role.isParent else {
+            logger.warning("markComplete aborted: assignee mismatch for quest \(quest.id.recordName, privacy: .private)")
             throw FamilyServiceError.unauthorized
         }
         guard profile.family.recordID == quest.family.recordID,
               profile.id.zoneID == quest.id.zoneID
         else {
+            logger.warning("markComplete aborted: family/zone mismatch for quest \(quest.id.recordName, privacy: .private)")
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -54,36 +77,51 @@ extension QuestService {
 
         try await validateCanCompleteQuest(quest, questName: questName)
 
+        // WHY: Active family zone is sole authority — hero completions target shared zone; diverged IDs corrected to active zone.
+        let resolvedZoneID: CKRecordZone.ID = {
+            guard let activeZone = appState.familyZoneID else { return quest.id.zoneID }
+            if quest.id.zoneID != activeZone {
+                let qZone = quest.id.zoneID.zoneName
+                let aZone = activeZone.zoneName
+                logger.warning("markComplete zone mismatch: quest \(qZone, privacy: .private) != active \(aZone, privacy: .private) — using activeZone")
+            }
+            return activeZone
+        }()
         var log = QuestCompletion(
-            quest: CKRecord.Reference(recordID: quest.id, action: .none),
-            completedBy: CKRecord.Reference(recordID: profile.id, action: .none),
+            quest: CKRecord.Reference(recordID: CKRecord.ID(recordName: quest.id.recordName, zoneID: resolvedZoneID), action: .none),
+            completedBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: profile.id.recordName, zoneID: resolvedZoneID), action: .none),
             approvalMode: quest.approvalMode,
             weekOf: quest.weekOf,
-            family: quest.family,
-            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: quest.id.zoneID)
+            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: resolvedZoneID), action: .none),
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: resolvedZoneID)
         )
         log.completedDate = completedDate
         if quest.approvalMode == .autoApprove {
             log.verificationStatus = .autoApproved
             try await applyReward(for: quest, to: profile, completion: log)
             if let cached = cacheService?.fetchQuestCompletion(recordName: log.id.recordName, family: quest.family.recordID.recordName) {
-                log = cached.toQuestCompletion(zoneID: quest.id.zoneID)
+                log = cached.toQuestCompletion(zoneID: resolvedZoneID)
             } else {
                 // Persist the completion even when the reward claim was lost
                 // (applyReward returned early), so the @Query-driven UI reflects
                 // it and validateCanCompleteQuest prevents duplicates.
                 await cacheService?.upsertQuestCompletion(log)
-                let isOwner = appState.isZoneOwner
+                let isOwner = correctedIsOwnerForSync()
                 syncCoordinator?.enqueueSave(recordID: log.id, isOwner: isOwner)
             }
         } else {
             await cacheService?.upsertQuestCompletion(log)
-            let isOwner = appState.isZoneOwner
+            let isOwner = correctedIsOwnerForSync()
             syncCoordinator?.enqueueSave(recordID: log.id, isOwner: isOwner)
         }
 
         if quest.approvalMode == .parentVerify {
             dispatchParentReviewNotification(for: log, quest: quest)
+        }
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
         }
         return log
     }
@@ -92,6 +130,7 @@ extension QuestService {
         guard let appState, let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent
         else {
+            logger.warning("withdrawCompletion aborted: unauthorized actor for log \(questLog.id.recordName, privacy: .private)")
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -116,12 +155,20 @@ extension QuestService {
         updated.verificationStatus = .withdrawn
 
         await cacheService?.upsertQuestCompletion(updated)
-        let isOwner = appState.isZoneOwner
+        let isOwner = resolvedIsOwner()
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
+        }
     }
 
     func withdrawCompletion(questLog: QuestCompletionCache, by profile: Profile) async throws {
-        guard let zoneID = appState?.familyZoneID else { throw FamilyServiceError.unauthorized }
+        guard let zoneID = appState?.familyZoneID else {
+            logger.warning("withdrawCompletion aborted: no active family zone")
+            throw FamilyServiceError.unauthorized
+        }
         try await withdrawCompletion(questLog: questLog.toQuestCompletion(zoneID: zoneID), by: profile)
     }
 
@@ -131,6 +178,7 @@ extension QuestService {
               acting.id == parent.id,
               acting.role.isParent
         else {
+            logger.warning("verify aborted: acting profile not parent for log \(questLog.id.recordName, privacy: .private)")
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -163,7 +211,7 @@ extension QuestService {
         // approved-count math, and xpCredited stamping stays gated behind the
         // atomic server claim.
         await cacheService?.upsertQuestCompletion(updated)
-        let isOwner = appState.isZoneOwner
+        let isOwner = resolvedIsOwner()
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
         try await handlePostVerifySettlement(questLog: questLog, updated: updated)
@@ -182,6 +230,7 @@ extension QuestService {
               acting.id == parent.id,
               acting.role.isParent
         else {
+            logger.warning("reject aborted: acting profile not parent for log \(questLog.id.recordName, privacy: .private)")
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -208,7 +257,7 @@ extension QuestService {
         updated.verifiedDate = Date()
 
         await cacheService?.upsertQuestCompletion(updated)
-        let isOwner = appState.isZoneOwner
+        let isOwner = resolvedIsOwner()
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
         dispatchRejectionNotification(for: updated)
@@ -256,8 +305,16 @@ extension QuestService {
     // MARK: - Post-Transition Notification & Settlement Helpers
 
     private func dispatchParentReviewNotification(for log: QuestCompletion, quest: Quest) {
+        // WHY: questNeedsReview is parent-only — never enqueue local notification on child's device; sync ingestion delivers to parent.
+        guard let currentProfile = appState?.currentProfile, currentProfile.role.isParent else { return }
+        // WHY: shared-device edge — avoid self-notification when completer and current profile are the same.
+        let completerRecordName = log.completedBy.recordID.recordName
+        guard currentProfile.id.recordName != completerRecordName else { return }
         let familyName = quest.family.recordID.recordName
         if let parent = resolveParent(recordID: quest.createdBy.recordID, familyRecordName: familyName) {
+            // WHY: questNeedsReview is parent-only — verify resolved profile is actually a parent.
+            guard parent.role.isParent else { return }
+            guard parent.id.recordName != completerRecordName else { return }
             if let notificationService {
                 Task { @Sendable [logger] in
                     do {
@@ -272,6 +329,9 @@ extension QuestService {
         if let parent = resolveParentViaCacheScan(familyRecordName: familyName),
            let notificationService
         {
+            // WHY: questNeedsReview is parent-only — fallback scan must still resolve a parent.
+            guard parent.role.isParent else { return }
+            guard parent.id.recordName != completerRecordName else { return }
             Task { @Sendable [logger] in
                 do {
                     try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
@@ -338,6 +398,12 @@ extension QuestService {
             hero = scannedHero
         } else {
             logger.warning("Cache miss during verify for quest/hero; skipping reward settlement — cache will sync via CKSyncEngine")
+            toastManager?.show(message: "Syncing latest quest data. Please try again.", type: .info)
+            if let syncCoordinator {
+                Task {
+                    await syncCoordinator.fetchChanges()
+                }
+            }
             throw QuestServiceError.missingRecord(questLog.quest.recordID.recordName)
         }
 

@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 extension FamilyService {
     // MARK: - Family Settings
@@ -38,7 +39,12 @@ extension FamilyService {
         await cacheService?.upsertFamily(updated)
         appState.family = updated
 
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = resolvedIsOwner()
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updateFamilyName isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -102,7 +108,12 @@ extension FamilyService {
         await cacheService?.upsertFamily(updated)
         appState.family = updated
 
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = resolvedIsOwner()
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updatePayoutDay isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -171,7 +182,12 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = resolvedIsOwner()
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updateProfilePayoutDay isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -200,7 +216,12 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = resolvedIsOwner()
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updateProfileDisplayName isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -250,8 +271,69 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = resolvedIsOwner()
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updateProfileAvatar isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
+    }
+
+    // MARK: - Savings Split (3-Jar)
+
+    @discardableResult
+    func updateSavingsSplit(profileCache: ProfileCache, spend: Int, short: Int, long: Int) async throws -> Profile {
+        guard let zoneID = appState.familyZoneID else { throw FamilyServiceError.unauthorized }
+        return try await updateSavingsSplit(profile: profileCache.toProfile(zoneID: zoneID), spend: spend, short: short, long: long)
+    }
+
+    /// Updates the 3-jar split percentages for a hero profile. Percentages are
+    /// a future-only snapshot read at payout time — never retroactively
+    /// rebalanced — so this write only affects subsequent deposits/payouts.
+    /// The 100-sum invariant is enforced before persisting.
+    @discardableResult
+    func updateSavingsSplit(profile: Profile, spend: Int, short: Int, long: Int) async throws -> Profile {
+        // 100-sum invariant: every payout split must allocate exactly 100%.
+        guard spend >= 0, short >= 0, long >= 0, spend + short + long == 100 else {
+            throw FamilyServiceError.persistenceFailed
+        }
+        // Self-or-parent gate mirrors bucket-transfer self-ownership — a child
+        // may configure their own split, parents may configure any child.
+        guard let acting = appState.currentProfile, acting.id == profile.id || acting.role.isParent else {
+            throw FamilyServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRecordName: profile.family.recordID.recordName,
+            zoneID: profile.id.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
+
+        var updated = profile
+        updated.splitPercentSpend = spend
+        updated.splitPercentShort = short
+        updated.splitPercentLong = long
+
+        await cacheService?.upsertProfile(updated)
+        if appState.currentProfile?.id == updated.id {
+            appState.currentProfile = updated
+        }
+
+        let isOwner = resolvedIsOwner()
+        // WHY: Hero completions must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
+        // Hoisted local: Swift 6 requires explicit capture semantics for
+        // self-referencing property access inside the logger interpolation.
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("updateSavingsSplit isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        return updated
+    }
+
+    private func resolvedIsOwner() -> Bool {
+        ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
     }
 }

@@ -594,7 +594,7 @@ struct ScenarioMatrixTests {
 
         _ = try await spendingService.logManual(profile: hero, family: family, familyRecordName: family.id.recordName, description: "Bought Sword", amount: 50.0)
 
-        let entries = sut.cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let entries = sut.cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         let balance = entries.reduce(0.0) { $0 + $1.amount }
 
         #expect(balance == -50.0)

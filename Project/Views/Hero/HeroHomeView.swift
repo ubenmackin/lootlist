@@ -142,7 +142,8 @@ struct HeroHomeView: View {
 
             playerCard
 
-            if let row = currentProfileRow {
+            // WHY: Journey map and mascot banner are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+            if FeatureFlags.rpgImmersive, let row = currentProfileRow {
                 journeyMapCard(row: row)
                 mascotBanner(row: row)
             }
@@ -178,19 +179,22 @@ struct HeroHomeView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
-            NavigationLink {
-                GemShopView()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "diamond.fill")
-                        .foregroundStyle(Color.gold)
-                    Text(gemBalanceText)
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Color.gold)
+        // WHY: Gem Shop is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        if FeatureFlags.rpgImmersive {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    GemShopView()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "diamond.fill")
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                        Text(gemBalanceText)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                    }
                 }
+                .accessibilityLabel(gemShopAccessibilityLabel)
             }
-            .accessibilityLabel(gemShopAccessibilityLabel)
         }
     }
 
@@ -236,7 +240,7 @@ struct HeroHomeView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
             )
         }
     }
@@ -253,14 +257,17 @@ struct HeroHomeView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
 
-                    Text("Lv. \(progress.currentLevel)")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule().fill(Color.accentColor)
-                        )
+                    // WHY: Level badge is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+                    if FeatureFlags.rpgImmersive {
+                        Text("Lv. \(progress.currentLevel)")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule().fill(Color(DesignSystemConstants.Colors.accentBlue))
+                            )
+                    }
 
                     Spacer(minLength: 0)
 
@@ -282,7 +289,7 @@ struct HeroHomeView: View {
 
                 Capsule()
                     .fill(LinearGradient(
-                        colors: [.blue, .purple],
+                        colors: [Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.accentBlue)],
                         startPoint: .leading,
                         endPoint: .trailing
                     ))
@@ -305,7 +312,7 @@ struct HeroHomeView: View {
             HStack(spacing: 6) {
                 Image(systemName: "banknote.fill")
                     .font(.subheadline)
-                    .foregroundStyle(Color.gold)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("This Week")
                         .font(.caption2)
@@ -322,7 +329,7 @@ struct HeroHomeView: View {
             HStack(spacing: 6) {
                 Image(systemName: "flame.fill")
                     .font(.subheadline)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Streak")
                         .font(.caption2)
@@ -334,7 +341,7 @@ struct HeroHomeView: View {
                         if shields > 0 {
                             Text("🛡️\(shields)")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                         }
                     }
                 }
@@ -346,7 +353,7 @@ struct HeroHomeView: View {
             HStack(spacing: 6) {
                 Image(systemName: "checklist")
                     .font(.subheadline)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Quests")
                         .font(.caption2)

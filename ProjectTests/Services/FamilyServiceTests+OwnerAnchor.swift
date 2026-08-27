@@ -144,7 +144,7 @@ extension FamilyServiceTests {
         }
 
         // The rejected deposit must not write a ledger entry.
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.isEmpty)
     }
 
@@ -171,7 +171,7 @@ extension FamilyServiceTests {
         }
 
         // The rejected withdraw must not write a ledger entry.
-        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName)
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
         #expect(cached.isEmpty)
     }
 }

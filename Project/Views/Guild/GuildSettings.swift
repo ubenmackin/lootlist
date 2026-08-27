@@ -31,6 +31,7 @@ struct GuildInterestSectionView: View {
     @State private var ratePercent: Double = 5
     @State private var isCompound = false
     @State private var isSaving = false
+    @FocusState private var isRateFocused: Bool
 
     /// Fixed demo seed so the explainer table always shows friendly round
     /// numbers independent of any real wallet balance.
@@ -143,6 +144,8 @@ struct GuildInterestSectionView: View {
             Spacer()
             TextField("Rate", value: $ratePercent, format: .number.precision(.fractionLength(0 ... 2)))
                 .keyboardType(.decimalPad)
+                .focused($isRateFocused)
+                .decimalPadDoneToolbar(isFocused: $isRateFocused)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 80)
                 .textFieldStyle(.roundedBorder)
@@ -300,6 +303,7 @@ struct GuildMatchSectionView: View {
     @State private var ratePercent: Double = 100
     @State private var capDollars: String = ""
     @State private var isSaving = false
+    @FocusState private var isCapFocused: Bool
 
     private var selectedHero: ProfileCache? {
         heroes.first { $0.recordName == selectedHeroRecordName } ?? heroes.first
@@ -404,6 +408,8 @@ struct GuildMatchSectionView: View {
             Spacer()
             TextField("No limit", text: $capDollars)
                 .keyboardType(.decimalPad)
+                .focused($isCapFocused)
+                .decimalPadDoneToolbar(isFocused: $isCapFocused)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 100)
                 .textFieldStyle(.roundedBorder)

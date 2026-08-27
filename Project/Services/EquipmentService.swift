@@ -88,7 +88,12 @@ final class EquipmentService {
     /// `AppState.currentProfile` reconciliation when the active hero changed.
     private func persist(_ profile: Profile) async {
         await cacheService?.upsertProfile(profile)
-        let isOwner = appState?.isZoneOwner ?? false
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            logger.warning("EquipmentService.persist isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwner)
         if let appState, let current = appState.currentProfile, current.id == profile.id {
             appState.currentProfile = profile

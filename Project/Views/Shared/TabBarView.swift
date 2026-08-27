@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -54,9 +53,7 @@ struct TabBarView: View {
         }
         .onAppear {
             reconcileDefaultSelection()
-            // A notification tap that arrived before this view mounted (cold
-            // start) is retained by the router; adopt it here so the tab switch
-            // still happens once the session is authenticated.
+            // Cold-start notification route retained by router; adopt here once session is authenticated.
             if let route = NotificationRouter.shared.takePendingRoute() {
                 appState.pendingNotificationRoute = route
             }
@@ -96,8 +93,7 @@ struct TabBarView: View {
             selectedTab = (roleKind == .parent) ? .manage : .quests
         case .heroLedger:
             if roleKind == .parent {
-                // The spender's ledger lives under the hero's detail card on
-                // the family dashboard.
+                // Spender ledger lives under hero detail card on family dashboard.
                 selectedTab = .family
             }
         }
@@ -164,7 +160,8 @@ struct TabBarView: View {
             .tabItem {
                 Label("Manage", systemImage: "rectangle.stack.fill")
             }
-            .badge(pendingCount > 0 ? pendingCount : 0)
+            .badge(pendingCount)
+            .accessibilityLabel(pendingCount > 0 ? "Manage, \(pendingCount) pending approvals" : "Manage")
             .tag(RootTab.manage)
 
         PayoutHistoryView(familyRecordName: familyName)
@@ -204,6 +201,8 @@ struct TabBarView: View {
             .tabItem {
                 Label("Quests", systemImage: "list.bullet.clipboard")
             }
+            .badge(pendingCount)
+            .accessibilityLabel(pendingCount > 0 ? "Quests, \(pendingCount) pending approvals" : "Quests")
             .tag(RootTab.quests)
 
         ChildLedgerView(familyRecordName: familyName)

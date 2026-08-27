@@ -236,6 +236,7 @@ enum RecordBridge {
         _ cache: some FamilyScopedCache,
         expectedFamily: String,
         expectedDatabaseScope: CKDatabase.Scope,
+        expectedZoneID: CKRecordZone.ID,
         entity: String,
         name: String
     ) -> Bool {
@@ -250,6 +251,26 @@ enum RecordBridge {
             return false
         }
         if cache.validatedDatabaseScope(expectedScope: expectedDatabaseScope) == nil {
+            // WHY: gated escape hatch for pending-review stall — private Hero completion may bridge to .shared
+            // WHY: only for entity == "completion" under strict dual equality: cache.familyRecordName == expectedFamily AND cache.sourceZoneName == expectedZoneID.zoneName (strict non-nil match).
+            // Invariant: both familyRecordName and sourceZoneName must match — either mismatch preserves cross-family/cross-zone isolation.
+            let isFamilyZoneMatch = cache.sourceZoneName == expectedZoneID.zoneName
+            let persisted = cache.sourceDatabaseScope ?? "nil"
+            if isFamilyZoneMatch, persisted == "private",
+               expectedDatabaseScope == .shared, entity == "completion"
+            {
+                logger
+                    .warning(
+                        """
+                        RecordBridge database scope mismatch for \
+                        \(entity, privacy: .public) \(name, privacy: .private): \
+                        expected \(String(describing: expectedDatabaseScope), privacy: .public), \
+                        got \(persisted, privacy: .private) — family and zone match verified, \
+                        allowing bridge for pending-review stall recovery
+                        """
+                    )
+                return true
+            }
             logger
                 .warning(
                     """
@@ -274,10 +295,12 @@ enum RecordBridge {
         toRecord: (T, CKRecordZone.ID) -> CKRecord
     ) -> CKRecord? {
         guard let cache = fetch(name, expectedFamily) else { return nil }
-        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, entity: entity, name: name) else { return nil }
+        guard validateScopedRecord(cache, expectedFamily: expectedFamily, expectedDatabaseScope: expectedDatabase, expectedZoneID: zoneID, entity: entity, name: name)
+        else { return nil }
         return toRecord(cache, zoneID)
     }
 
+    // WHY: FamilyCache exception — zone-root record, no zone-scoped dual match; family identity suffices, sourceZoneName not checked.
     private static func bridgeFamily(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
         guard let cache = cacheService.fetchFamily(recordName: name) else { return nil }
         if cache.recordName != expectedFamily {

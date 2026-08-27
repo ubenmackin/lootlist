@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftUI
 
 struct QuestCardView: View {
@@ -37,13 +36,13 @@ struct QuestCardView: View {
 
     private var cardBackgroundColor: Color {
         if isFullyCompleted {
-            Color.green.opacity(0.12)
+            Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.12)
         } else if isPendingReview {
-            Color.purple.opacity(0.12)
+            Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12)
         } else if isOverdue {
-            Color.red.opacity(0.10)
+            Color(DesignSystemConstants.Colors.dangerRed).opacity(0.10)
         } else {
-            Color(.secondarySystemGroupedBackground)
+            Color(DesignSystemConstants.Colors.cardSurface)
         }
     }
 
@@ -51,15 +50,19 @@ struct QuestCardView: View {
         let approvalMode = quest.approvalModeEnum ?? .autoApprove
         let rarity = QuestRarity.from(xp: quest.xpReward)
 
-        VStack(alignment: .leading, spacing: 10) {
+        let cardContent = VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Image(systemName: isFullyCompleted ? "checkmark.circle.fill" : (isPendingReview ? "hourglass.circle.fill" : approvalMode.iconSystemName))
                     .font(.title3)
-                    .foregroundStyle(isFullyCompleted ? .green : (isPendingReview ? .purple : (approvalMode == .parentVerify ? .indigo : .green)))
+                    .foregroundStyle(isFullyCompleted ? Color(DesignSystemConstants.Colors.primaryGreen) :
+                        (isPendingReview ? Color(DesignSystemConstants.Colors.pendingAmber) :
+                            (approvalMode == .parentVerify ? Color(DesignSystemConstants.Colors.accentBlue) : Color(DesignSystemConstants.Colors.primaryGreen))))
                     .frame(width: 32, height: 32)
                     .background(
                         Circle()
-                            .fill((isFullyCompleted ? Color.green : (isPendingReview ? Color.purple : (approvalMode == .parentVerify ? Color.indigo : Color.green)))
+                            .fill((isFullyCompleted ? Color(DesignSystemConstants.Colors.primaryGreen) :
+                                    (isPendingReview ? Color(DesignSystemConstants.Colors.pendingAmber) :
+                                        (approvalMode == .parentVerify ? Color(DesignSystemConstants.Colors.accentBlue) : Color(DesignSystemConstants.Colors.primaryGreen))))
                                 .opacity(0.12))
                     )
 
@@ -69,7 +72,8 @@ struct QuestCardView: View {
                             .font(.headline)
                             .foregroundStyle(isFullyCompleted ? .secondary : .primary)
 
-                        if rarity != .common {
+                        // WHY: rarity icon/color is legacy RPG chrome — hidden behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1 gamification contract.
+                        if FeatureFlags.rpgImmersive, rarity != .common {
                             Image(systemName: rarity.iconSystemName)
                                 .font(.caption2)
                                 .foregroundStyle(rarity.color)
@@ -80,8 +84,8 @@ struct QuestCardView: View {
                                 .font(.caption2.bold())
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.orange.opacity(0.2)))
-                                .foregroundStyle(.orange)
+                                .background(Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.2)))
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         }
                     }
 
@@ -89,22 +93,22 @@ struct QuestCardView: View {
                         Label(CurrencyFormatter.string(quest.goldReward), systemImage: "banknote")
                             .labelStyle(.titleAndIcon)
                             .font(.subheadline)
-                            .foregroundStyle(.yellow)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
 
                         if isPendingReview {
                             Text("⏳ Awaiting Review")
                                 .font(.caption2.bold())
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.purple.opacity(0.2)))
-                                .foregroundStyle(.purple)
+                                .background(Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.2)))
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         } else if approvalMode == .parentVerify {
                             Text("Parent Verifies")
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Capsule().fill(Color.indigo.opacity(0.15)))
-                                .foregroundStyle(.indigo)
+                                .background(Capsule().fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15)))
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                         }
                     }
                 }
@@ -120,7 +124,8 @@ struct QuestCardView: View {
                     } label: {
                         Image(systemName: isFullyCompleted ? "checkmark.seal.fill" : (isPendingReview ? "hourglass.circle.fill" : "circle"))
                             .font(.title2)
-                            .foregroundStyle(isFullyCompleted ? .green : (isPendingReview ? .purple : .accentColor))
+                            .foregroundStyle(isFullyCompleted ? Color(DesignSystemConstants.Colors.primaryGreen) :
+                                (isPendingReview ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(DesignSystemConstants.Colors.accentBlue)))
                     }
                     .buttonStyle(.plain)
                     .disabled(isFullyCompleted || isPendingReview)
@@ -159,11 +164,14 @@ struct QuestCardView: View {
                                     .padding(.vertical, 6)
                                     .background(
                                         Capsule()
-                                            .fill(isDone ? Color.green
+                                            .fill(isDone ? Color(DesignSystemConstants.Colors.primaryGreen)
                                                 .opacity(0.2) :
-                                                (isPendingSlot ? Color.purple.opacity(0.2) : (isNextToLog ? Color.accentColor.opacity(0.2) : Color.gray.opacity(0.12))))
+                                                (isPendingSlot ? Color(DesignSystemConstants.Colors.pendingAmber)
+                                                    .opacity(0.2) : (isNextToLog ? Color(DesignSystemConstants.Colors.accentBlue).opacity(0.2) : Color.secondary.opacity(0.12))))
                                     )
-                                    .foregroundStyle(isDone ? Color.green : (isPendingSlot ? Color.purple : (isNextToLog ? Color.accentColor : Color.secondary)))
+                                    .foregroundStyle(isDone ? Color(DesignSystemConstants.Colors.primaryGreen) :
+                                        (isPendingSlot ? Color(DesignSystemConstants.Colors.pendingAmber) :
+                                            (isNextToLog ? Color(DesignSystemConstants.Colors.accentBlue) : Color.secondary)))
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(!isNextToLog)
@@ -179,12 +187,21 @@ struct QuestCardView: View {
             RoundedRectangle(cornerRadius: 14)
                 .fill(cardBackgroundColor)
         )
-        .rarityBorder(rarity)
+
+        // WHY: rarity border is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+        Group {
+            if FeatureFlags.rpgImmersive {
+                cardContent.rarityBorder(rarity)
+            } else {
+                cardContent
+            }
+        }
         .overlay(
             QuestCompletionEffectView(
                 xpEarned: quest.xpReward,
                 goldEarned: quest.goldReward > 0 ? quest.goldReward : nil,
-                rarity: rarity,
+                // WHY: pass neutral rarity when immersive off so celebration stays plain-warm and never leaks RPG tier visuals.
+                rarity: FeatureFlags.rpgImmersive ? rarity : .common,
                 isShowing: $showCompletionEffect
             )
         )

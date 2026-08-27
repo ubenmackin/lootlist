@@ -173,7 +173,7 @@ struct NotificationSettingsView: View {
                 if showClearedToast {
                     Text("Cleared all pending and delivered notifications.")
                         .font(.caption)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                 }
             }
         }
@@ -202,10 +202,10 @@ struct NotificationSettingsView: View {
 
     private var statusColor: Color {
         switch authorizationStatus {
-        case .authorized, .provisional: .green
-        case .denied: .red
-        case .notDetermined: .orange
-        case .ephemeral: .green
+        case .authorized, .provisional: Color(DesignSystemConstants.Colors.primaryGreen)
+        case .denied: Color(DesignSystemConstants.Colors.dangerRed)
+        case .notDetermined: Color(DesignSystemConstants.Colors.pendingAmber)
+        case .ephemeral: Color(DesignSystemConstants.Colors.primaryGreen)
         @unknown default: .gray
         }
     }

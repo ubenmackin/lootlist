@@ -81,7 +81,7 @@ struct LedgerEntryRow: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(alignment: .top, spacing: 12) {
-                let iconInfo = LedgerRowStyle.sourceIcon(for: entry.source, fallbackTint: entry.amount >= 0 ? .gold : .red)
+                let iconInfo = LedgerRowStyle.sourceIcon(for: entry.source, fallbackTint: entry.amount >= 0 ? .gold : Color(DesignSystemConstants.Colors.dangerRed))
                 Image(systemName: iconInfo.name)
                     .font(.title2)
                     .foregroundStyle(iconInfo.color)
@@ -117,7 +117,7 @@ struct LedgerEntryRow: View {
 
                 Text(GoldFormat.signed(entry.amount))
                     .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(entry.amount >= 0 ? Color.gold : .red)
+                    .foregroundStyle(entry.amount >= 0 ? Color.gold : Color(DesignSystemConstants.Colors.dangerRed))
             }
             .padding(12)
             .background(

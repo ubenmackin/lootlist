@@ -15,13 +15,15 @@ extension QuestService {
         let logs = try await fetchQuestLogs(for: profile)
         guard !logs.isEmpty else { return 0 }
 
-        let daySet: Set<Date> = Set(logs.compactMap { log -> Date? in
-            guard log.verificationStatus == .autoApproved || log.verificationStatus == .verified else { return nil }
-            return calendar.dateInterval(of: .day, for: log.completedDate)?.start
-        })
+        var daySet: Set<Int> = []
+        for log in logs where
+            log.verificationStatus == .autoApproved || log.verificationStatus == .verified
+        {
+            daySet.insert(WeekMath.dayBucket(for: log.completedDate))
+        }
 
-        let today = calendar.startOfDay(for: Date())
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        let today = WeekMath.dayBucket(for: Date())
+        let yesterday = today - 1
         let anchor = daySet.contains(today) ? today
             : (daySet.contains(yesterday) ? yesterday : nil)
         guard let anchor else { return 0 }
@@ -31,7 +33,7 @@ extension QuestService {
 
         while daySet.contains(cursor) {
             streak += 1
-            cursor = calendar.date(byAdding: .day, value: -1, to: cursor) ?? cursor
+            cursor -= 1 // Buckets are epoch-day integers, so -1 is exactly one day.
         }
         return streak
     }
@@ -65,10 +67,12 @@ extension QuestService {
         let needed = Set(logs.map(\.quest.recordID.recordName))
         if let cache = cacheService, let family {
             let familyName = family.id.recordName
-            let isFresh = await MainActor.run {
-                cache.isCacheFresh(familyRecordName: familyName, type: .quest)
+            // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback at call site (FamilyService-style).
+            let isAuthoritative = await MainActor.run {
+                let count = cache.fetchQuests(family: familyName).count
+                return cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: count)
             }
-            if isFresh {
+            if isAuthoritative {
                 let zoneID = family.id.zoneID
                 let cached = await MainActor.run {
                     cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
@@ -115,7 +119,7 @@ extension QuestService {
             let familyName = quest.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.questRecordName == questName }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: cached.count) {
                 return cached.map { $0.toQuestCompletion(zoneID: quest.id.zoneID) }
                     .sorted { $0.completedDate > $1.completedDate }
             }
@@ -132,7 +136,7 @@ extension QuestService {
         if let syncCoordinator {
             await syncCoordinator.delegateHandler.hydrateFromQuery(
                 models: all,
-                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
                 zoneID: quest.id.zoneID
             )
         } else {
@@ -148,7 +152,7 @@ extension QuestService {
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: cached.count) {
                 return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
                     .sorted { $0.completedDate > $1.completedDate }
             }
@@ -165,7 +169,7 @@ extension QuestService {
         if let syncCoordinator {
             await syncCoordinator.delegateHandler.hydrateFromQuery(
                 models: all,
-                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
                 zoneID: profile.id.zoneID
             )
         } else {
@@ -181,7 +185,7 @@ extension QuestService {
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
-            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: cached.count) {
                 return cached.map { $0.toQuestCompletion(zoneID: family.id.zoneID) }
             }
         }
@@ -197,7 +201,7 @@ extension QuestService {
         if let syncCoordinator {
             await syncCoordinator.delegateHandler.hydrateFromQuery(
                 models: completions,
-                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
                 zoneID: family.id.zoneID
             )
         } else {

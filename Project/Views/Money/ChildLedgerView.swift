@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -20,6 +19,7 @@ struct ChildLedgerView: View {
     private let familyRecordName: String?
 
     @State private var isShowingTransfer: Bool = false
+    @State private var isShowingSplit: Bool = false
 
     @Query private var allLedgers: [LedgerEntryCache]
 
@@ -48,8 +48,11 @@ struct ChildLedgerView: View {
     /// Ledger entries grouped by date bucket, preserving reverse-chronological
     /// order within each bucket.
     private var dateBuckets: [(title: String, entries: [LedgerEntryCache])] {
-        let calendar = Calendar.current
+        // WHY: Day and week boundaries ride WeekMath's shared UTC bucket and the
+        // hero's payout-day-aware cycle, matching the rest of the app.
+        let payoutDay = appState.resolvedPayoutDay
         let today = Date()
+        let thisWeekStart = WeekMath.startOfWeek(for: today, payoutDay: payoutDay)
 
         var todayEntries: [LedgerEntryCache] = []
         var yesterdayEntries: [LedgerEntryCache] = []
@@ -57,11 +60,11 @@ struct ChildLedgerView: View {
         var olderEntries: [LedgerEntryCache] = []
 
         for entry in childEntries {
-            if calendar.isDateInToday(entry.date) {
+            if WeekMath.isToday(entry.date) {
                 todayEntries.append(entry)
-            } else if calendar.isDateInYesterday(entry.date) {
+            } else if WeekMath.isYesterday(entry.date) {
                 yesterdayEntries.append(entry)
-            } else if calendar.isDate(entry.date, equalTo: today, toGranularity: .weekOfYear) {
+            } else if WeekMath.startOfWeek(for: entry.date, payoutDay: payoutDay) == thisWeekStart {
                 thisWeekEntries.append(entry)
             } else {
                 olderEntries.append(entry)
@@ -93,18 +96,20 @@ struct ChildLedgerView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                if isEmpty {
-                    emptyState
-                } else {
-                    VStack(spacing: DesignSystemConstants.Padding.standard) {
+                VStack(spacing: DesignSystemConstants.Padding.standard) {
+                    bucketSplitCard
+
+                    if isEmpty {
+                        emptyState
+                    } else {
                         ForEach(dateBuckets, id: \.title) { bucket in
                             bucketSection(title: bucket.title, entries: bucket.entries)
                         }
                     }
-                    .padding(.horizontal, DesignSystemConstants.Padding.standard)
-                    .padding(.top, DesignSystemConstants.Padding.small)
-                    .padding(.bottom, DesignSystemConstants.Padding.large)
                 }
+                .padding(.horizontal, DesignSystemConstants.Padding.standard)
+                .padding(.top, DesignSystemConstants.Padding.small)
+                .padding(.bottom, DesignSystemConstants.Padding.large)
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
@@ -114,13 +119,27 @@ struct ChildLedgerView: View {
                     .background(Color(.systemGroupedBackground))
             }
             .sheet(isPresented: $isShowingTransfer) {
-                BucketTransferView()
+                BucketTransferView(familyRecordName: familyRecordName)
+            }
+            .sheet(isPresented: $isShowingSplit) {
+                SavingsSplitView(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: appState.currentProfile?.id.recordName
+                )
             }
             .navigationTitle("MONEY")
             .navigationBarTitleDisplayMode(.inline)
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
             }
+        }
+    }
+
+    // MARK: - Bucket Split Entry
+
+    private var bucketSplitCard: some View {
+        BucketSplitEntryRow(accessibilityIdentifier: "ledger.bucketSplitRow") {
+            isShowingSplit = true
         }
     }
 
@@ -264,7 +283,7 @@ struct ChildLedgerView: View {
         case "interest":
             Color(DesignSystemConstants.Colors.accentBlue)
         case "match":
-            Color.pink
+            Color(DesignSystemConstants.Colors.primaryGreen)
         case "transfer":
             Color(DesignSystemConstants.Colors.pendingAmber)
         case "manual":
@@ -287,10 +306,9 @@ struct ChildLedgerView: View {
     /// Returns a human-readable date label. Today/Yesterday buckets show the
     /// time; older entries show the abbreviated date.
     private func formattedDate(_ date: Date) -> String {
-        let calendar = Calendar.current
         let formatter = DateFormatter()
 
-        if calendar.isDateInToday(date) || calendar.isDateInYesterday(date) {
+        if WeekMath.isToday(date) || WeekMath.isYesterday(date) {
             formatter.timeStyle = .short
             formatter.dateStyle = .none
         } else {

@@ -14,13 +14,13 @@ import os
 extension TreasuryService {
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         let familyName = profile.family.recordID.recordName
-        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cache = cacheService {
             let cached = cache.fetchLedgerEntries(
                 profileRecordName: profile.id.recordName,
                 family: familyName
             )
-            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry, scope: scope) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
             }
             // Brand-new hero may not be marked fresh yet — fall back to cached
@@ -67,10 +67,10 @@ extension TreasuryService {
 
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
         let familyName = family.id.recordName
-        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cache = cacheService {
             let cached = cache.fetchAllowancePeriods(family: familyName)
-            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod, scope: scope) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
             }
         }
@@ -100,11 +100,11 @@ extension TreasuryService {
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
         let profileName = profile.id.recordName
         let familyName = profile.family.recordID.recordName
-        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cache = cacheService {
             let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry, scope: scope) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
                 return filtered.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
             }
             // Allow zero-history hero to use cache even when not stamped fresh.
@@ -159,13 +159,14 @@ extension TreasuryService {
                         weekStarting: Date,
                         weekEnding: Date) async throws -> [QuestCompletion]
     {
-        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
                 .filter { $0.completerRecordName == profileName && $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion, scope: scope) {
+            // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; empty-cache-offline rendering handled explicitly at call site (FamilyService-style).
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
             }
             // Brand-new hero has zero logs; a missing freshness stamp must not
@@ -186,11 +187,8 @@ extension TreasuryService {
                     return []
                 }
             }
-            // Stale cache with existing rows: avoid a blocking CloudKit round-trip
-            // when offline — return cached data immediately for instant UI. When
-            // online, attempt a refresh and fall back to stale cache on failure
-            // so offline/poor-network users do not pay network latency before
-            // seeing valid cached logs.
+            // Stale cache with existing rows: explicit fallback at call site — when offline serve stale cached logs immediately; when online attempt CloudKit and fall back to
+            // stale on failure.
             if !NetworkMonitor.shared.isConnected {
                 logger.warning("fetchQuestLogs offline — serving stale cached logs without CloudKit query")
                 return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
@@ -233,7 +231,7 @@ extension TreasuryService {
     {
         let payoutDay = profile.payoutDay ?? family.payoutDay
         let range = TreasuryService.weekRange(starting: WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay))
-        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cache = cacheService {
             let familyName = family.id.recordName
             let cached = cache.fetchQuests(family: familyName)
@@ -242,7 +240,7 @@ extension TreasuryService {
                     $0.isActive &&
                     range.contains($0.weekOf)
             }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .quest, scope: scope) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: cached.count) {
                 return filtered.map { $0.toQuest(zoneID: family.id.zoneID) }
             }
             // New hero has no assigned quests this week; do not require a fresh
@@ -304,17 +302,17 @@ extension TreasuryService {
         let familyName = profile.family.recordID.recordName
         // Strict equality on normalized UTC week start matches stored AllowancePeriod.weekOf exactly.
         let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: weekOf)
-        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cache = cacheService {
             let profileName = profile.id.recordName
             let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
                 .first { $0.weekOf == normalizedWeekStart }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .allowancePeriod, scope: scope) {
+            // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; empty-cache-offline rendering handled explicitly at call site (FamilyService-style).
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope, cachedCount: cached != nil ? 1 : 0) {
                 return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
             }
             // Brand-new hero has no AllowancePeriod yet — that is a valid
-            // "not found" not an error. Fall back to cached nil rather than
-            // requiring a successful CloudKit query offline.
+            // "not found" not an error. Explicit fallback at call site — fall back to cached nil rather than requiring successful CloudKit query offline.
             if cached != nil {
                 do {
                     let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
@@ -373,7 +371,7 @@ extension TreasuryService {
         {
             return scanned.toProfile(zoneID: recordID.zoneID)
         }
-        let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         let fetched = try await cloudKit.fetch(Profile.self, id: recordID)
         guard fetched.family.recordID.recordName == familyRecordName else {
             throw FamilyServiceError.unauthorized
@@ -402,11 +400,13 @@ extension TreasuryService {
         let needed = Set(logs.map(\.quest.recordID.recordName))
         if let cache = cacheService {
             let familyName = family.id.recordName
-            let scope: CKDatabase.Scope = (appState?.isZoneOwner == true) ? .private : .shared
-            let isFresh = await MainActor.run {
-                cache.isCacheFresh(familyRecordName: familyName, type: .quest, scope: scope)
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback at call site (FamilyService-style).
+            let isAuthoritative = await MainActor.run {
+                let count = cache.fetchQuests(family: familyName).count
+                return cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: count)
             }
-            if isFresh {
+            if isAuthoritative {
                 let zoneID = family.id.zoneID
                 let cached = await MainActor.run {
                     cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
