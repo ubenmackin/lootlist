@@ -93,12 +93,9 @@ struct HeroLedgerView: View {
             .padding(.vertical)
         }
         .background(Color(.systemGroupedBackground))
-        .task {
-            if viewModel == nil {
-                viewModel = HeroLedgerViewModel(heroProfile: hero, spending: spending, appState: appState)
-            }
-            rebuild()
-        }
+        .navigationTitle("Treasury")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { ensureViewModel() }
         .onChange(of: cachedLedgers) { _, _ in rebuild() }
         .onChange(of: cachedQuests) { _, _ in rebuild() }
         .onChange(of: cachedCompletions) { _, _ in rebuild() }
@@ -135,6 +132,12 @@ struct HeroLedgerView: View {
                 ShareSheet(items: [url])
             }
         }
+    }
+
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            HeroLedgerViewModel(heroProfile: hero, spending: spending, appState: appState)
+        }, rebuild: { _ in rebuild() })
     }
 
     private func rebuild() {
@@ -270,10 +273,28 @@ struct HeroLedgerView: View {
                         }
                         .foregroundStyle(.secondary)
                     }
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(LedgerRowStyle.sourceLabel(for: entry.source))
                             .font(.caption.weight(.medium))
                             .foregroundStyle(iconInfo.color)
+                        if let bucket = entry.bucketKindEnum {
+                            Text("•")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 3) {
+                                Image(systemName: bucket.iconSystemName)
+                                    .font(.system(size: 9))
+                                Text(bucket.shortName)
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
+                            )
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                        }
                         Text("•")
                             .font(.caption)
                             .foregroundStyle(.secondary)

@@ -134,18 +134,8 @@ struct PayoutHistoryView: View {
                     )
                 }
                 .task {
-                    if viewModel == nil {
-                        viewModel = FamilyDashboardViewModel(
-                            questService: questService,
-                            treasury: treasury,
-                            achievementService: achievementService,
-                            familyService: familyService,
-                            appState: appState
-                        )
-                    }
-
-                    Task { await viewModel?.refresh() }
-                    rebuildFromCache()
+                    ensureViewModel()
+                    await viewModel?.refresh()
                 }
                 .refreshable {
                     rebuildFromCache()
@@ -158,6 +148,18 @@ struct PayoutHistoryView: View {
                     PayoutDetailSheet(period: period, heroName: heroName(for: period))
                 }
         }
+    }
+
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            FamilyDashboardViewModel(
+                questService: questService,
+                treasury: treasury,
+                achievementService: achievementService,
+                familyService: familyService,
+                appState: appState
+            )
+        }, rebuild: { _ in rebuildFromCache() })
     }
 
     private func rebuildFromCache() {

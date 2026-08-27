@@ -21,7 +21,7 @@ Domain rules agents must not misinterpret:
 - Goals fill FIFO within their bucket: oldest incomplete non-archived goal fills first; overflow cascades; surplus past all goals sits unallocated in the bucket.
 - LedgerEntry `source` allowed values include: `manual`, `interest`, `match`, `transfer`, plus import-tagged entries. Money copy always renders as real region currency via `CurrencyFormatter` — never hardcoded symbols, never "gold" copy.
 - Trophy requirement text is computed at render time from values; stored description text may be stale on legacy records. `AchievementService.AchievementRequirement` must stay in sync with the trophy spec (quest-count tiers + "First Goal Created" + "Goal Getter").
-- Internal identifiers keep legacy `gold` prefixes (`goldReward`, `Color.gold`, …). Do not rename them.
+- Internal identifiers keep legacy `gold` prefixes (`goldReward`, `Color.gold`, …). Do not rename them. `Color.gold` is asset-catalog-backed via `Assets.xcassets/gold.colorset` (light `#D9A834` / dark `#E8C05C`) matching `DesignSystemConstants.Colors.gold = "gold"` and resolved via asset symbol synthesis / `Color("gold")`; manual `ColorExtensions` wrappers must not be reintroduced.
 - User-facing copy keeps Quest/Hero/Guild vocabulary but contains NO level/XP/rarity/gold/journey/gem/gear/mascot references while the RPG layer is hidden. `FlavorTextProvider` carries this voice.
 
 ## 2. Core Tech Stack & Constraints
@@ -37,7 +37,7 @@ Domain rules agents must not misinterpret:
   - Services and AppState depend on `any CloudKitServiceProtocol` (narrower seams exist where useful). Do not concrete-type CloudKit dependencies.
    - UserDefaults is device-local only: session keys, migration flags, freshness watermarks, `FeatureFlags.rpgImmersive`, badge/icon eligibility. NEVER authoritative cross-device domain data (balances, counters, credits).
    - Cache reads are freshness-only authoritative: `CacheService.isCacheAuthoritative` returns true only when a freshness watermark exists for the family/type/scope; stale cache — even non-empty — is never authoritative and must re-validate via CloudKit. Offline or cold-start fallback rendering is handled explicitly at call sites (FamilyService-style), not hidden in the authoritative predicate.
-   - Every screen supports light AND dark mode via semantic design tokens (`DesignSystemConstants` / asset-catalog colors). No hardcoded colors in views.
+   - Every screen supports light AND dark mode via semantic design tokens (`DesignSystemConstants` / asset-catalog colors such as `gold.colorset`). No hardcoded colors in views.
 
 ## 3. Directory Structure & Component Roles
 

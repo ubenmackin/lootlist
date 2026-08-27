@@ -115,9 +115,7 @@ struct QuestsView: View {
             .refreshable {
                 await handleRefresh()
             }
-            .task {
-                await handleTask()
-            }
+            .task { await handleTask() }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
             }
@@ -182,17 +180,19 @@ struct QuestsView: View {
         }
     }
 
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            HeroDashboardViewModel(appState: appState)
+        }, rebuild: { _ in rebuildViewModel() })
+    }
+
     private func handleRefresh() async {
         await lifecycleCoordinator?.performManualSync()
-        rebuildViewModel()
     }
 
     private func handleTask() async {
+        ensureViewModel()
         await lifecycleCoordinator?.performManualSync()
-        if viewModel == nil {
-            viewModel = HeroDashboardViewModel(appState: appState)
-        }
-        rebuildViewModel()
     }
 
     private func handleLootPresentationChange(_ loot: LootDrop?) {

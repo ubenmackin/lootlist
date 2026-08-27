@@ -110,8 +110,10 @@ struct TreasuryView: View {
                     LogSpendingView(viewModel: viewModel, familyRecordName: familyRecordName)
                 }
             }
-            .onAppear {
+            .task {
+                ensureViewModel()
                 checkPendingQuickAction(appState.pendingQuickAction)
+                await lifecycleCoordinator?.performManualSync()
             }
             .onChange(of: appState.pendingQuickAction) { _, action in
                 checkPendingQuickAction(action)
@@ -120,17 +122,6 @@ struct TreasuryView: View {
                 if let newError, !newError.isEmpty {
                     toastManager?.show(message: newError, type: .error)
                 }
-            }
-            .task {
-                await lifecycleCoordinator?.performManualSync()
-                if viewModel == nil {
-                    viewModel = TreasuryViewModel(
-                        treasury: treasury,
-                        spending: spending,
-                        appState: appState
-                    )
-                }
-                rebuild()
             }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
@@ -142,6 +133,16 @@ struct TreasuryView: View {
                 rebuild()
             }
         }
+    }
+
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            TreasuryViewModel(
+                treasury: treasury,
+                spending: spending,
+                appState: appState
+            )
+        }, rebuild: { _ in rebuild() })
     }
 
     private func rebuild() {

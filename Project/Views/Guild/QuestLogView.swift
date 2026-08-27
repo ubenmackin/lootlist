@@ -74,6 +74,8 @@ struct QuestLogView: View {
                 .navigationBarTitleDisplayMode(.large)
         } else {
             content
+                .navigationTitle("Quests & Chores")
+                .navigationBarTitleDisplayMode(.inline)
         }
     }
 
@@ -107,21 +109,7 @@ struct QuestLogView: View {
                 completionFilterMenu
             }
         }
-        .task {
-            if viewModel == nil {
-                let vm = QuestLogViewModel(
-                    questService: questService,
-                    familyService: familyService,
-                    appState: appState
-                )
-                viewModel = vm
-                vm.dateRangePreset = scope
-            }
-            if let initialHero, viewModel?.selectedHero == nil {
-                viewModel?.selectedHero = initialHero
-            }
-            rebuildViewModel()
-        }
+        .task { ensureViewModel() }
         .onChange(of: cachedProfiles) { _, _ in
             rebuildViewModel()
         }
@@ -134,6 +122,24 @@ struct QuestLogView: View {
         .onChange(of: scope) { _, newScope in
             viewModel?.dateRangePreset = newScope
         }
+    }
+
+    private func ensureViewModel() {
+        let isNew = viewModel == nil
+        let vm = ViewLifecycle.ensure(&viewModel, factory: {
+            QuestLogViewModel(
+                questService: questService,
+                familyService: familyService,
+                appState: appState
+            )
+        })
+        if isNew {
+            vm.dateRangePreset = scope
+        }
+        if let initialHero, vm.selectedHero == nil {
+            vm.selectedHero = initialHero
+        }
+        rebuildViewModel()
     }
 
     private func rebuildViewModel() {

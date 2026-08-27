@@ -123,20 +123,10 @@ struct FamilyDashboardView: View {
                 await viewModel?.refresh()
             }
             .task {
-                if viewModel == nil {
-                    viewModel = FamilyDashboardViewModel(
-                        questService: questService,
-                        treasury: treasury,
-                        achievementService: achievementService,
-                        familyService: familyService,
-                        appState: appState
-                    )
-                }
+                ensureViewModel()
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 await lifecycleCoordinator?.performManualSync()
-                rebuild()
                 await viewModel?.refresh()
-                rebuild()
                 await viewModel?.refreshInvitations()
             }
             .onChange(of: cachedProfiles) { _, _ in
@@ -191,6 +181,18 @@ struct FamilyDashboardView: View {
                 }
             }
         }
+    }
+
+    private func ensureViewModel() {
+        ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
+            FamilyDashboardViewModel(
+                questService: questService,
+                treasury: treasury,
+                achievementService: achievementService,
+                familyService: familyService,
+                appState: appState
+            )
+        }, rebuild: { _ in rebuild() })
     }
 
     private func rebuild() {
