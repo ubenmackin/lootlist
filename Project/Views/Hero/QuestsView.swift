@@ -102,47 +102,21 @@ struct QuestsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    if FeatureFlags.rpgImmersive, let row = currentProfileRow {
-                        MascotBannerView(profileCache: row, quests: profileQuests, completions: profileLogs, showBonusCard: false)
-                    }
-
-                    questBoard
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+                scrollContent
             }
-            .overlay(
-                Group {
-                    // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
-                    if FeatureFlags.rpgImmersive {
-                        LootDropOverlayView(isPresented: $showLootDrop, loot: activeLootDrop)
-                    }
-                }
-            )
+            .overlay(lootDropOverlay)
             .background(Color(.systemGroupedBackground))
             .scrollContentBackground(.hidden)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink {
-                        QuestLogView(familyRecordName: appState.family?.id.recordName)
-                    } label: {
-                        Label("Quest Log", systemImage: "scroll")
-                    }
-                }
+                questLogToolbar
             }
             .refreshable {
-                await lifecycleCoordinator?.performManualSync()
-                rebuildViewModel()
+                await handleRefresh()
             }
             .task {
-                await lifecycleCoordinator?.performManualSync()
-                if viewModel == nil {
-                    viewModel = HeroDashboardViewModel(appState: appState)
-                }
-                rebuildViewModel()
+                await handleTask()
             }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
@@ -160,21 +134,81 @@ struct QuestsView: View {
                 rebuildViewModel()
             }
             .onChange(of: lootDropService.pendingPresentation) { _, loot in
-                // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
-                guard FeatureFlags.rpgImmersive else { return }
-                guard let loot else { return }
-                activeLootDrop = loot
-                withAnimation {
-                    showLootDrop = true
-                }
+                handleLootPresentationChange(loot)
             }
             .onChange(of: showLootDrop) { _, isShown in
-                // Clear the published drop once the overlay dismisses so a
-                // subsequent drop re-triggers `.onChange` (nil → non-nil).
-                if !isShown {
-                    lootDropService.clearPendingPresentation()
-                }
+                handleLootDismissalChange(isShown)
             }
+        }
+    }
+
+    private var scrollContent: some View {
+        VStack(spacing: 16) {
+            if FeatureFlags.rpgImmersive, let row = currentProfileRow {
+                mascotBanner(row: row)
+            }
+
+            questBoard
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+
+    private func mascotBanner(row: ProfileCache) -> some View {
+        MascotBannerView(
+            profileCache: row,
+            quests: profileQuests,
+            completions: profileLogs,
+            showBonusCard: false
+        )
+    }
+
+    @ViewBuilder
+    private var lootDropOverlay: some View {
+        // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        if FeatureFlags.rpgImmersive {
+            LootDropOverlayView(isPresented: $showLootDrop, loot: activeLootDrop)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var questLogToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            NavigationLink {
+                QuestLogView(familyRecordName: appState.family?.id.recordName)
+            } label: {
+                Label("Quest Log", systemImage: "scroll")
+            }
+        }
+    }
+
+    private func handleRefresh() async {
+        await lifecycleCoordinator?.performManualSync()
+        rebuildViewModel()
+    }
+
+    private func handleTask() async {
+        await lifecycleCoordinator?.performManualSync()
+        if viewModel == nil {
+            viewModel = HeroDashboardViewModel(appState: appState)
+        }
+        rebuildViewModel()
+    }
+
+    private func handleLootPresentationChange(_ loot: LootDrop?) {
+        // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        guard FeatureFlags.rpgImmersive, let loot else { return }
+        activeLootDrop = loot
+        withAnimation {
+            showLootDrop = true
+        }
+    }
+
+    private func handleLootDismissalChange(_ isShown: Bool) {
+        // Clear the published drop once the overlay dismisses so a
+        // subsequent drop re-triggers `.onChange` (nil → non-nil).
+        if !isShown {
+            lootDropService.clearPendingPresentation()
         }
     }
 
@@ -303,6 +337,24 @@ struct QuestsView: View {
 
     // MARK: - Quest Card Builder
 
+    private func handleComplete(quest: QuestCache) {
+        let qID = quest.recordName
+        guard !submittingQuestIDs.contains(qID) else { return }
+        submittingQuestIDs.insert(qID)
+        Task {
+            defer { submittingQuestIDs.remove(qID) }
+            guard let profile = appState.currentProfile else { return }
+            do {
+                _ = try await questService.markComplete(quest: quest, by: profile)
+            } catch {
+                toastManager.show(
+                    message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                    type: .error
+                )
+            }
+        }
+    }
+
     private func questCard(quest: QuestCache, vm: HeroDashboardViewModel, isOverdue: Bool = false) -> some View {
         let questLogs = vm.logs(for: quest)
         let logCache = vm.logsByQuestRecordName[quest.recordName]
@@ -315,18 +367,7 @@ struct QuestsView: View {
                 logs: questLogs,
                 isOverdue: isOverdue,
                 onComplete: {
-                    let qID = quest.recordName
-                    guard !submittingQuestIDs.contains(qID) else { return }
-                    submittingQuestIDs.insert(qID)
-                    Task {
-                        defer { submittingQuestIDs.remove(qID) }
-                        guard let profile = appState.currentProfile else { return }
-                        do {
-                            _ = try await questService.markComplete(quest: quest, by: profile)
-                        } catch {
-                            toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
-                        }
-                    }
+                    handleComplete(quest: quest)
                 }
             )
         }
