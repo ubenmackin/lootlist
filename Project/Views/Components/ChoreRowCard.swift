@@ -14,6 +14,7 @@ struct ChoreRowCard: View {
     enum RowStyle {
         case pendingReview
         case upcoming
+        case completed
     }
 
     let title: String
@@ -24,6 +25,10 @@ struct ChoreRowCard: View {
 
     let style: RowStyle
 
+    var isSubmitting: Bool = false
+
+    var onLeadingAction: (() -> Void)?
+
     var accessibilityID: String?
 
     var body: some View {
@@ -33,13 +38,14 @@ struct ChoreRowCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(style == .completed ? .secondary : .primary)
+                    .strikethrough(style == .completed, color: .secondary.opacity(0.5))
                     .lineLimit(1)
 
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
-                        .foregroundStyle(style == .pendingReview ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
+                        .foregroundStyle(subtitleColor)
                         .lineLimit(1)
                 }
             }
@@ -68,15 +74,68 @@ struct ChoreRowCard: View {
     private var leadingIcon: some View {
         switch style {
         case .pendingReview:
-            Image(systemName: "clock")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(Color(DesignSystemConstants.Colors.pendingAmber)))
+            if let onLeadingAction {
+                Button(action: onLeadingAction) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(DesignSystemConstants.Colors.pendingAmber))
+                            .frame(width: 32, height: 32)
+                        if isSubmitting {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "clock.fill")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
+                .accessibilityLabel("Pending parent review for \(title)")
+            } else {
+                Image(systemName: "clock.fill")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color(DesignSystemConstants.Colors.pendingAmber)))
+            }
         case .upcoming:
-            Circle()
-                .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 2)
-                .frame(width: 32, height: 32)
+            if let onLeadingAction {
+                Button(action: onLeadingAction) {
+                    ZStack {
+                        Circle()
+                            .strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen), lineWidth: 2)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.12)))
+
+                        if isSubmitting {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(Color(DesignSystemConstants.Colors.primaryGreen))
+                        }
+                    }
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
+                .accessibilityLabel("Complete \(title)")
+            } else {
+                Circle()
+                    .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 2)
+                    .frame(width: 32, height: 32)
+            }
+        case .completed:
+            ZStack {
+                Circle()
+                    .fill(Color(DesignSystemConstants.Colors.primaryGreen))
+                    .frame(width: 32, height: 32)
+                Image(systemName: "checkmark")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+            }
         }
     }
 
@@ -96,12 +155,36 @@ struct ChoreRowCard: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen)))
+        case .completed:
+            Text(amountText)
+                .font(.caption.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
+        }
+    }
+
+    private var subtitleColor: Color {
+        switch style {
+        case .pendingReview:
+            Color(DesignSystemConstants.Colors.pendingAmber)
+        case .upcoming:
+            Color.secondary
+        case .completed:
+            Color(DesignSystemConstants.Colors.primaryGreen)
         }
     }
 
     private var backgroundColor: Color {
-        style == .pendingReview
-            ? Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12)
-            : Color(.tertiarySystemGroupedBackground)
+        switch style {
+        case .pendingReview:
+            Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12)
+        case .upcoming:
+            Color(.tertiarySystemGroupedBackground)
+        case .completed:
+            Color(.secondarySystemGroupedBackground).opacity(0.7)
+        }
     }
 }

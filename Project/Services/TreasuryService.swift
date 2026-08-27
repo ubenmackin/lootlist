@@ -223,7 +223,12 @@ final class TreasuryService {
         )
 
         await cacheService?.upsertAllowancePeriod(period)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("TreasuryService.createPeriod isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
         return period
     }
@@ -271,7 +276,12 @@ final class TreasuryService {
         }
 
         await cacheService?.upsertAllowancePeriod(updated)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("TreasuryService.updateAllowance isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -327,8 +337,13 @@ final class TreasuryService {
                 updated.totalEarned = breakdown.totalEarned
                 updated.questsCompleted = breakdown.questsCount
                 await cacheService?.upsertAllowancePeriod(updated)
-                let isOwner = appState.isZoneOwner
-                syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+                let isOwnerZero = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+                let storedOwnerZero = appState.isZoneOwner
+                if isOwnerZero != storedOwnerZero {
+                    logger.warning("TreasuryService.runPayout zero isOwner corrected via creator anchor: stored=\(storedOwnerZero) resolved=\(isOwnerZero)")
+                }
+                syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwnerZero)
                 return
             }
             updated.totalEarned = breakdown.totalEarned
@@ -344,11 +359,22 @@ final class TreasuryService {
         updated.paidAmount = questGoldToPayout
 
         await cacheService?.upsertAllowancePeriod(updated)
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("TreasuryService.runPayout isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
         let effectivePolicy = resolvedProfile.map { effectivePayoutPolicy(for: $0, family: resolvedFamily) } ?? resolvedFamily?.payoutPolicy ?? .perQuest
         if effectivePolicy != .realTime {
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let mintIsOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let mintStoredOwner = appState.isZoneOwner
+            if mintIsOwner != mintStoredOwner {
+                logger.warning("TreasuryService.runPayout mint isOwner corrected via creator anchor: stored=\(mintStoredOwner) resolved=\(mintIsOwner)")
+            }
             await mintBucketSplitPayout(
                 periodRecordName: period.id.recordName,
                 amount: updated.paidAmount ?? questGoldToPayout,
@@ -356,7 +382,7 @@ final class TreasuryService {
                 profile: resolvedProfile,
                 family: period.family,
                 date: updated.paidDate ?? Date(),
-                isOwner: appState.isZoneOwner
+                isOwner: mintIsOwner
             )
         }
 
@@ -442,6 +468,12 @@ final class TreasuryService {
                                               totalEarned: questGold,
                                               questsCompleted: questsCount)
 
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let rtIsOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let rtStoredOwner = appState.isZoneOwner
+        if rtIsOwner != rtStoredOwner {
+            logger.warning("TreasuryService.processRealTimeSettlement isOwner corrected via creator anchor: stored=\(rtStoredOwner) resolved=\(rtIsOwner)")
+        }
         await mintRealTimeLedgerEntry(
             periodRecordName: period.id.recordName,
             amount: questGold,
@@ -449,7 +481,7 @@ final class TreasuryService {
             profile: period.profile,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             date: Date(),
-            isOwner: appState.isZoneOwner
+            isOwner: rtIsOwner
         )
 
         return saved
@@ -482,5 +514,8 @@ final class TreasuryService {
         )
         await cacheService?.upsertLedgerEntry(entry)
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
+        let formatted = CurrencyFormatter.string(amount)
+        logger.info("Minted real-time earnings \(formatted, privacy: .public) for period \(periodRecordName, privacy: .private)")
     }
 }

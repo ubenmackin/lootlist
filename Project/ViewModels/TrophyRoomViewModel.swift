@@ -36,18 +36,77 @@ final class TrophyRoomViewModel {
         Set(earned.map(\.achievementRecordName))
     }
 
+    /// Determines if an achievement has been earned, matching by full recordName,
+    /// requirement type raw value, or requirement suffix.
+    func isAchievementEarned(_ achievement: AchievementCache) -> Bool {
+        let earnedNames = earnedAchievementRecordNames
+        if earnedNames.contains(achievement.recordName) {
+            return true
+        }
+        if let req = achievement.requirementTypeEnum?.rawValue {
+            if earnedNames.contains(req) {
+                return true
+            }
+            if earnedNames.contains(where: { $0.hasSuffix("-\(req)") || $0 == req }) {
+                return true
+            }
+        }
+        if earnedNames.contains(where: { earnedName in
+            achievement.recordName.hasSuffix("-\(earnedName)") || earnedName.hasSuffix("-\(achievement.recordName)")
+        }) {
+            return true
+        }
+        return false
+    }
+
     var latestEarnedTrophyName: String? {
         guard let latest = earned.max(by: { $0.earnedDate < $1.earnedDate }) else { return nil }
-        return allAchievements.first(where: { $0.recordName == latest.achievementRecordName })?.name
+        return allAchievements.first(where: { achievement in
+            achievement.recordName == latest.achievementRecordName
+                || achievement.requirementTypeEnum?.rawValue == latest.achievementRecordName
+                || latest.achievementRecordName.hasSuffix("-\(achievement.recordName)")
+                || (achievement.requirementTypeEnum != nil && latest.achievementRecordName.hasSuffix("-\(achievement.requirementTypeEnum!.rawValue)"))
+        })?.name
     }
 
     func rebuildLists(earned: [ProfileAchievementCache], allAchievements: [AchievementCache]) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
 
+        // WHY: keep earned scoped to the active hero and achievements sorted
+        // so ForEach has stable IDs and the grid never appears empty due to
+        // ordering churn; earnedAchievementRecordNames derives from this filtered set.
         self.earned = earned.filter { $0.profileRecordName == profileName }
-        self.allAchievements = allAchievements
-        avatarCard = makeAvatarCard(profile: profile)
+
+        var achievementsToUse = allAchievements
+        if achievementsToUse.isEmpty, let family = appState.family {
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let defaults = AchievementService.defaultAchievements(for: familyRef)
+            achievementsToUse = defaults.map { AchievementCache(from: $0) }
+        }
+
+        // WHY: Trophy Room renders the 12 V1 achievements (legacy gold100/gold500/ledgerWeeks4 filtered out when immersive off).
+        let filteredAchievements: [AchievementCache] = if FeatureFlags.rpgImmersive {
+            achievementsToUse
+        } else {
+            achievementsToUse.filter { cache in
+                guard let req = cache.requirementTypeEnum else { return false }
+                switch req {
+                case .firstQuest, .questCount10, .questCount25, .questCount50, .questCount100, .weekly100, .streak7, .streak30, .firstGoalCreated, .goalGetter, .ledgerCount10,
+                     .earlyBird9am:
+                    return true
+                case .gold100, .gold500, .ledgerWeeks4:
+                    return false
+                }
+            }
+        }
+        self.allAchievements = filteredAchievements.sorted(by: { $0.name < $1.name })
+        // WHY: level/title/avatar spec is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        if FeatureFlags.rpgImmersive {
+            avatarCard = makeAvatarCard(profile: profile)
+        } else {
+            avatarCard = nil
+        }
     }
 
     private func makeAvatarCard(profile: Profile) -> AvatarCardModel {

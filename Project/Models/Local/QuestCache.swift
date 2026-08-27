@@ -76,11 +76,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
             return scheduleTypeEnum == .weeklyFlexible
         }
 
-        let calendar = Calendar.iso8601UTC
-        let weekday = calendar.component(.weekday, from: date)
-        let codes = AppConstants.weekdayCodes
-        let index = max(0, min(codes.count - 1, weekday - 1))
-        return template?.specificDays?.contains(codes[index]) == true
+        return template?.specificDays?.contains(WeekMath.weekdayCode(for: date)) == true
     }
 
     init(recordName: String,

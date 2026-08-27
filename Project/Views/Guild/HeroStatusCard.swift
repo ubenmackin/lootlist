@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftUI
 
 struct HeroStatusCard: View {
@@ -40,7 +39,7 @@ struct HeroStatusCard: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
+                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
@@ -70,7 +69,7 @@ struct HeroStatusCard: View {
                 // RPG-era level title; hidden while the immersive layer is off.
                 Text(XPService.title(forLevel: summary.profile.level))
                     .font(.caption)
-                    .foregroundStyle(Color.gold)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             } else {
                 Text(summary.profile.roleEnum?.displayName ?? summary.profile.role)
                     .font(.caption)
@@ -103,8 +102,8 @@ struct HeroStatusCard: View {
     private var ratioColor: Color {
         summary.weeklyQuestsTotal > 0
             && summary.weeklyQuestsCompleted >= summary.weeklyQuestsTotal
-            ? Color.gold
-            : Color.green
+            ? Color(DesignSystemConstants.Colors.pendingAmber)
+            : Color(DesignSystemConstants.Colors.primaryGreen)
     }
 
     private var footerRow: some View {
@@ -120,7 +119,7 @@ struct HeroStatusCard: View {
             Image(systemName: "trophy.fill")
                 .font(.caption2.weight(.bold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.yellow)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             Text("\(summary.trophiesEarned)")
                 .font(.caption.weight(.bold).monospacedDigit())
                 .foregroundStyle(.primary)
@@ -128,10 +127,10 @@ struct HeroStatusCard: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(
-            Capsule().fill(Color.yellow.opacity(0.16))
+            Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.16))
         )
         .overlay(
-            Capsule().strokeBorder(Color.yellow.opacity(0.45), lineWidth: 1)
+            Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.45), lineWidth: 1)
         )
         .accessibilityLabel("\(summary.trophiesEarned) trophies earned")
     }
@@ -188,18 +187,23 @@ struct HeroStatusCard: View {
     }
 
     private static func fallbackSpec(for profileCache: ProfileCache) -> AvatarRenderSpec {
-        let defaultZone = CKRecordZone.ID(zoneName: "_defaultZone", ownerName: CKCurrentUserDefaultName)
-        let profile = profileCache.toProfile(zoneID: defaultZone)
-        let preset = AvatarPreset.preset(forProfile: profile)
+        // WHY: Views must not hold CloudKit types — derive AvatarRenderSpec from cache directly instead of converting via CKRecordZone.
+        let preset: AvatarPreset? = if let id = profileCache.avatarName {
+            AvatarPreset(rawValue: id) ?? AvatarPreset.resolve(profileCache.avatarClassEnum, id: id)
+        } else if let cls = profileCache.avatarClassEnum {
+            AvatarPreset.presets(for: cls).first
+        } else {
+            nil
+        }
         return AvatarRenderSpec(
             preset: preset,
-            customAvatarImageData: profile.customAvatarImageData,
+            customAvatarImageData: profileCache.customAvatarImageData,
             avatarEmoji: profileCache.avatarEmoji,
-            displayName: profile.displayName,
-            levelTitle: XPService.title(forLevel: profile.level),
+            displayName: profileCache.displayName,
+            levelTitle: FeatureFlags.rpgImmersive ? XPService.title(forLevel: profileCache.level) : "",
             equippedAccessory: nil,
-            avatarClass: profile.avatarClass,
-            role: profile.role
+            avatarClass: profileCache.avatarClassEnum,
+            role: profileCache.roleEnum ?? .hero
         )
     }
 }

@@ -23,7 +23,8 @@ struct HeroHeaderCardView: View {
             headerRow
             Divider()
             statsRow
-            if levelProgress != nil {
+            // WHY: Level/XP bar is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+            if FeatureFlags.rpgImmersive, levelProgress != nil {
                 Divider()
                 xpProgressBarSection
             }
@@ -31,11 +32,11 @@ struct HeroHeaderCardView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.gold.opacity(0.30), lineWidth: 1)
+                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
         )
     }
 
@@ -51,7 +52,7 @@ struct HeroHeaderCardView: View {
 
                 Text(XPService.title(forLevel: profileCache?.level ?? 1))
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(Color.gold)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             }
 
             Spacer(minLength: 8)
@@ -84,13 +85,13 @@ struct HeroHeaderCardView: View {
         .padding(.vertical, 3)
         .background(
             Capsule()
-                .fill(Color.accentColor.opacity(0.12))
+                .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
         )
         .overlay(
             Capsule()
-                .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+                .strokeBorder(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.35), lineWidth: 1)
         )
-        .foregroundStyle(Color.accentColor)
+        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
     }
 
     private var statsRow: some View {
@@ -98,7 +99,7 @@ struct HeroHeaderCardView: View {
             HStack(spacing: 8) {
                 Image(systemName: "banknote")
                     .font(.title2)
-                    .foregroundStyle(.yellow)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
                         Text("Earned This Week")
@@ -107,7 +108,7 @@ struct HeroHeaderCardView: View {
                         if isPendingPayout, earnedThisWeek > 0 {
                             Text("⏳ Pending")
                                 .font(.caption2.weight(.bold))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         }
                     }
                     Text(CurrencyFormatter.string(earnedThisWeek))
@@ -118,17 +119,20 @@ struct HeroHeaderCardView: View {
 
             Spacer()
 
-            HStack(spacing: 6) {
-                Text("💎")
-                    .font(.headline)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Gems")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("\(profileCache?.gemsTotal ?? 0)")
-                        .font(.title3.bold())
-                        .monospacedDigit()
-                        .foregroundStyle(Color.gold)
+            // WHY: Gems are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+            if FeatureFlags.rpgImmersive {
+                HStack(spacing: 6) {
+                    Text("💎")
+                        .font(.headline)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Gems")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("\(profileCache?.gemsTotal ?? 0)")
+                            .font(.title3.bold())
+                            .monospacedDigit()
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                    }
                 }
             }
 
@@ -148,14 +152,17 @@ struct HeroHeaderCardView: View {
     private var xpProgressBarSection: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                Text("Lv. \(levelProgress?.currentLevel ?? profileCache?.level ?? 1)")
-                    .font(.caption.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule().fill(Color.accentColor)
-                    )
+                // WHY: Level badge is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+                if FeatureFlags.rpgImmersive {
+                    Text("Lv. \(levelProgress?.currentLevel ?? profileCache?.level ?? 1)")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule().fill(Color(DesignSystemConstants.Colors.accentBlue))
+                        )
+                }
 
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
@@ -164,7 +171,7 @@ struct HeroHeaderCardView: View {
 
                         Capsule()
                             .fill(LinearGradient(
-                                colors: [.blue, .purple],
+                                colors: [Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.accentBlue)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             ))

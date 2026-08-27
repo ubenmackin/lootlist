@@ -198,8 +198,8 @@ enum JourneyZoneDecorations {
             .fill(
                 RadialGradient(
                     colors: [
-                        Color.yellow.opacity(0.95),
-                        Color(red: 1.0, green: 0.85, blue: 0.3).opacity(0.45),
+                        Color.gold.opacity(0.95),
+                        Color.gold.opacity(0.45),
                         Color.clear
                     ],
                     center: .center,
@@ -218,7 +218,7 @@ enum JourneyZoneDecorations {
             .position(x: width * 0.85, y: height * 0.24)
 
         // Wildflower clusters in the lower meadow
-        flowerCluster(count: 8, seed: 101, width: width, height: height, color: .yellow)
+        flowerCluster(count: 8, seed: 101, width: width, height: height, color: Color.gold)
         flowerCluster(count: 6, seed: 202, width: width, height: height, color: Color(red: 1.0, green: 0.6, blue: 0.7))
         flowerCluster(count: 5, seed: 303, width: width, height: height, color: .white)
     }

@@ -46,7 +46,7 @@ struct GoalCardView: View {
 
             // Saved / Target status line
             HStack(spacing: 4) {
-                Text(savedAmount, format: .currency(code: "USD"))
+                Text(CurrencyFormatter.string(savedAmount))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
 
@@ -54,7 +54,7 @@ struct GoalCardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Text(targetAmount, format: .currency(code: "USD"))
+                Text(CurrencyFormatter.string(targetAmount))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -73,7 +73,7 @@ struct GoalCardView: View {
             }
             .frame(height: 8)
 
-            // Footer: % earned | $ left
+            // Footer: % earned | remaining
             HStack {
                 Text(percentText)
                     .font(.caption2.weight(.semibold))
@@ -81,7 +81,8 @@ struct GoalCardView: View {
 
                 Spacer()
 
-                Text("$\(formattedCurrency(targetAmount - savedAmount)) left")
+                // WHY: Use CurrencyFormatter so remaining amount is locale-aware and "$" never hard-coded.
+                Text("\(CurrencyFormatter.string(max(targetAmount - savedAmount, 0))) left")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -93,12 +94,5 @@ struct GoalCardView: View {
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .accessibilityIdentifierIfSet(accessibilityID)
-    }
-
-    /// Simple USD formatting — callers that need region-aware formatting
-    /// should use CurrencyFormatter instead.
-    private func formattedCurrency(_ value: Double) -> String {
-        let clamped = max(value, 0)
-        return String(format: "%.2f", clamped)
     }
 }

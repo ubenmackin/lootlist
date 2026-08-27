@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftData
 import SwiftUI
 
@@ -247,9 +246,9 @@ struct PayoutHistoryView: View {
 
     private func statusColor(_ status: PayoutStatus) -> Color {
         switch status {
-        case .paid: .green
-        case .payoutPending: .orange
-        case .active: .blue
+        case .paid: Color(DesignSystemConstants.Colors.primaryGreen)
+        case .payoutPending: Color(DesignSystemConstants.Colors.pendingAmber)
+        case .active: Color(DesignSystemConstants.Colors.accentBlue)
         }
     }
 

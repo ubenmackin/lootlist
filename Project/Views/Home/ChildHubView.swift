@@ -5,7 +5,7 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
-import CloudKit
+import os
 import SwiftData
 import SwiftUI
 
@@ -13,8 +13,11 @@ import SwiftUI
 /// progress ring, today's chores, the active FIFO goal, and a pinned
 /// log-a-purchase CTA.
 struct ChildHubView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ChildHubView")
+
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
+    @Environment(QuestService.self) private var questService
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -27,6 +30,18 @@ struct ChildHubView: View {
     @State private var viewModel: ChildHubViewModel?
     @State private var treasuryViewModel: TreasuryViewModel?
     @State private var isShowingLogSpending: Bool = false
+    @State private var isShowingSplit: Bool = false
+    @State private var submittingQuestIDs: Set<String> = []
+    @State private var showCelebration: Bool = false
+    @State private var pendingWithdrawal: PendingWithdrawal?
+
+    struct PendingWithdrawal: Identifiable {
+        let quest: QuestCache
+        let log: QuestCompletionCache
+        var id: String {
+            quest.recordName
+        }
+    }
 
     private let spending: SpendingService
     private let familyRecordName: String?
@@ -38,8 +53,7 @@ struct ChildHubView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
 
-        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
-        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        // Scope queries to family at store layer; nil familyRecordName uses "" to return zero rows (no cross-family fetch).
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
@@ -68,8 +82,7 @@ struct ChildHubView: View {
         )
     }
 
-    /// Queried cache row for the active hero profile; nil when identity or
-    /// family scope has no synced row yet, keeping rendering fail-closed.
+    /// Queried cache row for active hero profile; nil when scope has no synced row (fail-closed rendering).
     private var currentProfileRow: ProfileCache? {
         currentProfileRows.first
     }
@@ -93,6 +106,30 @@ struct ChildHubView: View {
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .overlay {
+                CelebrationOverlay(isPresented: showCelebration)
+            }
+            .alert(
+                "Unsubmit Quest?",
+                isPresented: Binding(
+                    get: { pendingWithdrawal != nil },
+                    set: {
+                        if !$0 {
+                            pendingWithdrawal = nil
+                        }
+                    }
+                ),
+                presenting: pendingWithdrawal
+            ) { target in
+                Button("Move Back to To-Do", role: .destructive) {
+                    withdrawQuest(target.quest, log: target.log)
+                }
+                Button("Keep Sent for Review", role: .cancel) {
+                    pendingWithdrawal = nil
+                }
+            } message: { target in
+                Text("Move “\(target.quest.questName)” back to your active to-do list?")
+            }
             .safeAreaInset(edge: .bottom) {
                 logPurchaseBar
                     .padding(.horizontal, DesignSystemConstants.Padding.standard)
@@ -103,6 +140,12 @@ struct ChildHubView: View {
                 if let treasuryViewModel {
                     LogSpendingView(viewModel: treasuryViewModel, familyRecordName: familyRecordName)
                 }
+            }
+            .sheet(isPresented: $isShowingSplit) {
+                SavingsSplitView(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                )
             }
             .task {
                 if viewModel == nil {
@@ -136,75 +179,20 @@ struct ChildHubView: View {
             Text(currentProfileRow?.avatarEmoji ?? "🦸")
                 .font(.title2)
                 .frame(width: 44, height: 44)
-                .background(Circle().fill(Color.green.opacity(0.15)))
-                .overlay(Circle().strokeBorder(Color.green.opacity(0.3), lineWidth: 1))
+                .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
+                .overlay(Circle().strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.3), lineWidth: 1))
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text("CHILD VIEW")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Text("\(firstName)'s Hub")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-            }
+            Text("\(firstName)'s Hub")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
 
             Spacer()
-
-            NavigationLink {
-                QuestsView(
-                    familyRecordName: familyRecordName,
-                    profileRecordName: appState.currentProfile?.id.recordName
-                )
-            } label: {
-                bellIcon
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(bellAccessibilityLabel)
-            .accessibilityIdentifier("hub.questsLink")
-
-            NavigationLink {
-                SettingsView(
-                    familyRecordName: familyRecordName,
-                    profileRecordName: appState.currentProfile?.id.recordName
-                )
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(Color(.tertiarySystemFill)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Settings")
-            .accessibilityIdentifier("hub.settingsLink")
         }
-    }
-
-    private var bellIcon: some View {
-        Image(systemName: "bell")
-            .font(.body.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .frame(width: 40, height: 40)
-            .background(Circle().fill(Color(.tertiarySystemFill)))
-            .overlay(alignment: .topTrailing) {
-                if let count = viewModel?.pendingReviewCount, count > 0 {
-                    Text("\(count)")
-                        .font(.caption2.weight(.bold))
-                        .monospacedDigit()
-                        .foregroundStyle(.white)
-                        .padding(4)
-                        .background(Circle().fill(Color.red))
-                        .offset(x: 4, y: -4)
-                }
-            }
-    }
-
-    private var bellAccessibilityLabel: String {
-        guard let count = viewModel?.pendingReviewCount, count > 0 else {
-            return "Chores"
-        }
-        return "Chores, \(count) sent for review"
+        // Header is sole navigational identity; pending-review affordance lives in chore rows + tab badge.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(firstName)'s Hub")
+        .accessibilityIdentifier("hub.headerTitle")
     }
 
     private var firstName: String {
@@ -218,6 +206,7 @@ struct ChildHubView: View {
         VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.medium) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
+                    // Warm in-card welcome; header above is sole navigational identity.
                     Text("Hey \(firstName)! 👋")
                         .font(.headline)
                         .foregroundStyle(.white)
@@ -228,12 +217,20 @@ struct ChildHubView: View {
 
                 Spacer()
 
-                Text("3-Jar Split")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(Color.white.opacity(0.2)))
+                Button {
+                    HapticsService.lightImpact()
+                    isShowingSplit = true
+                } label: {
+                    Text("3-Jar Split")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.white.opacity(0.2)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Configure 3-Jar Split")
+                .accessibilityIdentifier("hub.splitPillButton")
             }
 
             Text(CurrencyFormatter.string(viewModel.availableBalance))
@@ -246,19 +243,19 @@ struct ChildHubView: View {
 
             HStack(spacing: DesignSystemConstants.Padding.small) {
                 BucketTileView(
-                    emoji: "🛍️",
+                    emoji: nil,
                     title: "SPEND",
                     amountText: CurrencyFormatter.string(viewModel.bucketBalance(.spend)),
                     accessibilityID: "hub.bucketTile-spend"
                 )
                 BucketTileView(
-                    emoji: "🐷",
+                    emoji: nil,
                     title: "SHORT SAVE",
                     amountText: CurrencyFormatter.string(viewModel.bucketBalance(.shortTermSave)),
                     accessibilityID: "hub.bucketTile-shortSave"
                 )
                 BucketTileView(
-                    emoji: "🌳",
+                    emoji: nil,
                     title: "LONG SAVE",
                     amountText: CurrencyFormatter.string(viewModel.bucketBalance(.longTermSave)),
                     accessibilityID: "hub.bucketTile-longSave"
@@ -270,8 +267,12 @@ struct ChildHubView: View {
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
                 .fill(
+                    // Blue token gradient for AA white-text contrast in both modes (replaces lower-contrast green).
                     LinearGradient(
-                        colors: [Color.green, Color.green.opacity(0.7)],
+                        colors: [
+                            Color(DesignSystemConstants.Colors.accentBlue),
+                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.85)
+                        ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -300,7 +301,7 @@ struct ChildHubView: View {
 
             Spacer()
 
-            ProgressRingView(progress: viewModel.weeklyProgress, tint: .blue, identifier: "hub.weeklyProgressRing")
+            ProgressRingView(progress: viewModel.weeklyProgress, tint: Color(DesignSystemConstants.Colors.accentBlue), identifier: "hub.weeklyProgressRing")
                 .frame(width: 72, height: 72)
         }
         .padding(DesignSystemConstants.Padding.standard)
@@ -312,27 +313,55 @@ struct ChildHubView: View {
 
     private func todaysChoresCard(_ viewModel: ChildHubViewModel) -> some View {
         VStack(spacing: DesignSystemConstants.Padding.medium) {
-            SectionHeader("Today's Chores") {
+            SectionHeader("Today's Quests") {
                 Text("\(viewModel.toDoCount) To Do")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
             if viewModel.choreRows.isEmpty {
-                Text("No chores yet — enjoy the break!")
+                Text("No quests yet — enjoy the break!")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
             } else {
                 ForEach(viewModel.choreRows) { row in
-                    ChoreRowCard(
-                        title: row.title,
-                        subtitle: row.subtitle,
-                        amountText: "+\(CurrencyFormatter.string(row.amount))",
-                        style: row.isPendingReview ? .pendingReview : .upcoming,
-                        accessibilityID: "hub.choreRow-\(row.id)"
-                    )
+                    let quest = cachedQuests.first { $0.recordName == row.questRecordName }
+                    let log = cachedCompletions.first { $0.recordName == row.completionRecordName }
+                    let isSubmitting = submittingQuestIDs.contains(row.questRecordName)
+
+                    if row.isPendingReview, let quest, let log {
+                        Button {
+                            pendingWithdrawal = PendingWithdrawal(quest: quest, log: log)
+                        } label: {
+                            ChoreRowCard(
+                                title: row.title,
+                                subtitle: "Sent to Parent for Review · Tap to Unsubmit",
+                                amountText: "+\(CurrencyFormatter.string(row.amount))",
+                                style: .pendingReview,
+                                isSubmitting: isSubmitting,
+                                onLeadingAction: {
+                                    pendingWithdrawal = PendingWithdrawal(quest: quest, log: log)
+                                },
+                                accessibilityID: "hub.choreRow-\(row.id)"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Awaiting parent verification. Tap to unsubmit.")
+                    } else if let quest {
+                        ChoreRowCard(
+                            title: row.title,
+                            subtitle: row.subtitle,
+                            amountText: "+\(CurrencyFormatter.string(row.amount))",
+                            style: .upcoming,
+                            isSubmitting: isSubmitting,
+                            onLeadingAction: {
+                                completeQuest(quest)
+                            },
+                            accessibilityID: "hub.choreRow-\(row.id)"
+                        )
+                    }
                 }
             }
         }
@@ -379,7 +408,7 @@ struct ChildHubView: View {
                         value: savedDollars,
                         maximum: targetDollars,
                         label: nil,
-                        tint: .green,
+                        tint: Color(DesignSystemConstants.Colors.primaryGreen),
                         height: 10
                     )
                 }
@@ -438,8 +467,7 @@ struct ChildHubView: View {
             goals: cachedGoals
         )
 
-        // Keep the spending-sheet view model in sync so Log a Purchase opens
-        // with live balances, matching the Money tab's data path.
+        // Keep spending-sheet view model synced for live balances on Log a Purchase (mirrors Money tab).
         if let treasuryViewModel {
             treasuryViewModel.rebuildLists(
                 logs: cachedCompletions.filter { $0.completerRecordName == profileName },
@@ -448,6 +476,56 @@ struct ChildHubView: View {
                 allowancePeriods: cachedAllowancePeriods.filter { $0.profileRecordName == profileName },
                 scope: .thisWeek
             )
+        }
+    }
+
+    // MARK: - Quest Actions
+
+    private func withdrawQuest(_ quest: QuestCache, log: QuestCompletionCache) {
+        let qID = quest.recordName
+        guard !submittingQuestIDs.contains(qID) else { return }
+        submittingQuestIDs.insert(qID)
+
+        Task {
+            defer { submittingQuestIDs.remove(qID) }
+            guard let profile = appState.currentProfile else { return }
+            do {
+                try await questService.withdrawCompletion(questLog: log, by: profile)
+                HapticsService.lightImpact()
+            } catch {
+                Self.logger.error("Failed to unsubmit quest: \(error, privacy: .private)")
+            }
+        }
+    }
+
+    private func completeQuest(_ quest: QuestCache) {
+        let qID = quest.recordName
+        guard !submittingQuestIDs.contains(qID) else { return }
+        submittingQuestIDs.insert(qID)
+
+        Task {
+            defer { submittingQuestIDs.remove(qID) }
+            guard let profile = appState.currentProfile else { return }
+
+            let zoneID = appState.resolvedFamilyZoneID()
+            let domain = quest.toQuest(zoneID: zoneID)
+
+            do {
+                let completion = try await questService.markComplete(
+                    quest: domain,
+                    by: profile
+                )
+                if completion.verificationStatus == .autoApproved {
+                    HapticsService.success()
+                    showCelebration = true
+                    Task {
+                        try? await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+                        showCelebration = false
+                    }
+                }
+            } catch {
+                Self.logger.error("Failed to mark quest complete: \(error, privacy: .private)")
+            }
         }
     }
 }

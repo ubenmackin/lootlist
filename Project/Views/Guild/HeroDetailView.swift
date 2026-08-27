@@ -13,6 +13,7 @@ struct HeroDetailView: View {
     let spending: SpendingService
 
     @State private var selectedSegment: HeroDetailSegment = .quests
+    @State private var isShowingSplit: Bool = false
 
     enum HeroDetailSegment: String, CaseIterable {
         case quests = "Quests"
@@ -57,6 +58,17 @@ struct HeroDetailView: View {
             .padding(.top, 10)
             .accessibilityLabel("View savings goals for \(hero.displayName)")
 
+            // WHY: the split sheet scopes its queries to the family record —
+            // with an unresolved scope it could neither load nor save, so the
+            // entry row only renders when the scope is resolvable.
+            if familyRecordName != nil {
+                BucketSplitEntryRow(accessibilityIdentifier: "heroDetail.bucketSplitRow") {
+                    isShowingSplit = true
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+            }
+
             switch selectedSegment {
             case .quests:
                 QuestLogView(initialHero: hero, familyRecordName: familyRecordName)
@@ -67,5 +79,8 @@ struct HeroDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(hero.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $isShowingSplit) {
+            SavingsSplitView(familyRecordName: familyRecordName, profileRecordName: hero.recordName)
+        }
     }
 }

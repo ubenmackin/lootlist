@@ -66,7 +66,7 @@ class SpendingService {
             let familyName = profile.family.recordID.recordName
             let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
             let filtered = cached.filter { dateRange.contains($0.date) }
-            if cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, cachedCount: cached.count) {
                 return filtered.map { cacheRow in
                     LedgerEntry(
                         profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
@@ -80,16 +80,11 @@ class SpendingService {
                     )
                 }
             }
-            if !filtered.isEmpty || !cached.isEmpty {
-                if !filtered.isEmpty {
-                    logger.debug("fetchTransactions: returning cached \(filtered.count) rows without freshness stamp for new hero")
-                }
-            }
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-        let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (appState?.isZoneOwner == true && appState?.familyZoneID == targetZoneID)
+        let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) && appState?.familyZoneID == targetZoneID)
         let db = cloudKit.database(isOwner: isOwner)
         do {
             let all = try await cloudKit.query(
@@ -132,6 +127,7 @@ class SpendingService {
 
     // MARK: - Helpers
 
+    /// Single deterministic scheme — do not duplicate
     private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> String {
         let ms = Int(date.timeIntervalSince1970 * 1000)
         let cents = Int((abs(amount) * 100).rounded())
@@ -152,12 +148,36 @@ class SpendingService {
         }
     }
 
-    private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> CKRecord.ID {
-        var base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
-        if let cache = cacheService, cache.fetchLedgerEntry(recordName: base, family: family.id.recordName) != nil {
-            base += "-\(UUID().uuidString.prefix(8))"
+    /// Resolved owner scope for sync enqueues, logging when it diverges from the stored flag.
+    /// WHY: Participant writes must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
+    private func correctedIsOwnerForSync() -> Bool {
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        // Hoisted local: Swift 6 requires explicit capture semantics for
+        // self-referencing property access inside the logger interpolation.
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            logger.warning("isOwner corrected via creator anchor for sync enqueue: stored=\(storedOwner) resolved=\(isOwner)")
         }
-        return CKRecord.ID(recordName: base, zoneID: family.id.zoneID)
+        return isOwner
+    }
+
+    /// Deterministic-first duplicate handling: an identical replay reuses the
+    /// base name so the upsert is idempotent; only a genuinely different entry
+    /// already occupying the truncated identity (same millisecond, amount, and
+    /// description hash but distinct content) mints a nonce suffix so both rows survive.
+    private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, location: String?, date: Date) -> CKRecord.ID {
+        let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
+        var recordName = base
+        if let existing = cacheService?.fetchLedgerEntry(recordName: base, family: family.id.recordName),
+           existing.source != source
+           || existing.entryDescription != description
+           || existing.date != date
+           || existing.location != location
+           || Int((abs(existing.amount) * 100).rounded()) != Int((abs(amount) * 100).rounded())
+        {
+            recordName = "\(base)-\(UUID().uuidString)"
+        }
+        return CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
     }
 
     // MARK: - Mutations (local-first)
@@ -198,11 +218,19 @@ class SpendingService {
             date: date,
             source: "manual",
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: makeLedgerID(source: "manual", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
+            id: makeLedgerID(
+                source: "manual",
+                profile: profile,
+                family: family,
+                amount: amount,
+                description: trimmedDesc,
+                location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
+                date: date
+            )
         )
 
         await cacheService?.upsertLedgerEntry(entry)
-        let isOwner = appState.isZoneOwner
+        let isOwner = correctedIsOwnerForSync()
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
     }
@@ -243,11 +271,19 @@ class SpendingService {
             date: date,
             source: "deposit",
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: makeLedgerID(source: "deposit", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
+            id: makeLedgerID(
+                source: "deposit",
+                profile: profile,
+                family: family,
+                amount: amount,
+                description: trimmedDesc,
+                location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
+                date: date
+            )
         )
 
         await cacheService?.upsertLedgerEntry(entry)
-        let isOwner = appState.isZoneOwner
+        let isOwner = correctedIsOwnerForSync()
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
     }
@@ -288,11 +324,19 @@ class SpendingService {
             date: date,
             source: "withdrawal",
             family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: makeLedgerID(source: "withdrawal", profile: profile, family: family, amount: amount, description: trimmedDesc, date: date)
+            id: makeLedgerID(
+                source: "withdrawal",
+                profile: profile,
+                family: family,
+                amount: amount,
+                description: trimmedDesc,
+                location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
+                date: date
+            )
         )
 
         await cacheService?.upsertLedgerEntry(entry)
-        let isOwner = appState.isZoneOwner
+        let isOwner = correctedIsOwnerForSync()
         syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
     }
@@ -316,7 +360,7 @@ class SpendingService {
 
         let name = entry.id.recordName
         await cacheService?.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
-        let isOwner = appState.isZoneOwner
+        let isOwner = correctedIsOwnerForSync()
         syncCoordinator?.enqueueDelete(recordID: entry.id, isOwner: isOwner)
     }
 }

@@ -21,7 +21,7 @@ struct RarityBorderModifier: ViewModifier {
 
                     case .rare:
                         RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.button)
-                            .stroke(Color.blue.opacity(0.5), lineWidth: 1.5)
+                            .stroke(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.5), lineWidth: 1.5)
                         rarityBadge
 
                     case .epic:
@@ -31,16 +31,16 @@ struct RarityBorderModifier: ViewModifier {
                                 .strokeBorder(
                                     AngularGradient(
                                         colors: [
-                                            Color.purple.opacity(0.3),
-                                            Color.purple.opacity(0.8),
-                                            Color.purple.opacity(0.3)
+                                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.3),
+                                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.8),
+                                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.3)
                                         ],
                                         center: .center,
                                         angle: .degrees(angle)
                                     ),
                                     lineWidth: 2
                                 )
-                                .shadow(color: Color.purple.opacity(0.4), radius: 3)
+                                .shadow(color: Color(DesignSystemConstants.Colors.accentBlue).opacity(0.4), radius: 3)
                         }
                         rarityBadge
 

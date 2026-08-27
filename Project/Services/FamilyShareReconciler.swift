@@ -99,7 +99,7 @@ final class FamilyShareReconciler {
     /// Posts `.familyRosterChanged` if membership changes occurred.
     func reconcileIfOwner() async {
         let appState = familyService.appState
-        guard appState.isZoneOwner,
+        guard ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState),
               let family = appState.family
         else { return }
 

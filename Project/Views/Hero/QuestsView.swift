@@ -113,7 +113,12 @@ struct QuestsView: View {
                 .padding(.bottom, 12)
             }
             .overlay(
-                LootDropOverlayView(isPresented: $showLootDrop, loot: activeLootDrop)
+                Group {
+                    // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+                    if FeatureFlags.rpgImmersive {
+                        LootDropOverlayView(isPresented: $showLootDrop, loot: activeLootDrop)
+                    }
+                }
             )
             .background(Color(.systemGroupedBackground))
             .scrollContentBackground(.hidden)
@@ -155,6 +160,8 @@ struct QuestsView: View {
                 rebuildViewModel()
             }
             .onChange(of: lootDropService.pendingPresentation) { _, loot in
+                // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+                guard FeatureFlags.rpgImmersive else { return }
                 guard let loot else { return }
                 activeLootDrop = loot
                 withAnimation {
@@ -234,7 +241,7 @@ struct QuestsView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Overdue", systemImage: "exclamationmark.triangle.fill")
                 .font(.headline)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             ForEach(quests) { quest in
                 questCard(quest: quest, vm: vm, isOverdue: true)
             }
@@ -332,7 +339,7 @@ struct QuestsView: View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 48))
-                .foregroundStyle(.green)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             Text("All Quests Complete! 🎉")
                 .font(.title3.bold())
             Text("Great work!")

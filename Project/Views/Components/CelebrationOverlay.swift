@@ -38,10 +38,7 @@ struct CelebrationOverlay: View {
         Color(DesignSystemConstants.Colors.accentBlue),
         Color(DesignSystemConstants.Colors.pendingAmber),
         Color(DesignSystemConstants.Colors.dangerRed),
-        Color.purple,
-        Color.pink,
-        Color.teal,
-        Color.orange
+        .gold
     ]
 
     var body: some View {

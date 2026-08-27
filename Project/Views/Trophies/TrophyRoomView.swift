@@ -16,6 +16,7 @@ struct TrophyRoomView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(XPService.self) private var xpService
     @Environment(AppState.self) private var appState
+    @Environment(CacheService.self) private var cacheService: CacheService?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @Query private var cachedAchievements: [AchievementCache]
@@ -104,19 +105,54 @@ struct TrophyRoomView: View {
                     Self.logger.warning("Failed to evaluate trophies on entry: \(error, privacy: .private)")
                 }
                 rebuild()
+                await hydrateDefinitionsIfNeeded(family: family)
+            } else if let family = appState.family {
+                await hydrateDefinitionsIfNeeded(family: family)
+            }
+            if familyRecordName == nil, appState.family != nil {
+                Self.logger.warning("TrophyRoomView initialized with nil familyRecordName while authenticated — queries scoped to empty string will return zero rows")
             }
         }
         .onChange(of: cachedAchievements) { _, _ in rebuild() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
     }
 
+    // WHY: cache-first rebuild keeps the Trophy Room instant from SwiftData;
+    // @Query rows are family-scoped at the store layer and filtered to the
+    // active hero here so earned state stays correct after cache hydration or
+    // a manual sync. Sorting and stable IDs are handled in the view model.
     private func rebuild() {
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
         // Filter family-scoped cached achievements for the active profile.
-        let earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
+        var earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
+        if earned.isEmpty, let cache = cacheService, let familyName = appState.family?.id.recordName {
+            earned = cache.fetchProfileAchievements(profileRecordName: profileName, family: familyName)
+        }
 
-        viewModel?.rebuildLists(earned: earned, allAchievements: cachedAchievements)
+        var achievements = cachedAchievements
+        if achievements.isEmpty, let family = appState.family {
+            if let cache = cacheService {
+                achievements = cache.fetchAchievements(family: family.id.recordName)
+            }
+            if achievements.isEmpty {
+                // WHY: empty grid before first sync has no cache rows — service synthesizes defaults via cacheService/ingest so View stays CloudKit-free.
+                achievements = achievementService.ensureDefaultAchievements(for: family)
+            }
+        }
+
+        viewModel?.rebuildLists(earned: earned, allAchievements: achievements)
+    }
+
+    // WHY: empty grid before first CloudKit pull has no cached definitions; proactively fetch when watermark is stale so grid populates without next sync.
+    private func hydrateDefinitionsIfNeeded(family: Family) async {
+        guard viewModel?.allAchievements.isEmpty == true else { return }
+        do {
+            _ = try await achievementService.fetchAllDefinitions(family: family)
+        } catch {
+            Self.logger.warning("Failed to hydrate trophy definitions on entry: \(error, privacy: .private)")
+        }
+        rebuild()
     }
 
     private func content(for viewModel: TrophyRoomViewModel) -> some View {
@@ -140,7 +176,7 @@ struct TrophyRoomView: View {
                 if let err = viewModel.lastError {
                     Text(err)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                         .padding(.horizontal)
                 }
             }
@@ -168,12 +204,11 @@ struct TrophyRoomView: View {
             GridItem(.flexible(), spacing: 12)
         ]
 
-        let earnedNames = viewModel.earnedAchievementRecordNames
         return LazyVGrid(columns: columns, spacing: 12) {
             ForEach(viewModel.allAchievements) { achievement in
                 TrophyCardView(
                     achievement: achievement,
-                    isEarned: earnedNames.contains(achievement.recordName)
+                    isEarned: viewModel.isAchievementEarned(achievement)
                 )
             }
         }
@@ -202,7 +237,7 @@ struct TrophyHeaderCardView: View {
                 ZStack {
                     Circle()
                         .fill(LinearGradient(
-                            colors: [Color.gold.opacity(0.3), Color.orange.opacity(0.15)],
+                            colors: [Color.gold.opacity(0.3), Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.15)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ))
@@ -245,7 +280,7 @@ struct TrophyHeaderCardView: View {
 
                         Capsule()
                             .fill(LinearGradient(
-                                colors: [.gold, .orange],
+                                colors: [.gold, Color(DesignSystemConstants.Colors.pendingAmber)],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             ))

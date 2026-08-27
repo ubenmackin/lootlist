@@ -5,15 +5,11 @@
 //  Created by Ben Mackin on 7/26/26.
 //
 
-import CloudKit
-import os
 import SwiftData
 import SwiftUI
 
 #if DEBUG
     struct iCloudStatusView: View {
-        private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "iCloudStatus")
-
         @Environment(AppState.self) private var appState
         @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
         @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
@@ -32,8 +28,15 @@ import SwiftUI
         @Query private var allProfileAchievements: [ProfileAchievementCache]
         @Query private var allNotificationPrefs: [NotificationPreferenceCache]
         @Query private var allFamilies: [FamilyCache]
+        @Query private var allGoals: [GoalCache]
+        @Query private var allGemLedgers: [GemLedgerCache]
+        @Query private var allRewardEvents: [RewardEventCache]
 
-        @State private var accountStatus: CKAccountStatus = .couldNotDetermine
+        // WHY: value mirror of CKAccountStatus published by the lifecycle
+        // layer — views must not hold CloudKit types or call the service.
+        private var accountStatus: CloudAccountStatus {
+            appState.cloudAccountStatus
+        }
 
         init(familyRecordName: String? = nil) {
             self.familyRecordName = familyRecordName
@@ -52,6 +55,9 @@ import SwiftUI
             let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
             let notificationFilter = #Predicate<NotificationPreferenceCache> { $0.familyRecordName == targetFamily }
             let familyFilter = #Predicate<FamilyCache> { $0.recordName == targetFamily }
+            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
+            let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
+            let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
 
             _allProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
             _allQuests = Query(filter: questFilter, sort: \QuestCache.weekOf)
@@ -63,6 +69,9 @@ import SwiftUI
             _allProfileAchievements = Query(filter: profileAchievementFilter, sort: \ProfileAchievementCache.earnedDate)
             _allNotificationPrefs = Query(filter: notificationFilter, sort: \NotificationPreferenceCache.profileRecordName)
             _allFamilies = Query(filter: familyFilter, sort: \FamilyCache.name)
+            _allGoals = Query(filter: goalFilter, sort: \GoalCache.createdAt)
+            _allGemLedgers = Query(filter: gemLedgerFilter, sort: \GemLedgerCache.createdAt)
+            _allRewardEvents = Query(filter: rewardEventFilter, sort: \RewardEventCache.timestamp)
         }
 
         // MARK: - Filtered Record Counts
@@ -108,6 +117,18 @@ import SwiftUI
             allFamilies.count
         }
 
+        private var goalCount: Int {
+            allGoals.count
+        }
+
+        private var gemLedgerCount: Int {
+            allGemLedgers.count
+        }
+
+        private var rewardEventCount: Int {
+            allRewardEvents.count
+        }
+
         // MARK: Sync Status
 
         private var syncStatusLabel: String {
@@ -128,10 +149,10 @@ import SwiftUI
 
         private var syncStatusColor: Color {
             switch syncStatusLabel {
-            case "Failed": .red
-            case "Syncing": .blue
-            case "Pending Uploads", "Pending": .orange
-            case "Synced": .green
+            case "Failed": Color(DesignSystemConstants.Colors.dangerRed)
+            case "Syncing": Color(DesignSystemConstants.Colors.accentBlue)
+            case "Pending Uploads", "Pending": Color(DesignSystemConstants.Colors.pendingAmber)
+            case "Synced": Color(DesignSystemConstants.Colors.primaryGreen)
             default: .secondary
             }
         }
@@ -156,7 +177,7 @@ import SwiftUI
             .navigationTitle("iCloud Status")
             .navigationBarTitleDisplayMode(.large)
             .task {
-                await fetchAccountStatus()
+                await refreshAccountStatus()
             }
             .onChange(of: syncCoordinator?.syncError) { _, newError in
                 if let newError, !newError.isEmpty {
@@ -191,7 +212,7 @@ import SwiftUI
                     Spacer()
                     Text("\(syncCoordinator?.pendingUploadCount ?? 0)")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle((syncCoordinator?.pendingUploadCount ?? 0) > 0 ? Color.orange : Color.secondary)
+                        .foregroundStyle((syncCoordinator?.pendingUploadCount ?? 0) > 0 ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.secondary)
                 }
 
                 HStack {
@@ -228,7 +249,7 @@ import SwiftUI
                             Text(monitor.connectionType.displayName)
                         }
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(monitor.isConnected ? Color.green : Color.red)
+                        .foregroundStyle(monitor.isConnected ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.dangerRed))
                     } else {
                         Text("Unknown")
                             .foregroundStyle(.secondary)
@@ -242,7 +263,7 @@ import SwiftUI
                             Spacer()
                             Text("Enabled")
                                 .font(.subheadline)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         }
                     }
                     if monitor.isExpensive {
@@ -268,9 +289,12 @@ import SwiftUI
                 countRow(label: "Quest Completions", count: completionCount)
                 countRow(label: "Allowance Periods", count: allowancePeriodCount)
                 countRow(label: "Ledger Entries", count: ledgerEntryCount)
+                countRow(label: "Goals", count: goalCount)
                 countRow(label: "Achievements", count: achievementCount)
                 countRow(label: "Profile Achievements", count: profileAchievementCount)
                 countRow(label: "Notification Prefs", count: notificationPrefCount)
+                countRow(label: "Gem Ledgers", count: gemLedgerCount)
+                countRow(label: "Reward Events", count: rewardEventCount)
                 countRow(label: "Families", count: familyCount)
             }
         }
@@ -305,12 +329,12 @@ import SwiftUI
             }
         }
 
-        private func accountStatusColor(_ status: CKAccountStatus) -> Color {
+        private func accountStatusColor(_ status: CloudAccountStatus) -> Color {
             switch status {
-            case .available: return .green
-            case .noAccount: return .orange
-            case .restricted: return .red
-            case .temporarilyUnavailable: return .yellow
+            case .available: return Color(DesignSystemConstants.Colors.primaryGreen)
+            case .noAccount: return Color(DesignSystemConstants.Colors.pendingAmber)
+            case .restricted: return Color(DesignSystemConstants.Colors.dangerRed)
+            case .temporarilyUnavailable: return Color(DesignSystemConstants.Colors.pendingAmber)
             case .couldNotDetermine: return .secondary
             @unknown default: return .secondary
             }
@@ -343,31 +367,15 @@ import SwiftUI
             }
         }
 
-        // MARK: — CloudKit Helpers
+        // MARK: — Account Status Refresh
 
-        private func fetchAccountStatus() async {
-            let container = CloudKitService.defaultContainer
-            do {
-                let status = try await container.accountStatus()
-                accountStatus = status
-            } catch {
-                logger.error("Failed to fetch iCloud account status: \(error, privacy: .private)")
+        private func refreshAccountStatus() async {
+            // Account status rides the lifecycle layer, which publishes the
+            // CK-free mirror the section above renders.
+            guard let lifecycleCoordinator else { return }
+            let refreshed = await lifecycleCoordinator.refreshCloudAccountStatus()
+            if !refreshed {
                 toastManager?.show(message: "Could not check your iCloud account status. Please try again.", type: .error)
-            }
-        }
-    }
-
-    // MARK: - CKAccountStatus Display Name
-
-    private extension CKAccountStatus {
-        var displayName: String {
-            switch self {
-            case .available: return "Available"
-            case .noAccount: return "No Account"
-            case .restricted: return "Restricted"
-            case .couldNotDetermine: return "Could Not Determine"
-            case .temporarilyUnavailable: return "Temporarily Unavailable"
-            @unknown default: return "Unknown"
             }
         }
     }

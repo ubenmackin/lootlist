@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 
 // MARK: - Journey Milestone
 
@@ -154,7 +155,14 @@ enum JourneyService {
             appState?.currentProfile = reconciled
         }
 
-        if let isOwner = appState?.isZoneOwner {
+        if let appState {
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwner = appState.isZoneOwner
+            if isOwner != storedOwner {
+                Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "JourneyService")
+                    .warning("JourneyService.acknowledgeJourneyLevel isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+            }
             syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         }
     }

@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import os
 import SwiftData
 import SwiftUI
@@ -38,13 +37,14 @@ struct QuestAssignmentView: View {
     enum Mode: Equatable, Identifiable {
         case fromTemplate
         case quickCreate
-        case edit(questID: CKRecord.ID)
+        // WHY: Views must not hold CloudKit types — the edit route carries a String record name.
+        case edit(questRecordName: String)
 
         var id: String {
             switch self {
             case .fromTemplate: "fromTemplate"
             case .quickCreate: "quickCreate"
-            case let .edit(id): "edit-\(id.recordName)"
+            case let .edit(recordName): "edit-\(recordName)"
             }
         }
 
@@ -99,6 +99,7 @@ struct QuestAssignmentView: View {
     // --- Shared ---
     @State private var isSubmitting: Bool = false
     @State private var userEditedQuestName: Bool = false
+    @FocusState private var isEditAmountFocused: Bool
 
     enum CreationPickerOption: String, CaseIterable, Identifiable {
         case fromTemplate = "From Template"
@@ -181,6 +182,7 @@ struct QuestAssignmentView: View {
                 Text("Hero has already started this quest. Changing the assignee will move this quest. Continue?")
             }
             .toastOverlay()
+            .decimalPadDoneToolbar(isFocused: $isEditAmountFocused)
         }
     }
 
@@ -284,7 +286,7 @@ struct QuestAssignmentView: View {
                         showOverrideAlert = true
                     }
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                 }
             } else {
                 heroPickerEdit
@@ -300,7 +302,7 @@ struct QuestAssignmentView: View {
                         HStack(spacing: 8) {
                             ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
                                 PresetPill(
-                                    text: CurrencyFormatter.string(Double(preset) ?? 0),
+                                    text: CurrencyFormatter.presetString(preset),
                                     isSelected: editGoldText == preset,
                                     action: { editGoldText = preset }
                                 )
@@ -311,20 +313,22 @@ struct QuestAssignmentView: View {
                 }
                 TextField("1.00", text: $editGoldText)
                     .keyboardType(.decimalPad)
+                    .focused($isEditAmountFocused)
                     .disabled(editHasLogs)
             }
 
-            HStack {
-                // XP still accrues invisibly behind the scenes; parents set it
-                // as an unshown "bonus" so no XP wording surfaces.
-                Text("Bonus Reward")
-                    .foregroundStyle(editHasLogs ? .secondary : .primary)
-                Spacer()
-                TextField("0", text: $editXpText)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 80)
-                    .disabled(editHasLogs)
+            // WHY: Bonus Reward/XP field is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+            if FeatureFlags.rpgImmersive {
+                HStack {
+                    Text("Bonus Reward")
+                        .foregroundStyle(editHasLogs ? .secondary : .primary)
+                    Spacer()
+                    TextField("0", text: $editXpText)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 80)
+                        .disabled(editHasLogs)
+                }
             }
 
             if isEditMultiOccurrence {
@@ -400,7 +404,7 @@ struct QuestAssignmentView: View {
             Section {
                 Text("🔒 Locked — Hero has started this quest. Name and description remain editable.")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             }
         }
     }
@@ -458,19 +462,19 @@ struct QuestAssignmentView: View {
             if selectedHero == nil {
                 selectedHero = viewModel.heroes.first
             }
-        case let .edit(questID):
-            loadQuestForEditing(questID: questID)
+        case let .edit(questRecordName):
+            loadQuestForEditing(questRecordName: questRecordName)
         }
     }
 
-    private func loadQuestForEditing(questID: CKRecord.ID) {
-        guard let quest = viewModel.activeAssignments.first(where: { $0.recordName == questID.recordName }) else { return }
+    private func loadQuestForEditing(questRecordName: String) {
+        guard let quest = viewModel.activeAssignments.first(where: { $0.recordName == questRecordName }) else { return }
         editQuestCache = quest
         // Edited quest name must not be clobbered by template selection
         userEditedQuestName = true
         editQuestName = quest.questName
         editQuestDescription = quest.descriptionText ?? ""
-        editGoldText = String(format: "%.2f", quest.goldReward)
+        editGoldText = CurrencyFormatter.editingString(quest.goldReward)
         editXpText = "\(quest.xpReward)"
         editSchedule = quest.scheduleTypeEnum ?? .weeklyFlexible
         editTargetCount = quest.targetCount
@@ -514,7 +518,8 @@ struct QuestAssignmentView: View {
         }
 
         let gold: Double? = Double(goldOverrideText.trimmingCharacters(in: .whitespaces))
-        let xp: Int? = Int(xpOverrideText.trimmingCharacters(in: .whitespaces))
+        // WHY: XP override is legacy RPG chrome — hidden when immersive off so no XP copy surfaces (ARCHITECTURE.md §1).
+        let xp: Int? = FeatureFlags.rpgImmersive ? Int(xpOverrideText.trimmingCharacters(in: .whitespaces)) : nil
         let approval: ApprovalMode? = switch approvalOverride {
         case .useTemplate: nil
         case .autoApproveOverride: .autoApprove
@@ -531,7 +536,7 @@ struct QuestAssignmentView: View {
         // Template name override: use editQuestName if non-empty, else nil (falls back to template.name)
         let nameOverride = editQuestName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : editQuestName
 
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? template.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
         isSubmitting = true
         Task {
             do {
@@ -574,7 +579,8 @@ struct QuestAssignmentView: View {
             return
         }
 
-        let xp = quickRarity.xpReward
+        // WHY: XP accrues invisibly when RPG layer is off — flat 50xp default per ARCHITECTURE.md §1.
+        let xp = FeatureFlags.rpgImmersive ? quickRarity.xpReward : AppConstants.Rarity.commonXP
 
         if quickSchedule == .specificDays, quickSpecificDays.isEmpty {
             toastManager.show(message: "Select at least one day for specific-days schedule.", type: .error)
@@ -588,7 +594,7 @@ struct QuestAssignmentView: View {
         )
         let effectiveAllOrNothing = isQuickMultiOccurrence ? quickIsAllOrNothing : false
 
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? hero.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: hero)
         isSubmitting = true
         let input = QuestManagerViewModel.QuickQuestInput(
             name: trimmedName,
@@ -636,7 +642,7 @@ struct QuestAssignmentView: View {
                     name: trimmedName,
                     description: quickDescription,
                     goldReward: gold,
-                    xpReward: quickRarity.xpReward,
+                    xpReward: FeatureFlags.rpgImmersive ? quickRarity.xpReward : AppConstants.Rarity.commonXP,
                     approvalMode: quickApproval
                 )
                 isSubmitting = false
@@ -663,9 +669,16 @@ struct QuestAssignmentView: View {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
-        guard let xp = Int(editXpText.trimmingCharacters(in: .whitespaces)), xp >= 0 else {
-            toastManager.show(message: "Bonus reward must be a valid non-negative number.", type: .error)
-            return
+        // WHY: XP hidden while RPG layer is off — use flat default so no XP copy surfaces (ARCHITECTURE.md §1).
+        let xp: Int
+        if FeatureFlags.rpgImmersive {
+            guard let parsed = Int(editXpText.trimmingCharacters(in: .whitespaces)), parsed >= 0 else {
+                toastManager.show(message: "Bonus reward must be a valid non-negative number.", type: .error)
+                return
+            }
+            xp = parsed
+        } else {
+            xp = AppConstants.Rarity.commonXP
         }
 
         if editSchedule == .specificDays, editSpecificDays.isEmpty {
@@ -678,7 +691,7 @@ struct QuestAssignmentView: View {
 
         let effectiveAllOrNothing = isEditMultiOccurrence ? editIsAllOrNothing : false
 
-        let zoneID = appState.familyZoneID ?? appState.family?.id.zoneID ?? questCache.validatedZoneID(requestedZoneID: CKRecordZone.default().zoneID)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: questCache)
         let quest = questCache.toQuest(zoneID: zoneID)
         isSubmitting = true
         let input = QuestManagerViewModel.UpdateQuestInput(

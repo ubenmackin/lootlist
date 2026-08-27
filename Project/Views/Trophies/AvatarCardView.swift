@@ -29,9 +29,9 @@ struct AvatarCardView: View {
     private var background: some View {
         LinearGradient(
             colors: [
-                Color.purple.opacity(0.45),
-                Color.blue.opacity(0.35),
-                Color.indigo.opacity(0.55)
+                Color(DesignSystemConstants.Colors.accentBlue).opacity(0.45),
+                Color(DesignSystemConstants.Colors.accentBlue).opacity(0.35),
+                Color(DesignSystemConstants.Colors.accentBlue).opacity(0.55)
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -143,6 +143,7 @@ struct AvatarCardView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
+            // Structural scrim: darkens the XP block so white copy stays legible over the gradient card.
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                 .fill(Color.black.opacity(0.25))
         )

@@ -49,14 +49,14 @@ enum HeroTransactionMode: Sendable {
     var iconTintColor: Color {
         switch self {
         case .deposit: Color.gold
-        case .withdraw: Color.orange
+        case .withdraw: Color(DesignSystemConstants.Colors.pendingAmber)
         }
     }
 
     var confirmButtonTintColor: Color? {
         switch self {
         case .deposit: nil
-        case .withdraw: Color.orange
+        case .withdraw: Color(DesignSystemConstants.Colors.pendingAmber)
         }
     }
 }
@@ -72,6 +72,7 @@ struct HeroTransactionView: View {
     @State private var description: String = ""
     @State private var amountText: String = ""
     @State private var date: Date = .init()
+    @FocusState private var isAmountFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -91,6 +92,7 @@ struct HeroTransactionView: View {
                             .foregroundStyle(mode.iconTintColor)
                         TextField("2.50", text: $amountText)
                             .keyboardType(.decimalPad)
+                            .focused($isAmountFocused)
                             .font(.body.monospacedDigit())
                     }
                 } header: {
@@ -127,6 +129,7 @@ struct HeroTransactionView: View {
                     .modifier(OptionalForegroundModifier(color: mode.confirmButtonTintColor))
                 }
             }
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             .interactiveDismissDisabled(viewModel.isLoading)
             .toastOverlay()
         }

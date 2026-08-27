@@ -80,6 +80,10 @@ final class CacheService {
         String(describing: type(of: error))
     }
 
+    /// NOTE (WWDC26 / iOS 27 SDK tracking): SwiftData observation bridging for iOS 26 uses
+    /// ModelContext.didSave notifications to trigger processPendingChanges on the main context.
+    /// When updating baseline to iOS 27 SDK, evaluate HistoryObserver / ResultsObserver to replace
+    /// custom didSave notification bridging.
     private func installDidSaveObserver() {
         guard container != nil else { return }
         didSaveTask = Task { [weak self] in
@@ -140,10 +144,13 @@ final class CacheService {
 
     private static let freshnessKeyPrefix = "cache_fresh_"
 
-    /// Legacy stamp (no scope) — prefer scope-aware overload; scope-isolated so private-only pass never satisfies shared reads (§2, CachedRecordType.fetchScopes,
-    /// completeSyncPass).
+    /// Legacy/convenience stamp (stamps legacy + all scopes). Prefer scope-aware overload; scope-isolated
+    /// so private-only pass never satisfies shared reads (§2, CachedRecordType.fetchScopes, completeSyncPass).
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
+        for scope in [CKDatabase.Scope.private, .shared] {
+            defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        }
     }
 
     /// Stamps freshness for `type` in `scope`. Scope-isolated: private-only sync must not satisfy shared-DB reads (§2, CachedRecordType.fetchScopes, completeSyncPass gating).
@@ -166,13 +173,28 @@ final class CacheService {
         return false
     }
 
-    /// Returns true if `scope` was stamped or if global legacy watermark was stamped.
+    /// Returns true if `scope` was stamped for the given family and type.
     func isCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
-        let legacyKey = freshnessKey(familyRecordName: familyRecordName, type: type)
-        if defaults.object(forKey: legacyKey) != nil {
-            return true
-        }
-        return defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
+        defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
+    }
+
+    /// Single-point authoritative policy for serving cached rows without a
+    /// CloudKit refetch. WHY: freshness-only sole authority — stale cache must
+    /// re-validate via CloudKit even when non-empty; empty-cache-offline
+    /// rendering is handled explicitly at call sites, not hidden here.
+    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, cachedCount: Int) -> Bool {
+        _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored, stale non-empty must still refetch.
+        return isCacheFresh(familyRecordName: familyRecordName, type: type)
+    }
+
+    /// Scope-aware variant — same contract, resolved against a single database
+    /// scope.
+    /// WHY: freshness-only sole authority — stale cache must re-validate via
+    /// CloudKit even when non-empty; empty-cache-offline rendering is handled
+    /// explicitly at call sites, not hidden here.
+    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, cachedCount: Int) -> Bool {
+        _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored, stale non-empty must still refetch.
+        return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
     }
 
     /// Invalidates legacy + both scopes. Scope-isolated — clears private/shared watermarks together (§2, CachedRecordType.fetchScopes).

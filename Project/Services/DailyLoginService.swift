@@ -310,7 +310,13 @@ final class DailyLoginService {
             // Gems were already minted for today (idempotent duplicate ledger), but the profile
             // claim date was out of sync. Persist the current claim state and update appState.
             await cacheService?.upsertProfile(current)
-            syncCoordinator?.enqueueSave(recordID: current.id, isOwner: appState.isZoneOwner)
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwner = appState.isZoneOwner
+            if isOwner != storedOwner {
+                logger.warning("DailyLoginService dailyLogin isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+            }
+            syncCoordinator?.enqueueSave(recordID: current.id, isOwner: isOwner)
             if let active = appState.currentProfile, active.id == current.id {
                 appState.currentProfile = current
             }

@@ -17,6 +17,8 @@ private let cacheConversionsLogger = Logger(
 
 /// Returns private/shared from zone owner — private zones use default owner
 /// or non-underscore names (tests), shared zones start with "_".
+/// NOTE: This is a pre-ingest fallback for locally-created records. At sync engine
+/// ingest time, `CKSyncEngine.database.databaseScope` is the authoritative source of truth.
 func inferDatabaseScope(from zoneID: CKRecordZone.ID) -> String {
     let owner = zoneID.ownerName
     if owner == CKCurrentUserDefaultName || owner == "TestOwner" || owner == "Owner" || !owner.hasPrefix("_") {

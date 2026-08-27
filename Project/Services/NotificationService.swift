@@ -91,9 +91,11 @@ final class NotificationService {
         // family's notification preferences. Before the
         // first sync — or after `clearAll()` — the UserDefaults mirror is the
         // source of truth for first-launch continuity.
+        // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback via UserDefaults at call site (FamilyService-style).
         if let cached = cachedPreference(for: eventType),
            let familyName = appState.family?.id.recordName,
-           cacheService?.isCacheFresh(familyRecordName: familyName, type: .notificationPreference) == true
+           let cacheService,
+           cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .notificationPreference, cachedCount: 1)
         {
             return cached.enabled
         }
@@ -169,7 +171,12 @@ final class NotificationService {
         await cacheService?.upsertNotificationPreference(preference)
         mirrorToUserDefaults(event: event, enabled: enabled)
 
-        let isOwner = appState.isZoneOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("NotificationService.updatePreference isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: preference.id, isOwner: isOwner)
         return preference
     }
@@ -222,6 +229,7 @@ final class NotificationService {
             return
         }
         let familyRecordName = appState.family?.id.recordName ?? currentProfile.family.recordID.recordName
+        // WHY: questNeedsReview is parent-only per isRelevantForHero == false — delegate gates pending to parents; preference check prevents hero re-enable bypass.
         guard isNotificationEnabled(for: eventType, profileRecordName: currentProfile.id.recordName, familyRecordName: familyRecordName) else { return }
 
         // Deep-link payload carries authoring profileID for routing to relevant review/event screens.
@@ -268,6 +276,7 @@ final class NotificationService {
     func sendQuestNeedsReview(questLog: QuestCompletion,
                               to parent: Profile) async throws
     {
+        // WHY: questNeedsReview is parent-only per isRelevantForHero == false — defaults disable for heroes and isNotificationEnabled prevents re-enable bypass.
         guard isNotificationEnabled(
             for: .questNeedsReview,
             profileRecordName: parent.id.recordName,

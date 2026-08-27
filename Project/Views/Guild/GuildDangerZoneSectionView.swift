@@ -13,8 +13,6 @@ struct GuildDangerZoneSectionView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
-    @Environment(CloudKitService.self) private var cloudKitService
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(ToastManager.self) private var toastManager
 
     @Binding var isSigningOut: Bool
@@ -64,7 +62,8 @@ struct GuildDangerZoneSectionView: View {
     private func signOut() async {
         isSigningOut = true
         defer { isSigningOut = false }
-        await appState.signOutAndDiscover(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
+        // WHY: CloudKit scope and sync coordination stay inside FamilyService so the view never holds CloudKitService.
+        await familyService.signOutAndDiscover()
     }
 
     private var deleteFamilySection: some View {
@@ -72,7 +71,7 @@ struct GuildDangerZoneSectionView: View {
             HStack {
                 Text("Danger Zone")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -91,11 +90,11 @@ struct GuildDangerZoneSectionView: View {
             }
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.red.opacity(0.10))
+                    .fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.10))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.35), lineWidth: 1)
             )
             .padding(.horizontal)
         }
@@ -122,7 +121,8 @@ struct GuildDangerZoneSectionView: View {
     @MainActor
     private func deleteFamilyAndReset() async {
         guard let family = appState.family else {
-            appState.clearSessionAndCloudKitScope(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
+            // WHY: scope clearing routed through FamilyService to keep CloudKit isolation in the service layer.
+            familyService.clearSessionAndScope()
             return
         }
 
@@ -130,7 +130,7 @@ struct GuildDangerZoneSectionView: View {
             try await familyService.deleteFamilyAndReset(family: family)
         } catch {
             logger.error("Failed to delete family zone: \(error, privacy: .private)")
-            appState.clearSessionAndCloudKitScope(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
+            familyService.clearSessionAndScope()
         }
     }
 

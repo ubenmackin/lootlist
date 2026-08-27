@@ -46,8 +46,6 @@ final class FamilyDashboardViewModel {
 
     private(set) var isLoading: Bool = false
 
-    private(set) var isLoadingPayouts: Bool = false
-
     var loadError: String?
 
     private let questService: QuestService
@@ -94,14 +92,26 @@ final class FamilyDashboardViewModel {
         achievements = achievementService
         self.familyService = familyService
         self.appState = appState
+    }
 
-        // Refresh invitations when the family roster changes.
-        rosterObserverTask = Task { [weak self] in
+    /// Starts observing family roster changes to refresh invitations when
+    /// membership updates. Must be called after `init` completes so the
+    /// `@MainActor`-isolated caches (`identityTokenCache`,
+    /// `identityLabelCounter`) are not accessed from a non-isolated context.
+    func startRosterObserver() {
+        guard rosterObserverTask == nil else { return }
+        rosterObserverTask = Task { @MainActor [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
                 guard let self else { return }
                 await self.refreshInvitations()
             }
         }
+    }
+
+    /// Stops the roster-change observer started by `startRosterObserver()`.
+    func stopRosterObserver() {
+        rosterObserverTask?.cancel()
+        rosterObserverTask = nil
     }
 
     func refresh() async {
@@ -510,48 +520,10 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    /// Async week-summary refresh that exercises the throwing wallet path.
-    /// `TreasuryService.weeklyBreakdown` throws on `GoldCalculation.totalCredit`
-    /// fetch failures; this `do/catch` boundary surfaces the failure via
-    /// `loadError` + `ToastManager` + retry instead of hanging the dashboard.
-    /// The cache-first `rebuildLists` below intentionally stays `sync`/`non-throwing`
-    /// (see its doc); this async path is for callers that need authoritative
-    /// CloudKit-backed totals (e.g. pull-to-refresh, post-payout re-query).
-    func refreshWeekSummary() async {
-        guard let family = appState.family else { return }
-        let heroesForBreakdown = heroes
-        guard !heroesForBreakdown.isEmpty else { return }
-        isLoadingPayouts = true
-        defer { isLoadingPayouts = false }
-        for hero in heroesForBreakdown {
-            let profile = resolveProfile(for: hero, family: family)
-            do {
-                _ = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: Date())
-                if loadError != nil {
-                    loadError = nil
-                }
-            } catch {
-                logger.warning("Failed to load week summary for \(hero.recordName, privacy: .private): \(error, privacy: .private)")
-                // The view observes `loadError` and surfaces the toast, so no
-                // direct `toastManager` call here (would double-toast).
-                loadError = "Could not load wallet totals. Pull to retry."
-                // Do not clear `weekSummary` — preserve last successful totals so UI doesn't hang empty.
-                break
-            }
-        }
-    }
-
-    private func resolveProfile(for cache: ProfileCache, family: Family) -> Profile {
-        cache.toProfile(zoneID: family.id.zoneID)
-    }
-
     /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
-    /// intentionally **does not throw** and does not call
-    /// `TreasuryService.weeklyBreakdown` / `GoldCalculation.totalCredit`.
+    /// intentionally does not throw or call out to CloudKit directly.
     /// It derives gold via `GoldCalculation.netWeeklyGold` (pure cache math)
-    /// so the dashboard hydrates instantly offline and never hangs on a network
-    /// failure. Throwing CloudKit work belongs in `refreshWeekSummary()` above,
-    /// which callers invoke with `do/catch` + toast + retry.
+    /// so the dashboard hydrates instantly offline and updates automatically via UDF.
     func rebuildLists(
         profiles: [ProfileCache],
         quests: [QuestCache],
@@ -699,6 +671,10 @@ final class FamilyDashboardViewModel {
                 }
             }
         }
+        // WHY: the roster observer must start post-init on the MainActor —
+        // started during init, its task could escape before every stored
+        // property is initialized.
+        startRosterObserver()
     }
 
     private func handleRecordChangedSync() {
@@ -714,6 +690,7 @@ final class FamilyDashboardViewModel {
             coordinator.unsubscribe(id: id)
             syncSubscriptionID = nil
         }
+        stopRosterObserver()
     }
 
     func reset() {
@@ -723,7 +700,6 @@ final class FamilyDashboardViewModel {
         pastPayouts = []
         loadError = nil
         isLoading = false
-        isLoadingPayouts = false
     }
 }
 

@@ -46,7 +46,7 @@ struct InviteRolePickerView: View {
                     title: "Hero",
                     subtitle: "For kids & dependents — complete quests, earn money & rewards",
                     iconName: "figure.and.child.holdinghands",
-                    gradientColors: [.blue, .purple]
+                    gradientColors: [Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.accentBlue)]
                 ) {
                     select(.hero)
                 }
@@ -56,7 +56,7 @@ struct InviteRolePickerView: View {
                     title: "Ranger",
                     subtitle: "For co-parents & guardians — manage quests, approve payouts & settings",
                     iconName: "person.2.fill",
-                    gradientColors: [Color.gold, .orange]
+                    gradientColors: [Color.gold, Color(DesignSystemConstants.Colors.pendingAmber)]
                 ) {
                     select(.ranger)
                 }

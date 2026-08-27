@@ -96,8 +96,8 @@ struct QuestCompletionEffectView: View {
     private var particleColor: Color {
         switch rarity {
         case .common: .gray
-        case .rare: .blue
-        case .epic: .purple
+        case .rare: Color(DesignSystemConstants.Colors.accentBlue)
+        case .epic: Color(DesignSystemConstants.Colors.accentBlue)
         case .legendary: Color.gold
         }
     }

@@ -99,31 +99,36 @@ struct StreakBadge: View {
             )
         case .spark:
             LinearGradient(
-                colors: [Color.red, Color.orange],
+                colors: [Color(DesignSystemConstants.Colors.dangerRed), Color(DesignSystemConstants.Colors.pendingAmber)],
                 startPoint: .top,
                 endPoint: .bottom
             )
         case .kindle:
             LinearGradient(
-                colors: [Color.orange, Color.red],
+                colors: [Color(DesignSystemConstants.Colors.pendingAmber), Color(DesignSystemConstants.Colors.dangerRed)],
                 startPoint: .top,
                 endPoint: .bottom
             )
         case .blaze:
             LinearGradient(
-                colors: [Color.red, Color.orange],
+                colors: [Color(DesignSystemConstants.Colors.dangerRed), Color(DesignSystemConstants.Colors.pendingAmber)],
                 startPoint: .top,
                 endPoint: .bottom
             )
         case .inferno:
             LinearGradient(
-                colors: [Color.blue, Color.orange, Color.yellow],
+                colors: [
+                    Color(DesignSystemConstants.Colors.accentBlue),
+                    Color(DesignSystemConstants.Colors.pendingAmber),
+                    Color.gold
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
         case .eternal:
+            // White core is a structural flame highlight, not a theme token.
             LinearGradient(
-                colors: [Color.white, Color.blue, Color.orange],
+                colors: [Color.white, Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.pendingAmber)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -132,7 +137,7 @@ struct StreakBadge: View {
 
     private var shadowColor: Color {
         if tier == .blaze {
-            return Color.red.opacity(0.8)
+            return Color(DesignSystemConstants.Colors.dangerRed).opacity(0.8)
         }
         if tier == .eternal {
             return Color.white.opacity(0.8)
@@ -168,15 +173,15 @@ struct StreakBadge: View {
             ZStack {
                 switch tier {
                 case .none, .spark:
-                    Capsule().fill(Color.orange.opacity(0.14))
+                    Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.14))
                 case .kindle:
-                    Capsule().fill(Color.orange.opacity(0.20))
+                    Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.20))
                 case .blaze:
-                    Capsule().fill(Color.orange.opacity(0.25))
+                    Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.25))
                 case .inferno:
-                    Capsule().fill(Color.orange.opacity(0.30))
+                    Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30))
                 case .eternal:
-                    Capsule().fill(Color.orange.opacity(0.35))
+                    Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.35))
                     Capsule().fill(
                         LinearGradient(
                             colors: [.clear, .white.opacity(0.3 * (sin(elapsed * 4) + 1) / 2), .clear],
@@ -196,15 +201,15 @@ struct StreakBadge: View {
         } else {
             switch tier {
             case .none, .spark:
-                Capsule().strokeBorder(Color.orange.opacity(0.55), lineWidth: 1)
+                Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.55), lineWidth: 1)
             case .kindle:
-                Capsule().strokeBorder(Color.orange.opacity(0.65), lineWidth: 1)
+                Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.65), lineWidth: 1)
             case .blaze:
-                Capsule().strokeBorder(Color.orange.opacity(0.80), lineWidth: 1.5)
+                Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.80), lineWidth: 1.5)
             case .inferno:
-                Capsule().strokeBorder(Color.orange.opacity(0.90), lineWidth: 1.5)
+                Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.90), lineWidth: 1.5)
             case .eternal:
-                Capsule().strokeBorder(Color.orange, lineWidth: 2)
+                Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber), lineWidth: 2)
             }
         }
     }
@@ -230,7 +235,7 @@ struct EmberParticlesView: View {
         ZStack {
             ForEach(0 ..< 3) { particleIndex in
                 Circle()
-                    .fill(Color.orange)
+                    .fill(Color(DesignSystemConstants.Colors.pendingAmber))
                     .frame(width: 2, height: 2)
                     .offset(x: xOffset(for: particleIndex, elapsed: elapsed), y: offset(for: particleIndex, elapsed: elapsed))
                     .opacity(opacity(for: particleIndex, elapsed: elapsed))

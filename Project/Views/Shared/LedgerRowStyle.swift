@@ -16,10 +16,10 @@ enum LedgerRowStyle {
     /// screen keeps its own neutral color for unrecognized sources.
     static func sourceIcon(for source: String, fallbackTint: Color) -> (name: String, color: Color) {
         switch source {
-        case "quest": ("checkmark.seal.fill", .green)
+        case "quest": ("checkmark.seal.fill", Color(DesignSystemConstants.Colors.primaryGreen))
         case "deposit": ("plus.circle.fill", .gold)
-        case "withdrawal": ("minus.circle.fill", .orange)
-        case "manual": ("arrow.down.circle.fill", .red)
+        case "withdrawal": ("minus.circle.fill", Color(DesignSystemConstants.Colors.pendingAmber))
+        case "manual": ("arrow.down.circle.fill", Color(DesignSystemConstants.Colors.dangerRed))
         default: ("banknote", fallbackTint)
         }
     }

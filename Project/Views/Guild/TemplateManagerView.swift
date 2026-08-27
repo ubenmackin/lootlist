@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import os
 import SwiftUI
 
@@ -29,6 +28,7 @@ struct TemplateManagerView: View {
     @State private var isAllOrNothing: Bool = false
     @State private var approvalMode: ApprovalMode = .autoApprove
     @State private var isSaving: Bool = false
+    @FocusState private var isAmountFocused: Bool
 
     private static let weekdayCodes: [String] = AppConstants.weekdayCodes
 
@@ -50,7 +50,7 @@ struct TemplateManagerView: View {
                             HStack(spacing: 8) {
                                 ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
                                     PresetPill(
-                                        text: CurrencyFormatter.string(Double(preset) ?? 0),
+                                        text: CurrencyFormatter.presetString(preset),
                                         isSelected: defaultGoldText == preset,
                                         action: { defaultGoldText = preset }
                                     )
@@ -60,34 +60,35 @@ struct TemplateManagerView: View {
                         }
                         TextField("1.00", text: $defaultGoldText)
                             .keyboardType(.decimalPad)
+                            .focused($isAmountFocused)
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            // Rarity tiers still size rewards internally;
-                            // parents pick them by plain effort label while
-                            // the XP figure stays hidden.
-                            Text("Bonus Tier")
-                                .font(.subheadline)
-                            Spacer()
-                            Text("\(selectedRarity.xpReward) bonus")
-                                .font(.subheadline.bold())
-                                .foregroundStyle(selectedRarity.color)
-                        }
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(QuestRarity.allCases) { rarity in
-                                    PresetPill(
-                                        text: "\(FlavorTextProvider.rewardTierName(for: rarity)) (\(rarity.xpReward) bonus)",
-                                        isSelected: selectedRarity == rarity,
-                                        action: { selectedRarity = rarity },
-                                        systemImage: rarity.iconSystemName,
-                                        color: rarity.color
-                                    )
-                                }
+                    // WHY: Bonus Tier/XP picker is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+                    if FeatureFlags.rpgImmersive {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Bonus Tier")
+                                    .font(.subheadline)
+                                Spacer()
+                                Text("\(selectedRarity.xpReward) bonus")
+                                    .font(.subheadline.bold())
+                                    .foregroundStyle(selectedRarity.color)
                             }
-                            .padding(.vertical, 2)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(QuestRarity.allCases) { rarity in
+                                        PresetPill(
+                                            text: "\(FlavorTextProvider.rewardTierName(for: rarity)) (\(rarity.xpReward) bonus)",
+                                            isSelected: selectedRarity == rarity,
+                                            action: { selectedRarity = rarity },
+                                            systemImage: rarity.iconSystemName,
+                                            color: rarity.color
+                                        )
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
                         }
                     }
                 }
@@ -167,6 +168,7 @@ struct TemplateManagerView: View {
                     .disabled(isSaving)
                 }
             }
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             .onAppear(perform: hydrateFromEditing)
             .toastOverlay()
         }
@@ -184,7 +186,7 @@ struct TemplateManagerView: View {
         guard let editing else { return }
         name = editing.name
         descriptionText = editing.description
-        defaultGoldText = String(format: "%.2f", editing.defaultGold)
+        defaultGoldText = CurrencyFormatter.editingString(editing.defaultGold)
         selectedRarity = editing.rarity
         schedule = editing.scheduleType
         specificDays = Set(editing.specificDays)
@@ -205,7 +207,8 @@ struct TemplateManagerView: View {
             toastManager.show(message: "Reward must be a non-negative number.", type: .error)
             return
         }
-        let xp = selectedRarity.xpReward
+        // WHY: XP accrues invisibly when RPG layer is off — flat 50xp default per ARCHITECTURE.md §1.
+        let xp = FeatureFlags.rpgImmersive ? selectedRarity.xpReward : AppConstants.Rarity.commonXP
         if schedule == .specificDays, specificDays.isEmpty {
             toastManager.show(message: "Pick at least one day for Specific-Days schedule.", type: .error)
             return

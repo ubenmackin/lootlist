@@ -73,7 +73,7 @@ final class CKSyncConflictResolver {
             let scope: CKDatabase.Scope = if let databaseScope {
                 databaseScope
             } else {
-                (appState?.isZoneOwner == true) ? .private : ((record.recordID.zoneID.ownerName == CKCurrentUserDefaultName) ? .private : .shared)
+                ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : ((record.recordID.zoneID.ownerName == CKCurrentUserDefaultName) ? .private : .shared)
             }
             await handleDeletedRecord(
                 recordID: record.recordID,

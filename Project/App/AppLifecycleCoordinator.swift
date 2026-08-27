@@ -69,9 +69,14 @@ final class AppLifecycleCoordinator {
         var hasCompletedInitialBootstrap = false
         var lastSynchronizedScopeKey: String?
         var lastObservedZoneID: (zoneName: String, ownerName: String)?
+        var lastReconnectTriggeredSyncAt: Date?
     }
 
     private let state = Mutex<LifecycleFlags>(LifecycleFlags())
+
+    /// WHY: each reconnect-triggered sync runs a full multi-query CloudKit
+    /// snapshot pass — connectivity flaps within this window coalesce into one.
+    private static let reconnectSyncMinimumInterval: TimeInterval = 45
 
     // MARK: - Test Accessors
 
@@ -113,6 +118,7 @@ final class AppLifecycleCoordinator {
     private weak var appSyncCoordinator: AppSyncCoordinator?
     private weak var dataMigrationsCoordinator: DataMigrationsCoordinator?
     private weak var autoPayoutCoordinator: AutoPayoutCoordinator?
+    var achievementService: AchievementService?
     private let cloudKitService: any CloudKitServiceProtocol
 
     /// Injected scheduler so tests can simulate a failing `scheduleWeeklyPayoutRefresh`.
@@ -120,6 +126,7 @@ final class AppLifecycleCoordinator {
 
     @ObservationIgnored private var sessionClearTask: Task<Void, Never>?
     @ObservationIgnored private var zoneChangeTask: Task<Void, Never>?
+    @ObservationIgnored private var networkReconnectTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -163,11 +170,36 @@ final class AppLifecycleCoordinator {
                 self.invalidateScopeForZoneChange()
             }
         }
+
+        // Trigger automatic catch-up sync when network connectivity returns.
+        // Throttled: rapid reconnect flaps must not each fire a full snapshot pass.
+        networkReconnectTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .networkDidReconnect) {
+                guard !Task.isCancelled, let self else { break }
+                let shouldSync: Bool = self.state.withLock { flags in
+                    let last = flags.lastReconnectTriggeredSyncAt ?? .distantPast
+                    guard Date().timeIntervalSince(last) >= Self.reconnectSyncMinimumInterval else {
+                        return false
+                    }
+                    flags.lastReconnectTriggeredSyncAt = Date()
+                    return true
+                }
+                guard shouldSync else {
+                    self.logger
+                        .debug(
+                            "Reconnect sync throttled: last pass within \(Self.reconnectSyncMinimumInterval)s window"
+                        )
+                    continue
+                }
+                await self.performManualSync()
+            }
+        }
     }
 
     deinit {
         sessionClearTask?.cancel()
         zoneChangeTask?.cancel()
+        networkReconnectTask?.cancel()
     }
 
     /// Convenience initializer preserving the existing `CKSyncEngineCoordinator` call site.
@@ -201,6 +233,7 @@ final class AppLifecycleCoordinator {
             flags.phase = .idle
             flags.isManualSyncing = false
             flags.lastObservedZoneID = nil
+            flags.lastReconnectTriggeredSyncAt = nil
         }
         logger.info("Lifecycle scope state invalidated after session clear")
     }
@@ -338,7 +371,7 @@ final class AppLifecycleCoordinator {
 
         logger.info("Starting initial bootstrap sequence")
 
-        await checkCloudKitAccountStatus()
+        await refreshCloudAccountStatus()
 
         if let appState {
             await cloudKitService.processAbandonedZonesQueue(appState: appState)
@@ -363,7 +396,7 @@ final class AppLifecycleCoordinator {
             return
         }
 
-        await reconcileParticipantCacheFromSharedDatabase()
+        await reconcileCacheFromCloudKit()
 
         if let zoneID = appState?.familyZoneID {
             let db = cloudKitService.database(isOwner: appState?.isZoneOwner ?? false)
@@ -386,6 +419,8 @@ final class AppLifecycleCoordinator {
             logger.warning("Bootstrap not marked completed: payout scheduler failed")
             return
         }
+
+        await evaluateTrophiesCatchup()
 
         state.withLock { $0.hasCompletedInitialBootstrap = true }
         logger.info("Initial bootstrap sequence completed successfully")
@@ -410,7 +445,7 @@ final class AppLifecycleCoordinator {
         let scopeKey = "\(profile.id.recordName)|\(family.id.recordName)|\(zoneID.zoneName)|\(zoneID.ownerName)|\(appState.isZoneOwner)"
         let enginesNeedInitialization: Bool = {
             if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
-                return concrete.privateSyncEngine == nil || concrete.sharedSyncEngine == nil
+                return concrete.activeEngine(isOwner: appState.isZoneOwner) == nil
             }
             return false
         }()
@@ -426,6 +461,8 @@ final class AppLifecycleCoordinator {
 
         await syncCoordinator.fetchChanges()
         await syncCoordinator.sendPendingChanges()
+        await reconcileCacheFromCloudKit()
+        await evaluateTrophiesCatchup()
 
         let wrappedZoneID = (zoneName: zoneID.zoneName, ownerName: zoneID.ownerName)
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator, concrete.syncError == nil {
@@ -443,110 +480,132 @@ final class AppLifecycleCoordinator {
         return true
     }
 
-    private func reconcileParticipantCacheFromSharedDatabase() async {
+    private struct FamilySnapshot {
+        let inboundRecords: [CKRecord]
+        let validRecordNamesByType: [CachedRecordType: Set<String>]
+        let isEmpty: Bool
+    }
+
+    private func fetchSnapshotRecords(
+        _ type: (some CloudKitRecord).Type,
+        predicate: NSPredicate,
+        zoneID: CKRecordZone.ID,
+        db: CKDatabase?
+    ) async throws -> ([CKRecord], Set<String>) {
+        let models = try await cloudKitService.query(type, predicate: predicate, in: zoneID, sortDescriptors: nil, using: db)
+        let records = models.map { $0.toRecord() }
+        let names = Set(records.map(\.recordID.recordName))
+        return (records, names)
+    }
+
+    private func fetchFamilySnapshot(family: Family, zoneID: CKRecordZone.ID, isOwner: Bool) async throws -> FamilySnapshot {
+        let db = isOwner ? cloudKitService.privateDatabase : cloudKitService.sharedDatabase
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let familyPredicate = NSPredicate(format: "family == %@", familyRef)
+        let idPredicate = NSPredicate(format: "recordID == %@", family.id)
+
+        let (quests, questNames) = try await fetchSnapshotRecords(Quest.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (entries, entryNames) = try await fetchSnapshotRecords(LedgerEntry.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (completions, completionNames) = try await fetchSnapshotRecords(QuestCompletion.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (periods, periodNames) = try await fetchSnapshotRecords(AllowancePeriod.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (goals, goalNames) = try await fetchSnapshotRecords(Goal.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (profiles, profileNames) = try await fetchSnapshotRecords(Profile.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (templates, templateNames) = try await fetchSnapshotRecords(QuestTemplate.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (families, familyNames) = try await fetchSnapshotRecords(Family.self, predicate: idPredicate, zoneID: zoneID, db: db)
+        let (achievements, achievementNames) = try await fetchSnapshotRecords(Achievement.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (profileAchievements, profileAchievementNames) = try await fetchSnapshotRecords(ProfileAchievement.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (notifPrefs, notifPrefNames) = try await fetchSnapshotRecords(NotificationPreference.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (gemLedgers, gemLedgerNames) = try await fetchSnapshotRecords(GemLedger.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+        let (rewardEvents, rewardEventNames) = try await fetchSnapshotRecords(RewardEvent.self, predicate: familyPredicate, zoneID: zoneID, db: db)
+
+        let inboundRecords = quests + entries + completions + periods + goals + profiles
+            + templates + families + achievements + profileAchievements + notifPrefs + gemLedgers + rewardEvents
+
+        let validRecordNamesByType: [CachedRecordType: Set<String>] = [
+            .quest: questNames,
+            .ledgerEntry: entryNames,
+            .questCompletion: completionNames,
+            .allowancePeriod: periodNames,
+            .goal: goalNames,
+            .profile: profileNames,
+            .questTemplate: templateNames,
+            .family: familyNames,
+            .achievement: achievementNames,
+            .profileAchievement: profileAchievementNames,
+            .notificationPreference: notifPrefNames,
+            .gemLedger: gemLedgerNames,
+            .rewardEvent: rewardEventNames
+        ]
+
+        let isEmpty = validRecordNamesByType.values.allSatisfy(\.isEmpty)
+
+        return FamilySnapshot(
+            inboundRecords: inboundRecords,
+            validRecordNamesByType: validRecordNamesByType,
+            isEmpty: isEmpty
+        )
+    }
+
+    private func reconcileCacheFromCloudKit() async {
         guard let appState,
-              !appState.isZoneOwner,
               let family = appState.family,
               let zoneID = appState.familyZoneID
         else {
             return
         }
 
-        // A shared-zone change token can remain ahead of the participant cache
-        // after account recovery or zone-state migration. Reconcile the small
-        // family dataset directly so inactive quest tombstones and deposits
-        // cannot remain stale when CKSyncEngine reports no zone changes.
+        let isOwner = appState.isZoneOwner
         do {
-            let quests = try await cloudKitService.query(
-                Quest.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID,
-                sortDescriptors: nil,
-                using: cloudKitService.sharedDatabase
-            )
-            let entries = try await cloudKitService.query(
-                LedgerEntry.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID,
-                sortDescriptors: nil,
-                using: cloudKitService.sharedDatabase
-            )
-            let completions = try await cloudKitService.query(
-                QuestCompletion.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID,
-                sortDescriptors: nil,
-                using: cloudKitService.sharedDatabase
-            )
-            let periods = try await cloudKitService.query(
-                AllowancePeriod.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID,
-                sortDescriptors: nil,
-                using: cloudKitService.sharedDatabase
-            )
-            let serverQuestNames = Set(quests.map(\.id.recordName))
-            let serverEntryNames = Set(entries.map(\.id.recordName))
-            let serverCompletionNames = Set(completions.map(\.id.recordName))
-            let serverPeriodNames = Set(periods.map(\.id.recordName))
+            let snapshot = try await fetchFamilySnapshot(family: family, zoneID: zoneID, isOwner: isOwner)
 
-            // An entirely empty snapshot usually means the shared scope has not
-            // settled yet (fresh join, account recovery) rather than a genuinely
-            // emptied family; pruning against it would wipe the local cache.
-            guard !serverQuestNames.isEmpty || !serverEntryNames.isEmpty
-                || !serverCompletionNames.isEmpty || !serverPeriodNames.isEmpty
-            else { return }
-
-            // Records travel as CKRecords and are re-parsed canonically so each
-            // upsert keeps its changeTag and encoded system fields; a direct
-            // domain-struct write would drop them and clobber unsynced local
-            // edits on the next merge.
-            let inboundRecords = quests.map { $0.toRecord() }
-                + entries.map { $0.toRecord() }
-                + completions.map { $0.toRecord() }
-                + periods.map { $0.toRecord() }
-            guard let backgroundCache = appState.backgroundCacheActor else {
-                logger.info("Participant cache reconciliation skipped without a background cache actor")
+            guard !snapshot.isEmpty else {
+                logger
+                    .warning("Cache reconciliation aborted: empty snapshot for family \(family.id.recordName, privacy: .private) — pruning skipped to preserve pending rows")
                 return
             }
-            // Upsert and prune land in one transaction: a failure leaves rows
-            // in place for the next pass instead of invalidating ahead of
-            // their replacement. Reconciliation is not a user event — any
-            // notifications these records warranted already fired on whichever
-            // device authored them.
-            guard let outcome = await backgroundCache.reconcileParticipantSet(
-                records: inboundRecords,
-                validRecordNamesByType: [
-                    .quest: serverQuestNames,
-                    .ledgerEntry: serverEntryNames,
-                    .questCompletion: serverCompletionNames,
-                    .allowancePeriod: serverPeriodNames
-                ],
-                familyRecordName: family.id.recordName,
-                databaseScope: .shared,
-                zoneID: zoneID
-            )
-            else { return }
 
-            // Failures log here rather than flowing into the sync-pass
-            // counters: reconciliation runs outside the fetch pass they gate.
-            if !outcome.commitSucceeded {
-                logger.error(
-                    "Participant cache reconciliation commit failed; \(outcome.recordCount, privacy: .public) record(s) left for the next pass"
+            if !isOwner, let backgroundCache = appState.backgroundCacheActor {
+                guard let outcome = await backgroundCache.reconcileParticipantSet(
+                    records: snapshot.inboundRecords,
+                    validRecordNamesByType: snapshot.validRecordNamesByType,
+                    familyRecordName: family.id.recordName,
+                    databaseScope: .shared,
+                    zoneID: zoneID
                 )
-            } else if outcome.parseFailures > 0 {
-                logger.warning("Participant cache reconciliation dropped \(outcome.parseFailures, privacy: .public) unparseable record(s)")
+                else { return }
+
+                if !outcome.commitSucceeded {
+                    logger.error(
+                        "Participant cache reconciliation commit failed; \(outcome.recordCount, privacy: .public) record(s) left for the next pass"
+                    )
+                } else if outcome.parseFailures > 0 {
+                    logger.warning("Participant cache reconciliation dropped \(outcome.parseFailures, privacy: .public) unparseable record(s)")
+                }
+            } else if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
+                await concrete.delegateHandler.handleIncomingRecordsDirectly(
+                    snapshot.inboundRecords,
+                    databaseScope: .private,
+                    zoneID: zoneID
+                )
+            } else if let backgroundCache = appState.backgroundCacheActor {
+                let parsed = snapshot.inboundRecords.map { ParsedRecord.parse(record: $0) }
+                await backgroundCache.batchUpsertParsedRecords(parsed)
             }
         } catch {
-            logger.error("Participant cache reconciliation failed: \(error, privacy: .private)")
+            logger.error("Cache reconciliation failed: \(error, privacy: .private)")
         }
     }
 
-    private func checkCloudKitAccountStatus() async {
-        guard !TestEnvironment.isRunningUnitOrUITests else { return }
-        let container = CloudKitService.defaultContainer
+    /// Refreshes the iCloud account status and publishes the CK-free mirror
+    /// onto `appState.cloudAccountStatus`. Views read that published value;
+    /// the container call stays in the lifecycle layer. Returns whether the
+    /// check completed so callers can surface a failure.
+    @discardableResult
+    func refreshCloudAccountStatus() async -> Bool {
+        guard !TestEnvironment.isRunningUnitOrUITests else { return false }
         do {
-            let status = try await container.accountStatus()
+            let status = try await CloudKitService.defaultContainer.accountStatus()
+            appState?.cloudAccountStatus = CloudAccountStatus(status)
             switch status {
             case .available:
                 break
@@ -555,8 +614,22 @@ final class AppLifecycleCoordinator {
             @unknown default:
                 break
             }
+            return true
         } catch {
             logger.error("CloudKit availability check failed: \(error, privacy: .private)")
+            return false
+        }
+    }
+
+    private func evaluateTrophiesCatchup() async {
+        guard let appState, let profile = appState.currentProfile, let family = appState.family, let achievementService else { return }
+        do {
+            let awarded = try await achievementService.evaluateAll(for: profile, family: family)
+            if !awarded.isEmpty {
+                logger.info("Trophy catchup awarded \(awarded.count, privacy: .public) trophies: \(awarded.map(\.name).joined(separator: ", "), privacy: .public)")
+            }
+        } catch {
+            logger.warning("Trophy catchup evaluation failed: \(error, privacy: .private)")
         }
     }
 
@@ -575,7 +648,8 @@ final class AppLifecycleCoordinator {
         logger.info("Starting foreground sync")
         await syncCoordinator?.fetchChanges()
         await syncCoordinator?.sendPendingChanges()
-        await reconcileParticipantCacheFromSharedDatabase()
+        await reconcileCacheFromCloudKit()
+        await evaluateTrophiesCatchup()
         logger.info("Foreground sync completed")
     }
 
@@ -599,7 +673,8 @@ final class AppLifecycleCoordinator {
         }
         await syncCoordinator?.fetchChanges()
         await syncCoordinator?.sendPendingChanges()
-        await reconcileParticipantCacheFromSharedDatabase()
+        await reconcileCacheFromCloudKit()
+        await evaluateTrophiesCatchup()
         logger.info("Manual sync completed")
     }
 
@@ -643,7 +718,7 @@ final class AppLifecycleCoordinator {
             return
         }
 
-        await reconcileParticipantCacheFromSharedDatabase()
+        await reconcileCacheFromCloudKit()
 
         let db = cloudKitService.database(isOwner: appState.isZoneOwner)
         await appSyncCoordinator?.registerSubscriptions(for: zoneID, in: db)
@@ -682,7 +757,7 @@ final class AppLifecycleCoordinator {
 
         await syncCoordinator?.fetchChanges()
         await syncCoordinator?.sendPendingChanges()
-        await reconcileParticipantCacheFromSharedDatabase()
+        await reconcileCacheFromCloudKit()
     }
 
     // MARK: - Background Tasks

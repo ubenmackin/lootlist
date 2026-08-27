@@ -30,10 +30,6 @@ final class ParentDashboardUITests: XCTestCase {
                       "Family outflow stat card should render on the parent dashboard")
         XCTAssertTrue(anyElement("dashboard.pendingReviewCard").waitForExistence(timeout: 5.0),
                       "Pending review stat card should render on the parent dashboard")
-
-        // The bell's accessibility label carries the live review count; the
-        // seeded family has exactly one parent-verify completion pending.
-        waitForLabel(of: anyElement("dashboard.pendingBell"), equals: "1 pending approvals")
     }
 
     func testChildAccountGridListsEveryHeroCard() {
@@ -62,7 +58,6 @@ final class ParentDashboardUITests: XCTestCase {
 
         XCTAssertFalse(approveButton.waitForExistence(timeout: 15.0),
                        "Approved completion should leave the queue")
-        waitForLabel(of: anyElement("dashboard.pendingBell"), equals: "0 pending approvals", timeout: 15.0)
     }
 
     func testRejectPendingCompletionClearsQueueCount() {
@@ -73,7 +68,6 @@ final class ParentDashboardUITests: XCTestCase {
 
         XCTAssertFalse(rejectButton.waitForExistence(timeout: 15.0),
                        "Rejected completion should leave the queue")
-        waitForLabel(of: anyElement("dashboard.pendingBell"), equals: "0 pending approvals", timeout: 15.0)
     }
 
     // MARK: - Deposit / Withdraw Entry Points

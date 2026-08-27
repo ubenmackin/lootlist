@@ -62,14 +62,14 @@ struct BalanceCardView: View {
                     Text("\(CurrencyFormatter.string(pendingPayoutAmount)) Pending Weekly Payout")
                 }
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
-                    Capsule().fill(Color.orange.opacity(0.12))
+                    Capsule().fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12))
                 )
                 .overlay(
-                    Capsule().strokeBorder(Color.orange.opacity(0.40), lineWidth: 1)
+                    Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.40), lineWidth: 1)
                 )
             }
         }

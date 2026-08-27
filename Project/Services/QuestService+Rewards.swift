@@ -68,7 +68,14 @@ extension QuestService {
                     return 0
                 }
                 await cacheService?.upsertRewardEvent(rewardEvent)
-                syncCoordinator?.enqueueRewardEvent(rewardEvent, isOwner: appState.isZoneOwner)
+                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+                let isOwnerReward = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+                let storedOwnerReward = appState.isZoneOwner
+                if isOwnerReward != storedOwnerReward {
+                    Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
+                        .warning("QuestService.applyReward rewardEvent isOwner corrected via creator anchor: stored=\(storedOwnerReward) resolved=\(isOwnerReward)")
+                }
+                syncCoordinator?.enqueueRewardEvent(rewardEvent, isOwner: isOwnerReward)
 
                 // Grant XP only after this device atomically claimed the event.
                 try await xpService.addXP(totalXP, to: hero)
@@ -76,7 +83,13 @@ extension QuestService {
                 var updatedQuest = currentQuest
                 updatedQuest.xpBanked = currentQuest.xpBanked + remaining
                 await cacheService?.upsertQuest(updatedQuest)
-                let isOwner = appState.isZoneOwner
+                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+                let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+                let storedOwner = appState.isZoneOwner
+                if isOwner != storedOwner {
+                    Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
+                        .warning("QuestService.applyReward quest isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+                }
                 syncCoordinator?.enqueueSave(recordID: updatedQuest.id, isOwner: isOwner)
 
                 await stampCompletionCredit(completion, xpGain: remaining)
@@ -143,7 +156,13 @@ extension QuestService {
         var updated = completion
         updated.xpCredited = xpGain
         await cacheService?.upsertQuestCompletion(updated)
-        let isOwner = appState?.isZoneOwner ?? false
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
+                .warning("QuestService.stampCompletionCredit isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }
 
@@ -160,11 +179,12 @@ extension QuestService {
     /// unfresh; the computed streak is used only when cache is fresh.
     private func currentStreak(for hero: Profile, familyName: String) -> Int {
         guard let cache = cacheService else { return hero.dailyLoginStreakDays }
-        if !cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion) {
-            return hero.dailyLoginStreakDays
-        }
         let heroLogs = cache.fetchQuestCompletions(family: familyName)
             .filter { $0.completerRecordName == hero.id.recordName }
+        // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback handled at call site (FamilyService-style).
+        if !cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, cachedCount: heroLogs.count) {
+            return hero.dailyLoginStreakDays
+        }
         return StreakCalculator.computeStreak(from: heroLogs)
     }
 }

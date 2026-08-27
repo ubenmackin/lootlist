@@ -30,7 +30,7 @@ struct RoleSelectionView: View {
                     title: "Create a Family",
                     subtitle: "Become the Guild Master and invite your family.",
                     icon: "crown.fill",
-                    gradient: [.orange, .yellow]
+                    gradient: [Color(DesignSystemConstants.Colors.pendingAmber), Color.gold]
                 )
 
                 intentCard(
@@ -38,7 +38,7 @@ struct RoleSelectionView: View {
                     title: "Join a Family",
                     subtitle: "Tap to wait for your parent's invitation.",
                     icon: "figure.and.child.holdinghands",
-                    gradient: [.blue, .purple]
+                    gradient: [Color(DesignSystemConstants.Colors.accentBlue), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.75)]
                 )
             }
             .padding(.horizontal, 24)
@@ -47,7 +47,7 @@ struct RoleSelectionView: View {
         }
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color.purple.opacity(0.1)],
+                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.1)],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()

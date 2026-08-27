@@ -590,4 +590,66 @@ struct AppLifecycleCoordinatorTests {
         let refreshSuccess = await lifecycle.handleWeeklyPayoutBackgroundRefresh()
         #expect(refreshSuccess == true)
     }
+
+    @Test
+    func `networkDidReconnect notification triggers manual sync`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
+        let zoneID = CKRecordZone.ID(zoneName: "ReconnectZone", ownerName: "Owner")
+        let family = Family(name: "Reconnect Family", createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID), id: CKRecord.ID(recordName: "family_reconnect", zoneID: zoneID))
+        let profile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: MockCloudKitService.mockUserRecordName, zoneID: zoneID),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "hero_reconnect", zoneID: zoneID)
+        )
+
+        let cloudKit = MockCloudKitService()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        appState.cacheService = cache
+        appState.family = family
+        appState.currentProfile = profile
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = false
+        appState.authStatus = .authenticated
+        appState.saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: false)
+
+        let appSync = AppSyncCoordinator()
+        let migrations = DataMigrationsCoordinator(defaults: defaults)
+        let toast = ToastManager()
+        let notification = NotificationService(cloudKit: cloudKit, appState: appState, cacheService: cache, defaults: defaults)
+        let xp = XPService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
+        let treasury = TreasuryService(cloudKit: cloudKit, notificationService: notification, cacheService: cache, appState: appState)
+        let quest = QuestService(
+            cloudKit: cloudKit,
+            xpService: xp,
+            notificationService: notification,
+            cacheService: cache,
+            treasuryService: treasury,
+            toastManager: toast,
+            appState: appState
+        )
+        let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: quest, cacheService: cache)
+        let autoPayout = AutoPayoutCoordinator(treasuryService: treasury, questService: quest, familyService: familyService, appState: appState, toastManager: toast)
+        let sync = CountingSyncCoordinator()
+        let lifecycle = AppLifecycleCoordinator(
+            appState: appState,
+            cloudKitService: cloudKit,
+            syncCoordinator: sync,
+            appSyncCoordinator: appSync,
+            dataMigrationsCoordinator: migrations,
+            autoPayoutCoordinator: autoPayout
+        )
+        lifecycle.setHasCompletedInitialBootstrapForTests(true)
+
+        #expect(sync.fetchCount == 0)
+        // Give background task time to register notification listener
+        try? await Task.sleep(for: .milliseconds(50))
+        NotificationCenter.default.post(name: .networkDidReconnect, object: nil)
+
+        // Allow async task to receive notification and execute
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(sync.fetchCount >= 1)
+    }
 }

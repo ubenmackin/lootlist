@@ -14,7 +14,7 @@ struct ProgressBar: View {
 
     let label: String?
 
-    var tint: Color = .blue
+    var tint: Color = .init(DesignSystemConstants.Colors.accentBlue)
 
     var height: CGFloat = 8
 

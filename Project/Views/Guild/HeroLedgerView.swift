@@ -31,6 +31,7 @@ struct HeroLedgerView: View {
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
 
     init(hero: ProfileCache, familyRecordName: String?, spending: SpendingService) {
         self.hero = hero
@@ -41,6 +42,7 @@ struct HeroLedgerView: View {
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        let allowancePeriodFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
 
         _cachedLedgers = Query(
             filter: ledgerFilter,
@@ -55,6 +57,11 @@ struct HeroLedgerView: View {
         _cachedCompletions = Query(
             filter: completionFilter,
             sort: \QuestCompletionCache.completedDate,
+            order: .reverse
+        )
+        _cachedAllowancePeriods = Query(
+            filter: allowancePeriodFilter,
+            sort: \AllowancePeriodCache.weekOf,
             order: .reverse
         )
     }
@@ -95,6 +102,7 @@ struct HeroLedgerView: View {
         .onChange(of: cachedLedgers) { _, _ in rebuild() }
         .onChange(of: cachedQuests) { _, _ in rebuild() }
         .onChange(of: cachedCompletions) { _, _ in rebuild() }
+        .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
         .onChange(of: scope) { _, _ in rebuild() }
         .sheet(isPresented: $isShowingDeposit) {
             if let vm = viewModel {
@@ -134,6 +142,7 @@ struct HeroLedgerView: View {
             ledgers: cachedLedgers,
             quests: cachedQuests,
             completions: cachedCompletions,
+            allowancePeriods: cachedAllowancePeriods,
             scope: scope
         )
     }
@@ -187,10 +196,10 @@ struct HeroLedgerView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color(.secondarySystemGroupedBackground))
             )
-            .foregroundStyle(Color.green)
+            .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.green.opacity(0.4), lineWidth: 1)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.4), lineWidth: 1)
             )
         }
     }
@@ -210,10 +219,10 @@ struct HeroLedgerView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color(.secondarySystemGroupedBackground))
             )
-            .foregroundStyle(Color.orange)
+            .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.orange.opacity(0.4), lineWidth: 1)
+                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.4), lineWidth: 1)
             )
         }
     }
@@ -278,7 +287,7 @@ struct HeroLedgerView: View {
 
                 Text(GoldFormat.signed(entry.amount))
                     .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(entry.amount >= 0 ? Color.gold : .red)
+                    .foregroundStyle(entry.amount >= 0 ? Color.gold : Color(DesignSystemConstants.Colors.dangerRed))
             }
             .padding(12)
             .background(

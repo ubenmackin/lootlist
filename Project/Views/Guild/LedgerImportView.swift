@@ -102,7 +102,7 @@ struct LedgerImportView: View {
             if let message = viewModel?.errorMessage {
                 Text(message)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -174,7 +174,7 @@ struct LedgerImportView: View {
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.red)
+                .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
             }
             Button {
                 Task { await vm.finalize() }
@@ -198,7 +198,7 @@ struct LedgerImportView: View {
             if let message = vm.errorMessage {
                 Text(message)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
             }
         }
     }
@@ -253,6 +253,9 @@ private struct StagedRowEditor: View {
     let onAmountChange: (String) -> Void
     let onDateChange: (String) -> Void
 
+    /// Decimal pad has no return key — Done button dismisses keyboard.
+    @FocusState private var isAmountFocused: Bool
+
     private var isBlocked: Bool {
         !row.isExcluded && (!row.isAssigned || row.parseIssue != nil || row.amount == nil || row.date == nil)
     }
@@ -281,7 +284,9 @@ private struct StagedRowEditor: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.caption.monospacedDigit())
                     .keyboardType(.decimalPad)
+                    .focused($isAmountFocused)
                     .frame(width: 90)
+                    .decimalPadDoneToolbar(isFocused: $isAmountFocused)
 
                 TextField("Date", text: binding(get: \.dateText, onChange: onDateChange))
                     .textFieldStyle(.roundedBorder)
@@ -296,24 +301,24 @@ private struct StagedRowEditor: View {
                 }
             }
             .font(.caption.weight(.medium))
-            .foregroundStyle(isBlocked ? Color.red : Color.primary)
+            .foregroundStyle(isBlocked ? Color(DesignSystemConstants.Colors.dangerRed) : Color.primary)
 
             if let issue = row.parseIssue {
                 Label(issue, systemImage: "exclamationmark.circle.fill")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
             }
             if !row.isAssigned, !row.isExcluded {
                 Label("Assign a hero before importing", systemImage: "person.crop.circle.badge.exclamationmark")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
             }
         }
         .opacity(row.isExcluded ? 0.45 : 1)
         .overlay(alignment: .leading) {
             if isBlocked {
                 Rectangle()
-                    .fill(Color.red)
+                    .fill(Color(DesignSystemConstants.Colors.dangerRed))
                     .frame(width: 3)
                     .clipShape(Capsule())
             }

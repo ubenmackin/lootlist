@@ -7,6 +7,7 @@
 
 import CloudKit
 import Foundation
+import os
 
 // MARK: - ActiveFamilyScopeGuard
 
@@ -18,6 +19,8 @@ import Foundation
 /// mismatched — a stale or unresolved identity must not block the offline cache
 /// fallback path.
 enum ActiveFamilyScopeGuard {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ScopeGuard")
+
     /// Validates that a mutation targets the profile bound to the authenticated
     /// session. Profile IDs supplied by callers are not an authorization
     /// boundary; the active session must identify the target explicitly.
@@ -142,6 +145,40 @@ enum ActiveFamilyScopeGuard {
         )
     }
 
+    // MARK: - Owner Anchor Resolution
+
+    /// Owner identity resolved from the server-stamped anchor, not role.
+    /// `Family.creatorUserRecordName` is the immutable owner signal; when present
+    /// it dictates the database scope. Role alone is forgeable and must not drive
+    /// `isZoneOwner`-equivalent decisions for sync routing.
+    @MainActor
+    static func resolvedIsOwner(appState: AppState?) -> Bool {
+        guard let appState else { return false }
+        if let creator = appState.family?.creatorUserRecordName,
+           isResolvedCreatorAnchor(creator)
+        {
+            if let current = appState.currentProfile {
+                return current.iCloudUserID.recordName == creator
+            }
+            logger.warning("isZoneOwner fallback: family has creator anchor but no currentProfile — using stored isZoneOwner")
+        }
+        return appState.isZoneOwner
+    }
+
+    /// A creator anchor is usable only when non-empty and not one of the legacy
+    /// placeholder values written before the anchor existed — placeholders
+    /// resolve nothing and must fall back to role-based checks.
+    private static func isResolvedCreatorAnchor(_ creator: String) -> Bool {
+        !creator.isEmpty && !AppConstants.Security.legacyPlaceholderCreators.contains(creator)
+    }
+
+    /// A proven mismatch between a stored creator anchor and the acting user.
+    /// Unresolved anchors (nil or legacy placeholders) prove nothing either way.
+    private static func isProvenCreatorMismatch(_ creator: String?, userRecordName: String) -> Bool {
+        guard let creator, isResolvedCreatorAnchor(creator) else { return false }
+        return creator != userRecordName
+    }
+
     /// Validates a recovered profile against CloudKit's server-authenticated
     /// identity and the exact family/zone it claims to belong to. The profile's
     /// stored `iCloudUserID` is checked as a consistency value only; the
@@ -184,20 +221,12 @@ enum ActiveFamilyScopeGuard {
         }
 
         // Creator is checked only when resolved — nil (legacy) is not a proven mismatch.
-        if let creator = profile.creatorUserRecordName {
-            guard creator == currentUserRecordName
-                || AppConstants.Security.legacyPlaceholderCreators.contains(creator)
-            else {
-                throw ScopeViolation.identityMismatch
-            }
+        if isProvenCreatorMismatch(profile.creatorUserRecordName, userRecordName: currentUserRecordName) {
+            throw ScopeViolation.identityMismatch
         }
 
-        if isOwner, let familyCreator = family.creatorUserRecordName {
-            guard familyCreator == currentUserRecordName
-                || AppConstants.Security.legacyPlaceholderCreators.contains(familyCreator)
-            else {
-                throw ScopeViolation.identityMismatch
-            }
+        if isOwner, isProvenCreatorMismatch(family.creatorUserRecordName, userRecordName: currentUserRecordName) {
+            throw ScopeViolation.identityMismatch
         }
     }
 }

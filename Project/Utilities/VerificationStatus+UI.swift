@@ -11,11 +11,11 @@ extension VerificationStatus {
     var tintColor: Color {
         switch self {
         case .autoApproved, .verified:
-            .green
+            Color(DesignSystemConstants.Colors.primaryGreen)
         case .pending:
-            .orange
+            Color(DesignSystemConstants.Colors.pendingAmber)
         case .rejected:
-            .red
+            Color(DesignSystemConstants.Colors.dangerRed)
         case .withdrawn:
             .gray
         }

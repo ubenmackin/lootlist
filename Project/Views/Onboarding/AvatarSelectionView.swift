@@ -59,7 +59,7 @@ struct AvatarSelectionView: View {
         }
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color.purple.opacity(0.1)],
+                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.1)],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()
@@ -82,7 +82,7 @@ struct AvatarSelectionView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [.yellow, .purple],
+                        colors: [Color.gold, Color(DesignSystemConstants.Colors.accentBlue)],
                         startPoint: .top, endPoint: .bottom
                     )
                 )
@@ -136,7 +136,10 @@ struct AvatarSelectionView: View {
                             Circle()
                                 .fill(
                                     LinearGradient(
-                                        colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
+                                        colors: [
+                                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.3),
+                                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.18)
+                                        ],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -174,7 +177,7 @@ struct AvatarSelectionView: View {
                             .frame(width: 36, height: 36)
                             .background(
                                 Circle()
-                                    .fill(isSelected ? Color.blue.opacity(0.25) : Color.clear)
+                                    .fill(isSelected ? Color(DesignSystemConstants.Colors.accentBlue).opacity(0.25) : Color.clear)
                             )
                             .overlay(
                                 Circle()
@@ -246,7 +249,7 @@ struct AvatarSelectionView: View {
                         .overlay(Circle().stroke(Color.gold, lineWidth: 2))
                 } else {
                     Circle()
-                        .fill(Color.gray.opacity(0.2))
+                        .fill(Color.secondary.opacity(0.2))
                         .frame(width: 54, height: 54)
                         .overlay(Image(systemName: "person.fill").foregroundStyle(.secondary))
                 }
@@ -328,14 +331,14 @@ struct AvatarSelectionView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
                     .strokeBorder(
-                        isSelected ? Color.yellow : Color.white.opacity(0.15),
+                        isSelected ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.white.opacity(0.15),
                         lineWidth: isSelected ? 3 : 1
                     )
             )
             .overlay(alignment: .topTrailing) {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         .padding(6)
                 }
             }
@@ -391,14 +394,14 @@ struct AvatarSelectionView: View {
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
                     .strokeBorder(
-                        isSelected ? Color.yellow : Color.white.opacity(0.15),
+                        isSelected ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.white.opacity(0.15),
                         lineWidth: isSelected ? 3 : 1
                     )
             )
             .overlay(alignment: .topTrailing) {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                         .padding(4)
                 }
             }
@@ -431,7 +434,7 @@ struct AvatarSelectionView: View {
             .padding(.vertical, 16)
         }
         .buttonStyle(.borderedProminent)
-        .tint(viewModel.isParentFlow ? .orange : .blue)
+        .tint(viewModel.isParentFlow ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(DesignSystemConstants.Colors.accentBlue))
         .disabled(viewModel.isLoading
             || viewModel.displayName.trimmingCharacters(in: .whitespaces).isEmpty)
         .padding(.horizontal, 24)

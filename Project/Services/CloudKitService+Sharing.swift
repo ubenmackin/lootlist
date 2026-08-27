@@ -211,6 +211,13 @@ extension CloudKitService {
         }
     }
 
+    /// Resolves a share invitation URL into acceptance metadata. Wraps the
+    /// container call so callers outside the service layer never touch the
+    /// raw container.
+    func shareMetadata(for url: URL) async throws -> CKShare.Metadata {
+        try await container.shareMetadata(for: url)
+    }
+
     func acceptShare(metadata: CKShare.Metadata) async throws {
         let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "Untitled Share"
         logger.info("Accepting share invitation for \(title, privacy: .private)...")

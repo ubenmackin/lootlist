@@ -37,8 +37,11 @@ struct DailyLoginBannerView: View {
     }
 
     var body: some View {
+        // WHY: Daily login rewards are RPG-era chrome — hidden behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1 gamification contract.
         Group {
-            if shouldRenderCompactPill {
+            if !FeatureFlags.rpgImmersive {
+                EmptyView()
+            } else if shouldRenderCompactPill {
                 compactPill
             } else {
                 fullBanner
@@ -63,7 +66,7 @@ struct DailyLoginBannerView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, DesignSystemConstants.Padding.small)
         .padding(.horizontal, DesignSystemConstants.Padding.standard)
-        .background(Color.gold.opacity(0.85))
+        .background(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.85))
         .clipShape(Capsule())
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Daily Reward claimed")
@@ -91,7 +94,7 @@ struct DailyLoginBannerView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, DesignSystemConstants.Padding.medium)
-                    .background(status == .claimedToday ? Color.gray : Color.gold)
+                    .background(status == .claimedToday ? Color.secondary : Color(DesignSystemConstants.Colors.pendingAmber))
                     .clipShape(RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.button))
             }
             .disabled(status == .claimedToday || isClaiming)
@@ -128,7 +131,8 @@ struct DailyLoginBannerView: View {
         VStack {
             ZStack {
                 Circle()
-                    .fill(isClaimed ? Color.green : (isCurrent ? Color.gold.opacity(0.2) : Color.gray.opacity(0.2)))
+                    .fill(isClaimed ? Color(DesignSystemConstants.Colors.primaryGreen) :
+                        (isCurrent ? Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.2) : Color.secondary.opacity(0.2)))
                     .frame(width: 36, height: 36)
 
                 if isClaimed {
@@ -138,12 +142,12 @@ struct DailyLoginBannerView: View {
                 } else {
                     Text("\(dailyLoginService.rewards[day] ?? 5)")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(isCurrent ? Color.gold : .gray)
+                        .foregroundColor(isCurrent ? Color(DesignSystemConstants.Colors.pendingAmber) : .secondary)
                 }
             }
             .overlay(
                 Circle()
-                    .stroke(isCurrent ? Color.gold : Color.clear, lineWidth: isCurrent ? (isPulsing ? 3 : 1) : 0)
+                    .stroke(isCurrent ? Color(DesignSystemConstants.Colors.pendingAmber) : Color.clear, lineWidth: isCurrent ? (isPulsing ? 3 : 1) : 0)
                     .scaleEffect(isCurrent && isPulsing ? 1.1 : 1.0)
             )
 

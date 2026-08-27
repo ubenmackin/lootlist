@@ -199,6 +199,9 @@ protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
 
     func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare
     func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare
+    /// Resolves a share invitation URL into acceptance metadata. Wraps the
+    /// container call so callers outside the service layer never touch it.
+    func shareMetadata(for url: URL) async throws -> CKShare.Metadata
     func acceptShare(metadata: CKShare.Metadata) async throws
     func removeParticipant(iCloudUserRecordName: String, from rootRecordID: CKRecord.ID) async throws
     /// Aggregated `CKShare` participants across all role shares for the family

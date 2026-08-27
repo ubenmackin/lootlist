@@ -13,8 +13,7 @@ struct DetectedFamilyView: View {
     let zoneIDString: String
     let isOwner: Bool
 
-    @Environment(AppState.self) private var appState
-    @Environment(CloudKitService.self) private var cloudKitService
+    @Environment(FamilyService.self) private var familyService
 
     @State private var isProcessing: Bool = false
     @State private var showConfirmDelete: Bool = false
@@ -36,7 +35,7 @@ struct DetectedFamilyView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color.yellow.opacity(0.12)],
+                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12)],
                 startPoint: .top, endPoint: .bottom
             )
         )
@@ -53,12 +52,11 @@ struct DetectedFamilyView: View {
             Button(isOwner ? "Delete & Start Fresh" : "Leave & Start Fresh", role: .destructive) {
                 Task {
                     isProcessing = true
-                    await appState.rejectDetectedFamily(
+                    await familyService.rejectDetectedFamily(
                         familyCache: familyCache,
                         profileCache: profileCache,
                         zoneIDString: zoneIDString,
-                        isOwner: isOwner,
-                        cloudKit: cloudKitService
+                        isOwner: isOwner
                     )
                     isProcessing = false
                 }
@@ -80,7 +78,7 @@ struct DetectedFamilyView: View {
                 .font(.system(size: 64))
                 .foregroundStyle(
                     LinearGradient(
-                        colors: [.yellow, .orange],
+                        colors: [Color.gold, Color(DesignSystemConstants.Colors.pendingAmber)],
                         startPoint: .top, endPoint: .bottom
                     )
                 )
@@ -101,9 +99,9 @@ struct DetectedFamilyView: View {
             HStack(spacing: 16) {
                 Image(systemName: profileCache.avatarClassEnum?.iconSystemName ?? (profileCache.roleEnum ?? .hero).iconSystemName)
                     .font(.system(size: 32))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                     .frame(width: 56, height: 56)
-                    .background(Color.orange.opacity(0.15))
+                    .background(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.15))
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -121,8 +119,10 @@ struct DetectedFamilyView: View {
                             .font(.caption.weight(.bold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(profileCache.roleEnum == .guildMaster ? Color.yellow.opacity(0.2) : Color.blue.opacity(0.2))
-                            .foregroundStyle(profileCache.roleEnum == .guildMaster ? Color.orange : Color.blue)
+                            .background(profileCache.roleEnum == .guildMaster ? Color(DesignSystemConstants.Colors.pendingAmber)
+                                .opacity(0.2) : Color(DesignSystemConstants.Colors.accentBlue).opacity(0.2))
+                            .foregroundStyle(profileCache
+                                .roleEnum == .guildMaster ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(DesignSystemConstants.Colors.accentBlue))
                             .clipShape(Capsule())
                     }
                 }
@@ -155,12 +155,11 @@ struct DetectedFamilyView: View {
         VStack(spacing: 12) {
             Button {
                 Task {
-                    await appState.acceptDetectedFamily(
+                    await familyService.acceptDetectedFamily(
                         familyCache: familyCache,
                         profileCache: profileCache,
                         zoneIDString: zoneIDString,
-                        isOwner: isOwner,
-                        cloudKit: cloudKitService
+                        isOwner: isOwner
                     )
                 }
             } label: {
@@ -170,7 +169,7 @@ struct DetectedFamilyView: View {
                     .padding(.vertical, 16)
             }
             .buttonStyle(.borderedProminent)
-            .tint(.green)
+            .tint(Color(DesignSystemConstants.Colors.primaryGreen))
             .accessibilityIdentifier("detectedFamily.restoreButton")
 
             Button(role: .destructive) {
@@ -182,7 +181,7 @@ struct DetectedFamilyView: View {
                     .padding(.vertical, 12)
             }
             .buttonStyle(.bordered)
-            .tint(.red)
+            .tint(Color(DesignSystemConstants.Colors.dangerRed))
             .accessibilityIdentifier("detectedFamily.resetButton")
         }
     }

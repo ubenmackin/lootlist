@@ -130,10 +130,27 @@ final class AppState {
         }
     }
 
+    /// WHY: Call sites copy-pasted this fallback chain; one resolution point
+    /// keeps family-zone targeting consistent. A cache row's persisted zone
+    /// wins only when neither the session zone nor the family record has one.
+    func resolvedFamilyZoneID(fallbackRecord: (any FamilyScopedCache)? = nil) -> CKRecordZone.ID {
+        let defaultZone = CKRecordZone.default().zoneID
+        return familyZoneID ?? family?.id.zoneID ?? fallbackRecord?.validatedZoneID(requestedZoneID: defaultZone) ?? defaultZone
+    }
+
+    /// WHY: Single source for effective payout-day resolution (profile override → family → .sunday) so week windows stay consistent.
+    var resolvedPayoutDay: PayoutDay {
+        currentProfile?.payoutDay ?? family?.payoutDay ?? .sunday
+    }
+
     var isZoneOwner: Bool = false
     var cacheService: CacheService?
     var backgroundCacheActor: BackgroundCacheActor?
     var cacheInitError: AppStateError?
+
+    /// WHY: CK-free mirror of the iCloud account status; the lifecycle layer
+    /// refreshes it so views render published state instead of calling CloudKit.
+    var cloudAccountStatus: CloudAccountStatus = .couldNotDetermine
 
     @ObservationIgnored
     private var quickActionTask: Task<Void, Never>?

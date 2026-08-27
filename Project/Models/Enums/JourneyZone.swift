@@ -107,68 +107,70 @@ enum JourneyZone: Int, CaseIterable, Sendable {
 
     // MARK: - Zone Palette
 
+    // WHY: game-art palette owned by JourneyZone.ZonePalette per ARCH §2 exception — RGB intentionally art-directed, now asset-backed via DesignSystemConstants.Colors.journey* semantic tokens.
     /// Color palette for rendering this zone's elements, accents, and banners.
     var palette: ZonePalette {
         switch self {
         case .startingMeadow:
             ZonePalette(
-                pathColor: Color(red: 0.85, green: 0.74, blue: 0.48),
-                groundColor: Color(red: 0.38, green: 0.68, blue: 0.28),
-                accentColor: Color(red: 0.98, green: 0.84, blue: 0.22),
-                skyTop: Color(red: 0.46, green: 0.76, blue: 0.96),
-                skyBottom: Color(red: 0.78, green: 0.92, blue: 0.62)
+                pathColor: Color(DesignSystemConstants.Colors.journeyStartingMeadowPath),
+                groundColor: Color(DesignSystemConstants.Colors.journeyStartingMeadowGround),
+                accentColor: Color(DesignSystemConstants.Colors.journeyStartingMeadowAccent),
+                skyTop: Color(DesignSystemConstants.Colors.journeyStartingMeadowSkyTop),
+                skyBottom: Color(DesignSystemConstants.Colors.journeyStartingMeadowSkyBottom)
             )
         case .denseForest:
             ZonePalette(
-                pathColor: Color(red: 0.58, green: 0.48, blue: 0.32),
-                groundColor: Color(red: 0.16, green: 0.38, blue: 0.20),
-                accentColor: Color(red: 0.34, green: 0.78, blue: 0.42),
-                skyTop: Color(red: 0.22, green: 0.42, blue: 0.34),
-                skyBottom: Color(red: 0.38, green: 0.62, blue: 0.38)
+                pathColor: Color(DesignSystemConstants.Colors.journeyDenseForestPath),
+                groundColor: Color(DesignSystemConstants.Colors.journeyDenseForestGround),
+                accentColor: Color(DesignSystemConstants.Colors.journeyDenseForestAccent),
+                skyTop: Color(DesignSystemConstants.Colors.journeyDenseForestSkyTop),
+                skyBottom: Color(DesignSystemConstants.Colors.journeyDenseForestSkyBottom)
             )
         case .mountainPass:
             ZonePalette(
-                pathColor: Color(red: 0.70, green: 0.68, blue: 0.64),
-                groundColor: Color(red: 0.48, green: 0.50, blue: 0.54),
-                accentColor: Color(red: 0.55, green: 0.82, blue: 0.98),
-                skyTop: Color(red: 0.32, green: 0.42, blue: 0.58),
-                skyBottom: Color(red: 0.64, green: 0.72, blue: 0.82)
+                pathColor: Color(DesignSystemConstants.Colors.journeyMountainPassPath),
+                groundColor: Color(DesignSystemConstants.Colors.journeyMountainPassGround),
+                accentColor: Color(DesignSystemConstants.Colors.journeyMountainPassAccent),
+                skyTop: Color(DesignSystemConstants.Colors.journeyMountainPassSkyTop),
+                skyBottom: Color(DesignSystemConstants.Colors.journeyMountainPassSkyBottom)
             )
         case .dragonsReach:
             ZonePalette(
-                pathColor: Color(red: 0.52, green: 0.26, blue: 0.16),
-                groundColor: Color(red: 0.26, green: 0.10, blue: 0.08),
-                accentColor: Color(red: 0.98, green: 0.48, blue: 0.14),
-                skyTop: Color(red: 0.38, green: 0.12, blue: 0.08),
-                skyBottom: Color(red: 0.62, green: 0.22, blue: 0.10)
+                pathColor: Color(DesignSystemConstants.Colors.journeyDragonsReachPath),
+                groundColor: Color(DesignSystemConstants.Colors.journeyDragonsReachGround),
+                accentColor: Color(DesignSystemConstants.Colors.journeyDragonsReachAccent),
+                skyTop: Color(DesignSystemConstants.Colors.journeyDragonsReachSkyTop),
+                skyBottom: Color(DesignSystemConstants.Colors.journeyDragonsReachSkyBottom)
             )
         case .eternalRealm:
             ZonePalette(
-                pathColor: Color(red: 0.75, green: 0.65, blue: 0.95),
-                groundColor: Color(red: 0.14, green: 0.06, blue: 0.26),
-                accentColor: Color(red: 0.82, green: 0.68, blue: 1.0),
-                skyTop: Color(red: 0.12, green: 0.05, blue: 0.28),
-                skyBottom: Color(red: 0.28, green: 0.14, blue: 0.54)
+                pathColor: Color(DesignSystemConstants.Colors.journeyEternalRealmPath),
+                groundColor: Color(DesignSystemConstants.Colors.journeyEternalRealmGround),
+                accentColor: Color(DesignSystemConstants.Colors.journeyEternalRealmAccent),
+                skyTop: Color(DesignSystemConstants.Colors.journeyEternalRealmSkyTop),
+                skyBottom: Color(DesignSystemConstants.Colors.journeyEternalRealmSkyBottom)
             )
         }
     }
 
     // MARK: - Continuous World Gradients
 
+    // WHY: panoramic gradients are art-owned by ZonePalette; assembled from journey* semantic tokens per §2 exception (no raw RGB).
     /// Seamless panoramic sky gradient spanning the entire world map from Meadow to Eternal Realm.
     static var panoramicSkyGradient: LinearGradient {
         LinearGradient(
             stops: [
-                .init(color: Color(red: 0.46, green: 0.76, blue: 0.96), location: 0.0),
-                .init(color: Color(red: 0.42, green: 0.72, blue: 0.90), location: 0.15),
-                .init(color: Color(red: 0.22, green: 0.48, blue: 0.40), location: 0.28),
-                .init(color: Color(red: 0.18, green: 0.38, blue: 0.32), location: 0.38),
-                .init(color: Color(red: 0.32, green: 0.44, blue: 0.60), location: 0.48),
-                .init(color: Color(red: 0.28, green: 0.36, blue: 0.52), location: 0.58),
-                .init(color: Color(red: 0.42, green: 0.14, blue: 0.10), location: 0.68),
-                .init(color: Color(red: 0.28, green: 0.08, blue: 0.08), location: 0.78),
-                .init(color: Color(red: 0.16, green: 0.06, blue: 0.30), location: 0.88),
-                .init(color: Color(red: 0.08, green: 0.04, blue: 0.18), location: 1.0)
+                .init(color: Color(DesignSystemConstants.Colors.journeyStartingMeadowSkyTop), location: 0.0),
+                .init(color: Color(DesignSystemConstants.Colors.journeyStartingMeadowSkyBottom), location: 0.15),
+                .init(color: Color(DesignSystemConstants.Colors.journeyDenseForestSkyTop), location: 0.28),
+                .init(color: Color(DesignSystemConstants.Colors.journeyDenseForestSkyBottom), location: 0.38),
+                .init(color: Color(DesignSystemConstants.Colors.journeyMountainPassSkyTop), location: 0.48),
+                .init(color: Color(DesignSystemConstants.Colors.journeyMountainPassSkyBottom), location: 0.58),
+                .init(color: Color(DesignSystemConstants.Colors.journeyDragonsReachSkyTop), location: 0.68),
+                .init(color: Color(DesignSystemConstants.Colors.journeyDragonsReachSkyBottom), location: 0.78),
+                .init(color: Color(DesignSystemConstants.Colors.journeyEternalRealmSkyTop), location: 0.88),
+                .init(color: Color(DesignSystemConstants.Colors.journeyEternalRealmSkyBottom), location: 1.0)
             ],
             startPoint: .leading,
             endPoint: .trailing
@@ -179,13 +181,13 @@ enum JourneyZone: Int, CaseIterable, Sendable {
     static var panoramicGroundGradient: LinearGradient {
         LinearGradient(
             stops: [
-                .init(color: Color(red: 0.38, green: 0.68, blue: 0.28), location: 0.0),
-                .init(color: Color(red: 0.32, green: 0.60, blue: 0.24), location: 0.15),
-                .init(color: Color(red: 0.16, green: 0.38, blue: 0.20), location: 0.32),
-                .init(color: Color(red: 0.48, green: 0.50, blue: 0.54), location: 0.52),
-                .init(color: Color(red: 0.26, green: 0.10, blue: 0.08), location: 0.72),
-                .init(color: Color(red: 0.14, green: 0.06, blue: 0.26), location: 0.90),
-                .init(color: Color(red: 0.10, green: 0.04, blue: 0.18), location: 1.0)
+                .init(color: Color(DesignSystemConstants.Colors.journeyStartingMeadowGround), location: 0.0),
+                .init(color: Color(DesignSystemConstants.Colors.journeyDenseForestGround), location: 0.15),
+                .init(color: Color(DesignSystemConstants.Colors.journeyDenseForestGround), location: 0.32),
+                .init(color: Color(DesignSystemConstants.Colors.journeyMountainPassGround), location: 0.52),
+                .init(color: Color(DesignSystemConstants.Colors.journeyDragonsReachGround), location: 0.72),
+                .init(color: Color(DesignSystemConstants.Colors.journeyEternalRealmGround), location: 0.90),
+                .init(color: Color(DesignSystemConstants.Colors.journeyEternalRealmGround), location: 1.0)
             ],
             startPoint: .leading,
             endPoint: .trailing

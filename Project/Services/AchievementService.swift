@@ -145,14 +145,14 @@ final class AchievementService {
 
         let familyName = family.id.recordName
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let defaults = defaultAchievements(for: familyRef)
+        let defaults = Self.defaultAchievements(for: familyRef)
 
-        if let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: familyName, type: .achievement)
-        {
+        if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
             let cachedIDs = Set(cached.map(\.recordName))
-            if defaults.allSatisfy({ cachedIDs.contains($0.id.recordName) }) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, cachedCount: cached.count),
+               defaults.allSatisfy({ cachedIDs.contains($0.id.recordName) })
+            {
                 return
             }
         }
@@ -164,19 +164,24 @@ final class AchievementService {
 
         for achievement in toSeed {
             await cacheService?.upsertAchievement(achievement)
-            let isOwner = appState.isZoneOwner
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwner = appState.isZoneOwner
+            if isOwner != storedOwner {
+                logger.warning("AchievementService.seedDefaultAchievements isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+            }
             syncCoordinator?.enqueueSave(recordID: achievement.id, isOwner: isOwner)
         }
     }
 
-    private func defaultAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+    static func defaultAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         questAchievements(for: familyRef)
             + streakAchievements(for: familyRef)
             + goalAchievements(for: familyRef)
             + specialAchievements(for: familyRef)
     }
 
-    private func questAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+    static func questAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         let zoneID = familyRef.recordID.zoneID
         return [
             Achievement(
@@ -232,7 +237,7 @@ final class AchievementService {
         ]
     }
 
-    private func streakAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+    static func streakAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         let zoneID = familyRef.recordID.zoneID
         return [
             Achievement(
@@ -258,7 +263,7 @@ final class AchievementService {
         ]
     }
 
-    private func goalAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+    static func goalAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         let zoneID = familyRef.recordID.zoneID
         return [
             Achievement(
@@ -284,7 +289,7 @@ final class AchievementService {
         ]
     }
 
-    private func specialAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
+    static func specialAchievements(for familyRef: CKRecord.Reference) -> [Achievement] {
         let zoneID = familyRef.recordID.zoneID
         return [
             Achievement(
@@ -320,46 +325,191 @@ final class AchievementService {
         ]
     }
 
+    // WHY: empty grid before first CloudKit pull has no cached definitions — View
+    // is cache-only (@Query) and must not import CloudKit; service synthesizes
+    // defaults into cache and enqueues via coordinator so hydration rides ingest.
+    func ensureDefaultAchievements(for family: Family) -> [AchievementCache] {
+        let familyName = family.id.recordName
+        if let cache = cacheService {
+            let existing = cache.fetchAchievements(family: familyName)
+            if !existing.isEmpty {
+                return existing
+            }
+        }
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let defaults = Self.defaultAchievements(for: familyRef)
+        for achievement in defaults {
+            Task { await cacheService?.upsertAchievement(achievement) }
+            if appState?.currentProfile?.role.isParent == true {
+                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+                let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+                let storedOwner = appState?.isZoneOwner ?? false
+                if isOwner != storedOwner {
+                    logger.warning("AchievementService.ensureDefaultAchievements isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+                }
+                syncCoordinator?.enqueueSave(recordID: achievement.id, isOwner: isOwner)
+            }
+        }
+        return defaults.map { AchievementCache(from: $0) }
+    }
+
     func fetchAllDefinitions(family: Family) async throws -> [Achievement] {
         let familyName = family.id.recordName
-        if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .achievement) {
+        if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
-            return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, cachedCount: cached.count) {
+                return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
+            }
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        let results = try await cloudKit.query(Achievement.self, predicate: predicate, in: family.id.zoneID)
-        await syncCoordinator?.delegateHandler.hydrateFromQuery(
-            models: results,
-            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-            zoneID: family.id.zoneID
-        )
-        return results
+        do {
+            let results = try await cloudKit.query(Achievement.self, predicate: predicate, in: family.id.zoneID)
+            if !results.isEmpty {
+                await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                    models: results,
+                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    zoneID: family.id.zoneID
+                )
+                return results
+            }
+        } catch {
+            logger.debug("Querying achievement definitions from CloudKit skipped/failed: \(error, privacy: .private)")
+        }
+        // Fallback to default achievement definitions if none were in CloudKit/cache yet.
+        let defaults = Self.defaultAchievements(for: familyRef)
+        for achievement in defaults {
+            await cacheService?.upsertAchievement(achievement)
+            if appState?.currentProfile?.role.isParent == true {
+                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+                let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+                let storedOwner = appState?.isZoneOwner ?? false
+                if isOwner != storedOwner {
+                    logger.warning("AchievementService.fetchAllDefinitions fallback isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+                }
+                syncCoordinator?.enqueueSave(recordID: achievement.id, isOwner: isOwner)
+            }
+        }
+        return defaults
     }
 
     func fetchEarned(profile: Profile) async throws -> [ProfileAchievement] {
+        try await fetchEarned(profile: profile, family: nil)
+    }
+
+    func fetchEarned(profile: Profile, family: Family?) async throws -> [ProfileAchievement] {
         let profileName = profile.id.recordName
-        let familyName = profile.family.recordID.recordName
-        if let cache = cacheService, cache.isCacheFresh(familyRecordName: familyName, type: .profileAchievement) {
-            let cached = cache.fetchProfileAchievements(profileRecordName: profileName)
-            return cached.map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
-                .sorted { $0.earnedDate > $1.earnedDate }
+        let primaryFamilyName = family?.id.recordName ?? profile.family.recordID.recordName
+        let fallbackFamilyName = profile.family.recordID.recordName
+
+        if let cache = cacheService {
+            var cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
+            if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
+                cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: fallbackFamilyName)
+            }
+            if !cached.isEmpty {
+                return cached.map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
+                    .sorted { $0.earnedDate > $1.earnedDate }
+            }
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef)
-        let results = try await cloudKit.query(
-            ProfileAchievement.self,
-            predicate: predicate,
-            in: profile.id.zoneID,
-            sortDescriptors: [NSSortDescriptor(key: "earnedDate", ascending: false)]
-        )
-        await syncCoordinator?.delegateHandler.hydrateFromQuery(
-            models: results,
-            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-            zoneID: profile.id.zoneID
-        )
-        return results
+        do {
+            let results = try await cloudKit.query(
+                ProfileAchievement.self,
+                predicate: predicate,
+                in: profile.id.zoneID,
+                sortDescriptors: [NSSortDescriptor(key: "earnedDate", ascending: false)]
+            )
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: results,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                zoneID: profile.id.zoneID
+            )
+            return results
+        } catch {
+            logger.debug("Querying earned achievements from CloudKit skipped/failed: \(error, privacy: .private)")
+            if let cache = cacheService {
+                var cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: primaryFamilyName)
+                if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cached = cache.fetchProfileAchievements(profileRecordName: profileName, family: fallbackFamilyName)
+                }
+                return cached.map { $0.toProfileAchievement(zoneID: profile.id.zoneID) }
+                    .sorted { $0.earnedDate > $1.earnedDate }
+            }
+            return []
+        }
+    }
+
+    private func filterUnearnedDefinitions(
+        allDefinitions: [Achievement],
+        existingEarned: [ProfileAchievement]
+    ) -> [Achievement] {
+        let earnedAchievementIDs = Set(existingEarned.map(\.achievement.recordID.recordName))
+        let earnedRequirementTypes = Set(existingEarned.compactMap { pa -> String? in
+            let rec = pa.achievement.recordID.recordName
+            for req in AchievementRequirement.allCases {
+                if rec == req.rawValue || rec.hasSuffix("-\(req.rawValue)") {
+                    return req.rawValue
+                }
+            }
+            return nil
+        })
+
+        return allDefinitions.filter { def in
+            if earnedAchievementIDs.contains(def.id.recordName) {
+                return false
+            }
+            if earnedRequirementTypes.contains(def.requirementType.rawValue) {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func sendAwardNotifications(for awarded: [Achievement], to profile: Profile) async {
+        guard let notificationService, !awarded.isEmpty else { return }
+
+        for achievement in awarded {
+            do {
+                try await notificationService.send(
+                    .trophyEarned,
+                    to: profile,
+                    title: "🏅 Trophy Earned!",
+                    body: "You unlocked '\(achievement.name)'!"
+                )
+            } catch {
+                let achievementName = achievement.id.recordName
+                let profileName = profile.id.recordName
+                logger.error(
+                    "Failed to send trophyEarned notification for \(achievementName, privacy: .private) to profile \(profileName, privacy: .private): \(error, privacy: .private)"
+                )
+            }
+        }
+
+        let newlyAwardedStreakThresholds = awarded.compactMap { achievement -> Int? in
+            switch achievement.requirementType {
+            case .streak7: return 7
+            case .streak30: return 30
+            default: return nil
+            }
+        }
+        for streakDays in newlyAwardedStreakThresholds.sorted() {
+            do {
+                try await notificationService.send(
+                    .streakMilestone,
+                    to: profile,
+                    title: "🔥 Streak Milestone!",
+                    body: "You've hit a \(streakDays)-day streak!"
+                )
+            } catch {
+                let profileName = profile.id.recordName
+                logger.error(
+                    "Failed to send streakMilestone notification for \(streakDays)-day streak to profile \(profileName, privacy: .private): \(error, privacy: .private)"
+                )
+            }
+        }
     }
 
     @discardableResult
@@ -368,15 +518,13 @@ final class AchievementService {
             return []
         }
 
-        let existingEarned = try await fetchEarned(profile: profile)
-        let earnedAchievementIDs = Set(existingEarned.map(\.achievement.recordID.recordName))
-
+        let existingEarned = try await fetchEarned(profile: profile, family: family)
         let allDefinitions = try await fetchAllDefinitions(family: family)
-        let unearned = allDefinitions.filter { !earnedAchievementIDs.contains($0.id.recordName) }
-
-        guard !unearned.isEmpty else { return [] }
+        let unearned = filterUnearnedDefinitions(allDefinitions: allDefinitions, existingEarned: existingEarned)
 
         let stats = try await computeStats(for: profile, family: family)
+        let statSummary = "quests=\(stats.questCount), goals=\(stats.goalsCreated), completed=\(stats.goalsCompleted), unearned=\(unearned.count)"
+        logger.info("Evaluating trophies for \(profile.displayName, privacy: .public): \(statSummary, privacy: .public)")
 
         var awarded: [Achievement] = []
         for definition in unearned where isRequirementMet(definition: definition, stats: stats) {
@@ -384,67 +532,19 @@ final class AchievementService {
             awarded.append(definition)
         }
 
-        // Notify trophy awards. Never `try?` — notification failures must be
-        // logged (logger.error) so silent drops are observable; send is
-        // best-effort, so failures are logged and the loop continues rather
-        // than aborting the remaining awards.
-        if let notificationService, !awarded.isEmpty {
-            for achievement in awarded {
-                do {
-                    try await notificationService.send(
-                        .trophyEarned,
-                        to: profile,
-                        title: "🏅 Trophy Earned!",
-                        body: "You unlocked '\(achievement.name)'!"
-                    )
-                } catch {
-                    let achievementName = achievement.id.recordName
-                    let profileName = profile.id.recordName
-                    logger
-                        .error(
-                            "Failed to send trophyEarned notification for achievement \(achievementName, privacy: .private) to profile \(profileName, privacy: .private): \(error, privacy: .private)"
-                        )
-                }
-            }
-        }
+        await sendAwardNotifications(for: awarded, to: profile)
 
-        // Send streak milestone notifications only for newly awarded streak achievements.
-        if let notificationService {
-            let newlyAwardedStreakThresholds = awarded.compactMap { achievement -> Int? in
-                switch achievement.requirementType {
-                case .streak7: return 7
-                case .streak30: return 30
-                default: return nil
-                }
-            }
-            for streakDays in newlyAwardedStreakThresholds.sorted() {
-                do {
-                    try await notificationService.send(
-                        .streakMilestone,
-                        to: profile,
-                        title: "🔥 Streak Milestone!",
-                        body: "You've hit a \(streakDays)-day streak!"
-                    )
-                } catch {
-                    let profileName = profile.id.recordName
-                    logger
-                        .error("Failed to send streakMilestone notification for \(streakDays)-day streak to profile \(profileName, privacy: .private): \(error, privacy: .private)")
-                }
-            }
-        }
+        // Forward newly awarded achievements to the celebration surface ONLY if the
+        // current active device is the hero who earned the achievement. Parents approving
+        // quests remotely must not see child trophy unlock toasts/confetti on their device.
+        let isParentActingOnChild = (appState?.currentProfile?.role.isParent == true && appState?.currentProfile?.id != profile.id)
+        if !isParentActingOnChild {
+            celebrationManager?.enqueue(achievements: awarded, for: profile)
 
-        // Forward the full set of newly awarded achievements (trophies and
-        // streak milestones alike) to the celebration surface. The manager
-        // decides per-item whether to present a fullscreen overlay or an
-        // enhanced toast; streak milestones are distinguished inside
-        // `CelebrationItem.isStreakMilestone` from `requirementType`.
-        celebrationManager?.enqueue(achievements: awarded, for: profile)
-
-        // Centralized haptic + overlay feedback for unlocks — parallel task
-        // owns the concrete HapticsService/CelebrationOverlay types; builder
-        // reconciles exact API.
-        if !awarded.isEmpty {
-            triggerUnlockFeedback(for: awarded)
+            // Centralized haptic + overlay feedback for unlocks
+            if !awarded.isEmpty {
+                triggerUnlockFeedback(for: awarded)
+            }
         }
 
         return awarded
@@ -494,96 +594,182 @@ final class AchievementService {
         )
 
         await cacheService?.upsertProfileAchievement(row)
-        let isOwner = appState?.isZoneOwner ?? false
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            logger.warning("AchievementService.award isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: row.id, isOwner: isOwner)
+        if let syncCoordinator {
+            Task {
+                await syncCoordinator.sendPendingChanges()
+            }
+        }
+        logger
+            .info(
+                "Successfully awarded trophy '\(achievement.name, privacy: .public)' (id: \(achievement.id.recordName, privacy: .public)) to profile \(profile.displayName, privacy: .public)"
+            )
         return row
     }
+}
 
-    private func fetchCompletedLogs(for profile: Profile) async throws -> [QuestCompletion] {
+// MARK: - AchievementService Helpers
+
+/// Helpers extracted to keep type body under lint limit; WHY: single helper
+/// boundary preserves isCacheAuthoritative contract without duplicating freshness logic.
+@MainActor
+private extension AchievementService {
+    func fetchCompletedLogs(for profile: Profile, family: Family) async throws -> [QuestCompletion] {
         let profileName = profile.id.recordName
         let zoneID = profile.id.zoneID
-        let familyName = profile.family.recordID.recordName
+        let primaryFamilyName = family.id.recordName
+        let fallbackFamilyName = profile.family.recordID.recordName
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
-        if let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: familyName, type: .questCompletion)
-        {
-            let cachedLogs = cache.fetchQuestCompletions(family: familyName)
+        if let cache = cacheService {
+            var cachedLogs = cache.fetchQuestCompletions(family: primaryFamilyName)
                 .filter { $0.completerRecordName == profileName }
-            return cachedLogs
-                .map { $0.toQuestCompletion(zoneID: zoneID) }
-                .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+            if cachedLogs.isEmpty, fallbackFamilyName != primaryFamilyName {
+                cachedLogs = cache.fetchQuestCompletions(family: fallbackFamilyName)
+                    .filter { $0.completerRecordName == profileName }
+            }
+            if !cachedLogs.isEmpty {
+                return cachedLogs
+                    .map { $0.toQuestCompletion(zoneID: zoneID) }
+                    .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+            }
         }
 
-        let questLogs = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: NSPredicate(format: "completedBy == %@", profileRef),
-            in: zoneID
-        )
-        await syncCoordinator?.delegateHandler.hydrateFromQuery(
-            models: questLogs,
-            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-            zoneID: zoneID
-        )
-        return questLogs.filter {
-            $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
+        do {
+            let questLogs = try await cloudKit.query(
+                QuestCompletion.self,
+                predicate: NSPredicate(format: "completedBy == %@", profileRef),
+                in: zoneID
+            )
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: questLogs,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                zoneID: zoneID
+            )
+            return questLogs.filter {
+                $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
+            }
+        } catch {
+            logger.debug("Querying completed logs from CloudKit skipped/failed: \(error, privacy: .private)")
+            if let cache = cacheService {
+                var cachedLogs = cache.fetchQuestCompletions(family: primaryFamilyName)
+                    .filter { $0.completerRecordName == profileName }
+                if cachedLogs.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cachedLogs = cache.fetchQuestCompletions(family: fallbackFamilyName)
+                        .filter { $0.completerRecordName == profileName }
+                }
+                return cachedLogs
+                    .map { $0.toQuestCompletion(zoneID: zoneID) }
+                    .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+            }
+            return []
         }
     }
 
-    private func fetchLedgerEntries(for profile: Profile) async throws -> [LedgerEntry] {
+    func fetchLedgerEntries(for profile: Profile, family: Family) async throws -> [LedgerEntry] {
         let profileName = profile.id.recordName
         let zoneID = profile.id.zoneID
-        let familyName = profile.family.recordID.recordName
+        let primaryFamilyName = family.id.recordName
+        let fallbackFamilyName = profile.family.recordID.recordName
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
-        if let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: familyName, type: .ledgerEntry)
-        {
-            let cachedLedger = cache.fetchLedgerEntries(
+        if let cache = cacheService {
+            var cachedLedger = cache.fetchLedgerEntries(
                 profileRecordName: profileName,
-                family: familyName
+                family: primaryFamilyName
             )
-            return cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
+            if cachedLedger.isEmpty, fallbackFamilyName != primaryFamilyName {
+                cachedLedger = cache.fetchLedgerEntries(
+                    profileRecordName: profileName,
+                    family: fallbackFamilyName
+                )
+            }
+            if !cachedLedger.isEmpty {
+                return cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
+            }
         }
 
-        let ledger = try await cloudKit.query(
-            LedgerEntry.self,
-            predicate: NSPredicate(format: "profile == %@", profileRef),
-            in: zoneID
-        )
-        await syncCoordinator?.delegateHandler.hydrateFromQuery(
-            models: ledger,
-            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-            zoneID: zoneID
-        )
-        return ledger
+        do {
+            let ledger = try await cloudKit.query(
+                LedgerEntry.self,
+                predicate: NSPredicate(format: "profile == %@", profileRef),
+                in: zoneID
+            )
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: ledger,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                zoneID: zoneID
+            )
+            return ledger
+        } catch {
+            logger.debug("Querying ledger entries from CloudKit skipped/failed: \(error, privacy: .private)")
+            if let cache = cacheService {
+                var cachedLedger = cache.fetchLedgerEntries(
+                    profileRecordName: profileName,
+                    family: primaryFamilyName
+                )
+                if cachedLedger.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cachedLedger = cache.fetchLedgerEntries(
+                        profileRecordName: profileName,
+                        family: fallbackFamilyName
+                    )
+                }
+                return cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
+            }
+            return []
+        }
     }
 
-    private func fetchGoals(for profile: Profile) async throws -> [Goal] {
+    func fetchGoals(for profile: Profile, family: Family) async throws -> [Goal] {
         let profileName = profile.id.recordName
         let zoneID = profile.id.zoneID
-        let familyName = profile.family.recordID.recordName
+        let primaryFamilyName = family.id.recordName
+        let fallbackFamilyName = profile.family.recordID.recordName
 
-        if let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: familyName, type: .goal)
-        {
-            let cached = cache.fetchGoals(family: familyName)
+        if let cache = cacheService {
+            var cached = cache.fetchGoals(family: primaryFamilyName)
                 .filter { $0.profileRecordName == profileName }
-            return cached.map { $0.toGoal(zoneID: zoneID) }
+            if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
+                cached = cache.fetchGoals(family: fallbackFamilyName)
+                    .filter { $0.profileRecordName == profileName }
+            }
+            if !cached.isEmpty {
+                return cached.map { $0.toGoal(zoneID: zoneID) }
+            }
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef)
-        let results = try await cloudKit.query(Goal.self, predicate: predicate, in: zoneID)
-        await syncCoordinator?.delegateHandler.hydrateFromQuery(
-            models: results,
-            databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-            zoneID: zoneID
-        )
-        return results
+        do {
+            let results = try await cloudKit.query(Goal.self, predicate: predicate, in: zoneID)
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: results,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                zoneID: zoneID
+            )
+            return results
+        } catch {
+            logger.debug("Querying goals from CloudKit skipped/failed: \(error, privacy: .private)")
+            if let cache = cacheService {
+                var cached = cache.fetchGoals(family: primaryFamilyName)
+                    .filter { $0.profileRecordName == profileName }
+                if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
+                    cached = cache.fetchGoals(family: fallbackFamilyName)
+                        .filter { $0.profileRecordName == profileName }
+                }
+                return cached.map { $0.toGoal(zoneID: zoneID) }
+            }
+            return []
+        }
     }
 
-    private func fetchQuestCache(
+    func fetchQuestCache(
         for completedLogs: [QuestCompletion],
         profileID: CKRecord.ID,
         familyName: String,
@@ -591,70 +777,72 @@ final class AchievementService {
     ) async throws -> [CKRecord.ID: Quest] {
         var questCache: [CKRecord.ID: Quest] = [:]
 
-        if let cache = cacheService,
-           cache.isCacheFresh(familyRecordName: familyName, type: .quest)
-        {
+        if let cache = cacheService {
             let cachedQuests = cache.fetchQuests(family: familyName)
-            for questCacheRow in cachedQuests {
-                let questObj = questCacheRow.toQuest(zoneID: zoneID)
-                questCache[questObj.id] = questObj
-            }
-        } else {
-            let profileRef = CKRecord.Reference(recordID: profileID, action: .none)
-            let predicate = NSPredicate(format: "assignee == %@", profileRef)
-            do {
-                let assignedQuests = try await cloudKit.query(
-                    Quest.self,
-                    predicate: predicate,
-                    in: zoneID,
-                    sortDescriptors: nil
-                )
-                for quest in assignedQuests {
-                    questCache[quest.id] = quest
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, cachedCount: cachedQuests.count) {
+                for questCacheRow in cachedQuests {
+                    let questObj = questCacheRow.toQuest(zoneID: zoneID)
+                    questCache[questObj.id] = questObj
                 }
-                await syncCoordinator?.delegateHandler.hydrateFromQuery(
-                    models: assignedQuests,
-                    databaseScope: appState?.isZoneOwner == true ? .private : .shared,
-                    zoneID: zoneID
-                )
-            } catch {
-                logger.error("Failed to query assigned quests for profile \(profileID.recordName, privacy: .private): \(error, privacy: .private)")
+                return questCache
             }
+        }
 
-            let missingQuestIDs = Set(completedLogs.map(\.quest.recordID)).subtracting(questCache.keys)
-            var fetchedMissing: [Quest] = []
-            for questID in missingQuestIDs {
-                do {
-                    let fetched = try await cloudKit.fetch(Quest.self, id: questID)
-                    questCache[questID] = fetched
-                    fetchedMissing.append(fetched)
-                } catch {
-                    logger.debug("Failed to fetch quest \(questID.recordName, privacy: .private): \(error, privacy: .private)")
-                }
+        let profileRef = CKRecord.Reference(recordID: profileID, action: .none)
+        let predicate = NSPredicate(format: "assignee == %@", profileRef)
+        do {
+            let assignedQuests = try await cloudKit.query(
+                Quest.self,
+                predicate: predicate,
+                in: zoneID,
+                sortDescriptors: nil
+            )
+            for quest in assignedQuests {
+                questCache[quest.id] = quest
             }
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
+                models: assignedQuests,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                zoneID: zoneID
+            )
+        } catch {
+            logger.debug("Failed to query assigned quests for profile \(profileID.recordName, privacy: .private): \(error, privacy: .private)")
+        }
+
+        let missingQuestIDs = Set(completedLogs.map(\.quest.recordID)).subtracting(questCache.keys)
+        var fetchedMissing: [Quest] = []
+        for questID in missingQuestIDs {
+            do {
+                let fetched = try await cloudKit.fetch(Quest.self, id: questID)
+                questCache[questID] = fetched
+                fetchedMissing.append(fetched)
+            } catch {
+                logger.debug("Failed to fetch quest \(questID.recordName, privacy: .private): \(error, privacy: .private)")
+            }
+        }
+        if !fetchedMissing.isEmpty {
+            await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: fetchedMissing,
-                databaseScope: appState?.isZoneOwner == true ? .private : .shared,
+                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
                 zoneID: zoneID
             )
         }
         return questCache
     }
 
-    private func computeStats(for profile: Profile, family _: Family) async throws -> ProfileStats {
-        let completedLogs = try await fetchCompletedLogs(for: profile)
-        let ledger = try await fetchLedgerEntries(for: profile)
-        let goals = try await fetchGoals(for: profile)
+    func computeStats(for profile: Profile, family: Family) async throws -> ProfileStats {
+        let completedLogs = try await fetchCompletedLogs(for: profile, family: family)
+        let ledger = try await fetchLedgerEntries(for: profile, family: family)
+        let goals = try await fetchGoals(for: profile, family: family)
         let questCache = try await fetchQuestCache(
             for: completedLogs,
             profileID: profile.id,
-            familyName: profile.family.recordID.recordName,
+            familyName: family.id.recordName,
             zoneID: profile.id.zoneID
         )
 
         var totalGold: Double = 0
-        let calendar = Calendar.iso8601UTC
-        var dailyCompletionDates: Set<DateComponents> = []
+        var dailyCompletionDates: Set<Int> = []
         var weekCompletionCounts: [Date: Int] = [:]
         var earlyBird = false
         var approvedCountByQuest: [CKRecord.ID: Int] = [:]
@@ -663,11 +851,10 @@ final class AchievementService {
             guard let quest = questCache[log.quest.recordID] else { continue }
             approvedCountByQuest[quest.id, default: 0] += 1
 
-            let day = calendar.dateComponents([.year, .month, .day], from: log.completedDate)
-            dailyCompletionDates.insert(day)
+            dailyCompletionDates.insert(WeekMath.dayBucket(for: log.completedDate))
             weekCompletionCounts[quest.weekOf, default: 0] += 1
 
-            let hour = calendar.component(.hour, from: log.completedDate)
+            let hour = Calendar.iso8601UTC.component(.hour, from: log.completedDate)
             if hour < AppConstants.Economy.earlyBirdHourCutoff {
                 earlyBird = true
             }
@@ -679,17 +866,19 @@ final class AchievementService {
             }
         }
 
-        let streakDays = longestConsecutiveStreak(in: dailyCompletionDates, calendar: calendar)
+        let streakDays = longestConsecutiveStreak(in: dailyCompletionDates)
         let bestWeekly = computeBestWeeklyCompletion(
             profile: profile,
             approvedCountByQuest: approvedCountByQuest,
             questCache: questCache
         )
 
+        // Ledger weeks ride the hero's payout-day-aware cycles via WeekMath so
+        // the legacy week-count stat agrees with the app's week cycles.
+        let payoutDay = profile.payoutDay ?? family.payoutDay
         var ledgerWeekRoots = Set<Date>()
         for entry in ledger {
-            let monday = calendar.nextOrSameMonday(for: entry.date)
-            ledgerWeekRoots.insert(monday)
+            ledgerWeekRoots.insert(WeekMath.startOfWeek(for: entry.date, payoutDay: payoutDay))
         }
 
         let goalsCreated = goals.count
@@ -708,7 +897,7 @@ final class AchievementService {
         )
     }
 
-    private func computeBestWeeklyCompletion(
+    func computeBestWeeklyCompletion(
         profile: Profile,
         approvedCountByQuest: [CKRecord.ID: Int],
         questCache: [CKRecord.ID: Quest]
@@ -730,19 +919,15 @@ final class AchievementService {
         return bestWeekly
     }
 
-    private func longestConsecutiveStreak(in days: Set<DateComponents>, calendar: Calendar) -> Int {
+    func longestConsecutiveStreak(in days: Set<Int>) -> Int {
         guard !days.isEmpty else { return 0 }
 
-        let reconstructed: [Date] = days.compactMap { components -> Date? in
-            calendar.date(from: components)
-        }.sorted()
+        let sorted = days.sorted()
         var best = 1
         var run = 1
-        for index in 1 ..< reconstructed.count {
-            let prev = reconstructed[index - 1]
-            let curr = reconstructed[index]
-            let delta = calendar.dateComponents([.day], from: prev, to: curr).day ?? 0
-            if delta == 1 {
+        for index in 1 ..< sorted.count {
+            // Buckets are epoch-day integers, so a gap of exactly 1 is consecutive days.
+            if sorted[index] - sorted[index - 1] == 1 {
                 run += 1
                 if run > best {
                     best = run
@@ -754,7 +939,7 @@ final class AchievementService {
         return best
     }
 
-    private func isRequirementMet(definition: Achievement, stats: ProfileStats) -> Bool {
+    func isRequirementMet(definition: Achievement, stats: ProfileStats) -> Bool {
         switch definition.requirementType {
         case AchievementRequirement.firstQuest:
             stats.questCount >= 1
@@ -802,16 +987,5 @@ final class AchievementService {
         case AchievementRequirement.ledgerWeeks4:
             stats.ledgerWeeksCount >= 4
         }
-    }
-}
-
-private extension Calendar {
-    func nextOrSameMonday(for date: Date) -> Date {
-        let comps = dateComponents([.yearForWeekOfYear, .weekOfYear], from: date)
-        var mondayComps = DateComponents()
-        mondayComps.yearForWeekOfYear = comps.yearForWeekOfYear
-        mondayComps.weekOfYear = comps.weekOfYear
-        mondayComps.weekday = 2
-        return self.date(from: mondayComps) ?? date
     }
 }

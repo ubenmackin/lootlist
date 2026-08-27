@@ -260,7 +260,7 @@ final class OnboardingViewModel {
             push(.done)
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to create family: \(familyError.localizedDescription, privacy: .private)")
-            error = "Could not create your guild. Please try again."
+            self.error = "Could not create your guild. Please try again."
         } catch {
             logger.error("Failed to create family: \(error, privacy: .private)")
             self.error = "Could not create your guild. Please try again."
@@ -327,6 +327,31 @@ final class OnboardingViewModel {
         }
     }
 
+    #if DEBUG
+        /// Development-only stand-in for an incoming Apple Messages share link: the
+        /// Simulator can't receive CloudKit invites, so a tester pastes the URL and
+        /// this drives the identical accept machinery — resolving the link into
+        /// `pendingShareMetadata` through the service layer (never touching
+        /// CloudKit directly), which the view's `.onChange(of:)` then accepts.
+        func simulateInviteLink(_ url: URL) async {
+            joinProgressStatus = "Reading invitation link..."
+            joinProgressFraction = 0.15
+            do {
+                logger.info("Requesting share metadata for simulated invite URL...")
+                let resolved = try await familyService.resolveInvitationLink(url)
+                logger.info("Resolved share metadata: zone='\(resolved.zoneName, privacy: .private)' title='\(resolved.title, privacy: .private)'")
+                joinProgressStatus = "Invitation verified! Connecting to family..."
+                joinProgressFraction = 0.3
+                pendingShareMetadata = resolved.metadata
+            } catch {
+                joinProgressStatus = nil
+                joinProgressFraction = nil
+                logger.error("Resolving share metadata failed: \(error, privacy: .private)")
+                self.error = friendlyInviteAcceptError(error) ?? "Could not read that share link. Please try again."
+            }
+        }
+    #endif
+
     /// Completes joiner setup, updating profile name/avatar unless reusing an active profile.
     func completeJoinedProfile() async {
         guard !isLoading else { return }
@@ -375,7 +400,7 @@ final class OnboardingViewModel {
             push(.done)
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to finalize joined profile: \(familyError.localizedDescription, privacy: .private)")
-            error = "Could not set up your hero profile. Please try again."
+            self.error = "Could not set up your hero profile. Please try again."
         } catch {
             logger.error("Failed to finalize joined profile: \(error, privacy: .private)")
             self.error = genericJoinerErrorFallback

@@ -5,11 +5,11 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import Foundation
 import Observation
 import os
 
+// WHY: SpendingLogRow stays the single ViewModel row type for ledger UI; HeroLedgerViewModel reuses it instead of redefining an identical struct.
 struct SpendingLogRow: Identifiable, Equatable {
     let id: String
     let amount: Double
@@ -71,6 +71,39 @@ final class TreasuryViewModel {
         self.appState = appState
     }
 
+    // MARK: - DRY Helpers (single source for ledger→row & balance)
+
+    // WHY: Single source via AppState so WeekMath windows stay consistent across rebuild paths.
+    private var resolvedPayoutDay: PayoutDay {
+        appState.resolvedPayoutDay
+    }
+
+    // WHY: One ledger-total formula shared by Treasury + HeroLedger; CurrencyFormatter remains sole display formatter, this is pure Double sum.
+    static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
+        ledgers.filter { $0.profileRecordName == profileRecordName }.reduce(0.0) { $0 + $1.amount }
+    }
+
+    // WHY: Single cache→row path (profile filter + CalendarScope bucket filter + sorted) so Treasury/HeroLedger share one bucket logic instead of duplicating rebuildSpendingLog/rebuildLedger.
+    static func spendingRows(from ledgers: [LedgerEntryCache], profileRecordName: String, scope: CalendarScope, payoutDay: PayoutDay) -> [SpendingLogRow] {
+        ledgers
+            .filter { $0.profileRecordName == profileRecordName }
+            .filter { scope.contains($0.date, payoutDay: payoutDay) }
+            .map { ledger in
+                SpendingLogRow(
+                    id: ledger.recordName,
+                    amount: ledger.amount,
+                    description: ledger.entryDescription,
+                    location: ledger.location,
+                    date: ledger.date,
+                    source: ledger.source,
+                    rawCache: ledger
+                )
+            }
+            .sorted { $0.date > $1.date }
+    }
+
+    // MARK: - Weekly Breakdown (CloudKit-backed)
+
     func refreshWeeklyBreakdown() async {
         guard let profile = appState.currentProfile, let family = appState.family else { return }
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: profile.payoutDay ?? family.payoutDay)
@@ -95,9 +128,10 @@ final class TreasuryViewModel {
 
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
-        balance = profileLedgers.reduce(into: 0.0) { $0 += $1.amount }
+        // WHY: Balance derives from ledger sum only; bucket splits render via BucketService balances, not duplicated availableBalance logic.
+        balance = Self.ledgerBalance(for: ledgers, profileRecordName: profileName)
 
-        let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
+        let payoutDay = resolvedPayoutDay
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
@@ -156,42 +190,14 @@ final class TreasuryViewModel {
             paidAmount: paidAmount
         )
 
-        spendingLog = profileLedgers
-            .filter { scope.contains($0.date, payoutDay: payoutDay) }
-            .map { ledger in
-                SpendingLogRow(
-                    id: ledger.recordName,
-                    amount: ledger.amount,
-                    description: ledger.entryDescription,
-                    location: ledger.location,
-                    date: ledger.date,
-                    source: ledger.source,
-                    rawCache: ledger
-                )
-            }
-            .sorted { $0.date > $1.date }
+        spendingLog = Self.spendingRows(from: ledgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
     }
 
     func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], scope: CalendarScope) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
-        let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
-        let filtered = cachedLedgers
-            .filter { $0.profileRecordName == profileName }
-            .filter { scope.contains($0.date, payoutDay: payoutDay) }
-            .map { ledger in
-                SpendingLogRow(
-                    id: ledger.recordName,
-                    amount: ledger.amount,
-                    description: ledger.entryDescription,
-                    location: ledger.location,
-                    date: ledger.date,
-                    source: ledger.source,
-                    rawCache: ledger
-                )
-            }
-
-        spendingLog = filtered.sorted { $0.date > $1.date }
+        let payoutDay = resolvedPayoutDay
+        spendingLog = Self.spendingRows(from: cachedLedgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
     }
 
     func previousLocations(from cachedLedgers: [LedgerEntryCache]) -> [String] {

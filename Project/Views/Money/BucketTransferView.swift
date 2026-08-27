@@ -5,11 +5,12 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
+import SwiftData
 import SwiftUI
 
-/// Child-initiated reallocation between the three `BucketKind` buckets.
-/// Validates sufficient funds on the source bucket, persists ONE deterministic
-/// ledger entry (`source = "transfer"`), and fires a rigid haptic on success.
+/// Child reallocation between buckets — validates funds, blocks a repeat move
+/// between the same pair on the same UTC day (deterministic-ID dedupe guard),
+/// writes one deterministic transfer entry, fires haptic.
 struct BucketTransferView: View {
     @Environment(AppState.self) private var appState
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
@@ -19,8 +20,22 @@ struct BucketTransferView: View {
     @State private var fromBucket: BucketKind = .spend
     @State private var toBucket: BucketKind = .shortTermSave
     @State private var amountText: String = ""
+    @FocusState private var isAmountFocused: Bool
     @State private var isSaving: Bool = false
     @State private var showConfirmation: Bool = false
+
+    @Query private var ledgerCaches: [LedgerEntryCache]
+
+    init(familyRecordName: String? = nil) {
+        // WHY: Fail closed — empty family yields zero rows, never an unscoped cross-family query.
+        let targetFamily = familyRecordName ?? ""
+        #if DEBUG
+            // WHY: Empty predicate silently matches nothing and can mask stale-cache reads; assert in DEBUG unless running tests.
+            assert(!targetFamily.isEmpty || TestEnvironment.isRunningUnitOrUITests, "BucketTransferView: empty familyRecordName — predicate will match no rows (fail-closed)")
+        #endif
+        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        _ledgerCaches = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
+    }
 
     private var bucketService: BucketService {
         BucketService(
@@ -38,12 +53,30 @@ struct BucketTransferView: View {
         appState.family
     }
 
+    // WHY: Balances derive from @Query cache source-of-truth so UI stays reactive, feeding the shared BucketService attribution formula so view and service math can never drift.
     private var balances: [BucketKind: Double] {
-        guard let profile, let family else { return [:] }
-        return bucketService.bucketBalances(
-            profileRecordName: profile.id.recordName,
-            familyRecordName: family.id.recordName
-        )
+        guard let profile else { return [:] }
+        let targetProfile = profile.id.recordName
+        var result: [BucketKind: Double] = [:]
+        for entry in ledgerCaches where entry.profileRecordName == targetProfile {
+            BucketService.applyBucketAttribution(entry, to: &result)
+        }
+        return result
+    }
+
+    // WHY: Transfer IDs are deterministic per (profile, UTC day, from→to pair), so a second move
+    // between the same pair today would upsert over — and silently destroy — the first transfer's ledger row.
+    private var hasTransferredToday: Bool {
+        guard let profile else { return false }
+        let targetProfile = profile.id.recordName
+        let today = WeekMath.dayBucket(for: Date())
+        return ledgerCaches.contains { entry in
+            entry.profileRecordName == targetProfile
+                && entry.source == "transfer"
+                && entry.fromBucket == fromBucket.rawValue
+                && entry.toBucket == toBucket.rawValue
+                && WeekMath.dayBucket(for: entry.date) == today
+        }
     }
 
     /// Buckets available as the source — everything except the current to-bucket.
@@ -56,13 +89,16 @@ struct BucketTransferView: View {
         BucketKind.allCases.filter { $0 != fromBucket }
     }
 
+    // WHY: Locale-aware parsing via CurrencyFormatter so comma decimals work and both sheets share one parser.
     private var parsedAmount: Double? {
-        guard let value = Double(amountText), value.isFinite, value > 0 else { return nil }
+        guard let value = CurrencyFormatter.decimalDouble(from: amountText),
+              value.isFinite, value > 0
+        else { return nil }
         return value
     }
 
     private var canTransfer: Bool {
-        parsedAmount != nil && fromBucket != toBucket && profile != nil && family != nil
+        parsedAmount != nil && fromBucket != toBucket && profile != nil && family != nil && !hasTransferredToday
     }
 
     private var sourceAvailable: Double {
@@ -100,6 +136,7 @@ struct BucketTransferView: View {
                     .accessibilityIdentifier("transfer.confirmButton")
                 }
             }
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             .interactiveDismissDisabled(isSaving)
             .alert("Confirm Transfer", isPresented: $showConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -127,9 +164,7 @@ struct BucketTransferView: View {
                             .foregroundStyle(.secondary)
                     }
                     .tag(kind)
-                    // The rendered balance makes each option's combined
-                    // label locale-dependent, so tests key off stable ids
-                    // scoped per section instead.
+                    // Stable ids per section — labels are locale-dependent.
                     .accessibilityIdentifier("transfer.fromOption-\(kind.rawValue)")
                 }
             }
@@ -171,6 +206,7 @@ struct BucketTransferView: View {
                     .foregroundStyle(.secondary)
                 TextField("0.00", text: $amountText)
                     .keyboardType(.decimalPad)
+                    .focused($isAmountFocused)
                     .font(.body.monospacedDigit())
                     .accessibilityLabel("Transfer amount in dollars")
                     .accessibilityIdentifier("transfer.amountField")
@@ -178,9 +214,11 @@ struct BucketTransferView: View {
         } header: {
             Text("Amount")
         } footer: {
-            if let amount = parsedAmount, amount > sourceAvailable {
+            if hasTransferredToday {
+                Text("You already moved money from \(fromBucket.displayName) to \(toBucket.displayName) today. You can move money between these buckets again tomorrow.")
+            } else if let amount = parsedAmount, amount > sourceAvailable {
                 Text("You only have \(CurrencyFormatter.string(sourceAvailable)) in \(fromBucket.displayName).")
-                    .foregroundStyle(Color.red)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
             }
         }
     }
@@ -194,14 +232,14 @@ struct BucketTransferView: View {
                     Spacer()
                     Text("-\(CurrencyFormatter.string(amount))")
                         .monospacedDigit()
-                        .foregroundStyle(Color.red)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                 }
                 HStack {
                     Text(toBucket.displayName)
                     Spacer()
                     Text("+\(CurrencyFormatter.string(amount))")
                         .monospacedDigit()
-                        .foregroundStyle(Color.green)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                 }
             }
         }
@@ -213,8 +251,9 @@ struct BucketTransferView: View {
         CurrencyFormatter.string(balances[kind] ?? 0)
     }
 
+    // WHY: CurrencyFormatter is single-source for currency; no hardcoded "$" literals.
     private var formattedConfirmAmount: String {
-        guard let amount = parsedAmount else { return "$0.00" }
+        guard let amount = parsedAmount else { return CurrencyFormatter.string(0) }
         return CurrencyFormatter.string(amount)
     }
 
@@ -229,24 +268,27 @@ struct BucketTransferView: View {
             return
         }
 
-        isSaving = true
-        Task {
+        // WHY: Task @MainActor keeps isSaving mutation on the main actor for Swift 6 concurrency.
+        Task { @MainActor in
+            isSaving = true
+            defer { isSaving = false }
             do {
+                // WHY: day-keyed transferID makes the record name deterministic
+                // per (profile, UTC day, pair) so CloudKit dedupes cross-device double-runs.
+                let dayKeyedID = "\(WeekMath.dayBucket(for: Date()))-\(fromBucket.rawValue)-\(toBucket.rawValue)"
                 _ = try await bucketService.transfer(
                     from: fromBucket,
                     to: toBucket,
                     amount: amount,
                     profile: profile,
-                    family: family
+                    family: family,
+                    transferID: dayKeyedID
                 )
-                isSaving = false
                 HapticsService.rigid()
                 dismiss()
             } catch let error as BucketServiceError {
-                isSaving = false
                 toastManager?.show(message: error.localizedDescription, type: .error)
             } catch {
-                isSaving = false
                 toastManager?.show(message: "Something went wrong. Please try again.", type: .error)
             }
         }

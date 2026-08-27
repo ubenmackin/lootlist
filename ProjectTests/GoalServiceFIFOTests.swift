@@ -337,4 +337,70 @@ struct GoalServiceFIFOTests {
         #expect(al1 == al2)
         #expect(al1 != al3)
     }
+
+    // MARK: - Goal Service CRUD
+
+    @Test
+    func `updateGoal updates goal properties and persists in cache`() async throws {
+        let app = AppState()
+        let familyZoneID = CKRecordZone.ID(zoneName: "family-zone", ownerName: "owner")
+        let familyID = CKRecord.ID(recordName: "fam1", zoneID: familyZoneID)
+        let family = Family(
+            name: "The Clan",
+            createdBy: CKRecord.ID(recordName: "owner", zoneID: familyZoneID),
+            id: familyID
+        )
+        let hero = Profile(
+            displayName: "Maya",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user_hero1", zoneID: familyZoneID),
+            family: CKRecord.Reference(recordID: familyID, action: .none),
+            id: CKRecord.ID(recordName: "hero1", zoneID: familyZoneID)
+        )
+        app.family = family
+        app.currentProfile = hero
+        app.authStatus = .authenticated
+
+        let cloudKit = MockCloudKitService()
+        let cache = try CacheService(inMemory: true)
+        let goalService = GoalService(cloudKit: cloudKit, cacheService: cache, appState: app)
+
+        let initial = try await goalService.createGoal(
+            name: "Original Name",
+            category: "Toys",
+            emojiIcon: "🚀",
+            targetAmountPennies: 5000,
+            bucketKind: .shortTermSave,
+            for: hero,
+            family: family
+        )
+
+        #expect(initial.name == "Original Name")
+
+        let updated = try await goalService.updateGoal(
+            initial,
+            name: "Updated Bike",
+            category: "Sports",
+            emojiIcon: "🚲",
+            targetAmountPennies: 8000,
+            bucketKind: .longTermSave,
+            family: family
+        )
+
+        #expect(updated.name == "Updated Bike")
+        #expect(updated.category == "Sports")
+        #expect(updated.emojiIcon == "🚲")
+        #expect(updated.targetAmountPennies == 8000)
+        #expect(updated.bucketKind == BucketKind.longTermSave.rawValue)
+
+        let cached = cache.fetchGoal(recordName: updated.id.recordName, family: "fam1")
+        #expect(cached?.name == "Updated Bike")
+        #expect(cached?.category == "Sports")
+        #expect(cached?.targetAmountPennies == 8000)
+
+        // Delete goal
+        try await goalService.deleteGoal(updated, family: family)
+        let afterDelete = cache.fetchGoal(recordName: updated.id.recordName, family: "fam1")
+        #expect(afterDelete == nil)
+    }
 }

@@ -52,7 +52,13 @@ final class GemService {
 
     func updateProfile(_ profile: Profile) async throws {
         await cacheService?.upsertProfile(profile)
-        syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: appState?.isZoneOwner ?? false)
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            logger.warning("GemService.updateProfile isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwner)
     }
 
     // MARK: - Credit & Spend
@@ -136,16 +142,28 @@ final class GemService {
                 // No cache — isolated fixture path without a ModelContext. Cannot
                 // enforce local idempotency; preserve the original enqueue+toast so
                 // the fixture can still observe the ledger via CloudKit.
-                syncCoordinator?.enqueueSave(recordID: ledger.id, isOwner: appState?.isZoneOwner ?? false)
-                syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: appState?.isZoneOwner ?? false)
+                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+                let isOwnerFallback = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+                let storedOwnerFallback = appState?.isZoneOwner ?? false
+                if isOwnerFallback != storedOwnerFallback {
+                    logger.warning("GemService.creditGems fallback isOwner corrected via creator anchor: stored=\(storedOwnerFallback) resolved=\(isOwnerFallback)")
+                }
+                syncCoordinator?.enqueueSave(recordID: ledger.id, isOwner: isOwnerFallback)
+                syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwnerFallback)
                 soundManager?.play(.gemEarned)
                 toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
                 return true
             }
 
             // Enqueue both records atomically for CKSyncEngine.
-            syncCoordinator?.enqueueSave(recordID: ledger.id, isOwner: appState?.isZoneOwner ?? false)
-            syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: appState?.isZoneOwner ?? false)
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwner = appState?.isZoneOwner ?? false
+            if isOwner != storedOwner {
+                logger.warning("GemService.creditGems isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+            }
+            syncCoordinator?.enqueueSave(recordID: ledger.id, isOwner: isOwner)
+            syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwner)
 
             // Play sound & Toast
             var updatedProfile = profile
@@ -156,7 +174,13 @@ final class GemService {
                 return false
             }
             await cacheService?.upsertProfile(updatedProfile)
-            syncCoordinator?.enqueueSave(recordID: updatedProfile.id, isOwner: appState?.isZoneOwner ?? false)
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwnerUpdated = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwnerUpdated = appState?.isZoneOwner ?? false
+            if isOwnerUpdated != storedOwnerUpdated {
+                logger.warning("GemService.creditGems updatedProfile isOwner corrected via creator anchor: stored=\(storedOwnerUpdated) resolved=\(isOwnerUpdated)")
+            }
+            syncCoordinator?.enqueueSave(recordID: updatedProfile.id, isOwner: isOwnerUpdated)
 
             soundManager?.play(.gemEarned)
             toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
@@ -232,10 +256,16 @@ final class GemService {
             }
 
             await cacheService?.applyGemDebit(profile: debit.profile, ledger: debit.ledger)
+            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+            let isOwnerDebit = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let storedOwnerDebit = appState?.isZoneOwner ?? false
+            if isOwnerDebit != storedOwnerDebit {
+                logger.warning("GemService.spendGems isOwner corrected via creator anchor: stored=\(storedOwnerDebit) resolved=\(isOwnerDebit)")
+            }
             syncCoordinator?.enqueueGemDebit(
                 profileID: debit.profile.id,
                 ledgerID: debit.ledger.id,
-                isOwner: appState?.isZoneOwner ?? false
+                isOwner: isOwnerDebit
             )
 
             return true

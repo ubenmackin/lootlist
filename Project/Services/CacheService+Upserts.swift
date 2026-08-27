@@ -27,6 +27,9 @@ extension CacheService {
             \(actualFamily, privacy: .private)
             """
         )
+        #if DEBUG
+            toastManager?.show(message: "DEBUG: \(entityName) family mismatch (\(requestedFamily) vs \(actualFamily))", type: .warning)
+        #endif
     }
 
     private func applyUpsert<T: CacheMergeable>(

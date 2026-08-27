@@ -20,6 +20,8 @@ struct TemplateAssignmentFormView: View {
     @Binding var approvalOverride: QuestAssignmentView.ApprovalModeSelection
     @Binding var isAllOrNothingOverride: Bool
 
+    @FocusState private var isAmountFocused: Bool
+
     private var isMultiOccurrence: Bool {
         guard let template = selectedTemplate else { return false }
         return QuestSchedule.isMultiOccurrence(
@@ -88,7 +90,7 @@ struct TemplateAssignmentFormView: View {
                     HStack(spacing: 8) {
                         ForEach(["1.00", "2.50", "5.00"], id: \.self) { preset in
                             PresetPill(
-                                text: CurrencyFormatter.string(Double(preset) ?? 0),
+                                text: CurrencyFormatter.presetString(preset),
                                 isSelected: goldOverrideText == preset,
                                 action: { goldOverrideText = preset }
                             )
@@ -97,25 +99,28 @@ struct TemplateAssignmentFormView: View {
                     .padding(.vertical, 2)
                 }
                 TextField(
-                    selectedTemplate.map { String(format: "%.2f", $0.goldReward) } ?? "",
+                    selectedTemplate.map { CurrencyFormatter.editingString($0.goldReward) } ?? "",
                     text: $goldOverrideText
                 )
                 .keyboardType(.decimalPad)
+                .focused($isAmountFocused)
+                .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             }
 
-            HStack {
-                // XP still accrues invisibly behind the scenes; parents set it
-                // as an unshown "bonus" so no XP wording surfaces.
-                Text("Bonus Override")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                TextField(
-                    selectedTemplate.map { String($0.xpReward) } ?? "",
-                    text: $xpOverrideText
-                )
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 80)
+            // WHY: Bonus Override/XP field is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+            if FeatureFlags.rpgImmersive {
+                HStack {
+                    Text("Bonus Override")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    TextField(
+                        selectedTemplate.map { String($0.xpReward) } ?? "",
+                        text: $xpOverrideText
+                    )
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+                }
             }
 
             Picker("Approval", selection: $approvalOverride) {

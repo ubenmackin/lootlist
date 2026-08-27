@@ -707,14 +707,16 @@ struct TreasuryViewModelTests {
         let scaffold = try TransferScaffold()
         scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
 
+        let unixDay = WeekMath.dayBucket(for: Date())
+        let transferID = "\(unixDay)-spend-shortTermSave"
         let entry = try await scaffold.buckets.transfer(
             from: .spend, to: .shortTermSave, amount: 4.00,
-            profile: scaffold.hero, family: scaffold.family
+            profile: scaffold.hero, family: scaffold.family,
+            transferID: transferID
         )
 
         // Deterministic ID per (profile, day, from, to): CloudKit dedupes a
-        // same-day retry across devices.
-        let unixDay = Int(Date().timeIntervalSince1970 / 86400)
+        // same-day retry across devices when transferID is supplied.
         #expect(entry.id.recordName == "transfer-hero1-\(unixDay)-spend-shortTermSave")
         #expect(entry.source == "transfer")
         #expect(entry.bucketKind == BucketKind.shortTermSave.rawValue)
@@ -729,15 +731,40 @@ struct TreasuryViewModelTests {
         // never by a second row.
         #expect(scaffold.entries().count == 2)
 
-        // Same-day replay re-upserts the identical record instead of minting
-        // a second ledger row.
-        _ = try await scaffold.buckets.transfer(
-            from: .spend, to: .shortTermSave, amount: 4.00,
-            profile: scaffold.hero, family: scaffold.family
-        )
+        // Same-day duplicate must be rejected via per-day/per-pair guard.
+        await #expect(throws: BucketServiceError.duplicateTodayTransfer) {
+            _ = try await scaffold.buckets.transfer(
+                from: .spend, to: .shortTermSave, amount: 4.00,
+                profile: scaffold.hero, family: scaffold.family,
+                transferID: transferID
+            )
+        }
         #expect(scaffold.entries().count == 2)
         balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
         #expect(balances[.spend] == 6.00)
         #expect(balances[.shortTermSave] == 4.00)
+    }
+
+    @Test
+    func `transfers without transferID are append-only with distinct records`() async throws {
+        let scaffold = try TransferScaffold()
+        scaffold.seed("l-spend-in", amount: 10.00, source: "quest", bucketKind: BucketKind.spend.rawValue)
+
+        let entry1 = try await scaffold.buckets.transfer(
+            from: .spend, to: .shortTermSave, amount: 2.00,
+            profile: scaffold.hero, family: scaffold.family
+        )
+        // WHY: Second transfer uses a different pair so the per-day/per-pair guard does not fire — nonce path stays append-only.
+        let entry2 = try await scaffold.buckets.transfer(
+            from: .spend, to: .longTermSave, amount: 3.00,
+            profile: scaffold.hero, family: scaffold.family
+        )
+
+        #expect(entry1.id.recordName != entry2.id.recordName)
+        #expect(scaffold.entries().count == 3) // 1 seed + 2 transfers
+        let balances = scaffold.buckets.bucketBalances(profileRecordName: "hero1", familyRecordName: "fam1")
+        #expect(balances[.spend] == 5.00)
+        #expect(balances[.shortTermSave] == 2.00)
+        #expect(balances[.longTermSave] == 3.00)
     }
 }

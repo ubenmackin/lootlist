@@ -325,7 +325,7 @@ struct CacheServiceTests {
         upserted.changeTag = nil
         await service.upsertNotificationPreference(upserted)
 
-        let prefs = service.fetchNotificationPreferences(profileRecordName: "hero")
+        let prefs = service.fetchNotificationPreferences(profileRecordName: "hero", family: "fam")
         #expect(prefs.count == 1)
         #expect(prefs.first?.changeTag == nil)
     }
@@ -468,7 +468,7 @@ struct CacheServiceTests {
 
         await service.upsertLedgerEntry(entry)
 
-        let entries = service.fetchLedgerEntries(profileRecordName: "hero")
+        let entries = service.fetchLedgerEntries(profileRecordName: "hero", family: "fam")
         #expect(entries.count == 1)
         #expect(entries.first?.amount == 5.0)
     }
@@ -486,7 +486,7 @@ struct CacheServiceTests {
 
         await service.upsertAllowancePeriod(period)
 
-        let periods = service.fetchAllowancePeriods(profileRecordName: "hero")
+        let periods = service.fetchAllowancePeriods(profileRecordName: "hero", family: "fam")
         #expect(periods.count == 1)
         #expect(periods.first?.questsTotal == 5)
     }
@@ -524,7 +524,7 @@ struct CacheServiceTests {
 
         await service.upsertProfileAchievement(pa)
 
-        let pas = service.fetchProfileAchievements(profileRecordName: "hero")
+        let pas = service.fetchProfileAchievements(profileRecordName: "hero", family: "fam")
         #expect(pas.count == 1)
         #expect(pas.first?.recordName == "pa1")
     }
@@ -620,6 +620,23 @@ struct CacheServiceTests {
         // Stamps are per-family AND per-type: other families/types stay stale.
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .quest) == false)
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion) == false)
+    }
+
+    @Test
+    func `legacy un-scoped watermark key in defaults does not satisfy shared scope`() throws {
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: true, defaults: defaults)
+        defaults.set(Date(), forKey: "cache_fresh_fresh-fam-legacy-1_quest")
+        // Legacy un-scoped key in defaults does NOT satisfy .shared scope
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-legacy-1", type: .quest, scope: .shared) == false)
+    }
+
+    @Test
+    func `scoped watermark strictly isolates private and shared scopes`() throws {
+        let service = try makeService()
+        service.markCacheFresh(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .shared)
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .shared) == true)
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .private) == false)
     }
 
     @Test

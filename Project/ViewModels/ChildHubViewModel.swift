@@ -17,6 +17,26 @@ struct ChoreRowItem: Identifiable {
     let subtitle: String?
     let amount: Double
     let isPendingReview: Bool
+    let questRecordName: String
+    let completionRecordName: String?
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String?,
+        amount: Double,
+        isPendingReview: Bool,
+        questRecordName: String? = nil,
+        completionRecordName: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.amount = amount
+        self.isPendingReview = isPendingReview
+        self.questRecordName = questRecordName ?? id
+        self.completionRecordName = completionRecordName
+    }
 }
 
 /// The FIFO head goal driving the Active Goal card, with its cache-derived
@@ -106,9 +126,9 @@ final class ChildHubViewModel {
             uniquingKeysWith: { first, _ in first }
         )
 
-        // Week boundaries come exclusively from WeekMath so the hub's progress
+        // WHY: Week boundaries come exclusively from WeekMath so the hub's progress
         // window matches payout cycles everywhere else in the app.
-        let payoutDay = profile.payoutDay ?? appState.family?.payoutDay ?? .sunday
+        let payoutDay = appState.resolvedPayoutDay
         let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
         let weekQuests = myQuests.filter { weekRange.contains($0.weekOf) }
 
@@ -163,11 +183,15 @@ final class ChildHubViewModel {
                 title: quest.questName,
                 subtitle: "Sent to Parent for Review",
                 amount: quest.goldReward,
-                isPendingReview: true
+                isPendingReview: true,
+                questRecordName: quest.recordName,
+                completionRecordName: log.recordName
             ))
         }
 
-        let todayCode = HeroDashboardViewModel.todayWeekdayCode()
+        // Weekday code comes from WeekMath so due-text and the week strip
+        // anchor on the same UTC weekday source.
+        let todayCode = WeekMath.todayWeekdayCode()
         let logsByQuest = Dictionary(grouping: myLogs, by: \.questRecordName)
 
         let open = weekQuests.filter { quest in
@@ -194,7 +218,9 @@ final class ChildHubViewModel {
                 title: quest.questName,
                 subtitle: dueText(for: quest, templatesByID: templatesByID, todayCode: todayCode),
                 amount: quest.goldReward,
-                isPendingReview: false
+                isPendingReview: false,
+                questRecordName: quest.recordName,
+                completionRecordName: nil
             ))
         }
         return rows
@@ -216,17 +242,14 @@ final class ChildHubViewModel {
         templatesByID: [String: QuestTemplateCache],
         todayCode: String
     ) -> String {
-        let codes = AppConstants.weekdayCodes
         guard quest.scheduleTypeEnum == .specificDays else { return "This Week" }
         let days = templatesByID[quest.templateRecordName]?.specificDays ?? []
         if days.contains(todayCode) {
             return "Due Today"
         }
-        let todayIndex = codes.firstIndex(of: todayCode) ?? -1
-        if let next = codes.first(where: { days.contains($0) && (codes.firstIndex(of: $0) ?? -1) > todayIndex }),
-           let index = codes.firstIndex(of: next)
-        {
-            return "Due \(AppConstants.weekdayShort[index])"
+        // WHY: Next weekday lookup via WeekMath so due-text ordering stays payout-anchored and UTC-consistent.
+        if let next = WeekMath.nextWeekdayCode(after: todayCode, candidates: days) {
+            return "Due \(WeekMath.shortName(for: next))"
         }
         return "This Week"
     }
