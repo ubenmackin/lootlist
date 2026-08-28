@@ -27,7 +27,7 @@ extension QuestService {
         let isOwner = resolvedIsOwner()
         // Hoisted local: Swift 6 requires explicit capture semantics for
         // self-referencing property access inside the logger interpolation.
-        let storedOwner = appState?.isZoneOwner ?? false
+        let storedOwner = appState.isZoneOwner
         if isOwner != storedOwner {
             logger.warning("markComplete isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -36,7 +36,7 @@ extension QuestService {
 
     @discardableResult
     func markComplete(quest: QuestCache, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        guard let zoneID = appState?.familyZoneID else {
+        guard let zoneID = appState.familyZoneID else {
             logger.warning("markComplete aborted: no active family zone")
             throw FamilyServiceError.unauthorized
         }
@@ -45,7 +45,7 @@ extension QuestService {
 
     @discardableResult
     func markComplete(quest: Quest, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == profile.id
         else {
             logger.warning("markComplete aborted: acting profile mismatch for quest \(quest.id.recordName, privacy: .private)")
@@ -99,35 +99,33 @@ extension QuestService {
         if quest.approvalMode == .autoApprove {
             log.verificationStatus = .autoApproved
             try await applyReward(for: quest, to: profile, completion: log)
-            if let cached = cacheService?.fetchQuestCompletion(recordName: log.id.recordName, family: quest.family.recordID.recordName) {
+            if let cached = cacheService.fetchQuestCompletion(recordName: log.id.recordName, family: quest.family.recordID.recordName) {
                 log = cached.toQuestCompletion(zoneID: resolvedZoneID)
             } else {
                 // Persist the completion even when the reward claim was lost
                 // (applyReward returned early), so the @Query-driven UI reflects
                 // it and validateCanCompleteQuest prevents duplicates.
-                await cacheService?.upsertQuestCompletion(log)
+                await cacheService.upsertQuestCompletion(log)
                 let isOwner = correctedIsOwnerForSync()
-                syncCoordinator?.enqueueSave(recordID: log.id, isOwner: isOwner)
+                syncCoordinator.enqueueSave(recordID: log.id, isOwner: isOwner)
             }
         } else {
-            await cacheService?.upsertQuestCompletion(log)
+            await cacheService.upsertQuestCompletion(log)
             let isOwner = correctedIsOwnerForSync()
-            syncCoordinator?.enqueueSave(recordID: log.id, isOwner: isOwner)
+            syncCoordinator.enqueueSave(recordID: log.id, isOwner: isOwner)
         }
 
         if quest.approvalMode == .parentVerify {
             dispatchParentReviewNotification(for: log, quest: quest)
         }
-        if let syncCoordinator {
-            Task {
-                await syncCoordinator.sendPendingChanges()
-            }
+        Task {
+            await syncCoordinator.sendPendingChanges()
         }
         return log
     }
 
     func withdrawCompletion(questLog: QuestCompletion, by profile: Profile) async throws {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent
         else {
             logger.warning("withdrawCompletion aborted: unauthorized actor for log \(questLog.id.recordName, privacy: .private)")
@@ -149,23 +147,21 @@ extension QuestService {
         try validateCanTransitionCompletion(questLog, logName: logName)
 
         var updated = questLog
-        if let cached = cacheService?.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
+        if let cached = cacheService.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
             updated = cached.toQuestCompletion(zoneID: questLog.id.zoneID)
         }
         updated.verificationStatus = .withdrawn
 
-        await cacheService?.upsertQuestCompletion(updated)
+        await cacheService.upsertQuestCompletion(updated)
         let isOwner = resolvedIsOwner()
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
-        if let syncCoordinator {
-            Task {
-                await syncCoordinator.sendPendingChanges()
-            }
+        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        Task {
+            await syncCoordinator.sendPendingChanges()
         }
     }
 
     func withdrawCompletion(questLog: QuestCompletionCache, by profile: Profile) async throws {
-        guard let zoneID = appState?.familyZoneID else {
+        guard let zoneID = appState.familyZoneID else {
             logger.warning("withdrawCompletion aborted: no active family zone")
             throw FamilyServiceError.unauthorized
         }
@@ -174,7 +170,7 @@ extension QuestService {
 
     @discardableResult
     func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == parent.id,
               acting.role.isParent
         else {
@@ -197,7 +193,7 @@ extension QuestService {
         try validateCanTransitionCompletion(questLog, logName: logName)
 
         var updated = questLog
-        if let cached = cacheService?.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
+        if let cached = cacheService.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
             updated = cached.toQuestCompletion(zoneID: questLog.id.zoneID)
         }
         updated.verificationStatus = .verified
@@ -205,14 +201,14 @@ extension QuestService {
         updated.verifiedDate = Date()
 
         // Persists verification decision locally first; enqueues engine save for CloudKit.
-        await cacheService?.upsertQuestCompletion(updated)
+        await cacheService.upsertQuestCompletion(updated)
         let isOwner = resolvedIsOwner()
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
         try await handlePostVerifySettlement(questLog: questLog, updated: updated)
 
         // Adopt whatever the settlement step stamped onto the cached row.
-        if let cached = cacheService?.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
+        if let cached = cacheService.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
             updated = cached.toQuestCompletion(zoneID: questLog.id.zoneID)
         }
 
@@ -221,7 +217,7 @@ extension QuestService {
 
     @discardableResult
     func reject(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == parent.id,
               acting.role.isParent
         else {
@@ -244,16 +240,16 @@ extension QuestService {
         try validateCanTransitionCompletion(questLog, logName: logName)
 
         var updated = questLog
-        if let cached = cacheService?.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
+        if let cached = cacheService.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
             updated = cached.toQuestCompletion(zoneID: questLog.id.zoneID)
         }
         updated.verificationStatus = .rejected
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
 
-        await cacheService?.upsertQuestCompletion(updated)
+        await cacheService.upsertQuestCompletion(updated)
         let isOwner = resolvedIsOwner()
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: isOwner)
 
         dispatchRejectionNotification(for: updated)
         return updated
@@ -262,7 +258,7 @@ extension QuestService {
     // MARK: - Validation Helpers
 
     private func validateCanCompleteQuest(_ quest: Quest, questName: String) async throws {
-        if let cachedQuest = cacheService?.fetchQuest(recordName: questName, family: quest.family.recordID.recordName) {
+        if let cachedQuest = cacheService.fetchQuest(recordName: questName, family: quest.family.recordID.recordName) {
             guard cachedQuest.isActive else {
                 throw QuestServiceError.alreadyCompleted
             }
@@ -283,7 +279,7 @@ extension QuestService {
     }
 
     private func validateCanTransitionCompletion(_ questLog: QuestCompletion, logName: String) throws {
-        if let cached = cacheService?.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
+        if let cached = cacheService.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
             guard cached.verificationStatusEnum == .pending else {
                 throw QuestServiceError.alreadyResolved(cached.verificationStatus)
             }
@@ -301,7 +297,7 @@ extension QuestService {
 
     private func dispatchParentReviewNotification(for log: QuestCompletion, quest: Quest) {
         // WHY: questNeedsReview is parent-only — never enqueue local notification on child's device; sync ingestion delivers to parent.
-        guard let currentProfile = appState?.currentProfile, currentProfile.role.isParent else { return }
+        guard let currentProfile = appState.currentProfile, currentProfile.role.isParent else { return }
         // WHY: shared-device edge — avoid self-notification when completer and current profile are the same.
         let completerRecordName = log.completedBy.recordID.recordName
         guard currentProfile.id.recordName != completerRecordName else { return }
@@ -394,17 +390,15 @@ extension QuestService {
         } else {
             logger.warning("Cache miss during verify for quest/hero; skipping reward settlement — cache will sync via CKSyncEngine")
             toastManager?.show(message: "Syncing latest quest data. Please try again.", type: .info)
-            if let syncCoordinator {
-                Task {
-                    await syncCoordinator.fetchChanges()
-                }
+            Task {
+                await syncCoordinator.fetchChanges()
             }
             throw QuestServiceError.missingRecord(questLog.quest.recordID.recordName)
         }
 
         let creditedGold = try await applyReward(for: quest, to: hero, completion: updated)
 
-        if let achievementService, let family = appState?.family {
+        if let achievementService, let family = appState.family {
             let achService = achievementService
             Task {
                 do {
@@ -433,7 +427,7 @@ extension QuestService {
     }
 
     private func resolveParent(recordID: CKRecord.ID, familyRecordName: String) -> Profile? {
-        if let cached = cacheService?.fetchProfile(recordName: recordID.recordName, family: familyRecordName) {
+        if let cached = cacheService.fetchProfile(recordName: recordID.recordName, family: familyRecordName) {
             return cached.toProfile(zoneID: recordID.zoneID)
         }
         return nil
@@ -443,7 +437,7 @@ extension QuestService {
     private func resolveQuest(for questLog: QuestCompletion) -> Quest? {
         let questID = questLog.quest.recordID
         let familyName = questLog.family.recordID.recordName
-        if let cached = cacheService?.fetchQuest(recordName: questID.recordName, family: familyName) {
+        if let cached = cacheService.fetchQuest(recordName: questID.recordName, family: familyName) {
             return cached.toQuest(zoneID: questID.zoneID)
         }
         return nil
@@ -453,14 +447,14 @@ extension QuestService {
     private func resolveHero(for questLog: QuestCompletion) -> Profile? {
         let heroID = questLog.completedBy.recordID
         let familyName = questLog.family.recordID.recordName
-        if let cached = cacheService?.fetchProfile(recordName: heroID.recordName, family: familyName) {
+        if let cached = cacheService.fetchProfile(recordName: heroID.recordName, family: familyName) {
             return cached.toProfile(zoneID: heroID.zoneID)
         }
         return nil
     }
 
     private func resolveParentViaCacheScan(familyRecordName: String) -> Profile? {
-        guard let cache = cacheService else { return nil }
+        let cache = cacheService
         let candidates = cache.fetchProfiles(family: familyRecordName)
             .filter { $0.roleEnum?.isParent == true }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -473,7 +467,7 @@ extension QuestService {
     }
 
     private func resolveHeroViaCacheScan(for questLog: QuestCompletion) -> Profile? {
-        guard let cache = cacheService else { return nil }
+        let cache = cacheService
         let familyName = questLog.family.recordID.recordName
         let heroID = questLog.completedBy.recordID
         if let exact = cache.fetchProfiles(family: familyName).first(where: { $0.recordName == heroID.recordName }) {
@@ -488,7 +482,7 @@ extension QuestService {
     }
 
     private func resolveQuestViaCacheScan(for questLog: QuestCompletion) -> Quest? {
-        guard let cache = cacheService else { return nil }
+        let cache = cacheService
         let questID = questLog.quest.recordID
         let familyName = questLog.family.recordID.recordName
         if let exact = cache.fetchQuest(recordName: questID.recordName, family: familyName) {
@@ -499,7 +493,7 @@ extension QuestService {
 
     /// Strictly-local cached logs for a quest, sorted newest-first.
     func cachedQuestLogs(forQuest quest: Quest) -> [QuestCompletion] {
-        guard let cache = cacheService else { return [] }
+        let cache = cacheService
         let questName = quest.id.recordName
         return cache.fetchQuestCompletions(family: quest.family.recordID.recordName)
             .filter { $0.questRecordName == questName }

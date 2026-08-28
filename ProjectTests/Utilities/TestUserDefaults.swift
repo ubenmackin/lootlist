@@ -14,7 +14,8 @@ extension UserDefaults {
         let suiteBase = (suite as NSString).lastPathComponent.replacingOccurrences(of: ".swift", with: "")
         let suiteName = "test.\(suiteBase).\(function).\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
-            fatalError("Failed to create isolated UserDefaults with suite: \(suiteName)")
+            print("Warning: Failed to create isolated UserDefaults suite \(suiteName), falling back to standard.")
+            return .standard
         }
         return defaults
     }

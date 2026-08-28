@@ -114,7 +114,7 @@ struct QuestCompletionEffectView: View {
             case .epic: ["That was a big one — amazing!", "Something to be really proud of!"]
             case .legendary: ["Wow — you did it!", "What an accomplishment!"]
             }
-            return options.randomElement() ?? options[0]
+            return options.randomElement() ?? options.first ?? "Well done!"
         }()
 
         // Generate particles
@@ -146,7 +146,9 @@ struct QuestCompletionEffectView: View {
 
         Task {
             // Small delay to allow layout
-            try? await Task.sleep(nanoseconds: 10_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } catch {}
 
             // 1. Flash
             flashVisible = true
@@ -166,13 +168,17 @@ struct QuestCompletionEffectView: View {
             // 4. Gold text pop (delayed by 0.2s)
             if goldEarned != nil {
                 Task {
-                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    do {
+                        try await Task.sleep(nanoseconds: 200_000_000)
+                    } catch {}
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                         goldScale = 1.2
                         goldOpacity = 1.0
                     }
 
-                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    do {
+                        try await Task.sleep(nanoseconds: 300_000_000)
+                    } catch {}
                     withAnimation(.easeOut(duration: 1.2)) {
                         goldFloatUp = true
                         goldOpacity = 0.0
@@ -181,14 +187,18 @@ struct QuestCompletionEffectView: View {
             }
 
             // 5. XP text float
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 300_000_000)
+            } catch {}
             withAnimation(.easeOut(duration: 1.2)) {
                 textFloatUp = true
                 textOpacity = 0.0
             }
 
             // 6. Finish
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 1_500_000_000)
+            } catch {}
             isShowing = false
         }
     }

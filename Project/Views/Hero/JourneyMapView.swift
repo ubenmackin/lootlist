@@ -115,25 +115,31 @@ struct JourneyMapView: View {
             proxy.scrollTo(stored, anchor: .center)
 
             Task {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                for stepLevel in (stored + 1) ... targetLevel {
-                    withAnimation(.easeInOut(duration: 0.85)) {
-                        animatedHeroLevel = stepLevel
-                        proxy.scrollTo(stepLevel, anchor: .center)
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                    for stepLevel in (stored + 1) ... targetLevel {
+                        guard !Task.isCancelled else { return }
+                        withAnimation(.easeInOut(duration: 0.85)) {
+                            animatedHeroLevel = stepLevel
+                            proxy.scrollTo(stepLevel, anchor: .center)
+                        }
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        try await Task.sleep(nanoseconds: 900_000_000)
                     }
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    try? await Task.sleep(nanoseconds: 900_000_000)
-                }
 
-                // Monotonically acknowledge that the hero reached this level on the map,
-                // syncing across all devices via CloudKit/SwiftData.
-                await JourneyService.acknowledgeJourneyLevel(
-                    targetLevel,
-                    profileCache: profileCache,
-                    appState: appState,
-                    cacheService: appState?.cacheService,
-                    syncCoordinator: syncCoordinator
-                )
+                    guard !Task.isCancelled else { return }
+                    // Monotonically acknowledge that the hero reached this level on the map,
+                    // syncing across all devices via CloudKit/SwiftData.
+                    await JourneyService.acknowledgeJourneyLevel(
+                        targetLevel,
+                        profileCache: profileCache,
+                        appState: appState,
+                        cacheService: appState?.cacheService,
+                        syncCoordinator: syncCoordinator
+                    )
+                } catch {
+                    // Task cancelled (e.g. view dismissed mid-animation) — exit without updating sync state.
+                }
             }
         } else {
             // Already current: center on target level
@@ -246,7 +252,8 @@ struct JourneyMapView: View {
 
         // Full path trail
         var fullPath = Path()
-        fullPath.move(to: positions[0])
+        guard let firstPosition = positions.first else { return }
+        fullPath.move(to: firstPosition)
 
         for index in 1 ..< positions.count {
             let prev = positions[index - 1]
@@ -277,9 +284,9 @@ struct JourneyMapView: View {
         let currentIndex = journeyState.milestones.firstIndex { $0.level == animatedHeroLevel } ?? 0
         let reachedPositions = Array(positions.prefix(currentIndex + 1))
 
-        if reachedPositions.count >= 2 {
+        if reachedPositions.count >= 2, let firstReached = reachedPositions.first {
             var reachedPath = Path()
-            reachedPath.move(to: reachedPositions[0])
+            reachedPath.move(to: firstReached)
             for index in 1 ..< reachedPositions.count {
                 let prev = reachedPositions[index - 1]
                 let curr = reachedPositions[index]

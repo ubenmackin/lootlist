@@ -13,6 +13,7 @@
 		0527C262F4FF6F2BD21E23D9 /* CKSyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77ED22F2224016018806795B /* CKSyncEngineTests.swift */; };
 		063C8490BC2528CA7FFBB5D8 /* OfflineAndSyncMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E8DAC47F670D122621488B /* OfflineAndSyncMatrixTests.swift */; };
 		0649CD2ABA326800F66DAA7A /* MockRecordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F5D0DCF7DC5D866038A466 /* MockRecordStore.swift */; };
+		06CCDA3284F3B5247639FC50 /* SyncEnqueuing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 382FD3ED18619EF8B1FEE10E /* SyncEnqueuing.swift */; };
 		06E96951208027E5DDD97DB2 /* HapticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37C3E5C6B3D4C25D933489E3 /* HapticsService.swift */; };
 		06F3943C3946B8901996E6C2 /* QuestLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2115EBAAEC5C1190BA62182E /* QuestLogView.swift */; };
 		070483C4FCB36260086BAF4F /* FamilyDashboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0592C7CCBECA2855AC8E55B2 /* FamilyDashboardViewModel.swift */; };
@@ -26,6 +27,7 @@
 		0D6FF1926A1D879EDE84A21B /* ProfileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27CD50815F7D1BF211D66DA /* ProfileCache.swift */; };
 		0E6C4DF8B74D3ADEC3A8609A /* NotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56074526FD4DE3AADA0F3DA /* NotificationServiceTests.swift */; };
 		0ECB012D3F05A1627F2908E0 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D4F84AFC2DAC6F06A2ACB69 /* SnapshotHelper.swift */; };
+		0F6D5B334426A40C749B8161 /* PayoutDayResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */; };
 		0F875494740B30818381D710 /* ActiveFamilyScopeGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B80D9E2A60A733F696ADC70 /* ActiveFamilyScopeGuardTests.swift */; };
 		0F8FF43F03C29BE52E1CBC0D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABEF2FC4366881264C70BF9E /* Assets.xcassets */; };
 		10706C96ABEA5F8503744895 /* Family.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C0AD0E8223D235A61B7686E /* Family.swift */; };
@@ -37,6 +39,7 @@
 		15F8E71427319512CC71C5EF /* ScopedIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A9A7101EBC70CA783F90FC /* ScopedIdentityTests.swift */; };
 		16624C674DB74641C5EB4A7E /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64BE7B9FE409A629B17A1B0 /* NotificationSettingsView.swift */; };
 		17EB2FEBB3135A1603CD5A14 /* CacheService+Fetches.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */; };
+		19154C4AA43D618600E2F373 /* InvitationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F1B3A1C922E5E356ECF38F /* InvitationResolver.swift */; };
 		193DD1F3105070BD564FE956 /* PayoutPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA06802A77E7A5E64E33A69 /* PayoutPolicy.swift */; };
 		1B035F1680C203314E23E5CC /* CloudKitService+Save.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9CF39F2B42C3919B826C64 /* CloudKitService+Save.swift */; };
 		1BAB6BB273531D9A32B9D782 /* HeroDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA7E242F81BDF3C77F2C96D /* HeroDetail.swift */; };
@@ -44,6 +47,7 @@
 		1DC307CF87B504DE7E29F317 /* HeroAvatarSpritesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA56F1C78EF704793A4CC8BA /* HeroAvatarSpritesTests.swift */; };
 		1E3DD8985B7CA2268C1323B1 /* FamilyService+Invitations.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07EB2A1B1FF54F24EA4D541 /* FamilyService+Invitations.swift */; };
 		1E5CBB46A49BF5ECFEE528BB /* Quest.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA89DCFD795BA06D52FFDD99 /* Quest.swift */; };
+		1EE29212618450B2458C5173 /* CacheServicing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 028B3D08A58ABE973309E8A0 /* CacheServicing.swift */; };
 		1FA25F4E06D8E49631CF8F9B /* ProgressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA257916025679E0AA31706 /* ProgressBar.swift */; };
 		1FAA4DB4ADD5C7F7B2A84527 /* XPServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A029B21BB9CA3C965490F84 /* XPServiceTests.swift */; };
 		20AFD40CA6DC9E1A3E3889EE /* HeroLedgerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0D3EF8B71154F31B6F89D4F /* HeroLedgerViewModel.swift */; };
@@ -51,6 +55,7 @@
 		21198597FF7A7473784031A3 /* ToastManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */; };
 		213DA4FD9CF0C41F0FEC04D8 /* QuestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60E01CBA7861E4F477E171C5 /* QuestsView.swift */; };
 		214CE8D6A7157C8F10E073FE /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */; };
+		21AC8A63A683A3A1BD90FFAC /* IdentityTokenCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C24BEFCDC73800CD6F28197F /* IdentityTokenCache.swift */; };
 		22894B030B12F7A1AD2ECE05 /* BucketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51E844D116A5F96DE5E85C1C /* BucketService.swift */; };
 		2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */; };
 		24670CCE597CD4D0815458D5 /* MockCloudKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBDE8FEF5840BB3453FC7F81 /* MockCloudKitService.swift */; };
@@ -141,6 +146,7 @@
 		60447CF3B1E15722E78854EF /* LootListScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CDF1B3CCF6974CB463FB5D /* LootListScreenshotTests.swift */; };
 		60574BA049549FCEA283D291 /* UserRole.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */; };
 		6266CBBF01E51324720E6356 /* JourneyServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A14024274BCCB6C894C00D /* JourneyServiceTests.swift */; };
+		6272985E626EA689C58792E3 /* DashboardMetricsCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 494D0857208062129CA6B5B1 /* DashboardMetricsCalculator.swift */; };
 		62A01E2B3B36E4332FE0477F /* LootListSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80AA429949DE95170513B347 /* LootListSchema.swift */; };
 		6352FD719D25CFF60020D9E7 /* QuestServiceTests+Queries.swift in Sources */ = {isa = PBXBuildFile; fileRef = 026B781537DB7624C07CE555 /* QuestServiceTests+Queries.swift */; };
 		641704316F5157C996DF3927 /* DetectedFamilyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEB5C30DB13E096ABEE814CB /* DetectedFamilyView.swift */; };
@@ -150,6 +156,7 @@
 		6631371BED24826123A4A8CE /* QuestCompletionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FA9B09747690FC971766551 /* QuestCompletionCache.swift */; };
 		669B2C303AD3B4A8F11849E7 /* MyGoalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D23B352CD83E7478064E102B /* MyGoalsView.swift */; };
 		6736A9C220C4D8CF3FD6D308 /* QuestCompletionEffectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97B1C9FB5C6463078E45D345 /* QuestCompletionEffectView.swift */; };
+		6A1CDD53651240CFB99D3775 /* RosterViewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABA42BBAB735F6B5A5407BD2 /* RosterViewState.swift */; };
 		6AE514A1E02D85D94775714F /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7532FFBC8B1222F10FB45792 /* ProfileView.swift */; };
 		6BCD255467D8394CC9DFE89D /* FamilyService+Membership.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B026AB35E4FD1FE7D7D98B /* FamilyService+Membership.swift */; };
 		6C1ADE606FEC2E55EC70F90F /* ChildLedgerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830400052B99000D040CC4A2 /* ChildLedgerView.swift */; };
@@ -195,6 +202,8 @@
 		9194A36CE28E488711B64473 /* ParentDashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6CA16B7055C5AEAD8C8C14A /* ParentDashboardUITests.swift */; };
 		92A1BCEE7F3A52E1A90168D7 /* PayoutDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D073AC3409B88891A13463 /* PayoutDay.swift */; };
 		94130D19BDEE8735B089FAE3 /* StatCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C2A9C6E9615A1156066FF5 /* StatCard.swift */; };
+		94B71768CC89A5AD03EEE749 /* Collection+Safe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB3B0D6953742016FB5F43B /* Collection+Safe.swift */; };
+		98381B84ADDBAD296D3D7373 /* ChildHubCardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF96C050796BFCA261A61344 /* ChildHubCardsView.swift */; };
 		99DE98B6440EB9713CD0F2EB /* HeroAvatarSprites+Equipment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3D6CF1C8AF221417C51FF9 /* HeroAvatarSprites+Equipment.swift */; };
 		9A95211B018F750F1C391111 /* GoldCalculationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 931E127FC9659B8520BB240A /* GoldCalculationTests.swift */; };
 		9ADDCC0E74B821C4CBD6EA8F /* MascotSprites.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9997E541DB4BB7E82A4FD00B /* MascotSprites.swift */; };
@@ -284,7 +293,9 @@
 		D09F1FB036C47CA6702C67BB /* BackgroundCacheActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DFF66AC8F6E1EA894180119 /* BackgroundCacheActor.swift */; };
 		D0E34176AF5E13005EFE218E /* BalanceCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC969A154514821895033EF1 /* BalanceCardView.swift */; };
 		D1B0D5D34C80FFF0EA775E20 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8DCAC9147DBA316A1D95311 /* SoundManager.swift */; };
+		D3420451322FE7FC865E19A5 /* CacheFirst.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1648367E274E2959762725 /* CacheFirst.swift */; };
 		D3BEF5587C4B06965E1A4C0B /* EmptyStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0787E35E82ABF461CAFEC9FF /* EmptyStateView.swift */; };
+		D3E779C312D2C7ED1311BC24 /* AuthStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1F0F595013479C502D729A0 /* AuthStateMachine.swift */; };
 		D6339246F3C6EF387CDE5424 /* MascotBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5654B6FEED4474DAD9AC22D /* MascotBannerView.swift */; };
 		D7A10CDBC5176DA9439EBF48 /* SavingsSplitView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF9B4CD12C1C887E6E21879A /* SavingsSplitView.swift */; };
 		D894D66ECFD63EB1F258765C /* FatalCacheErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */; };
@@ -299,6 +310,7 @@
 		DCD15CF9101BFF6BA73DBBE7 /* StreakCalculatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D51CE0E0061F9333E8079DC /* StreakCalculatorTests.swift */; };
 		DD10546803CF9D52F6BFE0B8 /* JourneyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68A6949336D9C6F5715F8A4A /* JourneyService.swift */; };
 		DDEF00353887E9CAF6C5A4D5 /* RecordBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9162B55882719C5378F48EF6 /* RecordBridge.swift */; };
+		DF0A96D95B331E33D63BF78F /* SHA256+Hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC7893018C0628EC0C02B355 /* SHA256+Hex.swift */; };
 		DF2FE889C970BE09DE142988 /* LogSpendingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEED66C9830A57FFB23082CE /* LogSpendingView.swift */; };
 		DFEAD6B1C37337AF65451C96 /* ManualSpendingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */; };
 		E0A47CEA58D68C881E835BE6 /* TrophyRoomUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A4358651CDDB644ED05D11 /* TrophyRoomUITests.swift */; };
@@ -309,6 +321,7 @@
 		E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE42F727DAE57B554FF83B5 /* ScopedRecordIdentity.swift */; };
 		E631DC9332F7895F52928787 /* BackgroundCacheActor+Maintenance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1340E21780794CFD5CA1E0 /* BackgroundCacheActor+Maintenance.swift */; };
 		E6422527DABCC4BFA26C4ABD /* JourneyZoneDecorations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A3A5F8187EDF573AA7C593 /* JourneyZoneDecorations.swift */; };
+		E65D61D436712386B7BD73E2 /* LedgerSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DFE664C97DE662F97840922 /* LedgerSource.swift */; };
 		E70AB0791C7BE6A45EB91F91 /* AppLifecycleCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D86F4AD3247A61B61DB1836 /* AppLifecycleCoordinatorTests.swift */; };
 		E84A0AA99B0109AC2CD5D8CF /* GoalCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88BE82D0CEA435EDBA36936 /* GoalCardView.swift */; };
 		E85CC461F3D68C44ED3B3599 /* HeroDashboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */; };
@@ -326,10 +339,12 @@
 		F0C89F0E52740773FEE220D3 /* CloudKitService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C3ABA1D09005EC293F24135 /* CloudKitService.swift */; };
 		F0CEB3692881579520F29603 /* TreasuryService+Fetches.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BF2353F4534F87197328D31 /* TreasuryService+Fetches.swift */; };
 		F1D74D3298614F36FE0C67AC /* ChildHubViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28BAE24C77964F845EE425D6 /* ChildHubViewModel.swift */; };
+		F242E769C99C52265D7B969F /* FamilyScopedFetchable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 386FA78CE13C37F354F60D83 /* FamilyScopedFetchable.swift */; };
 		F2C851DFAD48F46D38F23302 /* TrophyCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 463E5A4BD2FEA066CE2E2449 /* TrophyCardView.swift */; };
 		F393DAB542CFB599BEC298C4 /* CloudKitRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 652CCBB1CCECFF580964FDD0 /* CloudKitRecord.swift */; };
 		F4716A152964A87FF439BA7C /* AvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC02F032B488C7539AE674DD /* AvatarView.swift */; };
 		F5045887611A55E601F2B3A3 /* MatchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36EA737A10B28750AD5AE459 /* MatchService.swift */; };
+		F64ECE47CB871C09A7D9F315 /* ChildHubBalanceSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A0000AF14251744B02A728 /* ChildHubBalanceSection.swift */; };
 		F6B9BD5159EA2E224F01BC09 /* CKSyncConflictResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0EF642175C65AA3CA23808 /* CKSyncConflictResolver.swift */; };
 		F9956331B011AFB9F0403F9B /* CKSyncEngineDelegateHandler+Hydration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88E0D7A71024989CEC405C /* CKSyncEngineDelegateHandler+Hydration.swift */; };
 		F9970659F14C8EFAA2F9C357 /* HeroAvatarSprites+Mage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79DDEB46A227911AA2752C76 /* HeroAvatarSprites+Mage.swift */; };
@@ -368,6 +383,7 @@
 		009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestRarity.swift; sourceTree = "<group>"; };
 		0197AFDAF18C8E124E4CE964 /* AppDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDependencies.swift; sourceTree = "<group>"; };
 		026B781537DB7624C07CE555 /* QuestServiceTests+Queries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestServiceTests+Queries.swift"; sourceTree = "<group>"; };
+		028B3D08A58ABE973309E8A0 /* CacheServicing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheServicing.swift; sourceTree = "<group>"; };
 		029D59AC3369CE8ADE425CFE /* HeroLedgerViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroLedgerViewModelTests.swift; sourceTree = "<group>"; };
 		02DD14675841D99B77530615 /* TrophyRoomViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrophyRoomViewModel.swift; sourceTree = "<group>"; };
 		0592C7CCBECA2855AC8E55B2 /* FamilyDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardViewModel.swift; sourceTree = "<group>"; };
@@ -440,6 +456,8 @@
 		36EA737A10B28750AD5AE459 /* MatchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchService.swift; sourceTree = "<group>"; };
 		3733A863E64E1CB664EF4452 /* AvatarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarService.swift; sourceTree = "<group>"; };
 		37C3E5C6B3D4C25D933489E3 /* HapticsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticsService.swift; sourceTree = "<group>"; };
+		382FD3ED18619EF8B1FEE10E /* SyncEnqueuing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEnqueuing.swift; sourceTree = "<group>"; };
+		386FA78CE13C37F354F60D83 /* FamilyScopedFetchable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyScopedFetchable.swift; sourceTree = "<group>"; };
 		38D54C065BB93AFB3802F5BF /* QuestTemplateCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestTemplateCache.swift; sourceTree = "<group>"; };
 		3981A96F7316EF05BD95B2D9 /* WeekMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeekMath.swift; sourceTree = "<group>"; };
 		39FD1534CF37B76842F11715 /* DesignSystemConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystemConstants.swift; sourceTree = "<group>"; };
@@ -469,10 +487,12 @@
 		465DD171C3B2E669A7EA9987 /* DecimalPadDismissModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecimalPadDismissModifier.swift; sourceTree = "<group>"; };
 		470436B9854D58D87A38076F /* HeroSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroSettingsView.swift; sourceTree = "<group>"; };
 		48927F8A21752DA1DF9D9AFA /* CompleteQuestIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompleteQuestIntent.swift; sourceTree = "<group>"; };
+		494D0857208062129CA6B5B1 /* DashboardMetricsCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardMetricsCalculator.swift; sourceTree = "<group>"; };
 		49F5B9AB44CCF6853B519183 /* LootListTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4B2E8E5B2EA9796AAB28C2FC /* CacheConversionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheConversionsTests.swift; sourceTree = "<group>"; };
 		4BD9F758DECE9F7A2BBCDBC1 /* GoalEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalEditorSheet.swift; sourceTree = "<group>"; };
 		4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAchievement.swift; sourceTree = "<group>"; };
+		4CB3B0D6953742016FB5F43B /* Collection+Safe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Collection+Safe.swift"; sourceTree = "<group>"; };
 		4D1AAC2315FD1466EB3A1BA9 /* LedgerImportServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerImportServiceTests.swift; sourceTree = "<group>"; };
 		4D86F4AD3247A61B61DB1836 /* AppLifecycleCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleCoordinatorTests.swift; sourceTree = "<group>"; };
 		4E90082B7E13F6A2D1DA2689 /* MascotCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MascotCompanion.swift; sourceTree = "<group>"; };
@@ -532,10 +552,12 @@
 		7AA7E242F81BDF3C77F2C96D /* HeroDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDetail.swift; sourceTree = "<group>"; };
 		7B3C3019E643E8C293E764E6 /* AllowancePeriod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllowancePeriod.swift; sourceTree = "<group>"; };
 		7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScenarioMatrixTests.swift; sourceTree = "<group>"; };
+		7C1648367E274E2959762725 /* CacheFirst.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheFirst.swift; sourceTree = "<group>"; };
 		7CE3059DE9424EEBF9EAD434 /* OnboardingViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingViewModel.swift; sourceTree = "<group>"; };
 		7D26DFB71A9E49F5FB0F331E /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		7D3BE16829C22EFEF849814C /* CloudSharingControllerWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSharingControllerWrapper.swift; sourceTree = "<group>"; };
 		7D92E8E4D26035A4AD79BA24 /* InviteError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteError.swift; sourceTree = "<group>"; };
+		7DFE664C97DE662F97840922 /* LedgerSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerSource.swift; sourceTree = "<group>"; };
 		7EA257916025679E0AA31706 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
 		7F6ED093009BC913BE9E15B2 /* BucketKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BucketKind.swift; sourceTree = "<group>"; };
 		7FC99256061AF65F145425F4 /* EquipmentServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EquipmentServiceTests.swift; sourceTree = "<group>"; };
@@ -595,11 +617,14 @@
 		A7F4C8604DE90C4DB4E5AB22 /* GuildDangerZoneSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuildDangerZoneSectionView.swift; sourceTree = "<group>"; };
 		A85B9291C88BFC4D0535CE6E /* GoldCalculation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoldCalculation.swift; sourceTree = "<group>"; };
 		A8DCAC9147DBA316A1D95311 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
+		A8F1B3A1C922E5E356ECF38F /* InvitationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationResolver.swift; sourceTree = "<group>"; };
 		A907907D1304953A129B62F2 /* BucketTransferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BucketTransferView.swift; sourceTree = "<group>"; };
 		AA3DB9B4D9031427F0B6BD3F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		ABA42BBAB735F6B5A5407BD2 /* RosterViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterViewState.swift; sourceTree = "<group>"; };
 		ABEF2FC4366881264C70BF9E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ADCF93C3FA2FCF0F94FBA4EE /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
 		AEC44179BDF55FEEF8AE9EEA /* HeroAvatarSprites+Healer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Healer.swift"; sourceTree = "<group>"; };
+		AF96C050796BFCA261A61344 /* ChildHubCardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildHubCardsView.swift; sourceTree = "<group>"; };
 		AF9B4CD12C1C887E6E21879A /* SavingsSplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavingsSplitView.swift; sourceTree = "<group>"; };
 		B038A722AE55C6658ACBD6B3 /* GuildPayoutDefaultsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuildPayoutDefaultsSectionView.swift; sourceTree = "<group>"; };
 		B056EB995E57515E9AC46C06 /* HeroAvatarSprites+Rogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Rogue.swift"; sourceTree = "<group>"; };
@@ -619,6 +644,8 @@
 		BEA32A99EF7AD83493CB7E19 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
 		C0168D33CAFC7EF9E0B61580 /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		C18CEAF67B8C5FB11FF2E43D /* InterestServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterestServiceTests.swift; sourceTree = "<group>"; };
+		C1F0F595013479C502D729A0 /* AuthStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStateMachine.swift; sourceTree = "<group>"; };
+		C24BEFCDC73800CD6F28197F /* IdentityTokenCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityTokenCache.swift; sourceTree = "<group>"; };
 		C330ACAE67922B0B30148B77 /* RewardEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RewardEvent.swift; sourceTree = "<group>"; };
 		C4D2AAE5B40F47912BEC0B6B /* HeroHomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroHomeView.swift; sourceTree = "<group>"; };
 		C5654B6FEED4474DAD9AC22D /* MascotBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MascotBannerView.swift; sourceTree = "<group>"; };
@@ -637,6 +664,7 @@
 		CF9C9A669EA50B98696C391D /* TestEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestEnvironment.swift; sourceTree = "<group>"; };
 		D10D967D58B94519F61D2420 /* TestUserDefaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestUserDefaults.swift; sourceTree = "<group>"; };
 		D23B352CD83E7478064E102B /* MyGoalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyGoalsView.swift; sourceTree = "<group>"; };
+		D3A0000AF14251744B02A728 /* ChildHubBalanceSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildHubBalanceSection.swift; sourceTree = "<group>"; };
 		D4E8DAC47F670D122621488B /* OfflineAndSyncMatrixTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineAndSyncMatrixTests.swift; sourceTree = "<group>"; };
 		D5C2A9C6E9615A1156066FF5 /* StatCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatCard.swift; sourceTree = "<group>"; };
 		D64BE7B9FE409A629B17A1B0 /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
@@ -657,6 +685,7 @@
 		E3751E7F14A08F2974B39920 /* LootListShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListShortcuts.swift; sourceTree = "<group>"; };
 		E51839A707B6EEEF665443E2 /* CacheService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheService.swift; sourceTree = "<group>"; };
 		E580BB884E3BE6CF6CB21A5B /* SectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionHeader.swift; sourceTree = "<group>"; };
+		E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutDayResolver.swift; sourceTree = "<group>"; };
 		E6AAB59C9EA231BA29647A45 /* TreasuryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryService.swift; sourceTree = "<group>"; };
 		E71AC4B9376BAC604D6141A1 /* NotificationPreferenceCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreferenceCache.swift; sourceTree = "<group>"; };
 		E71E3EC21F5541635A9389E2 /* ManualSpendingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualSpendingServiceTests.swift; sourceTree = "<group>"; };
@@ -694,6 +723,7 @@
 		FB33F9A9BD38103395FBA22F /* GoalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalService.swift; sourceTree = "<group>"; };
 		FBD501FFB54C16F2EA10C1DE /* MockCloudKitServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockCloudKitServiceTests.swift; sourceTree = "<group>"; };
 		FC4F63E61875E6DDD28AEE9E /* TreasuryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryView.swift; sourceTree = "<group>"; };
+		FC7893018C0628EC0C02B355 /* SHA256+Hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SHA256+Hex.swift"; sourceTree = "<group>"; };
 		FCE684DF487476858652A0E3 /* SpriteGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpriteGalleryView.swift; sourceTree = "<group>"; };
 		FD4F535D727A65E8357A42F3 /* QuestCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestCache.swift; sourceTree = "<group>"; };
 		FE146AF998123F6F9E4FB25B /* QuestServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestServiceTests.swift; sourceTree = "<group>"; };
@@ -741,6 +771,7 @@
 				B5E2D5703C59B4BFBBF4A5D3 /* CachedRecordType.swift */,
 				E78E116DDA8E0F2C66D44DE3 /* CalendarScope.swift */,
 				1839C89AA82B389CF7466AF9 /* JourneyZone.swift */,
+				7DFE664C97DE662F97840922 /* LedgerSource.swift */,
 				4E90082B7E13F6A2D1DA2689 /* MascotCompanion.swift */,
 				11F43417D2F508F010B5411F /* NotificationEventType.swift */,
 				54D073AC3409B88891A13463 /* PayoutDay.swift */,
@@ -838,11 +869,13 @@
 				F46685E47F7AB1256B295FAC /* BonusObjectiveService.swift */,
 				51E844D116A5F96DE5E85C1C /* BucketService.swift */,
 				68346001171FD0C1F3D08B31 /* CacheConversions.swift */,
+				7C1648367E274E2959762725 /* CacheFirst.swift */,
 				E51839A707B6EEEF665443E2 /* CacheService.swift */,
 				888F4B414BCB903A20D25936 /* CacheService+Batches.swift */,
 				DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */,
 				15D5A603E5EA302DAED56DE1 /* CacheService+Invalidation.swift */,
 				098E28BD495DB56F9FB04926 /* CacheService+Upserts.swift */,
+				028B3D08A58ABE973309E8A0 /* CacheServicing.swift */,
 				DC47BB651069A93E615E07DB /* CelebrationManager.swift */,
 				6C0EF642175C65AA3CA23808 /* CKSyncConflictResolver.swift */,
 				8D6CA29BADC966FA94689CD7 /* CKSyncEngineCoordinator.swift */,
@@ -857,6 +890,7 @@
 				EE4F94A708DA996BC706CDF3 /* DailyLoginService.swift */,
 				EA8C10DB8B00F3CBF07A0F97 /* DataMigrationsCoordinator.swift */,
 				C72FD62064F1CF681B678342 /* EquipmentService.swift */,
+				386FA78CE13C37F354F60D83 /* FamilyScopedFetchable.swift */,
 				2C47FAAAF5A2001034107C67 /* FamilyService.swift */,
 				B07EB2A1B1FF54F24EA4D541 /* FamilyService+Invitations.swift */,
 				F4B026AB35E4FD1FE7D7D98B /* FamilyService+Membership.swift */,
@@ -886,6 +920,7 @@
 				BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */,
 				A8DCAC9147DBA316A1D95311 /* SoundManager.swift */,
 				73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */,
+				382FD3ED18619EF8B1FEE10E /* SyncEnqueuing.swift */,
 				7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */,
 				E6AAB59C9EA231BA29647A45 /* TreasuryService.swift */,
 				3BF2353F4534F87197328D31 /* TreasuryService+Fetches.swift */,
@@ -945,6 +980,7 @@
 				0197AFDAF18C8E124E4CE964 /* AppDependencies.swift */,
 				2E828C60E9ADE3B590E578B7 /* AppLifecycleCoordinator.swift */,
 				AA3DB9B4D9031427F0B6BD3F /* AppState.swift */,
+				C1F0F595013479C502D729A0 /* AuthStateMachine.swift */,
 				B89013EC78089F906DCD314F /* LootListApp.swift */,
 				872C97F16BCA4BE07632C3D6 /* NotificationRouter.swift */,
 				2362EFD90344CB9A7507C8E7 /* QuickActionManager.swift */,
@@ -1171,6 +1207,8 @@
 		A5C0E601A35E24F87803312F /* Home */ = {
 			isa = PBXGroup;
 			children = (
+				D3A0000AF14251744B02A728 /* ChildHubBalanceSection.swift */,
+				AF96C050796BFCA261A61344 /* ChildHubCardsView.swift */,
 				A5B022BA457D619771F61673 /* ChildHubView.swift */,
 			);
 			path = Home;
@@ -1180,14 +1218,18 @@
 			isa = PBXGroup;
 			children = (
 				28BAE24C77964F845EE425D6 /* ChildHubViewModel.swift */,
+				494D0857208062129CA6B5B1 /* DashboardMetricsCalculator.swift */,
 				0592C7CCBECA2855AC8E55B2 /* FamilyDashboardViewModel.swift */,
 				35B40A26C97411D811F77F48 /* HeroBoardViewModel.swift */,
 				5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */,
 				A0D3EF8B71154F31B6F89D4F /* HeroLedgerViewModel.swift */,
+				C24BEFCDC73800CD6F28197F /* IdentityTokenCache.swift */,
+				A8F1B3A1C922E5E356ECF38F /* InvitationResolver.swift */,
 				8B15421668F757E0673E4665 /* LedgerImportViewModel.swift */,
 				7CE3059DE9424EEBF9EAD434 /* OnboardingViewModel.swift */,
 				0C2BFED61930046789695A81 /* QuestLogViewModel.swift */,
 				EB8F932423BB04CC32F1B0A3 /* QuestManagerViewModel.swift */,
+				ABA42BBAB735F6B5A5407BD2 /* RosterViewState.swift */,
 				67019B9327EF0BF4251EBAF8 /* TreasuryViewModel.swift */,
 				02DD14675841D99B77530615 /* TrophyRoomViewModel.swift */,
 			);
@@ -1277,12 +1319,15 @@
 				5F7C01EE4DC7551EDA26A40F /* AppConstants.swift */,
 				BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */,
 				4649822E975931113E419558 /* CKRecord+SystemFields.swift */,
+				4CB3B0D6953742016FB5F43B /* Collection+Safe.swift */,
 				E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */,
 				39FD1534CF37B76842F11715 /* DesignSystemConstants.swift */,
 				90BFC96A7EB4DB94588DE1F4 /* FeatureFlags.swift */,
 				EF2DC12FFCE65FB67EBD3F1A /* FlavorTextProvider.swift */,
 				A85B9291C88BFC4D0535CE6E /* GoldCalculation.swift */,
+				E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */,
 				BEA32A99EF7AD83493CB7E19 /* SampleData.swift */,
+				FC7893018C0628EC0C02B355 /* SHA256+Hex.swift */,
 				DC4C7A00E79EFCE482A921A6 /* StreakCalculator.swift */,
 				CF9C9A669EA50B98696C391D /* TestEnvironment.swift */,
 				4504DC10FC68A4EC79A6C529 /* VerificationStatus+UI.swift */,
@@ -1488,6 +1533,7 @@
 				3692548EBCEFDB0795C8892C /* AppState.swift in Sources */,
 				E34EE23B5C196960F948EBA3 /* AppSyncCoordinator.swift in Sources */,
 				292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */,
+				D3E779C312D2C7ED1311BC24 /* AuthStateMachine.swift in Sources */,
 				59CB5DC0015F4B6307BD604F /* AutoPayoutCoordinator.swift in Sources */,
 				7D38D0587BF4B55AC123DA6A /* AvatarCardView.swift in Sources */,
 				31E0455E16A6D4BD94C1E668 /* AvatarClass.swift in Sources */,
@@ -1511,11 +1557,13 @@
 				F9956331B011AFB9F0403F9B /* CKSyncEngineDelegateHandler+Hydration.swift in Sources */,
 				3BAFA13490A68A51609472C2 /* CKSyncEngineDelegateHandler.swift in Sources */,
 				0B88EDE3C487D4A6D398A8D9 /* CacheConversions.swift in Sources */,
+				D3420451322FE7FC865E19A5 /* CacheFirst.swift in Sources */,
 				48A7A33F67F89B89B8C2A131 /* CacheService+Batches.swift in Sources */,
 				17EB2FEBB3135A1603CD5A14 /* CacheService+Fetches.swift in Sources */,
 				46C78F8638B7C0731E55148C /* CacheService+Invalidation.swift in Sources */,
 				AEC19C0D7A2C746C44FCE009 /* CacheService+Upserts.swift in Sources */,
 				AD33F592DF0BBB906A68660E /* CacheService.swift in Sources */,
+				1EE29212618450B2458C5173 /* CacheServicing.swift in Sources */,
 				2F9B31B904F2EA47AFAD916A /* CachedRecordType.swift in Sources */,
 				87B64478DD7444CDC7BF1CA4 /* Calendar+ISO8601UTC.swift in Sources */,
 				B6A2BB7B4472DA6D2BBA55C6 /* CalendarScope.swift in Sources */,
@@ -1525,6 +1573,8 @@
 				B3C460C1F40B1D699A6605DE /* CelebrationOverlayView.swift in Sources */,
 				37AC4EA530872C7044E2AF0E /* CharacterSheetView.swift in Sources */,
 				844538A0A6D57FA5A48D67FE /* CheckmarkMenu.swift in Sources */,
+				F64ECE47CB871C09A7D9F315 /* ChildHubBalanceSection.swift in Sources */,
+				98381B84ADDBAD296D3D7373 /* ChildHubCardsView.swift in Sources */,
 				87064DE51AA5BB8AC4ABF959 /* ChildHubView.swift in Sources */,
 				F1D74D3298614F36FE0C67AC /* ChildHubViewModel.swift in Sources */,
 				6C1ADE606FEC2E55EC70F90F /* ChildLedgerView.swift in Sources */,
@@ -1537,10 +1587,12 @@
 				F0C89F0E52740773FEE220D3 /* CloudKitService.swift in Sources */,
 				4EF789182D28E751857FE6EE /* CloudKitServiceProtocol.swift in Sources */,
 				AC6452ACDAFEC79DD628B3A1 /* CloudSharingControllerWrapper.swift in Sources */,
+				94B71768CC89A5AD03EEE749 /* Collection+Safe.swift in Sources */,
 				CC15615BEAB36471C9EB15B4 /* CompleteQuestIntent.swift in Sources */,
 				8CFA5C8F74CC69D17C998222 /* CurrencyFormatter.swift in Sources */,
 				7159EF2FD2B5ED78E437733C /* DailyLoginBannerView.swift in Sources */,
 				AF86589B820F302081695128 /* DailyLoginService.swift in Sources */,
+				6272985E626EA689C58792E3 /* DashboardMetricsCalculator.swift in Sources */,
 				7D504C659F2008C130F84BC6 /* DataMigrationsCoordinator.swift in Sources */,
 				9D5BD529CAF7305FCD5E3414 /* DecimalPadDismissModifier.swift in Sources */,
 				FC1546A821F25B5E1E03684F /* DesignSystemConstants.swift in Sources */,
@@ -1555,6 +1607,7 @@
 				070483C4FCB36260086BAF4F /* FamilyDashboardViewModel.swift in Sources */,
 				E36683A28880AEC5B372B88E /* FamilyJoinView.swift in Sources */,
 				D8A5B2891010FB02D4D54BDF /* FamilyScopedCache.swift in Sources */,
+				F242E769C99C52265D7B969F /* FamilyScopedFetchable.swift in Sources */,
 				1E3DD8985B7CA2268C1323B1 /* FamilyService+Invitations.swift in Sources */,
 				6BCD255467D8394CC9DFE89D /* FamilyService+Membership.swift in Sources */,
 				41081C28F4838B129AA6E6E1 /* FamilyService+OwnerDedupe.swift in Sources */,
@@ -1604,7 +1657,9 @@
 				5C4EFB6067BD86F2A7EC99BB /* HeroSettingsView.swift in Sources */,
 				79C8EF523D7F760ACA53F0E8 /* HeroStatusCard.swift in Sources */,
 				4D06C6635C57CC7BDE1266E4 /* HeroTransactionView.swift in Sources */,
+				21AC8A63A683A3A1BD90FFAC /* IdentityTokenCache.swift in Sources */,
 				5D03C7D82A21B1AB4C862ACE /* InterestService.swift in Sources */,
+				19154C4AA43D618600E2F373 /* InvitationResolver.swift in Sources */,
 				A0BA974108B526252089C3A0 /* InviteError.swift in Sources */,
 				315E384633D0452D39C774A0 /* InviteRolePickerView.swift in Sources */,
 				57F90D53C2F1193ADDDE89E6 /* JourneyMapCardView.swift in Sources */,
@@ -1620,6 +1675,7 @@
 				7E5B885789ED785414BC2A2A /* LedgerImportView.swift in Sources */,
 				CF27BFEAA55B42F206D19BBB /* LedgerImportViewModel.swift in Sources */,
 				59F61412B012D620EE3D4B44 /* LedgerRowStyle.swift in Sources */,
+				E65D61D436712386B7BD73E2 /* LedgerSource.swift in Sources */,
 				D8DCC631FE15C660A6FD2662 /* LogSpendingIntent.swift in Sources */,
 				DF2FE889C970BE09DE142988 /* LogSpendingView.swift in Sources */,
 				5893DBA12D7F8F4BA9EEEEBB /* LootDropOverlayView.swift in Sources */,
@@ -1645,6 +1701,7 @@
 				16624C674DB74641C5EB4A7E /* NotificationSettingsView.swift in Sources */,
 				A9076D491EEFF5E99600A80F /* OnboardingViewModel.swift in Sources */,
 				92A1BCEE7F3A52E1A90168D7 /* PayoutDay.swift in Sources */,
+				0F6D5B334426A40C749B8161 /* PayoutDayResolver.swift in Sources */,
 				64790F88A96707750A7A15F7 /* PayoutHistoryView.swift in Sources */,
 				193DD1F3105070BD564FE956 /* PayoutPolicy.swift in Sources */,
 				A26F81266B230B02484B4AFA /* PayoutStatus.swift in Sources */,
@@ -1687,6 +1744,8 @@
 				9E3953C5BA275D545B1772B9 /* RewardEvent.swift in Sources */,
 				A2E9EA095A9D80B67AE35B70 /* RewardEventCache.swift in Sources */,
 				B3125FAF2C74B619FF353428 /* RoleSelectionView.swift in Sources */,
+				6A1CDD53651240CFB99D3775 /* RosterViewState.swift in Sources */,
+				DF0A96D95B331E33D63BF78F /* SHA256+Hex.swift in Sources */,
 				C8CD8FF93EA85F62F2D74717 /* SampleData.swift in Sources */,
 				D7A10CDBC5176DA9439EBF48 /* SavingsSplitView.swift in Sources */,
 				4B2DDC650ED6CBC2A211C075 /* SceneDelegate.swift in Sources */,
@@ -1703,6 +1762,7 @@
 				94130D19BDEE8735B089FAE3 /* StatCard.swift in Sources */,
 				478DAB9FF630E62B539FD2D3 /* StreakBadge.swift in Sources */,
 				B948E207D2B1C16D9BA5A308 /* StreakCalculator.swift in Sources */,
+				06CCDA3284F3B5247639FC50 /* SyncEnqueuing.swift in Sources */,
 				55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */,
 				C39438EBF30DFF55FA75FA3B /* TemplateAssignmentFormView.swift in Sources */,
 				5D0377D38CABC77D7BA8F6F7 /* TemplateManagerView.swift in Sources */,

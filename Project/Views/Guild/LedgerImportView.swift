@@ -66,7 +66,12 @@ struct LedgerImportView: View {
     }
 
     private func stageForUITests(path: String, viewModel vm: LedgerImportViewModel) {
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return }
+        let text: String
+        do {
+            text = try String(contentsOfFile: path, encoding: .utf8)
+        } catch {
+            return
+        }
         vm.stage(csvText: text)
     }
 

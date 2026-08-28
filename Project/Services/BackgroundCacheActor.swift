@@ -365,7 +365,7 @@ actor BackgroundCacheActor {
             }
         #endif
         guard databaseScope == .shared else {
-            logger.warning("Participant reconciliation skipped for non-shared scope")
+            logger.warning("Participant reconciliation skipped for non-shared scope", family: familyRecordName, zone: zoneID.zoneName)
             return nil
         }
         // Parsing stays on the main actor like every other ingestion path;
@@ -382,7 +382,7 @@ actor BackgroundCacheActor {
             batch.append(parsed)
         }
         if parseFailures > 0 {
-            logger.warning("\(parseFailures) record(s) failed to parse during participant reconciliation")
+            logger.warning("\(parseFailures) record(s) failed to parse during participant reconciliation", family: familyRecordName, zone: zoneID.zoneName)
         }
         let capturedBatch = batch
         let commitSucceeded = await SerialMutationQueue.shared.write {
@@ -412,14 +412,14 @@ actor BackgroundCacheActor {
         success = await commitCoreEntitiesDeferred(batch) && success
         success = await commitSecondaryEntitiesDeferred(batch) && success
         guard success else {
-            logger.error("Participant reconciliation upsert failed for zone \(zoneID.zoneName, privacy: .private)")
+            logger.error("Participant reconciliation upsert failed", family: familyRecordName, zone: zoneID.zoneName)
             return false
         }
         for (type, validRecordNames) in validRecordNamesByType {
             await purgeMissingOfType(type, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
         }
         guard saveContext() else {
-            logger.error("Participant reconciliation save failed for zone \(zoneID.zoneName, privacy: .private)")
+            logger.error("Participant reconciliation save failed", family: familyRecordName, zone: zoneID.zoneName)
             return false
         }
         return true
@@ -669,5 +669,19 @@ actor BackgroundCacheActor {
             logger.error("Failed to save background context: \(error, privacy: .private)")
             return false
         }
+    }
+}
+
+private extension Logger {
+    func warning(_ message: String, family: String, zone: String) {
+        log(level: .default, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func info(_ message: String, family: String, zone: String) {
+        log(level: .info, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func error(_ message: String, family: String, zone: String) {
+        log(level: .error, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
     }
 }

@@ -47,24 +47,52 @@ final class AppSyncCoordinator {
 
     private var continuations: [UUID: AsyncStream<SyncEvent>.Continuation] = [:]
 
+    @ObservationIgnored private var cloudKitNotificationTask: Task<Void, Never>?
+    @ObservationIgnored private var shareAcceptedTask: Task<Void, Never>?
+
     init() {
         startNotificationListeners()
     }
 
     private func startNotificationListeners() {
-        Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .cloudKitNotificationReceived) {
-                guard let self, let ckNotification = notification.object as? CKNotification else { continue }
-                handleNotification(ckNotification)
+        if cloudKitNotificationTask == nil {
+            cloudKitNotificationTask = Task { @MainActor [weak self] in
+                await withTaskCancellationHandler {
+                    for await notification in NotificationCenter.default.notifications(named: .cloudKitNotificationReceived) {
+                        guard !Task.isCancelled else { break }
+                        guard let self else { break }
+                        guard let ckNotification = notification.object as? CKNotification else { continue }
+                        self.handleNotification(ckNotification)
+                    }
+                } onCancel: {}
             }
         }
 
-        Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .cloudKitShareAccepted) {
-                guard let self, let metadata = notification.object as? CKShare.Metadata else { continue }
-                handleShareAcceptance(shareMetadata: metadata)
+        if shareAcceptedTask == nil {
+            shareAcceptedTask = Task { @MainActor [weak self] in
+                await withTaskCancellationHandler {
+                    for await notification in NotificationCenter.default.notifications(named: .cloudKitShareAccepted) {
+                        guard !Task.isCancelled else { break }
+                        guard let self else { break }
+                        guard let metadata = notification.object as? CKShare.Metadata else { continue }
+                        self.handleShareAcceptance(shareMetadata: metadata)
+                    }
+                } onCancel: {}
             }
         }
+    }
+
+    /// Cancels stored notification listeners and clears references atomically.
+    func stopNotificationListeners() {
+        cloudKitNotificationTask?.cancel()
+        cloudKitNotificationTask = nil
+        shareAcceptedTask?.cancel()
+        shareAcceptedTask = nil
+    }
+
+    deinit {
+        cloudKitNotificationTask?.cancel()
+        shareAcceptedTask?.cancel()
     }
 
     func registerSubscriptions(for zoneID: CKRecordZone.ID, in database: CKDatabase?) async {

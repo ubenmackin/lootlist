@@ -231,13 +231,11 @@ enum RecordBridge {
         name: String
     ) -> Bool {
         if cache.familyRecordName != expectedFamily {
-            logger
-                .warning(
-                    """
-                    RecordBridge family mismatch for \(entity, privacy: .public) \(name, privacy: .private): \
-                    expected \(expectedFamily, privacy: .private), got \(cache.familyRecordName, privacy: .private)
-                    """
-                )
+            logger.warning(
+                "RecordBridge family mismatch for \(entity) \(name) expected \(expectedFamily) got \(cache.familyRecordName)",
+                family: expectedFamily,
+                zone: expectedZoneID.zoneName
+            )
             return false
         }
         if cache.validatedDatabaseScope(expectedScope: expectedDatabaseScope) == nil {
@@ -249,26 +247,20 @@ enum RecordBridge {
             if isFamilyZoneMatch, persisted == "private",
                expectedDatabaseScope == .shared, entity == "completion"
             {
-                logger
-                    .warning(
-                        """
-                        RecordBridge database scope mismatch for \
-                        \(entity, privacy: .public) \(name, privacy: .private): \
-                        expected \(String(describing: expectedDatabaseScope), privacy: .public), \
-                        got \(persisted, privacy: .private) — family and zone match verified, \
-                        allowing bridge for pending-review stall recovery
-                        """
-                    )
+                logger.warning(
+                    "RecordBridge database scope mismatch for \(entity) \(name) "
+                        + "expected \(String(describing: expectedDatabaseScope)) got \(persisted) "
+                        + "— family and zone match verified, allowing bridge for pending-review stall recovery",
+                    family: expectedFamily,
+                    zone: expectedZoneID.zoneName
+                )
                 return true
             }
-            logger
-                .warning(
-                    """
-                    RecordBridge database scope mismatch for \(entity, privacy: .public) \(name, privacy: .private): \
-                    expected \(String(describing: expectedDatabaseScope), privacy: .public), \
-                    got \(cache.sourceDatabaseScope ?? "nil", privacy: .private)
-                    """
-                )
+            logger.warning(
+                "RecordBridge database scope mismatch for \(entity) \(name) expected \(String(describing: expectedDatabaseScope)) got \(cache.sourceDatabaseScope ?? "nil")",
+                family: expectedFamily,
+                zone: expectedZoneID.zoneName
+            )
             return false
         }
         return true
@@ -294,21 +286,19 @@ enum RecordBridge {
     private static func bridgeFamily(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
         guard let cache = cacheService.fetchFamily(recordName: name) else { return nil }
         if cache.recordName != expectedFamily {
-            logger
-                .warning(
-                    "RecordBridge family mismatch for family \(name, privacy: .private): expected \(expectedFamily, privacy: .private), got \(cache.recordName, privacy: .private)"
-                )
+            logger.warning(
+                "RecordBridge family mismatch for family \(name) expected \(expectedFamily) got \(cache.recordName)",
+                family: expectedFamily,
+                zone: zoneID.zoneName
+            )
             return nil
         }
         if cache.validatedDatabaseScope(expectedScope: expectedDatabase) == nil {
-            logger
-                .warning(
-                    """
-                    RecordBridge database scope mismatch for family \(name, privacy: .private): \
-                    expected \(String(describing: expectedDatabase), privacy: .public), \
-                    got \(cache.sourceDatabaseScope ?? "nil", privacy: .private)
-                    """
-                )
+            logger.warning(
+                "RecordBridge database scope mismatch for family \(name) expected \(String(describing: expectedDatabase)) got \(cache.sourceDatabaseScope ?? "nil")",
+                family: expectedFamily,
+                zone: zoneID.zoneName
+            )
             return nil
         }
         return cache.toFamily(zoneID: zoneID).toRecord()
@@ -336,11 +326,16 @@ enum RecordBridge {
     }
 
     static func checkTransferSkew(for record: CKRecord, localEntry: LedgerEntry) {
-        guard record.recordType == LedgerEntry.recordType, localEntry.source == "transfer" else { return }
+        guard record.recordType == LedgerEntry.recordType, localEntry.sourceEnum == .transfer else { return }
         let serverDate: Date? = record.creationDate ?? {
             let data = record.encodedSystemFields
             guard !data.isEmpty else { return nil }
-            return (try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data))?.creationDate
+            do {
+                return try NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data)?.creationDate
+            } catch {
+                logger.warning("CKRecord systemFields decode failed for \(record.recordID.recordName, privacy: .private): \(error, privacy: .private)")
+                return nil
+            }
         }()
         guard let serverDate else { return }
         WeekMath.logTransferSkewIfNeeded(localDate: localEntry.date, serverDate: serverDate)
@@ -366,5 +361,19 @@ enum RecordBridge {
         }
 
         return record
+    }
+}
+
+private extension Logger {
+    func warning(_ message: String, family: String, zone: String) {
+        log(level: .default, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func info(_ message: String, family: String, zone: String) {
+        log(level: .info, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func error(_ message: String, family: String, zone: String) {
+        log(level: .error, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
     }
 }

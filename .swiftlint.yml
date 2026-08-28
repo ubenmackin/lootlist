@@ -9,6 +9,30 @@ excluded:
   - Project/Resources/SpriteData/HeroAvatarSprites+PixelGear.swift
   - Project/Resources/SpriteData/MascotSpriteGrids.swift
 
+custom_rules:
+  discouraged_optional_try:
+    name: "Discouraged optional try (try?)"
+    regex: '(^|[^A-Za-z0-9_])try\?'
+    message: "Avoid try? in production code — prefer do/catch or propagating throws; if suppression is intentional (e.g., try? await Task.sleep), add // swiftlint:disable:next discouraged_optional_try with justification."
+    severity: warning
+    included: "Project"
+    excluded:
+      - ProjectTests
+      - ProjectUITests
+      - ProjectIntegrationTests
+      - SnapshotHelper
+      - fastlane
+  unsafe_index:
+    name: "Unsafe direct index access [0]"
+    regex: '\[0\]'
+    message: "Avoid direct [0] subscript — use .first with guard/optional handling to prevent out-of-bounds crashes."
+    severity: warning
+    excluded:
+      - ProjectTests
+      - ProjectUITests
+      - ProjectIntegrationTests
+      - SnapshotHelper
+
 disabled_rules:
   - inclusive_language
   - opening_brace

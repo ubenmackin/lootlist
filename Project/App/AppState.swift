@@ -49,22 +49,10 @@ final class AppState {
         let zoneID: CKRecordZone.ID
     }
 
-    var authStatus: AuthStatus {
-        didSet {
-            // An account event can arrive while a complete persisted session is
-            // still waiting for restoreSession to run. Keep the launch splash
-            // in place until that authoritative restoration attempt finishes.
-            guard authStatus == .checkingCloudData,
-                  oldValue == .restoringSession,
-                  family == nil,
-                  currentProfile == nil,
-                  hasCompletePersistedSession()
-            else { return }
+    var authStatus: AuthStatus
 
-            logger.info("Deferring account-change discovery until the persisted session is restored")
-            authStatus = .restoringSession
-        }
-    }
+    /// Explicit state machine serializing auth transitions and owning the persisted-session check.
+    var authStateMachine: AuthStateMachine!
 
     var currentProfile: Profile? {
         didSet {
@@ -135,7 +123,7 @@ final class AppState {
 
     /// WHY: Single source for effective payout-day resolution (profile override → family → .sunday) so week windows stay consistent.
     var resolvedPayoutDay: PayoutDay {
-        currentProfile?.payoutDay ?? family?.payoutDay ?? .sunday
+        PayoutDayResolver.resolved(for: currentProfile, family: family)
     }
 
     var isZoneOwner: Bool = false
@@ -178,14 +166,6 @@ final class AppState {
 
     private let defaults: UserDefaults
 
-    private func hasCompletePersistedSession() -> Bool {
-        defaults.bool(forKey: Self.hasSessionKey)
-            && defaults.string(forKey: Self.profileIDKey) != nil
-            && defaults.string(forKey: Self.familyIDKey) != nil
-            && defaults.string(forKey: Self.zoneNameKey) != nil
-            && defaults.string(forKey: Self.zoneOwnerKey) != nil
-    }
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         // Screenshot and assertion suites depend on the utility surface
@@ -198,6 +178,8 @@ final class AppState {
         // A completed onboarding that lacks a session means we should probe for a recoverable family (restore
         // / reconnect); a brand-new install goes straight to the discovery state so RootView renders the
         authStatus = hasSession ? .restoringSession : .checkingCloudData
+        authStateMachine = AuthStateMachine(defaults: defaults)
+        authStateMachine.attach(to: self)
 
         quickActionTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
@@ -315,7 +297,7 @@ final class AppState {
             // reaches this branch. Do not reset a completed reconnect or
             // onboarding result and start a second discovery pass.
             guard authStatus == .checkingCloudData || authStatus == .restoringSession else { return }
-            authStatus = .checkingCloudData
+            await authStateMachine.transition(.restoreFailed)
             await discoverExistingCloudState(cloudKit: cloudKit)
             return
         }
@@ -362,6 +344,7 @@ final class AppState {
             familyZoneID = zoneID
 
             authStatus = .authenticated
+            await authStateMachine.send(.sessionRestored)
         } catch {
             logger.error("Session restoration failed: \(error, privacy: .private)")
             if error is ScopeViolation {
@@ -373,7 +356,7 @@ final class AppState {
                 if isPlaceholderOwner || isOwner {
                     logger.info("ScopeViolation with placeholder/stale owner \(zoneOwnerName, privacy: .private) — clearing stale session and rediscovering")
                     clearSessionAndCloudKitScope(cloudKit: cloudKit)
-                    authStatus = .checkingCloudData
+                    await authStateMachine.transition(.restoreFailed)
                     await discoverExistingCloudState(cloudKit: cloudKit)
                     return
                 }
@@ -383,7 +366,7 @@ final class AppState {
                     return
                 }
                 clearSessionAndCloudKitScope(cloudKit: cloudKit)
-                authStatus = .checkingCloudData
+                await authStateMachine.transition(.restoreFailed)
                 await discoverExistingCloudState(cloudKit: cloudKit)
                 return
             }
@@ -422,7 +405,7 @@ final class AppState {
                     logger.info("Shared family zone is unavailable — clearing revoked hero session")
                     NotificationCenter.default.post(name: .familyAccessRevoked, object: nil)
                     clearSessionAndCloudKitScope(cloudKit: cloudKit)
-                    authStatus = .checkingCloudData
+                    await authStateMachine.transition(.restoreFailed)
                     await discoverExistingCloudState(cloudKit: cloudKit)
                     return
                 }
@@ -432,7 +415,7 @@ final class AppState {
                 } else {
                     logger.info("Unrecoverable CloudKit session error and no cache available — clearing session and running cloud discovery")
                     clearSessionAndCloudKitScope(cloudKit: cloudKit)
-                    authStatus = .checkingCloudData
+                    await authStateMachine.transition(.restoreFailed)
                     await discoverExistingCloudState(cloudKit: cloudKit)
                 }
             } else {

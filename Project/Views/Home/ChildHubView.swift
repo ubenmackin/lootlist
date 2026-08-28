@@ -19,6 +19,7 @@ struct ChildHubView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(QuestService.self) private var questService
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+    @Environment(CacheService.self) private var cacheService: CacheService?
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -123,10 +124,21 @@ struct ChildHubView: View {
                     } else if isProfileNotFoundPlaceholder {
                         profileNotFoundCard
                     } else if let viewModel {
-                        balanceHeroCard(viewModel)
-                        weeklyProgressCard(viewModel)
-                        todaysChoresCard(viewModel)
-                        activeGoalCard(viewModel)
+                        ChildHubBalanceSection(
+                            viewModel: viewModel,
+                            firstName: firstName,
+                            displayName: currentProfileRow?.displayName,
+                            onSplitTapped: { isShowingSplit = true }
+                        )
+                        ChildHubCardsView(
+                            viewModel: viewModel,
+                            cachedQuests: cachedQuests,
+                            cachedCompletions: cachedCompletions,
+                            submittingQuestIDs: submittingQuestIDs,
+                            familyRecordName: familyRecordName,
+                            onCompleteQuest: { quest in completeQuest(quest) },
+                            onWithdraw: { quest, log in pendingWithdrawal = PendingWithdrawal(quest: quest, log: log) }
+                        )
                     }
                 }
                 .padding(.horizontal, DesignSystemConstants.Padding.standard)
@@ -340,248 +352,6 @@ struct ChildHubView: View {
         .accessibilityIdentifier("hub.profileNotFoundCard")
     }
 
-    // MARK: - Balance Hero Card
-
-    private func balanceHeroCard(_ viewModel: ChildHubViewModel) -> some View {
-        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.medium) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let name = firstName {
-                        Text("Hey \(name)! 👋")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                    } else if let row = currentProfileRow {
-                        Text("Hey \(row.displayName)! 👋")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                    } else {
-                        Text("Hey there! 👋")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                    }
-                    Text("AVAILABLE BALANCE")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.85))
-                }
-
-                Spacer()
-
-                Button {
-                    HapticsService.lightImpact()
-                    isShowingSplit = true
-                } label: {
-                    Text("3-Jar Split")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(Color.white.opacity(0.2)))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Configure 3-Jar Split")
-                .accessibilityIdentifier("hub.splitPillButton")
-            }
-
-            Text(CurrencyFormatter.string(viewModel.availableBalance))
-                .font(.system(size: 40, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white)
-
-            Divider()
-                .overlay(Color.white.opacity(0.35))
-
-            HStack(spacing: DesignSystemConstants.Padding.small) {
-                BucketTileView(
-                    emoji: nil,
-                    title: "SPEND",
-                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.spend)),
-                    accessibilityID: "hub.bucketTile-spend"
-                )
-                BucketTileView(
-                    emoji: nil,
-                    title: "SHORT SAVE",
-                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.shortTermSave)),
-                    accessibilityID: "hub.bucketTile-shortSave"
-                )
-                BucketTileView(
-                    emoji: nil,
-                    title: "LONG SAVE",
-                    amountText: CurrencyFormatter.string(viewModel.bucketBalance(.longTermSave)),
-                    accessibilityID: "hub.bucketTile-longSave"
-                )
-            }
-        }
-        .padding(DesignSystemConstants.Padding.large)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                .fill(
-                    // Blue token gradient for AA white-text contrast in both modes (replaces lower-contrast green).
-                    LinearGradient(
-                        colors: [
-                            Color(DesignSystemConstants.Colors.accentBlue),
-                            Color(DesignSystemConstants.Colors.accentBlue).opacity(0.85)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Available balance \(CurrencyFormatter.string(viewModel.availableBalance))")
-        .accessibilityIdentifier("hub.balanceCard")
-    }
-
-    // MARK: - Weekly Progress Card
-
-    private func weeklyProgressCard(_ viewModel: ChildHubViewModel) -> some View {
-        HStack(alignment: .center, spacing: DesignSystemConstants.Padding.standard) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("WEEKLY PROGRESS")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Text("\(viewModel.weeklyCompleted) / \(viewModel.weeklyGoal) Completed")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.primary)
-                Text(viewModel.streakHint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            ProgressRingView(progress: viewModel.weeklyProgress, tint: Color(DesignSystemConstants.Colors.accentBlue), identifier: "hub.weeklyProgressRing")
-                .frame(width: 72, height: 72)
-        }
-        .padding(DesignSystemConstants.Padding.standard)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-    }
-
-    // MARK: - Today's Chores Card
-
-    private func todaysChoresCard(_ viewModel: ChildHubViewModel) -> some View {
-        VStack(spacing: DesignSystemConstants.Padding.medium) {
-            SectionHeader("Today's Quests") {
-                Text("\(viewModel.toDoCount) To Do")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            if viewModel.choreRows.isEmpty {
-                Text("No quests yet — enjoy the break!")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-            } else {
-                ForEach(viewModel.choreRows) { row in
-                    let quest = cachedQuests.first { $0.recordName == row.questRecordName }
-                    let log = cachedCompletions.first { $0.recordName == row.completionRecordName }
-                    let isSubmitting = submittingQuestIDs.contains(row.questRecordName)
-
-                    if row.isPendingReview, let quest, let log {
-                        Button {
-                            pendingWithdrawal = PendingWithdrawal(quest: quest, log: log)
-                        } label: {
-                            ChoreRowCard(
-                                title: row.title,
-                                subtitle: "Sent to Parent for Review · Tap to Unsubmit",
-                                amountText: "+\(CurrencyFormatter.string(row.amount))",
-                                style: .pendingReview,
-                                isSubmitting: isSubmitting,
-                                onLeadingAction: {
-                                    pendingWithdrawal = PendingWithdrawal(quest: quest, log: log)
-                                },
-                                accessibilityID: "hub.choreRow-\(row.id)"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("Awaiting parent verification. Tap to unsubmit.")
-                    } else if let quest {
-                        ChoreRowCard(
-                            title: row.title,
-                            subtitle: row.subtitle,
-                            amountText: "+\(CurrencyFormatter.string(row.amount))",
-                            style: .upcoming,
-                            isSubmitting: isSubmitting,
-                            onLeadingAction: {
-                                completeQuest(quest)
-                            },
-                            accessibilityID: "hub.choreRow-\(row.id)"
-                        )
-                    }
-                }
-            }
-        }
-        .padding(DesignSystemConstants.Padding.standard)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-    }
-
-    // MARK: - Active Goal Card
-
-    private func activeGoalCard(_ viewModel: ChildHubViewModel) -> some View {
-        VStack(spacing: DesignSystemConstants.Padding.medium) {
-            SectionHeader("Active Goal") {
-                NavigationLink {
-                    MyGoalsView(familyRecordName: familyRecordName)
-                } label: {
-                    Text("View All")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
-                .accessibilityLabel("View all goals")
-            }
-
-            if let summary = viewModel.activeGoal {
-                let savedDollars = Double(summary.savedPennies) / 100.0
-                let targetDollars = Double(summary.goal.targetAmountPennies) / 100.0
-
-                VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
-                    HStack(spacing: DesignSystemConstants.Padding.small) {
-                        Text(summary.goal.emojiIcon ?? "🎯")
-                            .font(.title3)
-                        Text(summary.goal.name)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Spacer(minLength: DesignSystemConstants.Padding.small)
-                        Text("\(CurrencyFormatter.string(savedDollars)) / \(CurrencyFormatter.string(targetDollars))")
-                            .font(.caption.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ProgressBar(
-                        value: savedDollars,
-                        maximum: targetDollars,
-                        label: nil,
-                        tint: Color(DesignSystemConstants.Colors.primaryGreen),
-                        height: 10
-                    )
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("Active goal \(summary.goal.name), \(CurrencyFormatter.string(savedDollars)) of \(CurrencyFormatter.string(targetDollars)) saved")
-                .accessibilityIdentifier("hub.activeGoalCard")
-            } else {
-                Text("No active goal yet — tap View All to set one!")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-            }
-        }
-        .padding(DesignSystemConstants.Padding.standard)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
-    }
-
-    private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
-    }
-
     // MARK: - Log-a-Purchase CTA
 
     private var logPurchaseBar: some View {
@@ -609,7 +379,7 @@ struct ChildHubView: View {
         ViewLifecycle.ensure(&viewModel, factory: {
             ChildHubViewModel(
                 appState: appState,
-                cacheService: AppDependencies.shared?.cacheService
+                cacheService: cacheService ?? appState.cacheService
             )
         })
         ViewLifecycle.ensure(&treasuryViewModel, factory: {
@@ -685,7 +455,9 @@ struct ChildHubView: View {
                     HapticsService.success()
                     showCelebration = true
                     Task {
-                        try? await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+                        do {
+                            try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+                        } catch {}
                         showCelebration = false
                     }
                 }

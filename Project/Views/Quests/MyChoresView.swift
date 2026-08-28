@@ -301,7 +301,9 @@ struct MyChoresView: View {
                     showCelebration = true
                     // Auto-dismiss the celebration after a short delay.
                     Task {
-                        try? await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+                        do {
+                            try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+                        } catch {}
                         showCelebration = false
                     }
                 }

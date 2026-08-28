@@ -214,8 +214,9 @@ extension TreasuryServiceTests {
     func `processRealTimeSettlement settles when a parent acts on a real time hero`() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
         let cloudKit = MockCloudKitService(zoneID: zoneID)
+        let cache = try CacheService(inMemory: true)
         let appState = AppState()
-        let treasury = TreasuryService(cloudKit: cloudKit, appState: appState)
+        let treasury = TreasuryService(cloudKit: cloudKit, cacheService: cache, appState: appState)
 
         let familyRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none
@@ -276,6 +277,10 @@ extension TreasuryServiceTests {
             family: familyRef
         )
         cloudKit.seedMockRecords([targetHero, family, quest, completion])
+        await cache.upsertQuest(quest)
+        await cache.upsertQuestCompletions([completion])
+        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
 
         // Parent-verified quests settle on the hero's behalf with parent acting profile.
         let result = try await treasury.processRealTimeSettlement(

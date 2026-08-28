@@ -89,7 +89,9 @@ final class FamilyService: FamilyProfileFetching {
 
     var cacheService: CacheService? {
         didSet {
-            questService.cacheService = cacheService
+            if let cacheService {
+                questService.cacheService = cacheService
+            }
         }
     }
 

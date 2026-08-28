@@ -156,7 +156,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
             }
 
             guard let familyName = deps.appState.family?.id.recordName,
-                  let cachedLog = deps.cacheService?.fetchQuestCompletion(recordName: questLogID, family: familyName)
+                  let cachedLog = deps.cacheService.fetchQuestCompletion(recordName: questLogID, family: familyName)
             else {
                 return
             }

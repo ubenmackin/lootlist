@@ -30,25 +30,52 @@ enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
 @Observable
 class SpendingService {
     private let cloudKit: any CloudKitServiceProtocol
-    var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
+    let cacheService: CacheService
+    let syncCoordinator: CKSyncEngineCoordinator
 
     var toastManager: ToastManager?
 
-    var appState: AppState?
+    let appState: AppState
 
+    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ManualSpending")
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ManualSpending")
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        cacheService: CacheService,
+        appState: AppState,
+        syncCoordinator: CKSyncEngineCoordinator
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
+    }
+
+    @_disfavoredOverload
+    convenience init(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) {
+        let cache: CacheService
+        if let cacheService {
+            cache = cacheService
+        } else {
+            Self.staticLogger.warning("SpendingService initialized without cacheService; using fallback in-memory cache.")
+            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
+        }
+        let state = appState ?? AppState()
+        let ck = cloudKit as? CloudKitService ?? CloudKitService()
+        let delegate = CKSyncEngineDelegateHandler(
+            backgroundCache: nil,
+            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, toastManager: nil, appState: state),
+            cacheService: cache,
+            appState: state
+        )
+        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 
     func isAvailable() -> Bool {
@@ -61,31 +88,29 @@ class SpendingService {
                            in dateRange: DateInterval) async throws -> [LedgerEntry]
     {
         let targetZoneID = profile.family.recordID.zoneID
-        if let cache = cacheService {
-            let profileName = profile.id.recordName
-            let familyName = profile.family.recordID.recordName
-            let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
-            let filtered = cached.filter { dateRange.contains($0.date) }
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
-                return filtered.map { cacheRow in
-                    LedgerEntry(
-                        profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
-                        amount: cacheRow.amount,
-                        description: cacheRow.entryDescription,
-                        location: cacheRow.location,
-                        date: cacheRow.date,
-                        source: cacheRow.source,
-                        family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
-                        id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
-                    )
-                }
+        let profileName = profile.id.recordName
+        let familyName = profile.family.recordID.recordName
+        let cached = cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
+        let filtered = cached.filter { dateRange.contains($0.date) }
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        if cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
+            return filtered.map { cacheRow in
+                LedgerEntry(
+                    profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
+                    amount: cacheRow.amount,
+                    description: cacheRow.entryDescription,
+                    location: cacheRow.location,
+                    date: cacheRow.date,
+                    source: cacheRow.source,
+                    family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
+                    id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
+                )
             }
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
         let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-        let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) && appState?.familyZoneID == targetZoneID)
+        let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) && appState.familyZoneID == targetZoneID)
         let db = cloudKit.database(isOwner: isOwner)
         do {
             let all = try await cloudKit.query(
@@ -97,7 +122,7 @@ class SpendingService {
             )
             // Scope mirrors the database the query itself ran against, which
             // this method resolves per-zone rather than from the active session.
-            await syncCoordinator?.delegateHandler.hydrateFromQuery(
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
                 models: all,
                 databaseScope: isOwner ? .private : .shared,
                 zoneID: targetZoneID
@@ -105,24 +130,19 @@ class SpendingService {
             return all.filter { dateRange.contains($0.date) }
         } catch {
             logger.warning("fetchTransactions CloudKit query failed, falling back to cache: \(error, privacy: .private)")
-            if let cache = cacheService {
-                let profileName = profile.id.recordName
-                let familyName = profile.family.recordID.recordName
-                let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
-                return cached.filter { dateRange.contains($0.date) }.map { cacheRow in
-                    LedgerEntry(
-                        profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
-                        amount: cacheRow.amount,
-                        description: cacheRow.entryDescription,
-                        location: cacheRow.location,
-                        date: cacheRow.date,
-                        source: cacheRow.source,
-                        family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
-                        id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
-                    )
-                }
+            let fallback = cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
+            return fallback.filter { dateRange.contains($0.date) }.map { cacheRow in
+                LedgerEntry(
+                    profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
+                    amount: cacheRow.amount,
+                    description: cacheRow.entryDescription,
+                    location: cacheRow.location,
+                    date: cacheRow.date,
+                    source: cacheRow.source,
+                    family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
+                    id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
+                )
             }
-            throw error
         }
     }
 
@@ -140,7 +160,6 @@ class SpendingService {
     }
 
     private func validateScopeAllowingNewHero(family: Family) throws {
-        guard let appState else { throw ScopeViolation.noActiveFamily }
         do {
             try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
         } catch {
@@ -155,7 +174,7 @@ class SpendingService {
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         // Hoisted local: Swift 6 requires explicit capture semantics for
         // self-referencing property access inside the logger interpolation.
-        let storedOwner = appState?.isZoneOwner ?? false
+        let storedOwner = appState.isZoneOwner
         if isOwner != storedOwner {
             logger.warning("isOwner corrected via creator anchor for sync enqueue: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -166,7 +185,7 @@ class SpendingService {
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, location: String?, date: Date) -> CKRecord.ID {
         let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
         var recordName = base
-        if let existing = cacheService?.fetchLedgerEntry(recordName: base, family: family.id.recordName),
+        if let existing = cacheService.fetchLedgerEntry(recordName: base, family: family.id.recordName),
            existing.source != source
            || existing.entryDescription != description
            || existing.date != date
@@ -188,9 +207,6 @@ class SpendingService {
                    location: String? = nil,
                    date: Date = Date()) async throws -> LedgerEntry
     {
-        guard let appState else {
-            throw ScopeViolation.noActiveFamily
-        }
         guard familyRecordName == family.id.recordName else {
             throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: familyRecordName)
         }
@@ -214,10 +230,10 @@ class SpendingService {
             description: trimmedDesc,
             location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
-            source: "manual",
+            source: LedgerSource.manual.rawValue,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: makeLedgerID(
-                source: "manual",
+                source: LedgerSource.manual.rawValue,
                 profile: profile,
                 family: family,
                 amount: amount,
@@ -227,9 +243,9 @@ class SpendingService {
             )
         )
 
-        await cacheService?.upsertLedgerEntry(entry)
+        await cacheService.upsertLedgerEntry(entry)
         let isOwner = correctedIsOwnerForSync()
-        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
     }
 
@@ -241,9 +257,6 @@ class SpendingService {
                  location: String? = nil,
                  date: Date = Date()) async throws -> LedgerEntry
     {
-        guard let appState else {
-            throw ScopeViolation.noActiveFamily
-        }
         guard familyRecordName == family.id.recordName else {
             throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: familyRecordName)
         }
@@ -280,9 +293,9 @@ class SpendingService {
             )
         )
 
-        await cacheService?.upsertLedgerEntry(entry)
+        await cacheService.upsertLedgerEntry(entry)
         let isOwner = correctedIsOwnerForSync()
-        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
     }
 
@@ -294,9 +307,6 @@ class SpendingService {
                   location: String? = nil,
                   date: Date = Date()) async throws -> LedgerEntry
     {
-        guard let appState else {
-            throw ScopeViolation.noActiveFamily
-        }
         guard familyRecordName == family.id.recordName else {
             throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: familyRecordName)
         }
@@ -333,19 +343,15 @@ class SpendingService {
             )
         )
 
-        await cacheService?.upsertLedgerEntry(entry)
+        await cacheService.upsertLedgerEntry(entry)
         let isOwner = correctedIsOwnerForSync()
-        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
         return entry
     }
 
     func delete(_ entry: LedgerEntry) async throws {
         guard entry.source != "quest" else {
             throw SpendingServiceError.unsupported
-        }
-
-        guard let appState else {
-            throw ScopeViolation.noActiveFamily
         }
 
         guard let acting = appState.currentProfile,
@@ -357,8 +363,8 @@ class SpendingService {
         try ActiveFamilyScopeGuard.requireActiveFamily(familyRef: entry.family, appState: appState)
 
         let name = entry.id.recordName
-        await cacheService?.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
+        await cacheService.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
         let isOwner = correctedIsOwnerForSync()
-        syncCoordinator?.enqueueDelete(recordID: entry.id, isOwner: isOwner)
+        syncCoordinator.enqueueDelete(recordID: entry.id, isOwner: isOwner)
     }
 }

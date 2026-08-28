@@ -88,6 +88,9 @@ enum MockPredicateEvaluator {
         if let str = value as? String {
             return str
         }
+        if let exp = value as? NSExpression, let constant = exp.constantValue {
+            return stringOrRecordName(from: constant)
+        }
         return nil
     }
 
@@ -106,51 +109,27 @@ enum MockPredicateEvaluator {
         if let b1 = recordVal as? Bool, let b2 = rightVal as? Bool {
             return b1 == b2
         }
-        if let i1 = recordVal as? Int, let i2 = rightVal as? Int {
-            return i1 == i2
-        }
-        if let n1 = recordVal as? NSNumber, let n2 = rightVal as? NSNumber {
-            return n1 == n2
-        }
-        if let d1 = recordVal as? Date, let d2 = rightVal as? Date {
+        if let d1 = recordVal as? Date ?? (recordVal as? NSDate as Date?),
+           let d2 = rightVal as? Date ?? (rightVal as? NSDate as Date?)
+        {
             return d1 == d2
+        }
+        if let n1 = (recordVal as? NSNumber)?.doubleValue ?? (recordVal as? Double) ?? (recordVal as? Int).map(Double.init),
+           let n2 = (rightVal as? NSNumber)?.doubleValue ?? (rightVal as? Double) ?? (rightVal as? Int).map(Double.init)
+        {
+            return n1 == n2
         }
         return false
     }
 
     private static func evalIn(recordVal: Any?, rightVal: Any?, recordID: CKRecord.ID) -> Bool {
-        let recordName: String = if let id = recordVal as? CKRecord.ID {
-            id.recordName
-        } else if let ref = recordVal as? CKRecord.Reference {
-            ref.recordID.recordName
-        } else if let str = recordVal as? String {
-            str
-        } else {
-            recordID.recordName
+        let recordName = recordVal.flatMap(stringOrRecordName) ?? recordID.recordName
+        guard let collection = (rightVal as? [Any]) ?? (rightVal as? NSArray)?.compactMap(\.self) else {
+            return false
         }
-        if let idList = rightVal as? [CKRecord.ID] {
-            return idList.contains { $0.recordName == recordName }
+        return collection.contains { item in
+            stringOrRecordName(from: item) == recordName
         }
-        if let strList = rightVal as? [String] {
-            return strList.contains(recordName)
-        }
-        if let refList = rightVal as? [CKRecord.Reference] {
-            return refList.contains { $0.recordID.recordName == recordName }
-        }
-        if let nsArray = rightVal as? NSArray {
-            for item in nsArray {
-                if let otherID = item as? CKRecord.ID, otherID.recordName == recordName {
-                    return true
-                }
-                if let otherRef = item as? CKRecord.Reference, otherRef.recordID.recordName == recordName {
-                    return true
-                }
-                if let str = item as? String, str == recordName {
-                    return true
-                }
-            }
-        }
-        return false
     }
 
     private static func compareValues<T: Comparable>(_ val1: T, _ val2: T, operatorType: NSComparisonPredicate.Operator) -> Bool {
@@ -164,14 +143,15 @@ enum MockPredicateEvaluator {
     }
 
     private static func evalNumericOrDateComparison(operatorType: NSComparisonPredicate.Operator, recordVal: Any?, rightVal: Any?) -> Bool {
-        if let d1 = recordVal as? Date, let d2 = rightVal as? Date {
+        if let d1 = recordVal as? Date ?? (recordVal as? NSDate as Date?),
+           let d2 = rightVal as? Date ?? (rightVal as? NSDate as Date?)
+        {
             return compareValues(d1, d2, operatorType: operatorType)
         }
-        if let n1 = recordVal as? Double, let n2 = rightVal as? Double {
+        if let n1 = (recordVal as? NSNumber)?.doubleValue ?? (recordVal as? Double) ?? (recordVal as? Int).map(Double.init),
+           let n2 = (rightVal as? NSNumber)?.doubleValue ?? (rightVal as? Double) ?? (rightVal as? Int).map(Double.init)
+        {
             return compareValues(n1, n2, operatorType: operatorType)
-        }
-        if let i1 = recordVal as? Int, let i2 = rightVal as? Int {
-            return compareValues(i1, i2, operatorType: operatorType)
         }
         return false
     }

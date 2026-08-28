@@ -11,6 +11,7 @@ import SwiftData
 
 // MARK: - Single-Record Upserts & Gem Transactions
 
+@MainActor
 extension CacheService {
     func logFamilyMismatch(
         action: String,

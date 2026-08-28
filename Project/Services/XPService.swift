@@ -221,7 +221,7 @@ final class XPService {
             "Legendary",
             "Mythic"
         ]
-        guard level >= 1 else { return titles[0] }
+        guard level >= 1 else { return titles.first ?? "Novice" }
         if level <= titles.count {
             return titles[level - 1]
         }

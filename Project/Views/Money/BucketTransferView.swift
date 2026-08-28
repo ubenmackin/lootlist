@@ -39,7 +39,7 @@ struct BucketTransferView: View {
 
     private var bucketService: BucketService {
         BucketService(
-            cacheService: appState.cacheService,
+            cacheService: appState.cacheService as (any CacheServicing)?,
             syncCoordinator: syncCoordinator,
             appState: appState
         )
@@ -72,7 +72,7 @@ struct BucketTransferView: View {
         let today = WeekMath.dayBucket(for: Date())
         return ledgerCaches.contains { entry in
             entry.profileRecordName == targetProfile
-                && entry.source == "transfer"
+                && entry.sourceEnum == .transfer
                 && entry.fromBucket == fromBucket.rawValue
                 && entry.toBucket == toBucket.rawValue
                 && WeekMath.dayBucket(for: entry.date) == today
@@ -253,7 +253,7 @@ struct BucketTransferView: View {
 
     // WHY: CurrencyFormatter is single-source for currency; no hardcoded "$" literals.
     private var formattedConfirmAmount: String {
-        guard let amount = parsedAmount else { return CurrencyFormatter.string(0) }
+        guard let amount = parsedAmount else { return CurrencyFormatter.string(0.0) }
         return CurrencyFormatter.string(amount)
     }
 

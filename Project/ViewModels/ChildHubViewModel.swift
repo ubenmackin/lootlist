@@ -65,7 +65,7 @@ final class ChildHubViewModel {
 
     init(appState: AppState, cacheService: CacheService?) {
         self.appState = appState
-        self.bucketService = BucketService(cacheService: cacheService)
+        self.bucketService = BucketService(cacheService: cacheService as (any CacheServicing)?)
     }
 
     // MARK: - Derived Figures
@@ -96,6 +96,10 @@ final class ChildHubViewModel {
             : "Complete chores to build a streak bonus!"
     }
 
+    var todayCode: String {
+        WeekMath.todayWeekdayCode()
+    }
+
     // MARK: - Rebuild
 
     /// Cache-first synchronous rebuild from SwiftData `@Query` rows. Never
@@ -120,9 +124,8 @@ final class ChildHubViewModel {
         let profileName = profile.id.recordName
 
         // Fail-closed when the cache row for the profile is missing (pruned or not yet reconciled).
-        if let cache = bucketService.cacheService,
-           cache.fetchProfile(recordName: profileName, family: familyName) == nil
-        {
+        let cache = bucketService.cacheService
+        if cache.fetchProfile(recordName: profileName, family: familyName) == nil {
             bucketBalances = [:]
             choreRows = []
             weeklyCompleted = 0
@@ -133,11 +136,12 @@ final class ChildHubViewModel {
         }
 
         bucketBalances = bucketService.bucketBalances(profileRecordName: profileName, familyRecordName: familyName)
-        let ledgerEntries = bucketService.cacheService?
-            .fetchLedgerEntries(profileRecordName: profileName, family: familyName) ?? []
+        let ledgerEntries = bucketService.cacheService
+            .fetchLedgerEntries(profileRecordName: profileName, family: familyName)
 
         let myQuests = quests.filter { $0.assigneeRecordName == profileName && $0.isActive }
         let myLogs = logs.filter { $0.completerRecordName == profileName }
+        // WHY: questsByID includes inactive quests so pending reviews stay visible after template deactivation; to-do list is separately filtered via myQuests.isActive.
         let questsByID = Dictionary(
             quests.map { ($0.recordName, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -153,7 +157,7 @@ final class ChildHubViewModel {
         let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
         let weekQuests = myQuests.filter { weekRange.contains($0.weekOf) }
 
-        choreRows = Self.buildChoreRows(
+        choreRows = buildChoreRows(
             weekQuests: weekQuests,
             myLogs: myLogs,
             questsByID: questsByID,
@@ -183,7 +187,7 @@ final class ChildHubViewModel {
 
     // MARK: - Chore Rows
 
-    private static func buildChoreRows(
+    private func buildChoreRows(
         weekQuests: [QuestCache],
         myLogs: [QuestCompletionCache],
         questsByID: [String: QuestCache],
@@ -199,10 +203,12 @@ final class ChildHubViewModel {
             .sorted { $0.completedDate > $1.completedDate }
         for log in pendingLogs {
             guard let quest = questsByID[log.questRecordName] else { continue }
+            // WHY: Keep deactivated quests visible for in-flight reviews; surface stale reward without hiding the row.
+            let subtitle = quest.isActive ? "Sent to Parent for Review" : "Sent to Parent for Review — quest deactivated"
             rows.append(ChoreRowItem(
                 id: log.recordName,
                 title: quest.questName,
-                subtitle: "Sent to Parent for Review",
+                subtitle: subtitle,
                 amount: quest.goldReward,
                 isPendingReview: true,
                 questRecordName: quest.recordName,
@@ -210,9 +216,9 @@ final class ChildHubViewModel {
             ))
         }
 
-        // Weekday code comes from WeekMath so due-text and the week strip
+        // Weekday code comes from todayCode so due-text and the week strip
         // anchor on the same UTC weekday source.
-        let todayCode = WeekMath.todayWeekdayCode()
+        let code = todayCode
         let logsByQuest = Dictionary(grouping: myLogs, by: \.questRecordName)
 
         let open = weekQuests.filter { quest in
@@ -225,8 +231,8 @@ final class ChildHubViewModel {
 
         // Today's scheduled chores lead, then the rest of the week.
         let sorted = open.sorted { lhs, rhs in
-            let lhsToday = isScheduledToday(lhs, templatesByID: templatesByID, todayCode: todayCode)
-            let rhsToday = isScheduledToday(rhs, templatesByID: templatesByID, todayCode: todayCode)
+            let lhsToday = Self.isScheduledToday(lhs, templatesByID: templatesByID, todayCode: code)
+            let rhsToday = Self.isScheduledToday(rhs, templatesByID: templatesByID, todayCode: code)
             if lhsToday != rhsToday {
                 return lhsToday
             }
@@ -237,7 +243,7 @@ final class ChildHubViewModel {
             rows.append(ChoreRowItem(
                 id: quest.recordName,
                 title: quest.questName,
-                subtitle: dueText(for: quest, templatesByID: templatesByID, todayCode: todayCode),
+                subtitle: Self.dueText(for: quest, templatesByID: templatesByID, todayCode: code),
                 amount: quest.goldReward,
                 isPendingReview: false,
                 questRecordName: quest.recordName,

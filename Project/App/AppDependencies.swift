@@ -31,9 +31,14 @@ final class AppDependencies {
     let appSyncCoordinator: AppSyncCoordinator
     let dataMigrationsCoordinator: DataMigrationsCoordinator
     let autoPayoutCoordinator: AutoPayoutCoordinator
-    let cacheService: CacheService?
+    let cacheService: CacheService
     let syncCoordinator: CKSyncEngineCoordinator
     let networkMonitor: NetworkMonitor
+    /// Protocol-typed reachability for injected consumers; debug overlay and lifecycle debounce continue to use the concrete monitor.
+    var networkMonitoring: any NetworkMonitoring {
+        networkMonitor
+    }
+
     let conflictResolver: CKSyncConflictResolver
     let syncEngineDelegateHandler: CKSyncEngineDelegateHandler
     let toastManager: ToastManager
@@ -49,150 +54,277 @@ final class AppDependencies {
     let matchService: MatchService
     let familyShareReconciler: FamilyShareReconciler
     let lifecycleCoordinator: AppLifecycleCoordinator
+    let heroBoardService: HeroBoardService
 
     init() {
-        let app = AppState()
-        let ck = CloudKitService()
-        let isTest = TestEnvironment.isRunningUnitOrUITests
-        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "App")
-
-        let cache = Self.makeCacheService(app: app, isTest: isTest, logger: logger)
-        let toast = ToastManager()
-        cache?.toastManager = toast
-        let celebration = CelebrationManager()
-        celebration.toastManager = toast
-        let sound = SoundManager()
-
-        let network = NetworkMonitor.shared
-        network.start()
-        networkMonitor = network
-
-        // CacheService constructs its writer off the main actor; every consumer shares that single instance.
-        // The writer is hoisted as a long-lived singleton via CacheService and AppState and is never
-        // recreated per-call — releasing it would invalidate the context backing fetched objects.
-        let sharedBgActor = cache?.backgroundWriter
-        app.backgroundCacheActor = sharedBgActor
-
+        let foundations = Self.makeFoundations()
         let syncStack = Self.makeSyncStack(
-            ck: ck, cache: cache, app: app, toast: toast, backgroundCache: sharedBgActor
+            ck: foundations.cloudKit,
+            cache: foundations.cache,
+            app: foundations.app,
+            toast: foundations.toast,
+            backgroundCache: foundations.sharedBgActor
         )
-
-        // For persistent stores the writer is created off-main via Task.detached in CacheService.
-        // WHY: Deterministic bootstrap — await single writer creation off-main then propagate once under mutex-protected idempotent assignment.
-        if !isTest, let cache, cache.container != nil {
-            if let sharedBgActor {
-                syncStack.delegateHandler.setBackgroundCache(sharedBgActor)
-                syncStack.conflictResolver.setBackgroundCache(sharedBgActor)
-            } else {
-                let handler = syncStack.delegateHandler
-                let resolver = syncStack.conflictResolver
-                Task.detached { [weak cache, weak app, weak handler, weak resolver] in
-                    await cache?.bootstrapBackgroundWriterIfNeeded()
-                    guard let writer = await MainActor.run(body: { cache?.backgroundWriter }) else { return }
-                    await MainActor.run {
-                        if app?.backgroundCacheActor == nil {
-                            app?.backgroundCacheActor = writer
-                        }
-                        handler?.setBackgroundCache(writer)
-                        resolver?.setBackgroundCache(writer)
-                    }
-                }
-            }
-        } else if let sharedBgActor {
-            syncStack.delegateHandler.setBackgroundCache(sharedBgActor)
-            syncStack.conflictResolver.setBackgroundCache(sharedBgActor)
+        Self.attachWriterIfNeeded(foundations: foundations, syncStack: syncStack)
+        let core = Self.makeCoreServices(foundations: foundations, syncStack: syncStack)
+        let gamification = Self.makeGamificationServices(
+            ck: foundations.cloudKit,
+            cache: foundations.cache,
+            toast: foundations.toast,
+            sound: foundations.sound,
+            app: foundations.app,
+            syncCoord: syncStack.syncCoordinator,
+            quest: core.quest
+        )
+        let migrations = Self.makeDataMigrations(
+            cloudKit: foundations.cloudKit,
+            cache: foundations.cache,
+            backgroundCache: foundations.sharedBgActor,
+            syncCoordinator: syncStack.syncCoordinator
+        )
+        if foundations.isTest {
+            Self.seedTestData(
+                app: foundations.app,
+                cloudKit: foundations.cloudKit,
+                cache: foundations.cache,
+                logger: foundations.logger
+            )
         }
+        let autoPayout = AutoPayoutCoordinator(
+            treasuryService: core.treasury,
+            questService: core.quest,
+            familyService: core.family,
+            appState: foundations.app
+        )
+        let lifecycle = AppLifecycleCoordinator(
+            appState: foundations.app,
+            cloudKitService: foundations.cloudKit,
+            syncCoordinator: syncStack.syncCoordinator,
+            appSyncCoordinator: core.appSync,
+            dataMigrationsCoordinator: migrations,
+            autoPayoutCoordinator: autoPayout
+        )
+        lifecycle.achievementService = core.achievement
+
+        appState = foundations.app
+        cloudKitService = foundations.cloudKit
+        cacheService = foundations.cache
+        networkMonitor = foundations.network
+        toastManager = foundations.toast
+        celebrationManager = foundations.celebration
+        soundManager = foundations.sound
         conflictResolver = syncStack.conflictResolver
         syncEngineDelegateHandler = syncStack.delegateHandler
-        // Single shared coordinator instance handed to every downstream service.
-        let syncCoord = syncStack.syncCoordinator
-        syncCoordinator = syncCoord
+        syncCoordinator = syncStack.syncCoordinator
         notificationService = syncStack.notificationService
-
-        let xp = XPService(cloudKit: ck, notificationService: notificationService, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
-        xp.celebrationManager = celebration
-        let treasury = TreasuryService(cloudKit: ck, notificationService: notificationService, cacheService: cache, toastManager: toast, appState: app, syncCoordinator: syncCoord)
-        let quest = QuestService(
-            cloudKit: ck, xpService: xp, notificationService: notificationService,
-            cacheService: cache, treasuryService: treasury, toastManager: toast,
-            appState: app, syncCoordinator: syncCoord
-        )
-        let family = FamilyService(cloudKit: ck, appState: app, questService: quest, cacheService: cache, toastManager: toast, syncCoordinator: syncCoord)
-        let reconciler = FamilyShareReconciler(familyService: family)
-        if !isTest {
-            reconciler.start()
-        }
-
-        let achievement = AchievementService(cloudKit: ck, cacheService: cache, toastManager: toast, appState: app, celebrationManager: celebration, syncCoordinator: syncCoord)
-        achievement.notificationService = notificationService
-        quest.achievementService = achievement
-        let avatar = AvatarService(xp: xp)
-        let manualSpending = SpendingService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        manualSpending.toastManager = toast
-        spendingService = manualSpending
-
-        let interest = InterestService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let match = MatchService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let ledgerImport = LedgerImportService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
-        let bucket = BucketService(cacheService: cache, syncCoordinator: syncCoord, appState: app)
-        let goal = GoalService(
-            cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord,
-            achievementService: achievement, celebrationManager: celebration
-        )
-
-        let appSync = AppSyncCoordinator()
-        app.cacheService = cache
-        toastManager = toast
-
-        let gamification = Self.makeGamificationServices(
-            ck: ck, cache: cache, toast: toast, sound: sound, app: app, syncCoord: syncCoord, quest: quest
-        )
+        familyService = core.family
+        xpService = core.xp
+        questService = core.quest
+        treasuryService = core.treasury
+        achievementService = core.achievement
+        avatarService = core.avatar
+        spendingService = core.spending
+        interestService = core.interest
+        matchService = core.match
+        ledgerImportService = core.ledgerImport
+        bucketService = core.bucket
+        goalService = core.goal
+        heroBoardService = core.heroBoard
+        appSyncCoordinator = core.appSync
+        dataMigrationsCoordinator = migrations
+        autoPayoutCoordinator = autoPayout
+        lifecycleCoordinator = lifecycle
+        familyShareReconciler = core.reconciler
         gemService = gamification.gem
         lootDropService = gamification.lootDrop
         dailyLoginService = gamification.dailyLogin
         bonusObjectiveService = gamification.bonusObjective
         equipmentService = gamification.equipment
 
-        let migrations = Self.makeDataMigrations(cloudKit: ck, cache: cache, backgroundCache: sharedBgActor, syncCoordinator: syncCoord)
-
-        if isTest {
-            Self.seedTestData(app: app, cloudKit: ck, cache: cache, logger: logger)
-        }
-
-        let autoPayout = AutoPayoutCoordinator(
-            treasuryService: treasury, questService: quest, familyService: family, appState: app
-        )
-
-        let lifecycle = AppLifecycleCoordinator(
-            appState: app, cloudKitService: ck, syncCoordinator: syncCoord,
-            appSyncCoordinator: appSync, dataMigrationsCoordinator: migrations,
-            autoPayoutCoordinator: autoPayout
-        )
-        lifecycle.achievementService = achievement
-
-        appState = app
-        cloudKitService = ck
-        familyService = family
-        xpService = xp
-        questService = quest
-        treasuryService = treasury
-        achievementService = achievement
-        avatarService = avatar
-        appSyncCoordinator = appSync
-        dataMigrationsCoordinator = migrations
-        autoPayoutCoordinator = autoPayout
-        cacheService = cache
-        celebrationManager = celebration
-        soundManager = sound
-        interestService = interest
-        matchService = match
-        ledgerImportService = ledgerImport
-        goalService = goal
-        bucketService = bucket
-        familyShareReconciler = reconciler
-        lifecycleCoordinator = lifecycle
-
         Self.shared = self
+    }
+
+    private struct Foundations {
+        let app: AppState
+        let cloudKit: CloudKitService
+        let cache: CacheService
+        let toast: ToastManager
+        let celebration: CelebrationManager
+        let sound: SoundManager
+        let network: NetworkMonitor
+        let logger: Logger
+        let isTest: Bool
+        let sharedBgActor: BackgroundCacheActor?
+    }
+
+    private struct CoreServices {
+        let xp: XPService
+        let treasury: TreasuryService
+        let quest: QuestService
+        let family: FamilyService
+        let reconciler: FamilyShareReconciler
+        let achievement: AchievementService
+        let avatar: AvatarService
+        let spending: SpendingService
+        let interest: InterestService
+        let match: MatchService
+        let ledgerImport: LedgerImportService
+        let bucket: BucketService
+        let goal: GoalService
+        let heroBoard: HeroBoardService
+        let appSync: AppSyncCoordinator
+    }
+
+    private static func makeFoundations() -> Foundations {
+        let app = AppState()
+        let ck = CloudKitService()
+        let isTest = TestEnvironment.isRunningUnitOrUITests
+        let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "App")
+        let cache = makeCacheService(app: app, isTest: isTest, logger: logger)
+        let toast = ToastManager()
+        cache.toastManager = toast
+        let celebration = CelebrationManager()
+        celebration.toastManager = toast
+        let sound = SoundManager()
+        let network = NetworkMonitor.shared
+        network.start()
+        let sharedBgActor = cache.backgroundWriter
+        app.backgroundCacheActor = sharedBgActor
+        return Foundations(
+            app: app,
+            cloudKit: ck,
+            cache: cache,
+            toast: toast,
+            celebration: celebration,
+            sound: sound,
+            network: network,
+            logger: logger,
+            isTest: isTest,
+            sharedBgActor: sharedBgActor
+        )
+    }
+
+    private static func attachWriterIfNeeded(foundations: Foundations, syncStack: SyncStack) {
+        let cache = foundations.cache
+        let app = foundations.app
+        let isTest = foundations.isTest
+        let sharedBgActor = foundations.sharedBgActor
+        if !isTest, cache.container != nil {
+            if let sharedBgActor {
+                syncStack.delegateHandler.setBackgroundCache(sharedBgActor)
+                syncStack.conflictResolver.setBackgroundCache(sharedBgActor)
+            } else {
+                let handler = syncStack.delegateHandler
+                let resolver = syncStack.conflictResolver
+                Task { [weak cache, weak app, weak handler, weak resolver] in
+                    await cache?.bootstrapBackgroundWriterIfNeeded()
+                    guard let writer = cache?.backgroundWriter else { return }
+                    if app?.backgroundCacheActor == nil {
+                        app?.backgroundCacheActor = writer
+                    }
+                    handler?.setBackgroundCache(writer)
+                    resolver?.setBackgroundCache(writer)
+                }
+            }
+        } else if let sharedBgActor {
+            syncStack.delegateHandler.setBackgroundCache(sharedBgActor)
+            syncStack.conflictResolver.setBackgroundCache(sharedBgActor)
+        }
+    }
+
+    private static func makeCoreServices(foundations: Foundations, syncStack: SyncStack) -> CoreServices {
+        let ck = foundations.cloudKit
+        let cache = foundations.cache
+        let app = foundations.app
+        let toast = foundations.toast
+        let celebration = foundations.celebration
+        let syncCoord = syncStack.syncCoordinator
+        let notificationService = syncStack.notificationService
+
+        let xp = XPService(
+            cloudKit: ck,
+            notificationService: notificationService,
+            cacheService: cache,
+            toastManager: toast,
+            appState: app,
+            syncCoordinator: syncCoord
+        )
+        xp.celebrationManager = celebration
+        let treasury = TreasuryService(
+            cloudKit: ck,
+            notificationService: notificationService,
+            cacheService: cache,
+            toastManager: toast,
+            appState: app,
+            syncCoordinator: syncCoord
+        )
+        let quest = QuestService(
+            cloudKit: ck,
+            xpService: xp,
+            notificationService: notificationService,
+            cacheService: cache,
+            treasuryService: treasury,
+            toastManager: toast,
+            appState: app,
+            syncCoordinator: syncCoord
+        )
+        let family = FamilyService(
+            cloudKit: ck,
+            appState: app,
+            questService: quest,
+            cacheService: cache,
+            toastManager: toast,
+            syncCoordinator: syncCoord
+        )
+        let reconciler = FamilyShareReconciler(familyService: family)
+        if !foundations.isTest {
+            reconciler.start()
+        }
+        let achievement = AchievementService(
+            cloudKit: ck,
+            cacheService: cache,
+            toastManager: toast,
+            appState: app,
+            celebrationManager: celebration,
+            syncCoordinator: syncCoord
+        )
+        achievement.notificationService = notificationService
+        quest.achievementService = achievement
+        let avatar = AvatarService(xp: xp)
+        let manualSpending = SpendingService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        manualSpending.toastManager = toast
+        let interest = InterestService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let match = MatchService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let ledgerImport = LedgerImportService(cloudKit: ck, cacheService: cache, appState: app, syncCoordinator: syncCoord)
+        let bucket = BucketService(cacheService: cache, syncCoordinator: syncCoord, appState: app)
+        let goal = GoalService(
+            cloudKit: ck,
+            cacheService: cache,
+            appState: app,
+            syncCoordinator: syncCoord,
+            achievementService: achievement,
+            celebrationManager: celebration
+        )
+        let heroBoard = HeroBoardService(questService: quest, cacheService: cache, syncCoordinator: syncCoord, appState: app)
+        let appSync = AppSyncCoordinator()
+        app.cacheService = cache
+        return CoreServices(
+            xp: xp,
+            treasury: treasury,
+            quest: quest,
+            family: family,
+            reconciler: reconciler,
+            achievement: achievement,
+            avatar: avatar,
+            spending: manualSpending,
+            interest: interest,
+            match: match,
+            ledgerImport: ledgerImport,
+            bucket: bucket,
+            goal: goal,
+            heroBoard: heroBoard,
+            appSync: appSync
+        )
     }
 
     private struct SyncStack {
@@ -212,7 +344,7 @@ final class AppDependencies {
 
     private static func makeSyncStack(
         ck: CloudKitService,
-        cache: CacheService?,
+        cache: CacheService,
         app: AppState,
         toast: ToastManager,
         backgroundCache: BackgroundCacheActor?
@@ -243,7 +375,7 @@ final class AppDependencies {
 
     private static func makeGamificationServices(
         ck: CloudKitService,
-        cache: CacheService?,
+        cache: CacheService,
         toast: ToastManager,
         sound: SoundManager,
         app: AppState,
@@ -268,7 +400,7 @@ final class AppDependencies {
         )
     }
 
-    private static func makeCacheService(app: AppState, isTest: Bool, logger: Logger) -> CacheService? {
+    private static func makeCacheService(app: AppState, isTest: Bool, logger: Logger) -> CacheService {
         do {
             return try CacheService(inMemory: isTest)
         } catch {
@@ -276,13 +408,13 @@ final class AppDependencies {
             if !isTest {
                 app.cacheInitError = .cacheInitializationFailed(error.localizedDescription)
             }
-            return nil
+            return CacheService.inMemoryFallback(logger: logger)
         }
     }
 
     private static func makeDataMigrations(
         cloudKit: CloudKitService,
-        cache: CacheService?,
+        cache: CacheService,
         backgroundCache: BackgroundCacheActor?,
         syncCoordinator: CKSyncEngineCoordinator? = nil
     ) -> DataMigrationsCoordinator {
@@ -298,13 +430,10 @@ final class AppDependencies {
     private static func seedTestData(
         app: AppState,
         cloudKit: CloudKitService,
-        cache: CacheService?,
+        cache: CacheService,
         logger: Logger
     ) {
         logger.info("Tests detected — seeding mock data and setting test auth state")
-        // The hero-board scenario pre-claims board quests so both board
-        // sections render deterministically; all other scenarios share the
-        // standard seeded family.
         if TestEnvironment.activeScenario == .heroBoardWithClaims {
             SampleData.populate(cacheService: cache, boardClaims: 2)
         } else {

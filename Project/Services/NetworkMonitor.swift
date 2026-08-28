@@ -88,6 +88,18 @@ final class NetworkMonitor {
     }
 }
 
+/// Abstraction for reachability; inject via Environment rather than reaching for the singleton.
+/// Services no longer branch on `isConnected` — they attempt CloudKit and fall back via catch.
+@MainActor
+protocol NetworkMonitoring: AnyObject {
+    var isConnected: Bool { get }
+    var connectionType: NetworkMonitor.ConnectionType { get }
+    var isExpensive: Bool { get }
+    var isConstrained: Bool { get }
+}
+
+extension NetworkMonitor: NetworkMonitoring {}
+
 extension Notification.Name {
     static let networkDidReconnect = Notification.Name("networkDidReconnect")
 }

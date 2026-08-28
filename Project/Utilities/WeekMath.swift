@@ -40,6 +40,15 @@ enum WeekMath {
         return normalizedStart ..< end
     }
 
+    /// Atomically derives the payout-anchored week start and its half-open range
+    /// from a single date and payoutDay, so [start, end) can never be built
+    /// from mismatched inputs.
+    static func range(for date: Date, payoutDay: PayoutDay) -> (start: Date, range: Range<Date>) {
+        let start = startOfWeek(for: date, payoutDay: payoutDay)
+        let range = weekRange(starting: start)
+        return (start, range)
+    }
+
     /// Steps an existing payout-cycle start whole weeks forward/backward. Cycle
     /// starts are UTC-midnight anchored on a fixed 7-day cadence, so whole-week
     /// day stepping is exact (no DST drift under iso8601UTC).

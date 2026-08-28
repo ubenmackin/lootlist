@@ -231,10 +231,9 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             let activeOwner = activeZone.ownerName
             let deferredCount = records.count
             logger.warning(
-                "Ingestion dropped: zone mismatch — caller \(callerZone, privacy: .private)/\(callerOwner, privacy: .private)"
-            )
-            logger.warning(
-                "  != active \(activeZoneName, privacy: .private)/\(activeOwner, privacy: .private) — \(deferredCount, privacy: .public) deferred"
+                "Ingestion dropped: zone mismatch caller \(callerZone)/\(callerOwner) != active \(activeZoneName)/\(activeOwner) deferred \(deferredCount)",
+                family: activeFamily,
+                zone: activeZone.zoneName
             )
             return
         }
@@ -249,7 +248,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         )
 
         if parseFailures > 0 {
-            logger.warning("Ingestion dropped: \(parseFailures) record(s) failed to parse during incoming zone changes — check CKDecodingError")
+            logger.warning(
+                "Ingestion dropped: \(parseFailures) record(s) failed to parse during incoming zone changes — check CKDecodingError",
+                family: activeFamily,
+                zone: activeZone.zoneName
+            )
             for _ in 0 ..< parseFailures {
                 coordinator?.noteParseFailure()
             }
@@ -327,11 +330,16 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     }
 
     private func checkTransferSkew(record: CKRecord, parsed: ParsedRecord) {
-        guard case let .ledgerEntry(entry) = parsed, entry.source == "transfer" else { return }
+        guard case let .ledgerEntry(entry) = parsed, entry.sourceEnum == .transfer else { return }
         let serverDate: Date? = record.creationDate ?? {
             let data = record.encodedSystemFields
             guard !data.isEmpty else { return nil }
-            return (try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data))?.creationDate
+            do {
+                return try NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data)?.creationDate
+            } catch {
+                logger.warning("CKRecord systemFields decode failed for \(record.recordID.recordName, privacy: .private): \(error, privacy: .private)")
+                return nil
+            }
         }()
         guard let serverDate else { return }
         // WHY: Centralized skew check so ingest and send paths share one warning string.
@@ -350,10 +358,9 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             let recordName = record.recordID.recordName
             let gotFamily = identity.familyRecordName ?? "nil"
             logger.warning(
-                "Ingestion dropped: family mismatch for \(recordType, privacy: .public) \(recordName, privacy: .private)"
-            )
-            logger.warning(
-                "  expected \(activeFamily, privacy: .private) got \(gotFamily, privacy: .private)"
+                "Ingestion dropped: family mismatch for \(recordType) \(recordName) expected \(activeFamily) got \(gotFamily)",
+                family: activeFamily,
+                zone: activeZone.zoneName
             )
         } else if identity.zoneID != activeZone {
             let expectedZone = activeZone.zoneName
@@ -363,13 +370,9 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             let recordType = record.recordType
             let recordName = record.recordID.recordName
             logger.warning(
-                "Ingestion dropped: zone mismatch for \(recordType, privacy: .public) \(recordName, privacy: .private)"
-            )
-            logger.warning(
-                "  expected \(expectedZone, privacy: .private)/\(expectedOwner, privacy: .private)"
-            )
-            logger.warning(
-                "  got \(gotZone, privacy: .private)/\(gotOwner, privacy: .private)"
+                "Ingestion dropped: zone mismatch for \(recordType) \(recordName) expected \(expectedZone)/\(expectedOwner) got \(gotZone)/\(gotOwner)",
+                family: activeFamily,
+                zone: activeZone.zoneName
             )
         } else if identity.databaseScope != expectedDbScope {
             let recordType = record.recordType
@@ -377,19 +380,26 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             let expectedScope = String(describing: expectedDbScope)
             let gotScope = String(describing: identity.databaseScope)
             logger.warning(
-                "Ingestion dropped: databaseScope mismatch for \(recordType, privacy: .public) \(recordName, privacy: .private)"
-            )
-            logger.warning(
-                "  expected \(expectedScope, privacy: .public) got \(gotScope, privacy: .public)"
+                "Ingestion dropped: databaseScope mismatch for \(recordType) \(recordName) expected \(expectedScope) got \(gotScope)",
+                family: activeFamily,
+                zone: activeZone.zoneName
             )
         } else {
-            logger.warning("Ingestion dropped: scope mismatch for \(record.recordType, privacy: .public) \(record.recordID.recordName, privacy: .private)")
+            logger.warning(
+                "Ingestion dropped: scope mismatch for \(record.recordType) \(record.recordID.recordName)",
+                family: activeFamily,
+                zone: activeZone.zoneName
+            )
         }
         if record.recordType == QuestCompletion.recordType,
            expectedDbScope == .shared,
            identity.databaseScope == .private
         {
-            logger.warning("QuestCompletion pending stall: shared expected .shared but got .private — dropping keeps parent stale; enqueue as isOwner:false")
+            logger.warning(
+                "QuestCompletion pending stall: shared expected .shared but got .private — dropping keeps parent stale; enqueue as isOwner:false",
+                family: activeFamily,
+                zone: activeZone.zoneName
+            )
         }
     }
 
@@ -547,13 +557,18 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         activeFamily: String
     ) {
         for savedRecord in sentEvent.savedRecords where savedRecord.recordType == LedgerEntry.recordType {
-            guard let source = savedRecord["source"] as? String, source == "transfer" else { continue }
+            guard let source = savedRecord["source"] as? String, LedgerSource(rawValue: source) == .transfer else { continue }
             let localDate: Date? = (savedRecord["date"] as? Date) ?? cacheService?.fetchLedgerEntry(recordName: savedRecord.recordID.recordName, family: activeFamily)?.date
             guard let localDate else { continue }
             let serverDate: Date? = savedRecord.creationDate ?? {
                 let data = savedRecord.encodedSystemFields
                 guard !data.isEmpty else { return nil }
-                return (try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data))?.creationDate
+                do {
+                    return try NSKeyedUnarchiver.unarchivedObject(ofClass: CKRecord.self, from: data)?.creationDate
+                } catch {
+                    logger.warning("CKRecord systemFields decode failed for \(savedRecord.recordID.recordName, privacy: .private): \(error, privacy: .private)")
+                    return nil
+                }
             }()
             guard let serverDate else { continue }
             // WHY: Centralized skew check so ingest and send paths share one warning string.
@@ -639,5 +654,19 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
             }
         }
+    }
+}
+
+private extension Logger {
+    func warning(_ message: String, family: String, zone: String) {
+        log(level: .default, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func info(_ message: String, family: String, zone: String) {
+        log(level: .info, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func error(_ message: String, family: String, zone: String) {
+        log(level: .error, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
     }
 }

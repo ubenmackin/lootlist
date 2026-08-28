@@ -65,12 +65,12 @@ enum LedgerImportError: Error, LocalizedError, Equatable {
 enum LedgerCSVParser {
     static func parse(_ csvText: String) -> [StagedImportRow] {
         let records = tokenize(csvText)
-        guard !records.isEmpty else { return [] }
+        guard let firstRecord = records.first else { return [] }
 
         // Header detection is content-based so exports with or without a
         // header land on the same column mapping; unknown headers fall back
         // to the export's canonical column order.
-        let headerNames = records[0].map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        let headerNames = firstRecord.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         let isHeader = headerNames.contains("transaction date") && headerNames.contains("amount")
         let columns = isHeader ? ColumnMapping(header: headerNames) : .positional
         let dataRecords = isHeader ? Array(records.dropFirst()) : records
@@ -286,10 +286,11 @@ enum LedgerCSVParser {
 @Observable
 final class LedgerImportService {
     private let cloudKit: any CloudKitServiceProtocol
-    private(set) var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
-    private var appState: AppState?
+    let cacheService: CacheService
+    let syncCoordinator: CKSyncEngineCoordinator
+    let appState: AppState
 
+    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerImport")
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerImport")
 
     struct FinalizeSummary: Equatable, Sendable {
@@ -299,14 +300,40 @@ final class LedgerImportService {
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        cacheService: CacheService,
+        appState: AppState,
+        syncCoordinator: CKSyncEngineCoordinator
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
+    }
+
+    @_disfavoredOverload
+    convenience init(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) {
+        let cache: CacheService
+        if let cacheService {
+            cache = cacheService
+        } else {
+            Self.staticLogger.warning("LedgerImportService initialized without cacheService; using fallback in-memory cache.")
+            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
+        }
+        let state = appState ?? AppState()
+        let ck = cloudKit as? CloudKitService ?? CloudKitService()
+        let delegate = CKSyncEngineDelegateHandler(
+            backgroundCache: nil,
+            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, toastManager: nil, appState: state),
+            cacheService: cache,
+            appState: state
+        )
+        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 
     // MARK: - Staging
@@ -331,7 +358,7 @@ final class LedgerImportService {
             profileRecordName
         ].joined(separator: "|")
         let digest = SHA256.hash(data: Data(canonical.utf8))
-        let hex = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+        let hex = digest.shortHex
         return "import-\(hex)"
     }
 
@@ -346,11 +373,9 @@ final class LedgerImportService {
     // MARK: - Finalization
 
     func finalize(_ stagedRows: [StagedImportRow], family: Family) async throws -> FinalizeSummary {
-        guard let appState else { throw LedgerImportError.noActiveFamily }
         guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
-        guard let cacheService else { throw LedgerImportError.persistenceFailed }
         try validateScope(family: family)
 
         let included = stagedRows.filter { !$0.isExcluded }
@@ -389,19 +414,13 @@ final class LedgerImportService {
                 description: trimmedNonEmpty(row.descriptionText) ?? "Imported transaction",
                 location: trimmedNonEmpty(row.merchant),
                 date: date,
-                source: "import",
+                source: LedgerSource.import.rawValue,
                 family: CKRecord.Reference(recordID: family.id, action: .none),
                 id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
             )
 
             await cacheService.upsertLedgerEntry(entry)
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwner = appState.isZoneOwner
-            if isOwner != storedOwner {
-                logger.warning("LedgerImportService.finalizeImport isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-            }
-            syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "LedgerImportService.finalizeImport")
             importedCount += 1
         }
 
@@ -417,7 +436,6 @@ final class LedgerImportService {
     }
 
     private func validateScope(family: Family) throws {
-        guard let appState else { throw ScopeViolation.noActiveFamily }
         do {
             try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
         } catch {

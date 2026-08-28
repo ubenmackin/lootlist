@@ -316,7 +316,7 @@ struct ChildLedgerView: View {
     /// absolute-value for zero.
     private func formattedAmount(_ amount: Double, isCredit: Bool) -> String {
         if amount == 0 {
-            return CurrencyFormatter.string(0)
+            return CurrencyFormatter.string(0.0)
         }
         let prefix = isCredit ? "+" : ""
         return prefix + CurrencyFormatter.string(amount)

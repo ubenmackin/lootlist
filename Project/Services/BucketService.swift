@@ -17,7 +17,6 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     case invalidAmount
     case unauthorized
     case persistenceFailed
-    case missingDependencies
     case duplicateTodayTransfer
 
     var errorDescription: String? {
@@ -32,8 +31,6 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
             "Only the bucket's owner can move money between buckets."
         case .persistenceFailed:
             "Could not save the transfer. Please try again."
-        case .missingDependencies:
-            "Something went wrong. Please try again."
         case .duplicateTodayTransfer:
             "You already moved money between these buckets today. Try again tomorrow."
         }
@@ -44,18 +41,61 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
 @MainActor
 @Observable
 final class BucketService {
+    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BucketService")
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BucketService")
-    var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
-    var appState: AppState?
+    let cacheService: any CacheServicing
+    let syncCoordinator: any SyncEnqueuing
+    let appState: AppState
 
-    init(cacheService: CacheService? = nil,
-         syncCoordinator: CKSyncEngineCoordinator? = nil,
-         appState: AppState? = nil)
+    init(cacheService: any CacheServicing,
+         syncCoordinator: any SyncEnqueuing,
+         appState: AppState)
     {
         self.cacheService = cacheService
         self.syncCoordinator = syncCoordinator
         self.appState = appState
+    }
+
+    /// Convenience for read-only callers that only need balance attribution.
+    /// Uses the same container-backed cache instance but a no-op coordinator.
+    convenience init(cacheService: any CacheServicing) {
+        final class NoopSync: SyncEnqueuing {
+            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
+        }
+        self.init(cacheService: cacheService, syncCoordinator: NoopSync(), appState: AppState())
+    }
+
+    /// Legacy optional shim for call sites that have not yet migrated.
+    convenience init(cacheService: (any CacheServicing)? = nil) {
+        if let cacheService {
+            self.init(cacheService: cacheService)
+        } else {
+            Self.staticLogger.warning("BucketService initialized without cacheService; using fallback in-memory cache.")
+            let fallback = CacheService.inMemoryFallback(logger: Self.staticLogger)
+            self.init(cacheService: fallback)
+        }
+    }
+
+    convenience init(cacheService: any CacheServicing, syncCoordinator: (any SyncEnqueuing)?, appState: AppState) {
+        final class NoopSync2: SyncEnqueuing {
+            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
+        }
+        self.init(cacheService: cacheService, syncCoordinator: syncCoordinator ?? NoopSync2(), appState: appState)
+    }
+
+    /// Optional-cache shim that also forwards an optional sync coordinator.
+    convenience init(cacheService: (any CacheServicing)?, syncCoordinator: (any SyncEnqueuing)?, appState: AppState) {
+        if let cacheService {
+            self.init(cacheService: cacheService, syncCoordinator: syncCoordinator, appState: appState)
+        } else {
+            Self.staticLogger.warning("BucketService initialized without cacheService; using fallback in-memory cache.")
+            let fallback = CacheService.inMemoryFallback(logger: Self.staticLogger)
+            self.init(cacheService: fallback, syncCoordinator: syncCoordinator, appState: appState)
+        }
     }
 
     // MARK: - Split Math
@@ -68,10 +108,10 @@ final class BucketService {
 
     /// Splits `totalPennies` across the three buckets using the largest remainder method so the shares sum
     /// exactly to the total — a payout can never gain or lose a penny to rounding.
-    static func splitPennies(_ totalPennies: Int,
-                             spendPercent: Int,
-                             shortPercent: Int,
-                             longPercent: Int) -> [BucketShare]
+    nonisolated static func splitPennies(_ totalPennies: Int,
+                                         spendPercent: Int,
+                                         shortPercent: Int,
+                                         longPercent: Int) -> [BucketShare]
     {
         let weights: [(kind: BucketKind, percent: Int)] = [
             (.spend, max(0, spendPercent)),
@@ -106,7 +146,7 @@ final class BucketService {
     }
 
     /// Convenience overload reading the split snapshot off a profile record.
-    static func splitPennies(_ totalPennies: Int, profile: Profile) -> [BucketShare] {
+    nonisolated static func splitPennies(_ totalPennies: Int, profile: Profile) -> [BucketShare] {
         splitPennies(totalPennies,
                      spendPercent: profile.splitPercentSpend,
                      shortPercent: profile.splitPercentShort,
@@ -117,8 +157,8 @@ final class BucketService {
 
     /// Single-source attribution formula for bucket balances: an entry credits its `bucketKind`, and a
     /// transfer entry ALSO debits its `fromBucket` — keeping ONE ledger row per transfer while both sides
-    static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Double]) {
-        if entry.source == "transfer",
+    nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Double]) {
+        if entry.sourceEnum == .transfer,
            let fromRaw = entry.fromBucket,
            let fromKind = BucketKind(rawValue: fromRaw)
         {
@@ -131,7 +171,6 @@ final class BucketService {
     /// Balance per bucket, summed from ledger entries carrying an explicit
     /// `bucketKind` attribution via the shared `applyBucketAttribution` formula.
     func bucketBalances(profileRecordName: String, familyRecordName: String) -> [BucketKind: Double] {
-        guard let cacheService else { return [:] }
         var balances: [BucketKind: Double] = [:]
         for entry in cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
@@ -161,17 +200,10 @@ final class BucketService {
         }
 
         // Self-ownership gate: a child can only transfer their own funds.
-        guard let acting = appState?.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == profile.id
         else {
             throw BucketServiceError.unauthorized
-        }
-
-        guard let cacheService,
-              let syncCoordinator,
-              let appState
-        else {
-            throw BucketServiceError.missingDependencies
         }
 
         // Family-scope guard: the transfer must target the active family so a
@@ -231,7 +263,7 @@ final class BucketService {
             amount: amount,
             description: "Transfer from \(from.displayName) to \(to.displayName)",
             date: now,
-            source: "transfer",
+            source: LedgerSource.transfer.rawValue,
             bucketKind: to.rawValue,
             fromBucket: from.rawValue,
             toBucket: to.rawValue,
@@ -240,13 +272,7 @@ final class BucketService {
         )
 
         await cacheService.upsertLedgerEntry(entry)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("BucketService.transfer isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "BucketService.transfer")
         return entry
     }
 
@@ -261,7 +287,6 @@ final class BucketService {
         from: BucketKind,
         to: BucketKind
     ) -> Bool {
-        guard let cacheService else { return false }
         // WHY: Same predicate as BucketTransferView.hasTransferredToday — fetchLedgerEntries scoped fetch + WeekMath.dayBucket filter.
         let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
@@ -269,7 +294,7 @@ final class BucketService {
         )
         #if DEBUG
             // WHY: Clock skew across UTC midnight can bypass the per-day guard or mismatch transferID; transfers within 2h of midnight hint at this window.
-            for entry in entries where entry.source == "transfer" && entry.fromBucket == from.rawValue && entry.toBucket == to.rawValue {
+            for entry in entries where entry.sourceEnum == .transfer && entry.fromBucket == from.rawValue && entry.toBucket == to.rawValue {
                 let entryBucket = WeekMath.dayBucket(for: entry.date)
                 guard entryBucket != dayBucket, abs(entryBucket - dayBucket) == 1 else { continue }
                 if WeekMath.isNearUTCMidnight(entry.date) {
@@ -284,7 +309,7 @@ final class BucketService {
             }
         #endif
         return entries.contains { entry in
-            entry.source == "transfer"
+            entry.sourceEnum == .transfer
                 && entry.fromBucket == from.rawValue
                 && entry.toBucket == to.rawValue
                 && WeekMath.dayBucket(for: entry.date) == dayBucket

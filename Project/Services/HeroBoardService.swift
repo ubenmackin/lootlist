@@ -31,25 +31,13 @@ final class HeroBoardService {
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroBoard")
 
-    /// Dependencies are delegated through `QuestService` instead of copied at
-    /// init so late wiring (AppDependencies sets cache/sync refs after
-    /// construction) is always reflected here too.
     private let questService: QuestService
+    let cacheService: CacheService
+    let syncCoordinator: CKSyncEngineCoordinator
+    let appState: AppState
 
     private var cloudKit: any CloudKitServiceProtocol {
         questService.cloudKitReference
-    }
-
-    private var cacheService: CacheService? {
-        questService.cacheService
-    }
-
-    private var syncCoordinator: CKSyncEngineCoordinator? {
-        questService.syncCoordinator
-    }
-
-    private var appState: AppState? {
-        questService.appState
     }
 
     var toastManager: ToastManager? {
@@ -61,16 +49,35 @@ final class HeroBoardService {
     /// save is pending is a no-op instead of a duplicate write.
     private let inFlightClaims = Mutex<Set<String>>([])
 
-    init(questService: QuestService) {
+    init(
+        questService: QuestService,
+        cacheService: CacheService,
+        syncCoordinator: CKSyncEngineCoordinator,
+        appState: AppState
+    ) {
         self.questService = questService
+        self.cacheService = cacheService
+        self.syncCoordinator = syncCoordinator
+        self.appState = appState
+    }
+
+    /// Convenience for read-only callers and legacy ViewModel init paths that
+    /// construct via QuestService alone. Resolves mandatory dependencies from
+    /// the already-wired QuestService instance.
+    convenience init(questService: QuestService) {
+        self.init(
+            questService: questService,
+            cacheService: questService.cacheService,
+            syncCoordinator: questService.syncCoordinator,
+            appState: questService.appState
+        )
     }
 
     // MARK: - Reads
 
     /// Fetches active unassigned quests available on the Hero Board.
     func fetchBoardQuests(family: Family) -> [Quest] {
-        guard let cacheService else { return [] }
-        return cacheService.fetchQuests(family: family.id.recordName)
+        cacheService.fetchQuests(family: family.id.recordName)
             .filter(\.isActive)
             .map { $0.toQuest(zoneID: family.id.zoneID) }
             .filter(Self.isBoardQuest)
@@ -98,9 +105,6 @@ final class HeroBoardService {
     /// Optimistically stamps quest claim in local cache and enqueues CloudKit save.
     @discardableResult
     func claim(_ quest: Quest, by hero: Profile) async throws -> HeroBoardClaimOutcome {
-        guard let appState else {
-            throw QuestServiceError.missingSession
-        }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             familyRef: quest.family,
             zoneID: quest.id.zoneID,
@@ -118,7 +122,7 @@ final class HeroBoardService {
         }
 
         var current = quest
-        if let cached = cacheService?.fetchQuest(recordName: key, family: quest.family.recordID.recordName) {
+        if let cached = cacheService.fetchQuest(recordName: key, family: quest.family.recordID.recordName) {
             current = cached.toQuest(zoneID: quest.id.zoneID)
         }
 
@@ -133,14 +137,14 @@ final class HeroBoardService {
         current.claimedByProfileRecordName = hero.id.recordName
         current.claimedAt = Date()
 
-        await cacheService?.upsertQuest(current)
+        await cacheService.upsertQuest(current)
         // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let storedOwner = appState.isZoneOwner
         if isOwner != storedOwner {
             logger.warning("HeroBoardService.claim isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
-        syncCoordinator?.enqueueSave(recordID: current.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: current.id, isOwner: isOwner)
         return .claimed
     }
 
@@ -148,7 +152,7 @@ final class HeroBoardService {
     /// claim fields. The placeholder assignee is untouched, so the quest stays
     /// on the board surface.
     func revoke(_ quest: Quest) async throws {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
@@ -163,20 +167,20 @@ final class HeroBoardService {
         var released = quest
         // Revoke against the freshest cached copy so unrelated field edits
         // that synced since this view loaded are not clobbered.
-        if let cached = cacheService?.fetchQuest(recordName: quest.id.recordName, family: quest.family.recordID.recordName) {
+        if let cached = cacheService.fetchQuest(recordName: quest.id.recordName, family: quest.family.recordID.recordName) {
             released = cached.toQuest(zoneID: quest.id.zoneID)
         }
         released.claimedByProfileRecordName = nil
         released.claimedAt = nil
 
-        await cacheService?.upsertQuest(released)
+        await cacheService.upsertQuest(released)
         // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let storedOwner = appState.isZoneOwner
         if isOwner != storedOwner {
             logger.warning("HeroBoardService.revoke isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
-        syncCoordinator?.enqueueSave(recordID: released.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: released.id, isOwner: isOwner)
     }
 
     // MARK: - Posting
@@ -191,7 +195,7 @@ final class HeroBoardService {
                      createdBy: Profile,
                      family: Family) async throws -> Quest
     {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == createdBy.id,
               acting.role.isParent
         else {
@@ -248,14 +252,14 @@ final class HeroBoardService {
             id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
 
-        await cacheService?.upsertQuest(quest)
+        await cacheService.upsertQuest(quest)
         // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let storedOwner = appState.isZoneOwner
         if isOwner != storedOwner {
             logger.warning("HeroBoardService.postToBoard isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
-        syncCoordinator?.enqueueSave(recordID: quest.id, isOwner: isOwner)
+        syncCoordinator.enqueueSave(recordID: quest.id, isOwner: isOwner)
         return quest
     }
 }

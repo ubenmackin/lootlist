@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 import SwiftData
 
+@MainActor
 extension CacheService {
     func deleteAll<T: PersistentModel>(from context: ModelContext?, where predicate: Predicate<T>) {
         guard let context else { return }

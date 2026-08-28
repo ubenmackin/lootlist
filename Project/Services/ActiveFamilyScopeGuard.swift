@@ -171,6 +171,140 @@ enum ActiveFamilyScopeGuard {
         return creator != userRecordName
     }
 
+    // MARK: - Corrected Owner Enqueue Helpers
+
+    /// Centralized owner-anchor correction for sync enqueues.
+    /// Computes `resolvedIsOwner`, logs a warning with `context` when the stored
+    /// `isZoneOwner` diverges, then enqueues the save on the correct database scope.
+    @MainActor
+    static func enqueueWithCorrectedOwner(
+        _ coordinator: CKSyncEngineCoordinator?,
+        id: CKRecord.ID,
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) {
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        coordinator?.enqueueSave(recordID: id, isOwner: isOwner)
+    }
+
+    /// Overload for services that depend on the `SyncEnqueuing` seam rather than the concrete coordinator.
+    @MainActor
+    static func enqueueWithCorrectedOwner(
+        _ coordinator: (any SyncEnqueuing)?,
+        id: CKRecord.ID,
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) {
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        coordinator?.enqueueSave(recordID: id, isOwner: isOwner)
+    }
+
+    /// Non-optional convenience forwarding to the optional overload.
+    @MainActor
+    static func enqueueWithCorrectedOwner(
+        _ coordinator: any SyncEnqueuing,
+        id: CKRecord.ID,
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) {
+        enqueueWithCorrectedOwner(coordinator as (any SyncEnqueuing)?, id: id, appState: appState, logger: logger, context: context)
+    }
+
+    /// Batch variant — resolves the owner anchor once and enqueues all IDs on that scope.
+    @MainActor
+    static func batchEnqueueWithCorrectedOwner(
+        _ coordinator: CKSyncEngineCoordinator?,
+        ids: [CKRecord.ID],
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) {
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        coordinator?.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
+    }
+
+    /// Batch overload for the `SyncEnqueuing` seam.
+    @MainActor
+    static func batchEnqueueWithCorrectedOwner(
+        _ coordinator: (any SyncEnqueuing)?,
+        ids: [CKRecord.ID],
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) {
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        coordinator?.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
+    }
+
+    /// Delete variant for owner-corrected enqueues.
+    @MainActor
+    static func enqueueDeleteWithCorrectedOwner(
+        _ coordinator: CKSyncEngineCoordinator?,
+        id: CKRecord.ID,
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) {
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        coordinator?.enqueueDelete(recordID: id, isOwner: isOwner)
+    }
+
+    /// Delete overload for the `SyncEnqueuing` seam.
+    @MainActor
+    static func enqueueDeleteWithCorrectedOwner(
+        _ coordinator: (any SyncEnqueuing)?,
+        id: CKRecord.ID,
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) {
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        coordinator?.enqueueDelete(recordID: id, isOwner: isOwner)
+    }
+
+    /// Resolves the corrected owner anchor, logging when the stored flag diverges.
+    /// Use when the caller needs the `isOwner` value for branching before enqueuing.
+    @MainActor
+    static func correctedIsOwner(
+        appState: AppState,
+        logger: Logger,
+        context: String
+    ) -> Bool {
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        return isOwner
+    }
+
     /// Validates a recovered profile against CloudKit's server-authenticated identity and the exact
     /// family/zone it claims to belong to.
     @MainActor
