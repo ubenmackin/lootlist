@@ -82,11 +82,8 @@ final class AppState {
 
         let updated = current.mergingCacheValues(from: cached.toProfile(zoneID: zoneID))
 
-        // Compare the FULL cached profile, not a field subset. A cross-device
-        // change to payoutPolicy, payoutDay, or customAvatarImageData must
-        // propagate to currentProfile exactly like an XP/level/name/avatar
-        // change — the hero dashboard and treasury read these fields from
-        // currentProfile and would otherwise stay stale indefinitely.
+        // Compare the FULL cached profile, not a field subset. A cross-device change to payoutPolicy,
+        // payoutDay, or customAvatarImageData must propagate to currentProfile exactly like an
         guard updated != currentProfile else { return }
         logger.info("Updating currentProfile from cache (XP: \(self.currentProfile?.xp ?? 0) -> \(updated.xp), Level: \(self.currentProfile?.level ?? 0) -> \(updated.level))")
         currentProfile = updated
@@ -121,10 +118,8 @@ final class AppState {
 
     var familyZoneID: CKRecordZone.ID? {
         didSet {
-            // Broadcast on any zone identity change so cached scope state is
-            // invalidated even before the family is resolved. Clearing the
-            // lifecycle scope key is safe and idempotent — a stale key must not
-            // survive a zone switch regardless of family resolution order.
+            // Broadcast on any zone identity change so cached scope state is invalidated even before the family is
+            // resolved.
             guard oldValue != familyZoneID else { return }
             NotificationCenter.default.post(name: .didChangeFamilyZoneID, object: nil)
         }
@@ -152,10 +147,8 @@ final class AppState {
     /// refreshes it so views render published state instead of calling CloudKit.
     var cloudAccountStatus: CloudAccountStatus = .couldNotDetermine
 
-    /// Convenience for debug overlays — resolves the active family record name
-    /// without exposing CloudKit zone internals. Views read cached rows via
-    /// `@Query` and freshness via `CacheService`, but the family scope key
-    /// itself lives here as the single source of truth.
+    /// Convenience for debug overlays — resolves the active family record name without exposing CloudKit
+    /// zone internals.
     var activeFamilyRecordName: String? {
         family?.id.recordName
     }
@@ -202,10 +195,8 @@ final class AppState {
             FeatureFlags.rpgImmersive = false
         }
         let hasSession = defaults.bool(forKey: Self.hasSessionKey)
-        // A completed onboarding that lacks a session means we should probe
-        // for a recoverable family (restore / reconnect); a brand-new install
-        // goes straight to the discovery state so RootView renders the
-        // scanning placeholder rather than bouncing through restoringSession.
+        // A completed onboarding that lacks a session means we should probe for a recoverable family (restore
+        // / reconnect); a brand-new install goes straight to the discovery state so RootView renders the
         authStatus = hasSession ? .restoringSession : .checkingCloudData
 
         quickActionTask = Task { [weak self] in
@@ -293,10 +284,7 @@ final class AppState {
         // onboarding before and should attempt recovery rather than showing
         // the brand-new Welcome screen on the next launch.
 
-        // Notify lifecycle coordinator that the cached scope key must be discarded.
-        // Without this, a sign-out that clears engines via `resetState` would
-        // leave `lastSynchronizedScopeKey` stale and a subsequent sign-in to a
-        // different family could incorrectly skip `initializeEngines`.
+        // Ensures scope key and coordinator reset when switching families to avoid stale sync.
         NotificationCenter.default.post(name: .didClearSession, object: nil)
     }
 
@@ -399,11 +387,7 @@ final class AppState {
                 await discoverExistingCloudState(cloudKit: cloudKit)
                 return
             }
-            // Non-`.notFound` / `.invalidArguments` / `.zoneNotFound` errors on the
-            // owner path are treated as transient only after a zone-reachability
-            // probe confirms the zone itself is still alive. Heroes skip the
-            // probe — their zone is in the shared DB, where `fetchShareParticipants`
-            // (private-DB only) cannot serve as a reachability signal.
+            // Validates zone reachability before treating owner fetch errors as transient.
             let isUnrecoverable: Bool
             if let ckErr = error as? CloudKitServiceError {
                 switch ckErr {
@@ -442,10 +426,7 @@ final class AppState {
                     await discoverExistingCloudState(cloudKit: cloudKit)
                     return
                 }
-                // Try cache fallback BEFORE wiping the session — on a cold
-                // launch the zone may be valid but simply hasn't synced to
-                // this device yet, so the reachability probe can legitimately
-                // fail even when valid cache data exists.
+                // Falls back to local cache before clearing session if zone probe temporarily fails.
                 if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
                     // Cache restored — session is back, no need to wipe.
                 } else {
@@ -498,10 +479,7 @@ final class AppState {
         return true
     }
 
-    /// Probes the family zone for reachability. A success confirms the zone
-    /// is alive, so the original fetch error is treated as transient. Bounded
-    /// by `AppConstants.Session.zoneCheckTimeoutSeconds` so a hung CloudKit
-    /// daemon cannot stall cold launch.
+    /// Probes family zone reachability with a timeout to verify zone existence.
     private static func isZoneReachable(
         cloudKit: any CloudKitServiceProtocol,
         familyRecordName: String,
@@ -530,6 +508,7 @@ final class AppState {
 
         if isDiscoveryInFlight {
             logger.info("Cloud state discovery joined the in-progress discovery")
+            // Cancelled waiters remain until next discovery sweep — bounded (1 entry per cancelled launch) — acceptable; if strict, add onCancel cleanup.
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 discoveryWaiters.append(continuation)
             }
@@ -711,11 +690,7 @@ final class AppState {
         for zone in sharedZones {
             logger.info("Inspecting shared zone: '\(zone.zoneID.zoneName, privacy: .private)' (owner: '\(zone.zoneID.ownerName, privacy: .private)')")
 
-            // Only adopt a profile whose server-authenticated identity
-            // matches the current user. When the current user ID cannot be
-            // resolved (nil), the helper returns no matches and this shared
-            // zone is skipped — never fall back to an arbitrary active
-            // profile, which could adopt another user's session.
+            // Matches current user iCloud identity to avoid adopting another profile.
             let activeProfiles = await Self.activeSharedHeroProfiles(
                 cloudKit: cloudKit,
                 userRecordID: userRecordID,
@@ -739,11 +714,7 @@ final class AppState {
             let sharedZones = try await cloudKit.fetchSharedZones()
             logger.info("Initial shared zones check: \(sharedZones.count) shared zones")
 
-            // If empty on cold launch (reinstall), perform a brief retry pulse
-            // to allow the CloudKit daemon to sync accepted shares. A hard
-            // failure on the first attempt (503 / rate-limited) falls through
-            // the outer catch and returns [] — no retries are issued against
-            // a throttling response.
+            // Retries zone lookup on cold start to allow accepted shares to settle.
             if sharedZones.isEmpty {
                 for attempt in 1 ... AppConstants.Sync.maxPulseAttempts {
                     logger.info("Shared zone sync pulse attempt \(attempt)...")
@@ -767,12 +738,7 @@ final class AppState {
 
     // MARK: - Shared-Zone Hero Discovery Helpers
 
-    /// Active `Profile` records in a shared zone bound to the current iCloud
-    /// user — the hero-role recovery signal used by session discovery and by
-    /// the hero onboarding reconnect probe. Fail-closed: a nil `userRecordID`
-    /// (identity unresolved) returns no matches, and a zone whose profile
-    /// query throws is skipped entirely. An arbitrary active profile is never
-    /// returned, because that could hand one user another's session.
+    /// Finds active Profile matching current iCloud user in shared zones for recovery.
     static func activeSharedHeroProfiles(
         cloudKit: any CloudKitServiceProtocol,
         userRecordID: CKRecord.ID?,
@@ -928,20 +894,7 @@ final class AppState {
         clearSessionAndCloudKitScope(cloudKit: cloudKit)
     }
 
-    /// Sign-out is device-local only: it never authors a CloudKit flag and
-    /// never touches the family data — it wipes the persisted session (and the
-    /// previous family's cache), resets CloudKit scope / CKSyncEngine state,
-    /// and resets to `.onboarding`.
-    ///
-    /// Recovery is discovery-driven, not sign-out-driven. On the next full app
-    /// launch the session keys read false, so `AppState.init` starts in
-    /// `.checkingCloudData` and `restoreSession` falls through to
-    /// `discoverExistingCloudState`, which re-finds the user's private/shared
-    /// zone and lands on `.detectedPreviousFamily` (reconnect) whenever the
-    /// family and profile still exist — only falling back to `.onboarding`
-    /// (Welcome) when nothing recoverable remains. `signOutAndDiscover` runs
-    /// that same recovery immediately for the in-session case instead of
-    /// waiting for the next launch.
+    /// Performs device-local sign-out, resetting session and clearing local cache.
     func signOut(cloudKit: (any CloudKitServiceProtocol)? = nil, syncCoordinator: CKSyncEngineCoordinator? = nil) {
         if let cloudKit {
             clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
@@ -950,21 +903,13 @@ final class AppState {
         }
     }
 
-    /// In-session sign-out: wipes the local session and CloudKit scope (via
-    /// `clearSessionAndCloudKitScope()`, which also purges the previous family's cache),
-    /// flips to `.checkingCloudData` — the state `discoverExistingCloudState`'s opening
-    /// guard requires — and immediately re-runs cloud discovery. If a recoverable family/profile
-    /// still exists in iCloud, discovery re-sets `authStatus` to
-    /// `.detectedPreviousFamily(...)` (rendering `DetectedFamilyView`); if not,
-    /// it falls through to `.onboarding` (`WelcomeView`). This covers the
-    /// in-session case, complementing the cold-relaunch recovery that happens on
-    /// the next launch. The brief `.checkingCloudData` window during discovery
-    /// is hidden by the root view's existing `ProgressView` rendering.
+    /// Wipes local session and scope, then immediately re-discovers existing iCloud state.
     func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
         if isDiscoveryInFlight {
             // Clear local session immediately, then await in-flight discovery completion before fresh scan.
             clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
             authStatus = .checkingCloudData
+            // Cancelled waiters remain until next discovery sweep — bounded (1 entry per cancelled launch) — acceptable; if strict, add onCancel cleanup.
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 discoveryWaiters.append(continuation)
             }
@@ -978,10 +923,7 @@ final class AppState {
         await discoverExistingCloudState(cloudKit: cloudKit)
     }
 
-    /// Resets the in-memory session state back to the onboarding root. Called
-    /// by `clearSession()` after the persisted session and family cache are
-    /// wiped. Never touches CloudKit data — recovery is handled by the
-    /// discovery path documented on `signOut()` / `signOutAndDiscover()`.
+    /// Resets in-memory state to onboarding root after cache and defaults are cleared.
     private func signOutInternal() {
         authStatus = .onboarding
         currentProfile = nil

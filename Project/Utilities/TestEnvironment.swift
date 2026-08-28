@@ -56,10 +56,7 @@ enum TestEnvironment {
         isRunningUnitOrUITests && !isRunningUITests
     }
 
-    /// The scenario selected via `--uitest-seed=<name>`. Falls back to the
-    /// legacy bare flags (`--onboarding`, `--parent`) so pre-existing suites
-    /// keep their behavior, and finally to the seeded child default. Unknown
-    /// seed values degrade to that same default rather than crashing a run.
+    /// Scenario selected via `--uitest-seed=<name>`, defaulting to child preset.
     static var activeScenario: UITestScenario? {
         guard isRunningUITests else { return nil }
 
@@ -93,10 +90,7 @@ enum TestEnvironment {
         }
     }
 
-    /// CSV file handed straight to the ledger import staging view when
-    /// launched with `--uitest-import-csv=<path>`. The system document picker
-    /// cannot be driven deterministically from XCUITest, so UI tests write a
-    /// sample file to a simulator-shared path and pass it here instead.
+    /// CSV file passed to ledger import staging view via `--uitest-import-csv=<path>`.
     static var uiTestImportCSVPath: String? {
         guard isRunningUITests else { return nil }
         let prefix = "--uitest-import-csv="
@@ -110,11 +104,7 @@ enum TestEnvironment {
     /// entitlements or when `--skip-cloudkit` is passed, tests that instantiate
     /// `CKSyncEngine` can check this flag to safely bypass container entitlement validation.
     static var shouldSkipLiveCloudKitEngineTests: Bool {
-        // In any unit-test process the iCloud container `iCloud.com.volcrypt.lootlist`
-        // is unentitled (no `com.apple.developer.icloud-container-identifiers`
-        // in the test host). Creating a real `CKSyncEngine` there spams
-        // `xpcActivity`/`accountChange` logs and can trigger real CloudKit
-        // fetches that crash in CI. Default to skipping live engines in tests.
+        // Skips live CKSyncEngine instantiation in unentitled test environments.
         isRunningUnitOrUITests
             || CommandLine.arguments.contains("--skip-cloudkit")
             || ProcessInfo.processInfo.environment["SKIP_CLOUDKIT_TESTS"] != nil

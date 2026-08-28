@@ -53,10 +53,7 @@ struct QuestCompletionEffectView: View {
                 // Text
                 ZStack {
                     VStack(spacing: 4) {
-                        // XP accrues invisibly while the immersive layer is
-                        // off, so the celebration headline leads with plain
-                        // praise and lets the real money amount below do the
-                        // counting.
+                        // Celebrates completion directly while immersive RPG layer is hidden.
                         Text("Quest Complete!")
                             .font(.headline.bold())
                             .foregroundColor(.white)

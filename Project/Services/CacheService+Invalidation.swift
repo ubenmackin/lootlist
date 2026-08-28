@@ -23,10 +23,6 @@ extension CacheService {
     }
 
     /// Single invalidation entry — routes all deletes through one switch.
-    /// Row deletion rides the single background writer so it cannot interleave
-    /// with ingestion batches on the main context. The caller supplies the
-    /// active family zone so this service never derives sync authority from
-    /// device-local defaults itself.
     func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async {
         if let backgroundWriter {
             await backgroundWriter.deleteByIdentity(identity, type: type, expectedActiveZone: expectedActiveZone)

@@ -112,10 +112,7 @@ struct FamilyJoinView: View {
         .padding(.horizontal, 24)
     }
 
-    /// Pure waiting surface for the joiner path: no inputs, no buttons — the
-    /// user simply waits for an apple share invitation from their parent. When
-    /// the invitation arrives, `pendingShareMetadata` is populated and the
-    /// `.onChange(of:)` above accepts it, advancing to Avatar Selection.
+    /// Passive waiting surface for incoming share metadata to accept the invitation.
     private var waitingBody: some View {
         VStack(spacing: 28) {
             Spacer()
@@ -169,12 +166,7 @@ struct FamilyJoinView: View {
     }
 
     #if DEBUG
-        /// Development-only stand-in for an incoming Apple Messages share link: the
-        /// Simulator can't generate or receive CloudKit invites, so let the tester
-        /// paste a share URL and push it through the same accept machinery as a
-        /// real device tap — the ViewModel resolves the URL into
-        /// `pendingShareMetadata` via the service layer, which the
-        /// `.onChange(of:)` above then accepts.
+        /// Simulator-only affordance to accept a pasted share link via the service layer.
         @MainActor
         private func simulateShareLink() async {
             let trimmed = debugShareURLText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -190,10 +182,7 @@ struct FamilyJoinView: View {
 
     // MARK: - Detected Hero ("Welcome back") surface
 
-    /// Defense-in-depth reconnect surface. When `viewModel.detectedHero`
-    /// transitions to non-nil, this swaps the join body for a
-    /// DetectedFamilyView-style card so a returning hero can reconnect to their
-    /// existing guild instead of minting a duplicate profile.
+    /// Reconnect card allowing returning heroes to rejoin existing guilds.
     private var heroWelcomeBody: some View {
         VStack(spacing: 28) {
             Spacer()

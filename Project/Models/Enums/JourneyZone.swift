@@ -107,8 +107,7 @@ enum JourneyZone: Int, CaseIterable, Sendable {
 
     // MARK: - Zone Palette
 
-    // WHY: game-art palette owned by JourneyZone.ZonePalette per ARCH §2 exception — RGB intentionally art-directed, now asset-backed via DesignSystemConstants.Colors.journey* semantic tokens.
-    /// Color palette for rendering this zone's elements, accents, and banners.
+    /// Color palette for rendering this zone's elements and accents.
     var palette: ZonePalette {
         switch self {
         case .startingMeadow:
@@ -156,8 +155,7 @@ enum JourneyZone: Int, CaseIterable, Sendable {
 
     // MARK: - Continuous World Gradients
 
-    // WHY: panoramic gradients are art-owned by ZonePalette; assembled from journey* semantic tokens per §2 exception (no raw RGB).
-    /// Seamless panoramic sky gradient spanning the entire world map from Meadow to Eternal Realm.
+    /// Seamless panoramic sky gradient spanning the entire world map.
     static var panoramicSkyGradient: LinearGradient {
         LinearGradient(
             stops: [

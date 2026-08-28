@@ -10,51 +10,11 @@ import Foundation
 import os
 
 private extension Notification.Name {
-    /// Posted by `FamilyShareReconciler` at the end of a successful reconcile
-    /// pass when the share-side roster changed (a freshly-accepted identity
-    /// appears, a revoked one is observed, or a member has been recorded as
-    /// absent for the configured threshold). `FamilyDashboardViewModel`
-    /// subscribes to this to re-run `refreshInvitations()` so the parent's
-    /// Members and Invitations panels pick up the new state without waiting
-    /// for the next `.syncDidComplete` cycle or a manual refresh. File-private
-    /// — no public API surface.
+    /// Posted on MainActor after share participant reconciliation updates membership.
     static let familyRosterChanged = Notification.Name("familyRosterChanged")
 }
 
-/// Keeps the app-domain membership layer (active `Profile` records) reconciled
-/// with the CloudKit access layer (the family `CKShare` participant list).
-/// When a participant is removed out-of-band — for example by the Guild Master
-/// through the system share sheet, which revokes raw iCloud zone access without
-/// touching the app's `Profile` records — the matching active `Profile` is
-/// deactivated so the in-app members list reflects who can actually read/write
-/// the shared zone.
-///
-/// Trigger: the app's existing `.syncDidComplete` notification, which
-/// `CKSyncEngineCoordinator` posts at the end of every sync pass. The system share sheet is
-/// integral to `UICloudSharingController` and exposes no retained callback to
-/// the presenting app here, so the sync-complete hook is the closest available
-/// signal that the server-side participant list may have changed; the
-/// reconciler then re-reads the authoritative participant list directly.
-///
-/// The reconciler is owner-only: only the zone owner can query the family's
-/// `CKShare` participant list from the private database, so only the owner's
-/// device carries it. It is best-effort and idempotent (already-inactive
-/// profiles are skipped), so repeated passes are harmless.
-///
-/// Deactivation is deliberately conservative about participant-list absence:
-/// CloudKit propagates share-membership changes asynchronously, so a freshly
-/// joined member can be briefly absent from the owner's participant list. A
-/// profile is therefore deactivated only when (a) the participant is present
-/// with an explicitly revoked (`.removed`) status, or (b) the identity has been
-/// observed absent for two consecutive passes. Absence marks persist in
-/// `UserDefaults` keyed per family + identity — the same persistence pattern as
-/// `CKSyncEngine`'s state serialization — so a relaunch cannot reset the count and a
-/// transient propagation window cannot deactivate a live member.
-///
-/// The pass aborts entirely when the current user's CloudKit identity cannot be
-/// resolved: without it the self-exclusion guard cannot run, and proceeding
-/// would risk deactivating the current user's own profile (deny-by-default,
-/// matching `FamilyService.isFamilyOwner`).
+/// Reconciles active Profile cache with CloudKit share participants, deactivating departed members.
 @MainActor
 final class FamilyShareReconciler {
     private let familyService: FamilyService
@@ -103,11 +63,7 @@ final class FamilyShareReconciler {
               let family = appState.family
         else { return }
 
-        // Track whether the pass produced any membership-layer mutation so
-        // the trailing `.familyRosterChanged` post only fires when the roster
-        // actually shifted — a no-op pass (CloudKit hasn't changed since the
-        // last sweep) should not cause subscribers to re-run their share
-        // participant fetch.
+        // Tracks if reconciliation produced membership changes to notify observers.
         var rosterMutated = false
 
         do {
@@ -115,10 +71,7 @@ final class FamilyShareReconciler {
             let revokedIdentities = Set(statuses.filter(\.isRemoved).compactMap(\.recordName))
             let presentIdentities = Set(statuses.filter { !$0.isRemoved }.compactMap(\.recordName))
 
-            // The self-exclusion guard cannot run without the current user's
-            // identity, so resolution failure aborts the whole pass: proceeding
-            // would risk deactivating the current user's own profile. This is
-            // the same deny-by-default posture as `FamilyService.isFamilyOwner`.
+            // Self-exclusion guard ensures current user's own profile is never auto-deactivated.
             let currentUserRecordName: String
             do {
                 currentUserRecordName = try await familyService.cloudKit.currentUserRecordID().recordName
@@ -160,11 +113,7 @@ final class FamilyShareReconciler {
                     }
                     continue
                 }
-                // Absent from the participant list. Absence alone is not
-                // treated as revocation — CloudKit propagation is asynchronous,
-                // so a single observation could be a lagging fresh join. Only a
-                // second consecutive pass (or an explicit `.removed` status
-                // above) deactivates.
+                // Deactivates profiles absent from share participants after verifying missing share access.
                 let observedAbsences = recordAbsence(family: family, identityKey: identityKey)
                 if observedAbsences >= absenceThreshold {
                     clearAbsenceMark(family: family, identityKey: identityKey)

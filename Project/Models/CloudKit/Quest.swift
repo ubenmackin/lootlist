@@ -29,10 +29,6 @@ struct Quest: Identifiable, Equatable, Sendable {
     var xpReward: Int
 
     /// Monotonic per-quest total of XP already banked by the reward step.
-    /// Server-authoritative and synced across family devices: the quest record
-    /// is the shared XP-credit ledger, so two devices completing the same
-    /// quest concurrently are capped by the same banked total. Mutated locally in
-    /// `QuestService` and enqueued for sync; conflict resolution applies monotonic max merge.
     var xpBanked: Int = 0
 
     var rarity: QuestRarity {
@@ -60,11 +56,7 @@ struct Quest: Identifiable, Equatable, Sendable {
 
     // MARK: - Hero Board claim state (V8)
 
-    /// Record name of the profile that claimed this unassigned quest from the
-    /// Hero Board. Stored as a plain record name (not a reference) so the
-    /// claim survives even if the claiming profile is later removed. First
-    /// claim wins via server conflict resolution; parents may revoke back to
-    /// the board by clearing both fields.
+    /// Record name of the profile that claimed this unassigned quest from the Hero Board.
     var claimedByProfileRecordName: String?
     var claimedAt: Date?
 

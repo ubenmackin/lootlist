@@ -57,10 +57,7 @@ extension QuestService {
                     id: rewardID
                 )
 
-                // Atomic gate: only the device that creates the record on CloudKit wins.
-                // Local persistence and sync enqueue must happen after this point to avoid
-                // leaving a phantom RewardEvent that would later rehydrate xpCredited via
-                // BackgroundCacheActor.reconcileRewardEventsWithoutSave in the batch commit path and double-credit.
+                // Saves reward event with deterministic ID to prevent duplicate credit.
                 guard try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil) else {
                     // Lost the race — another device already claimed the deterministic event.
                     // Remove any phantom local row so reconcile cannot hydrate xpCredited on the loser.
@@ -106,10 +103,7 @@ extension QuestService {
             }
         }
 
-        // Resolve family for real-time settlement from cache only — tests and
-        // offline paths must not trigger a live CloudKit fetch that requires
-        // entitlements or network. A missing cached family falls back to the
-        // hero's own payoutPolicy below.
+        // Resolves family from cache for real-time settlement without live network fetches.
         let questFamilyID = quest.family.recordID
         let resolvedFamily: Family? = cacheService?.fetchFamily(recordName: questFamilyID.recordName)?
             .toFamily(zoneID: questFamilyID.zoneID)
@@ -166,17 +160,7 @@ extension QuestService {
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
     }
 
-    /// Cache-only quest-completion streak for `hero`, mirroring the
-    /// `HeroDashboardViewModel.streak` computation so the loot-drop streak
-    /// bonus matches the value the hero dashboard renders. When the
-    /// quest-completion cache is not fresh (cold install or unfresh family),
-    /// the local StreakCalculator would see a missing yesterday completion
-    /// and yield 0 bonus when the UI shows 5+. Fall back to the
-    /// CloudKit-backed `Profile.dailyLoginStreakDays` (authoritative) in
-    /// that case — the same value `XPService.calculatedXP(baseXP:profile:)`
-    /// uses — so the streak multiplier never diverges from the level/XP
-    /// path. `streakDays` param is the authoritative source when cache is
-    /// unfresh; the computed streak is used only when cache is fresh.
+    /// Computes quest completion streak from local cache without network round-trips.
     private func currentStreak(for hero: Profile, familyName: String) -> Int {
         guard let cache = cacheService else { return hero.dailyLoginStreakDays }
         let heroLogs = cache.fetchQuestCompletions(family: familyName)

@@ -268,8 +268,7 @@ struct BucketTransferView: View {
             return
         }
 
-        // WHY: Task @MainActor keeps isSaving mutation on the main actor for Swift 6 concurrency.
-        Task { @MainActor in
+        Task {
             isSaving = true
             defer { isSaving = false }
             do {

@@ -50,10 +50,7 @@ struct Profile: Identifiable, Equatable, Sendable {
 
     // MARK: - Gamification claim state (CloudKit-backed, never UserDefaults)
 
-    /// These fields replace device-local UserDefaults/AppStorage so claim guards
-    /// and counters sync cross-device and cannot be forged by editing the
-    /// UserDefaults plist. See ARCHITECTURE.md §2 UserDefaults Policy.
-    /// Catalog item IDs this hero owns (idempotent ownership ledger; union-merged on conflict).
+    /// Ownership ledger and streak fields synced cross-device via CloudKit.
     var ownedEquipment: [String]
     /// Catalog item IDs currently equipped (at most one per `ShopCategory`; client-wins display).
     var equippedItems: [String]
@@ -402,10 +399,8 @@ struct Profile: Identifiable, Equatable, Sendable {
         self.matchMonthlyCapPennies = matchMonthlyCapPennies
     }
 
-    /// Reconstructs the server-authenticated identity that CloudKit supplies
-    /// through system fields when a record is read. The identity is not
-    /// serialized by `toRecord()` and therefore cannot author or rewrite the
-    /// CloudKit creator stamp.
+    /// Reconstructs the server-authenticated identity that CloudKit supplies through system fields when a
+    /// record is read.
     func applyingServerCreator(_ creatorUserRecordName: String) -> Profile {
         guard creatorUserRecordName != CKCurrentUserDefaultName,
               creatorUserRecordName != "_defaultOwner_"

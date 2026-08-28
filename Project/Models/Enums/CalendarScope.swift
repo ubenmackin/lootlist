@@ -40,27 +40,14 @@ enum CalendarScope: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// Inclusive bounds of the scope for the current date, used to format
-    /// sublabels and to test membership via `contains(_:)`. `allTime` spans
-    /// from the distant past to now so it contains every date.
-    ///
-    /// Uses the `WeekMath` default payout day (`.sunday`) so the scope remains
-    /// usable where the family's payout day is not known.
+    /// Inclusive bounds of the scope for the current date, used to format sublabels and to test membership
+    /// via `contains(_:)`.
     var dateRange: ClosedRange<Date> {
         dateRange(payoutDay: .sunday)
     }
 
-    /// Inclusive bounds of the scope for the current date, anchored on the
-    /// given payout day for `.thisWeek`. The `.thisWeek` range starts at the
-    /// family's payout-cycle start (`WeekMath.startOfWeek(for:payoutDay:)`)
-    /// instead of a hard-coded calendar week, so custom-payday families keep
-    /// the current cycle's early entries in scope. `.month`, `.quarter`, and
-    /// `.allTime` remain strictly calendar-based and ignore the payout day.
-    ///
-    /// Week boundaries are routed through `WeekMath.weekRange(starting:)` (half-open
-    /// `[start, end)` with `end == start + secondsInWeek`). Display needs a
-    /// closed range so the sublabel upper bound is the last included instant;
-    /// the closed bound is derived as `halfOpen.upperBound - 1s`.
+    /// Inclusive bounds of the scope for the current date, anchored on the given payout day for
+    /// `.thisWeek`.
     func dateRange(payoutDay: PayoutDay) -> ClosedRange<Date> {
         switch self {
         case .thisWeek:
@@ -76,20 +63,12 @@ enum CalendarScope: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// Medium-style formatted bounds joined by an en dash, e.g.
-    /// "Aug 1, 2026 – Aug 31, 2026". Returns an empty string for `allTime`,
-    /// where a bounded sublabel is not meaningful.
-    ///
-    /// Uses the `WeekMath` default payout day (`.sunday`) so the sublabel
-    /// stays correct where the family's payout day is not known.
+    /// Medium-style formatted bounds joined by an en dash, e.g. "Aug 1, 2026 – Aug 31, 2026".
     var dateRangeSublabel: String {
         dateRangeSublabel(payoutDay: .sunday)
     }
 
-    /// Medium-style formatted bounds joined by an en dash, e.g.
-    /// "Aug 1, 2026 – Aug 31, 2026". The `.thisWeek` bounds are anchored on
-    /// the given payout day so the label matches the scoped rows. Returns an
-    /// empty string for `allTime`, where a bounded sublabel is not meaningful.
+    /// Medium-style formatted bounds joined by an en dash, e.g. "Aug 1, 2026 – Aug 31, 2026".
     func dateRangeSublabel(payoutDay: PayoutDay) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -103,24 +82,12 @@ enum CalendarScope: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// Returns `true` when `date` falls within the scope's current bounds.
-    /// `allTime` always returns `true`.
-    ///
-    /// Uses the `WeekMath` default payout day (`.sunday`) so the check stays
-    /// correct where the family's payout day is not known.
+    /// Returns true when date falls within current bounds using default payout day.
     func contains(_ date: Date) -> Bool {
         contains(date, payoutDay: .sunday)
     }
 
-    /// Returns `true` when `date` falls within the scope's current bounds.
-    /// The `.thisWeek` bounds are anchored on the given payout day so a
-    /// custom-payday family's early-cycle entries are not dropped. `.month`,
-    /// `.quarter`, and `.allTime` ignore the payout day. `allTime` always
-    /// returns `true`.
-    ///
-    /// Membership uses half-open intervals (`[start, end)`) so a `Date` equal
-    /// to the exclusive upper bound belongs to the following period — matching
-    /// `WeekMath.weekRange` and `Calendar.dateInterval` semantics.
+    /// Returns true when date falls within scope bounds using the given payout day.
     func contains(_ date: Date, payoutDay: PayoutDay) -> Bool {
         switch self {
         case .allTime:

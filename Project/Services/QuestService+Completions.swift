@@ -204,12 +204,7 @@ extension QuestService {
         updated.verifiedBy = CKRecord.Reference(recordID: parent.id, action: .none)
         updated.verifiedDate = Date()
 
-        // Local-first approval: the parent's decision persists immediately, so
-        // a failed or lost reward claim can never strand the completion in
-        // .pending — the queue clears instantly and the verified row rides the
-        // next engine send. applyReward deduplicates this completion in its
-        // approved-count math, and xpCredited stamping stays gated behind the
-        // atomic server claim.
+        // Persists verification decision locally first; enqueues engine save for CloudKit.
         await cacheService?.upsertQuestCompletion(updated)
         let isOwner = resolvedIsOwner()
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
@@ -316,7 +311,7 @@ extension QuestService {
             guard parent.role.isParent else { return }
             guard parent.id.recordName != completerRecordName else { return }
             if let notificationService {
-                Task { @Sendable [logger] in
+                Task { @MainActor @Sendable [logger, notificationService, log, parent] in
                     do {
                         try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
                     } catch {
@@ -332,7 +327,7 @@ extension QuestService {
             // WHY: questNeedsReview is parent-only — fallback scan must still resolve a parent.
             guard parent.role.isParent else { return }
             guard parent.id.recordName != completerRecordName else { return }
-            Task { @Sendable [logger] in
+            Task { @MainActor @Sendable [logger, notificationService, log, parent] in
                 do {
                     try await notificationService.sendQuestNeedsReview(questLog: log, to: parent)
                 } catch {
@@ -347,7 +342,7 @@ extension QuestService {
     private func dispatchRejectionNotification(for updated: QuestCompletion) {
         if let hero = resolveHero(for: updated) {
             if let notificationService {
-                Task { @Sendable [logger] in
+                Task { @MainActor @Sendable [logger, notificationService, updated, hero] in
                     do {
                         try await notificationService.sendQuestRejected(questLog: updated, to: hero)
                     } catch {
@@ -360,7 +355,7 @@ extension QuestService {
         if let hero = resolveHeroViaCacheScan(for: updated),
            let notificationService
         {
-            Task { @Sendable [logger] in
+            Task { @MainActor @Sendable [logger, notificationService, updated, hero] in
                 do {
                     try await notificationService.sendQuestRejected(questLog: updated, to: hero)
                 } catch {
@@ -422,7 +417,7 @@ extension QuestService {
 
         if let notificationService {
             let goldText = CurrencyFormatter.string(creditedGold)
-            Task { @Sendable [logger] in
+            Task { @MainActor @Sendable [logger, notificationService, hero, goldText] in
                 do {
                     try await notificationService.send(
                         .questCompleted,

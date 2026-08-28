@@ -7,11 +7,7 @@
 
 import SwiftUI
 
-// WHY: Eleven Views duplicated the same nil-checked viewModel creation,
-// rebuild(), and subscribeToSyncEvents pattern across onAppear + .task,
-// causing double rebuild churn and ad-hoc sync triggers outside
-// AppLifecycleCoordinator. Centralizing here keeps appearance handling
-// single-flight and sync coordination in one place.
+// Centralizes view model initialization, single-flight rebuilds, and sync subscription.
 
 enum ViewLifecycle {
     /// Ensures `storage` holds a ViewModel, creating it via `factory` only
@@ -52,11 +48,7 @@ struct ViewModelLifecycleModifier: ViewModifier {
     }
 }
 
-/// Appearance modifier for Views that also subscribe to sync events.
-/// Calls ensure → subscribe → rebuild once on appear, and unsubscribes
-/// on disappear. The optional `sync` closure runs after rebuild if a
-/// manual sync is still desired, but without an extra redundant rebuild
-/// — sync triggers remain centralized in AppLifecycleCoordinator.
+/// Appearance modifier managing lifecycle subscription and single-flight rebuild.
 struct SyncedViewModelLifecycleModifier: ViewModifier {
     let ensure: () -> Void
     let subscribe: () -> Void

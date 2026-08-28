@@ -8,13 +8,7 @@
 import CloudKit
 import Foundation
 
-/// Composite identity for a CloudKit record scoped to a specific database, zone,
-/// and family. Prevents cross-family/cross-zone record collisions in local cache
-/// operations and during sync conflict resolution.
-///
-/// Decomposed into Sendable primitive types (`String` and `CKDatabase.Scope`)
-/// for 100% compiler-verified `Sendable` conformance.
-/// Vends `CKRecordZone.ID` and `CKRecord.ID` on demand via computed properties.
+/// Composite identity for a CloudKit record scoped to a specific database, zone, and family.
 struct ScopedRecordIdentity: Hashable, Sendable {
     let databaseScope: CKDatabase.Scope
     let zoneName: String

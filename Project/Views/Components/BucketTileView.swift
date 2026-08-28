@@ -7,10 +7,7 @@
 
 import SwiftUI
 
-/// Frosted sub-tile rendered inside the balance hero card. Sits on a
-/// saturated blue/indigo gradient chosen for white-text AA contrast in both
-/// light and dark mode, so text is fixed white rather than semantic — the
-/// card behind it is the same in light and dark mode.
+/// Frosted sub-tile rendered inside the balance hero card with primary tap action.
 struct BucketTileView: View {
     let emoji: String?
 

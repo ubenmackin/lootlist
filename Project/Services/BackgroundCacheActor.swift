@@ -14,9 +14,7 @@ import SwiftData
 actor BackgroundCacheActor {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
 
-    /// Creates the writer off the main actor so its ModelContext does not inherit main-thread affinity.
-    /// Hoisted as a long-lived singleton; never recreate per-call and never release while fetched
-    /// objects are alive — releasing invalidates the context that backs them.
+    /// Creates the background cache actor off-main to avoid main-thread affinity.
     static func makeBackgroundWriter(for container: ModelContainer) async -> BackgroundCacheActor {
         await Task.detached(priority: .userInitiated) {
             #if DEBUG
@@ -134,10 +132,8 @@ actor BackgroundCacheActor {
 
     // MARK: - Domain-model upserts
 
-    /// Single-writer mirror of the main-actor upsert surface. Each family
-    /// scope commits as its own unit — one merge pass followed by one save —
-    /// so a failed save for one family never rolls into another family's
-    /// already-committed rows.
+    /// Single-writer mirror of the main-actor upsert surface. Each family scope commits as its own unit —
+    /// one merge pass followed by one save — so a failed save for one family never rolls into another
     func upsertDomainModels<M: CacheMergeable & CacheSystemFields>(
         _ items: [M.DomainModel],
         type _: M.Type,
@@ -175,10 +171,8 @@ actor BackgroundCacheActor {
 
     // MARK: - Atomic gem credit
 
-    /// Delegates to shared helper so ledger/profile stay in one transaction
-    /// and idempotency via deterministic ledger ID is enforced once. A partial
-    /// prepare rolls back so an orphan credit row can never outlive its
-    /// balance update under a later unrelated save.
+    /// Delegates to shared helper so ledger/profile stay in one transaction and idempotency via
+    /// deterministic ledger ID is enforced once.
     @discardableResult
     func atomicallyApplyGemCredit(ledger: GemLedger, profile: Profile) async -> Bool {
         guard sharedGemCreditPrepare(
@@ -192,11 +186,8 @@ actor BackgroundCacheActor {
         return saveContext()
     }
 
-    /// Debit mirror of the main-actor path: balance and ledger row mutate in
-    /// one pass and commit together so a failed save can never split a
-    /// debited profile from its ledger entry. A partial upsert rolls back
-    /// instead of leaving one side dirty for a later unrelated save to flush
-    /// alone; deterministic purchase IDs make the caller's retry a clean redo.
+    /// Debit mirror of the main-actor path: balance and ledger row mutate in one pass and commit together
+    /// so a failed save can never split a debited profile from its ledger entry.
     func applyGemDebit(profile: Profile, ledger: GemLedger) async {
         var success = true
         success = await performUpsert(ProfileCache.self, [profile], familyRecordName: nil, isServerSync: true, logLabel: "applyGemDebit") && success
@@ -225,10 +216,8 @@ actor BackgroundCacheActor {
         await batchUpsert(GoalCache.self, goals, familyRecordName: familyRecordName)
     }
 
-    /// Batch upserts ledger entries and goal completions in a single transaction
-    /// ending with one `saveContext()`, so `contributeToBucket`'s N allocations
-    /// + M completions coalesce into one background save while preserving
-    /// deterministic IDs and FIFO semantics.
+    /// Batch upserts ledger entries and goal completions in a single transaction ending with one
+    /// `saveContext()`, so `contributeToBucket`'s N allocations + M completions coalesce into one
     @discardableResult
     func batchUpsertLedgerEntriesAndGoals(
         ledgerEntries: [LedgerEntry],
@@ -333,7 +322,7 @@ actor BackgroundCacheActor {
         }
     }
 
-    // MARK: - Atomic batch (single-save) + shared serialization
+    // Atomic batch ingestion committing all parsed records in a single saveContext transaction.
 
     @discardableResult
     func batchUpsertParsedRecords(_ records: [ParsedRecord]) async -> Bool {
@@ -361,18 +350,7 @@ actor BackgroundCacheActor {
         var commitSucceeded = false
     }
 
-    /// Participant reconciliation: upserts a fetched shared-database snapshot
-    /// and prunes rows the server no longer holds inside ONE queue-gated
-    /// transaction ending in a single save, so @Query never observes a
-    /// half-reconciled cache between the upsert and prune halves of the pass.
-    ///
-    /// - Parameters:
-    ///   - validRecordNamesByType: server-authoritative record names per type;
-    ///     cached rows absent from these sets are deleted after the upsert.
-    ///   - databaseScope: must be `.shared`; owner-side flows ride the standard
-    ///     ingestion path instead.
-    /// - Returns: nil when the pass is skipped for a non-shared scope;
-    ///   otherwise counts the caller surfaces in sync diagnostics.
+    /// Participant reconciliation: upserts snapshot and prunes missing rows in one transaction.
     @discardableResult
     func reconcileParticipantSet(
         records: [CKRecord],
@@ -422,11 +400,8 @@ actor BackgroundCacheActor {
         )
     }
 
-    /// Single-transaction variant of the parsed-batch commit followed by a
-    /// deferred purge per provided type. A failed commit leaves the context
-    /// unsaved so nothing partial becomes visible; rows survive until the next
-    /// reconciliation pass re-runs. The result feeds caller-side diagnostics
-    /// only — commit semantics are unchanged.
+    /// Single-transaction variant of the parsed-batch commit followed by a deferred purge per provided
+    /// type.
     private func commitParticipantReconciliation(
         _ batch: ParsedBatch,
         validRecordNamesByType: [CachedRecordType: Set<String>],
@@ -450,11 +425,7 @@ actor BackgroundCacheActor {
         return true
     }
 
-    /// Single-transaction commit: accumulates all inserts/updates across
-    /// ParsedBatch in this actor's single ModelContext without intermediate
-    /// saves, then calls saveContext() exactly once. Two-phase ordering
-    /// (families/profiles first for FK parent) is preserved but the save is
-    /// deferred to ensure @Query observes the batch atomically.
+    /// Accumulates all inserts/updates and saves the ModelContext exactly once.
     private func commitParsedBatch(_ batch: ParsedBatch) async -> Bool {
         #if DEBUG
             if !TestEnvironment.isRunningUnitOrUITests {
@@ -519,11 +490,8 @@ actor BackgroundCacheActor {
         return success
     }
 
-    /// Shared upsert core: mutates the actor's ModelContext without saving so
-    /// callers decide when to commit — single-type paths save immediately,
-    /// while multi-type batches coalesce into one saveContext() at the
-    /// transaction boundary. `logLabel` keeps log output identical to the
-    /// original per-path messages.
+    /// Shared upsert core: mutates the actor's ModelContext without saving so callers decide when to commit
+    /// — single-type paths save immediately, while multi-type batches coalesce into one saveContext() at
     private func performUpsert<T: CacheMergeable & CacheSystemFields>(
         _: T.Type,
         _ items: [T.DomainModel],
@@ -554,10 +522,8 @@ actor BackgroundCacheActor {
                         )
                         continue
                     }
-                    // Identical changeTags mean an identical server version; re-applying a
-                    // stale snapshot can only regress newer merged fields. Local optimistic
-                    // writes keep their base tag while carrying real field deltas, so the
-                    // guard must never swallow them.
+                    // Identical changeTags mean an identical server version; re-applying a stale snapshot can only regress
+                    // newer merged fields.
                     if isServerSync,
                        let itemTag = item.changeTag, !itemTag.isEmpty, itemTag == target.changeTag
                     {

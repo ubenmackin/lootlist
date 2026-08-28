@@ -10,27 +10,6 @@ import Foundation
 import os
 
 /// V1 Trophy Spec (12) — canonical source for AchievementRequirement.
-/// Trophy Room and ProfileAchievement pipeline remain visible; criteria are
-/// now quest-completion counts plus goal-based milestones. Requirement text
-/// is computed at render time; stored descriptions may be stale on legacy records.
-/// AchievementRequirement must stay in sync with this spec:
-///
-///  1 firstQuest        — complete 1 quest (cumulative verified)
-///  2 questCount10      — 10 cumulative quest completions
-///  3 questCount25      — 25 cumulative quest completions (replaces former gold100 tier)
-///  4 questCount50      — 50 cumulative quest completions
-///  5 questCount100     — 100 cumulative quest completions
-///  6 weekly100         — complete all active quests in a single week (100%)
-///  7 streak7           — 7-day combo streak
-///  8 streak30          — 30-day combo streak
-///  9 firstGoalCreated  — created ≥1 savings goal
-/// 10 goalGetter        — reached/completed ≥1 savings goal (completedAt != nil, non-archived or archived)
-/// 11 ledgerCount10     — log 10 ledger/spending entries
-/// 12 earlyBird9am     — complete a quest before 9 AM
-///
-/// Total defaults remain 12; legacy gold100/gold500/ledgerWeeks4 records are no
-/// longer seeded but remain decodable for migration.
-///
 enum AchievementRequirement: String, CaseIterable, Codable, Sendable {
     case firstQuest
     case questCount10
@@ -115,9 +94,6 @@ final class AchievementService {
     var notificationService: NotificationService?
 
     /// Celebration surface for newly awarded trophies and streak milestones.
-    /// Injected alongside `toastManager` and forwarded awarded achievements
-    /// from `evaluateAll`. `nil` in tests/legacy paths — celebrations are
-    /// silently skipped when unset.
     var celebrationManager: CelebrationManager?
 
     init(

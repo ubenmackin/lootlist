@@ -87,11 +87,7 @@ final class NotificationService {
     }
 
     func isNotificationEnabled(for eventType: NotificationEventType) -> Bool {
-        // Trust the cached preference only after a completed sync pass for this
-        // family's notification preferences. Before the
-        // first sync — or after `clearAll()` — the UserDefaults mirror is the
-        // source of truth for first-launch continuity.
-        // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback via UserDefaults at call site (FamilyService-style).
+        // Reads notification preference with cache freshness check.
         let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cached = cachedPreference(for: eventType),
            let familyName = appState.family?.id.recordName,
@@ -146,6 +142,12 @@ final class NotificationService {
 
     private func mirrorToUserDefaults(event: NotificationEventType, enabled: Bool) {
         defaults.set(enabled, forKey: event.userDefaultsKey)
+    }
+
+    func setLocalFlag(event: NotificationEventType, enabled: Bool) {
+        // Device-local mirror — authoritative record is NotificationPreference.
+        defaults.set(enabled, forKey: event.userDefaultsKey)
+        logger.debug("Notification local flag updated for \(event.rawValue): \(enabled)")
     }
 
     @discardableResult

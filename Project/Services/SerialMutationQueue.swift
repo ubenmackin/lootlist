@@ -7,21 +7,7 @@
 
 import Foundation
 
-/// Async-semaphore gate that linearizes background-actor batch commits
-/// against the shared ModelContainer. The sole call site is
-/// `BackgroundCacheActor.batchUpsertParsedRecords`, which holds the gate for
-/// the duration of each batch commit so concurrent engine passes (e.g. the
-/// private and shared engines racing) cannot interleave.
-///
-/// Actors are reentrant across suspension, so actor isolation alone provides
-/// no mutual exclusion here — the exclusion comes from the gate: a writer
-/// holds it for the full duration of its operation while later callers park
-/// on checked continuations in FIFO order. This closes TOCTOU races such as
-/// simultaneous fetch → mutate → save transactions for the same record.
-///
-/// This gate coexists with the finer-grained per-path guards (`Mutex`
-/// in-flight sets, `GemLock` period locks); it serializes whole write
-/// operations and does not replace those narrower mechanisms.
+/// Linearizes background cache commits and reconciliation passes to prevent overlapping saves.
 actor SerialMutationQueue {
     static let shared = SerialMutationQueue()
 
@@ -39,6 +25,7 @@ actor SerialMutationQueue {
 
     private func acquire() async {
         if isGateHeld {
+            // resumes exactly once — actor-isolated, no onCancel needed
             await withCheckedContinuation { waiters.append($0) }
         } else {
             isGateHeld = true

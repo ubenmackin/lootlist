@@ -33,10 +33,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         registerBackgroundTasks()
-        // Local banners are surfaced by UNUserNotificationCenter, separate from
-        // the silent-push path handled in `didReceiveRemoteNotification`.
-        // Installing the router makes banners tappable in the foreground and
-        // turns taps into tab navigation / inline review actions.
+        // Local banners are surfaced by UNUserNotificationCenter, separate from the silent-push path handled
+        // in `didReceiveRemoteNotification`.
         UNUserNotificationCenter.current().delegate = NotificationRouter.shared
         return true
     }
@@ -77,11 +75,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
         Task { @MainActor in
             guard let shared = AppDependencies.shared else {
-                // Background cold start before AppDependencies is constructed:
-                // the family's payout day cannot be resolved and no payout work
-                // can run. Report the task as failed rather than claiming success
-                // for work that never happened; the next foreground launch
-                // (LootListApp) re-arms the refresh with the family's day.
+                // Background cold start before AppDependencies is constructed: the family's payout day cannot be
+                // resolved and no payout work can run.
                 task.setTaskCompleted(success: false)
                 return
             }
@@ -118,10 +113,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             )
         }
 
-        // Distinguishable race results: both arms yield a non-nil value so the
-        // for-await loop always terminates when either side finishes — a bare
-        // Optional here would treat the 25s deadline's `nil` as "no result yet"
-        // and defer completion past the APNs budget.
+        // Distinguishable race results: both arms yield a non-nil value so the for-await loop always
+        // terminates when either side finishes — a bare Optional here would treat the 25s deadline's `nil` as
         enum RemoteSyncRace: Sendable {
             case completed(SyncOutcome)
             case deadlineExpired
@@ -155,10 +148,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                     winner = result
                     break
                 }
-                // Whichever side wins the race (sync outcome or the 25s
-                // deadline), the other child must be cancelled so the group
-                // unwinds instead of blocking forever on the notification
-                // stream.
+                // Whichever side wins the race (sync outcome or the 25s deadline), the other child must be cancelled
+                // so the group unwinds instead of blocking forever on the notification stream.
                 group.cancelAll()
                 return winner
             }

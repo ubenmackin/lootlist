@@ -5,17 +5,18 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 
-/// Child-centric wishlist and savings screen. Displays goal cards grouped by
-/// bucket (SHORT SAVE / LONG SAVE) in FIFO creation order. Completed goals
-/// show a checkmark state. The "+" button opens GoalEditorSheet to create a
-/// new savings goal.
+/// Child-centric savings screen displaying goal cards and ledger-derived progress.
 struct MyGoalsView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(GoalService.self) private var envGoalService: GoalService?
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyGoals")
 
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
@@ -161,7 +162,12 @@ struct MyGoalsView: View {
             ) { goal in
                 Button("Delete", role: .destructive) {
                     Task {
-                        try? await deleteGoal(goal)
+                        do {
+                            try await deleteGoal(goal)
+                        } catch {
+                            logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
+                            toastManager?.show(message: "Couldn’t delete “\(goal.name)”. Please try again.", type: .error)
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {

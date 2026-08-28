@@ -10,12 +10,7 @@ import Foundation
 import os
 import UserNotifications
 
-/// Destination for a tapped local notification. The sync-notification payloads
-/// built by `NotificationService` carry the authoring peer under `profileID` —
-/// never the viewer — so the router forwards that peer wherever the peer's own
-/// data is the destination (a completed quest awaiting review, a hero's
-/// spending log) and ignores it where the event concerns the viewer's own
-/// quest surface.
+/// Destination target for navigating from a tapped local notification.
 enum NotificationRoute: Sendable, Equatable {
     /// Quest lifecycle banner (assigned / verified / rejected): show the
     /// viewer's quest surface.
@@ -34,23 +29,7 @@ extension Notification.Name {
     static let notificationRouteTriggered = Notification.Name("notificationRouteTriggered")
 }
 
-/// `UNUserNotificationCenter` delegate that consumes the app's local
-/// notification payloads (`eventType`, `profileID`, `questLogID`) and turns a
-/// tap into either tab navigation (via the same NotificationCenter →
-/// `AppState.pendingNotificationRoute` → `TabBarView` channel that quick
-/// actions use) or an inline Approve / Reject action for the quest-review
-/// category. Installed by `AppDelegate` at launch.
-///
-/// Delivered as a singleton so a tap that arrives during a cold start — before
-/// `AppDependencies` exists and no observer is subscribed — can be retained on
-/// `pendingRoute` and rehydrated by `AppState` / `TabBarView` once the session
-/// restores.
-///
-/// The conformance carries `@preconcurrency` because
-/// `UNUserNotificationCenterDelegate` is not annotated `@MainActor` in the SDK
-/// even though the system invokes its callbacks on the main thread; the
-/// attribute silences the conformance-isolation diagnostic while the
-/// `@MainActor`-isolated witnesses below stay race-free at runtime.
+/// Notification center delegate routing notification taps and actionable category responses.
 @MainActor
 final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
     static let shared = NotificationRouter()
@@ -146,10 +125,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
 
     // MARK: - Quest Review Actions
 
-    /// Executes an Approve / Reject action from the quest-review notification
-    /// category. Resolves the pending `QuestCompletion` from the cache and runs
-    /// the same `QuestService` verification path the quest log's inline buttons
-    /// use, so a notification action never bypasses the authorization guards.
+    /// Executes inline verification actions from quest-review notification category.
     private func performVerificationAction(_ action: String, questLogID: String) {
         guard let deps = AppDependencies.shared else {
             // Dependencies are not built yet — the mutation cannot run, but the

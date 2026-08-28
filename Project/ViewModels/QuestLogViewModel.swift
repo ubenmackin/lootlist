@@ -48,10 +48,7 @@ final class QuestLogViewModel {
 
     // MARK: - Types
 
-    /// Date-range filter for the quest log. Typealiased to `CalendarScope` so
-    /// the quest log shares the exact scoping semantics (this week / this
-    /// month / this quarter / all time) used by the treasury and ledger
-    /// screens, including the `contains(_:)` membership predicate.
+    /// Date-range filter sharing CalendarScope semantics with treasury and ledger.
     typealias DateRangePreset = CalendarScope
 
     enum CompletionFilter: String, CaseIterable, Identifiable {

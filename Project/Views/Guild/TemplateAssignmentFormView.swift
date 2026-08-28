@@ -107,7 +107,7 @@ struct TemplateAssignmentFormView: View {
                 .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             }
 
-            // WHY: Bonus Override/XP field is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+            // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
             if FeatureFlags.rpgImmersive {
                 HStack {
                     Text("Bonus Override")

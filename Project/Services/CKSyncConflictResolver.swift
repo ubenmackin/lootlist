@@ -42,11 +42,8 @@ final class CKSyncConflictResolver {
         self.backgroundCache = backgroundCache
     }
 
-    /// Resolves a single failed record save. Returns a resolved `CKRecord` if the record
-    /// should be re-saved to CloudKit, or `nil` if the conflict was resolved by adopting server state.
-    /// - Parameter databaseScope: The `CKDatabase.Scope` of the `CKSyncEngine` that delivered the error.
-    ///   Threaded from `CKSyncEngineDelegateHandler` so deletions resolve without inferring scope from
-    ///   `appState`/`CKCurrentUserDefaultName` (unreliable when `appState` is nil in background pushes).
+    /// Resolves a single failed record save. Returns a resolved `CKRecord` if the record should be re-saved
+    /// to CloudKit, or `nil` if the conflict was resolved by adopting server state.
     func resolveFailedSave(
         record: CKRecord,
         error: Error,
@@ -62,10 +59,7 @@ final class CKSyncConflictResolver {
             return await handleServerRecordChanged(ckError: ckError, originalRecord: record)
 
         case .unknownItem, .zoneNotFound:
-            // Family derivation: appState → record's family reference → parent record → zoneName
-            // fallback. The zoneName fallback is essential when the deleted record is the
-            // Family itself (no family field, no parent) — without it the branch returns
-            // nil and the local FamilyCache row is never purged.
+            // Family derivation: appState → record's family reference → parent record → zoneName fallback.
             let derivedFamily: String = appState?.family?.id.recordName
                 ?? (record["family"] as? CKRecord.Reference)?.recordID.recordName
                 ?? record.parent?.recordID.recordName
@@ -138,10 +132,8 @@ final class CKSyncConflictResolver {
         return nil
     }
 
-    /// Monotonic XP-credit merge for `Quest.xpBanked`. Concurrent completions
-    /// across devices must never undercount the banked total, so the merged
-    /// value is `max(server, client)`. Merged model builds upon `serverRecord`
-    /// (retaining server-authoritative fields with client-wins display fields overlaid).
+    /// Monotonic XP-credit merge for `Quest.xpBanked`. Concurrent completions across devices must never
+    /// undercount the banked total, so the merged value is `max(server, client)`.
     private func resolveQuestConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let serverBanked = serverRecord["xpBanked"] as? Int ?? 0
         let clientBanked = originalRecord["xpBanked"] as? Int ?? 0
@@ -159,12 +151,8 @@ final class CKSyncConflictResolver {
         mergedQuest.xpBanked = mergedBanked
         mergedQuest.changeTag = serverRecord.recordChangeTag
         mergedQuest.encodedSystemFields = serverRecord.encodedSystemFields
-        // The background batch applies the same isServerSync merge as the
-        // MainActor upsert; the fallback keeps cache state identical when no
-        // background actor is wired. A merged record that fails its toRecord()
-        // round-trip would be silently dropped by the batch path, so that case
-        // commits via the MainActor upsert instead — the merged result must
-        // reach the cache either way.
+        // The background batch applies the same isServerSync merge as the MainActor upsert; the fallback keeps
+        // cache state identical when no background actor is wired.
         let parsedMergedRecord = ParsedRecord.parse(record: mergedQuest.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged Quest failed to re-parse (\(mergedQuest.id.recordName, privacy: .private)); committing via main-context upsert instead")
@@ -180,10 +168,8 @@ final class CKSyncConflictResolver {
         return mergedRecord
     }
 
-    /// Additive XP merge for `Profile.xp`. Computes offline delta earned on this device
-    /// (`clientXP - lastSyncedXP`) and merges additively with server XP (`serverXP + delta`),
-    /// ensuring concurrent offline earnings on multiple devices are preserved.
-    /// Retains server-authoritative fields with client-wins display fields overlaid.
+    /// Additive XP merge for `Profile.xp`. Computes offline delta earned on this device (`clientXP -
+    /// lastSyncedXP`) and merges additively with server XP (`serverXP + delta`), ensuring concurrent
     private func resolveProfileConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let serverXP = serverRecord["xp"] as? Int ?? 0
         let clientXP = originalRecord["xp"] as? Int ?? 0
@@ -227,11 +213,8 @@ final class CKSyncConflictResolver {
         }
         mergedProfile.xp = mergedXP
         mergedProfile.level = XPService.level(forXP: mergedXP)
-        // Union-merge ownership/claim ledgers so a concurrent purchase or
-        // bonus-objective claim on another device is never dropped (gems are
-        // debited via the append-only GemLedger; losing the ownership/claim
-        // marker here would make the paid item vanish). Equipped selection is
-        // cosmetic (one item per category) and stays server-wins.
+        // Union-merge ownership/claim ledgers so a concurrent purchase or bonus-objective claim on another
+        // device is never dropped (gems are debited via the append-only GemLedger; losing the ownership/claim
         let serverOwned = serverRecord["ownedEquipment"] as? [String] ?? []
         let clientOwned = originalRecord["ownedEquipment"] as? [String] ?? []
         let serverClaimed = serverRecord["claimedBonusObjectives"] as? [String] ?? []
@@ -277,13 +260,8 @@ final class CKSyncConflictResolver {
 
         mergedProfile.changeTag = serverRecord.recordChangeTag
         mergedProfile.encodedSystemFields = serverRecord.encodedSystemFields
-        // lastSyncedXP advances inside ProfileCache.update(from:isServerSync:) on
-        // both the background batch and the MainActor fallback — never via a
-        // separate fetch+save, which could re-advance a stale baseline.
-        // The background batch is the primary commit path, but a merged record
-        // that fails its toRecord() round-trip would be silently dropped by
-        // it — so that case falls back to the MainActor upsert, keeping the
-        // merged result in the cache either way.
+        // lastSyncedXP advances inside ProfileCache.update(from:isServerSync:) on both the background batch
+        // and the MainActor fallback — never via a separate fetch+save, which could re-advance a stale
         let parsedMergedRecord = ParsedRecord.parse(record: mergedProfile.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged Profile failed to re-parse (\(mergedProfile.id.recordName, privacy: .private)); committing via main-context upsert instead")
@@ -307,10 +285,8 @@ final class CKSyncConflictResolver {
         return result
     }
 
-    /// Idempotency-marker merge for `QuestCompletion.xpCredited`. Once either
-    /// side has credited the completion, the non-nil marker is preserved so a
-    /// re-delivered completion can never be re-minted for a second XP award.
-    /// Status transitions and verification dates are server-authoritative.
+    /// Idempotency-marker merge for `QuestCompletion.xpCredited`. Once either side has credited the
+    /// completion, the non-nil marker is preserved so a re-delivered completion can never be re-minted for
     private func resolveQuestCompletionConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let clientCredited = originalRecord["xpCredited"] as? Int
 
@@ -327,10 +303,8 @@ final class CKSyncConflictResolver {
         }
         merged.changeTag = serverRecord.recordChangeTag
         merged.encodedSystemFields = serverRecord.encodedSystemFields
-        // The background batch is the primary commit path, but a merged record
-        // that fails its toRecord() round-trip would be silently dropped by
-        // it — so that case falls back to the MainActor upsert, keeping the
-        // merged result in the cache either way.
+        // The background batch is the primary commit path, but a merged record that fails its toRecord()
+        // round-trip would be silently dropped by it — so that case falls back to the MainActor upsert,
         let parsedMergedRecord = ParsedRecord.parse(record: merged.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged QuestCompletion failed to re-parse (\(merged.id.recordName, privacy: .private)); committing via main-context upsert instead")
@@ -346,11 +320,8 @@ final class CKSyncConflictResolver {
         return mergedRecord
     }
 
-    /// Additive/monotonic merge for `AllowancePeriod`. Two devices settling the
-    /// same period (deterministic `period-{family}-{profile}-{week}` recordName)
-    /// race through `getOrCreateAllowancePeriod → updateAllowance → mintRealTimeLedgerEntry`.
-    /// Server-wins would drop one device's `paidAmount` delta. Mirrors the
-    /// `Quest.xpBanked` max-merge pattern so concurrent increments are preserved.
+    /// Additive/monotonic merge for `AllowancePeriod`. Two devices settling the same period (deterministic
+    /// `period-{family}-{profile}-{week}` recordName) race through `getOrCreateAllowancePeriod →
     private func resolveAllowancePeriodConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let serverPaidAmount = serverRecord["paidAmount"] as? Double
         let clientPaidAmount = originalRecord["paidAmount"] as? Double
@@ -394,10 +365,8 @@ final class CKSyncConflictResolver {
         merged.paidDate = mergedPaidDate
         merged.changeTag = serverRecord.recordChangeTag
         merged.encodedSystemFields = serverRecord.encodedSystemFields
-        // The background batch is the primary commit path, but a merged record
-        // that fails its toRecord() round-trip would be silently dropped by
-        // it — so that case falls back to the MainActor upsert, keeping the
-        // merged result in the cache either way.
+        // The background batch is the primary commit path, but a merged record that fails its toRecord()
+        // round-trip would be silently dropped by it — so that case falls back to the MainActor upsert,
         let parsedMergedRecord = ParsedRecord.parse(record: merged.toRecord())
         if case .parseFailure = parsedMergedRecord {
             logger.error("Merged AllowancePeriod failed to re-parse (\(merged.id.recordName, privacy: .private)); committing via main-context upsert instead")
@@ -421,9 +390,7 @@ final class CKSyncConflictResolver {
         }
     }
 
-    /// Client-wins display fields per record type. Server wins for state/status
-    /// fields; client wins for user-authored display fields. See
-    /// ARCHITECTURE.md §Conflict Resolution for full merge semantics.
+    /// Client-wins display fields per record type during merge conflict resolution.
     private static let clientWinsFields: [String: Set<String>] = [
         Quest.recordType: ["name", "descriptionText"],
         Profile.recordType: ["displayName", "avatarClass", "avatarPresetID", "customAvatarImageData"]

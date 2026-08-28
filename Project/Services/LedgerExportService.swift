@@ -8,12 +8,7 @@
 import Foundation
 import os
 
-/// Builds CSV and JSON ledger exports entirely in-memory. CSV columns match
-/// the import parser's expected shape (Transaction Date,Description,Merchant,
-/// Amount,Purchased By) so exported files round-trip through the import flow
-/// without manual column remapping. JSON is a full structured dump of every
-/// LedgerEntryCache field — bucket attribution, source, dates — for external
-/// tooling or backup.
+/// Builds CSV and JSON ledger exports in memory matching import schema.
 @MainActor
 final class LedgerExportService {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "LedgerExport")
@@ -39,13 +34,7 @@ final class LedgerExportService {
 
     // MARK: - CSV
 
-    /// Builds a CSV payload whose header exactly matches the canonical import
-    /// columns so a parent can export, optionally edit, and re-import without
-    /// adjusting column mappings. The "Merchant" column is sourced from
-    /// `LedgerEntryCache.location`; "Purchased By" uses the supplied child
-    /// display name. Fields are RFC4180-quoted when they contain commas,
-    /// double quotes, or newlines, and formula-leading characters are
-    /// neutralized before quoting (see `csvEscape`).
+    /// Builds CSV payload matching canonical import headers.
     func buildCSV(entries: [LedgerEntryCache], childName: String) -> Data {
         var csv = "Transaction Date,Description,Merchant,Amount,Purchased By\n"
 
@@ -68,13 +57,7 @@ final class LedgerExportService {
         return Data(csv.utf8)
     }
 
-    /// RFC4180 field quoting: wrap in double quotes whenever the field
-    /// contains a comma, double-quote, CR, or LF; double any internal
-    /// double quotes per the spec. A field beginning with =, +, -, or @
-    /// would execute as a formula when opened in Excel/Numbers/Sheets, so it
-    /// gets a leading apostrophe (the spreadsheet text-marker convention) and
-    /// is force-quoted so every downstream parser reads the cell as inert
-    /// text rather than evaluating it.
+    /// Quotes CSV fields per RFC4180 when containing commas, quotes, or newlines.
     private func csvEscape(_ field: String) -> String {
         var value = field
         var mustQuote = false
@@ -91,10 +74,7 @@ final class LedgerExportService {
 
     // MARK: - JSON
 
-    /// Full structured dump of every LedgerEntryCache field — record name,
-    /// profile/family attribution, amount, description, location, date, source,
-    /// and bucket attribution columns. Dates are ISO 8601; output is pretty-
-    /// printed with sorted keys for deterministic diffs.
+    /// Builds structured JSON dump of all ledger entries for backup.
     func buildJSON(entries: [LedgerEntryCache]) throws -> Data {
         let codableEntries = entries.map { LedgerEntryJSON(from: $0) }
         let encoder = JSONEncoder()

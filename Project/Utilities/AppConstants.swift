@@ -10,10 +10,7 @@ import Foundation
 
 enum AppConstants {
     enum Security {
-        /// Placeholder creator identifiers used by CloudKit in various legacy
-        /// and simulator contexts. Checked when verifying record ownership.
-        /// Computed per access so an in-process iCloud account switch never
-        /// observes a stale default-owner name.
+        /// Placeholder creator identifiers used by CloudKit in legacy or simulator contexts.
         static var legacyPlaceholderCreators: Set<String> {
             [
                 "owner", "Owner1", "__defaultOwner__", "_defaultOwner_",

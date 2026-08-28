@@ -13,7 +13,8 @@ import SwiftData
 @MainActor
 @Observable
 final class AppDependencies {
-    static var shared: AppDependencies?
+    /// Cold-start singleton — set once in init; read is MainActor-isolated. Prefer injecting AppDependencies via Environment rather than reaching for shared.
+    private(set) static var shared: AppDependencies?
 
     let appState: AppState
     let cloudKitService: CloudKitService

@@ -20,13 +20,7 @@ enum InterestServiceError: LocalizedError {
     }
 }
 
-/// Monthly interest engine for a hero's savings buckets. Config lives on the
-/// hero's `Profile` record and is edited by parents only; the credit itself is
-/// applied once per calendar month inside the payout cycle, after quest
-/// rewards settle. Like every money-movement path, credits are immutable
-/// ledger entries with deterministic IDs (`interest-{profile}-{yyyy-MM}`), so
-/// a replayed payout run or a second device applying the same month can never
-/// mint two credits — CloudKit dedupes the record name across devices.
+/// Monthly savings interest engine applying compound/simple rates with deterministic IDs.
 @MainActor
 @Observable
 final class InterestService {
@@ -127,15 +121,7 @@ final class InterestService {
         return basePennies * rateBps / 10000
     }
 
-    /// Applies at most one interest credit for the hero's configured bucket in
-    /// the month containing `date`. Callers run this inside the payout cycle
-    /// after quest rewards settle; the `AllowancePeriod.status == .paid`
-    /// skip-guard upstream means settlement runs at most once per period, and
-    /// the deterministic month ID makes even an out-of-band replay a no-op.
-    ///
-    /// Returns the minted entry, or `nil` when nothing was owed: config
-    /// disabled, no balance to earn on, a sub-penny credit, or the month
-    /// already credited.
+    /// Applies monthly interest credit using idempotent record ID: interest-{profile}-{yyyy-MM}.
     @discardableResult
     func applyMonthlyInterest(profile: Profile,
                               family: Family,

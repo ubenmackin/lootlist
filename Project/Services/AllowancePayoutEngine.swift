@@ -8,18 +8,11 @@
 import CloudKit
 import Foundation
 
-/// Bucket-attributed payout settlement for `TreasuryService`. Called from
-/// `runPayout` after quest rewards settle: the week's net payout is split by
-/// the hero's CURRENT split percentages — read at payout time so later config
-/// changes never rebalance past deposits. Real-time policy heroes are excluded
-/// upstream; their completions already settled whole via the "rt-" entry.
+/// Bucket-attributed payout settlement for `TreasuryService`. Called from `runPayout` after quest
+/// rewards settle: the week's net payout is split by the hero's CURRENT split percentages — read at
 extension TreasuryService {
-    /// Idempotently mints the ledger entries for one closed weekly payout,
-    /// split across buckets via `BucketService.splitPennies`. Deterministic
-    /// record names make double runs no-ops: single-bucket payouts keep the
-    /// legacy "payout-<period>" name (so existing double-mint guards and any
-    /// pre-bucket consumers see one stable ID per period), while multi-bucket
-    /// payouts mint "payout-<period>-<bucket>" per receiving bucket.
+    /// Idempotently mints the ledger entries for one closed weekly payout, split across buckets via
+    /// `BucketService.splitPennies`.
     func mintBucketSplitPayout(
         periodRecordName: String,
         amount: Double,

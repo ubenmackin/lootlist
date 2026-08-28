@@ -7,10 +7,7 @@
 
 import Foundation
 
-/// Celebration and reward wording for quest completions. This provider carries
-/// the app's plain-warm voice: encouraging and specific about real progress,
-/// with no leveling, XP, rarity, or currency jargon. The fantasy phrasing it
-/// replaced stays recoverable behind `FeatureFlags.rpgImmersive`.
+/// Encouraging celebration and reward copy for quest completions.
 enum FlavorTextProvider {
     /// Legacy rarity tiers still size rewards internally, so parents need a way
     /// to pick one — but the old tier names never render; these plain effort

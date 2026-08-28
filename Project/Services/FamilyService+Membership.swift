@@ -16,12 +16,7 @@ extension FamilyService {
         try await unassignActiveQuests(for: profile)
         try await deactivateProfile(profile)
 
-        // Best-effort removal of the leaver's own share participant entry. Only
-        // the zone owner can mutate a `CKShare` participant list. For non-owner
-        // members (Rangers/Heroes), the profile deactivation above is the authoritative
-        // leave; the owner-side share reconciler and Invitations panel observe the
-        // departed identity and surface it for owner-side revocation.
-        // WHY: owner check uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        // Deactivates member profile and removes share participant entry (owner or self-leave).
         let isOwnerForShare = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let storedOwnerForShare = appState.isZoneOwner
         if isOwnerForShare != storedOwnerForShare {
@@ -62,13 +57,7 @@ extension FamilyService {
         }
     }
 
-    /// Deactivates a member profile whose CloudKit share access was revoked at
-    /// the access layer — used by the share-reconciliation observer when a
-    /// participant is removed out-of-band (e.g. through the system share
-    /// sheet), which the app's `Profile` records do not observe directly.
-    /// Best-effort: a failure leaves the profile active and is logged
-    /// privately; the in-app membership list stays as-is until a later
-    /// reconciliation pass reconciles it.
+    /// Deactivates member profile after share revocation observed out-of-band.
     func deactivateMemberAfterShareRevocation(_ profile: Profile) async throws {
         try await deactivateProfile(profile)
     }
@@ -157,10 +146,7 @@ extension FamilyService {
     }
 
     func deleteFamilyAndReset(family: Family) async throws {
-        // Privileged mutation: irreversible — deleting the family is reserved
-        // for the owner anchor (server-authenticated family owner). Legacy
-        // families without an owner anchor fall back to the zone-owner +
-        // parent-role check.
+        // Irreversible family deletion reserved for server-authenticated family creator.
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             family: family,
             cloudKit: cloudKit,

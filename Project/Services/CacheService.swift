@@ -18,12 +18,8 @@ final class CacheService {
     var initializationError: Error?
     var toastManager: ToastManager?
 
-    /// Single off-main writer for every cache mutation, built from this
-    /// service's own container so app-level wiring can hand the same instance
-    /// to the sync stack. Nil for in-memory stores (unit/UI tests), where
-    /// mutations fall back to the retained main-actor bodies and stay
-    /// synchronous. Hoisted as a long-lived singleton; never recreate per-call
-    /// and never release while fetched models are alive.
+    /// Single off-main writer for every cache mutation, built from this service's own container so
+    /// app-level wiring can hand the same instance to the sync stack.
     private let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
     var backgroundWriter: BackgroundCacheActor? {
         backgroundWriterLock.withLock { $0 }
@@ -77,11 +73,7 @@ final class CacheService {
                 initializationError = error
             }
         }
-        // In-memory stores keep main-actor writes so test seeding and
-        // assertions stay synchronous. Persistent stores create the writer off
-        // the main actor to avoid inheriting main-thread affinity and stalling
-        // UI on saves. The writer is hoisted as a long-lived singleton and
-        // must never be recreated per-call.
+        // In-memory stores keep main-actor writes so test seeding and assertions stay synchronous.
         if !inMemory, let container {
             Task.detached { [weak self] in
                 let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
@@ -108,10 +100,7 @@ final class CacheService {
         backgroundWriterLock.withLock { $0 != nil }
     }
 
-    /// Async bootstrap for call sites that can await before publishing. Creates
-    /// the writer off the main actor when needed and installs it before the
-    /// sync stack captures it, ensuring saves never contend on the main thread.
-    /// WHY: Mutex-guarded idempotent assignment prevents double-creation when init's Task.detached races with bootstrap.
+    /// Async bootstrap for call sites that can await before publishing.
     func bootstrapBackgroundWriterIfNeeded() async {
         guard !inMemory, !hasBackgroundWriter, let container else { return }
         let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
@@ -124,18 +113,14 @@ final class CacheService {
 
     /// NOTE (WWDC26 / iOS 27 SDK tracking): SwiftData observation bridging for iOS 26 uses
     /// ModelContext.didSave notifications to trigger processPendingChanges on the main context.
-    /// When updating baseline to iOS 27 SDK, evaluate HistoryObserver / ResultsObserver to replace
-    /// custom didSave notification bridging.
     private func installDidSaveObserver() {
         guard container != nil else { return }
         didSaveTask = Task { [weak self] in
             for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
                 guard !Task.isCancelled, let self else { break }
                 guard let container = self.container else { break }
-                // Avoid calling property getters on `notification.object` from @MainActor
-                // because accessing properties on a background ModelContext triggers SwiftData
-                // concurrency assertions. Pure pointer identity with `mainContext` safely
-                // distinguishes background saves from main-context saves.
+                // Avoid calling property getters on `notification.object` from @MainActor because accessing properties
+                // on a background ModelContext triggers SwiftData concurrency assertions.
                 guard let savedObject = notification.object as AnyObject?,
                       savedObject !== (container.mainContext as AnyObject)
                 else {
@@ -186,8 +171,7 @@ final class CacheService {
 
     private static let freshnessKeyPrefix = "cache_fresh_"
 
-    /// Legacy/convenience stamp (stamps legacy + all scopes). Prefer scope-aware overload; scope-isolated
-    /// so private-only pass never satisfies shared reads (§2, CachedRecordType.fetchScopes, completeSyncPass).
+    /// Stamps freshness watermarks across database scopes for this family and type.
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
         for scope in [CKDatabase.Scope.private, .shared] {
@@ -195,13 +179,12 @@ final class CacheService {
         }
     }
 
-    /// Stamps freshness for `type` in `scope`. Scope-isolated: private-only sync must not satisfy shared-DB reads (§2, CachedRecordType.fetchScopes, completeSyncPass gating).
+    /// Stamps freshness for record type in the specified database scope.
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
     }
 
-    /// Legacy check (legacy OR any scope). Prefer scope-aware overload — scope-isolated reads must use `isCacheFresh(scope:)` so private-only never satisfies shared (§2,
-    /// fetchScopes).
+    /// Returns true if a freshness watermark exists for any database scope.
     func isCacheFresh(familyRecordName: String, type: CachedRecordType) -> Bool {
         let legacyKey = freshnessKey(familyRecordName: familyRecordName, type: type)
         if defaults.object(forKey: legacyKey) != nil {
@@ -215,16 +198,12 @@ final class CacheService {
         return false
     }
 
-    /// Returns true if `scope` was stamped for the given family and type.
+    /// Returns true if freshness watermark was stamped for the given family, type, and scope.
     func isCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
         defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
     }
 
-    /// Scope-aware variant — single-point authoritative policy for serving cached
-    /// rows without a CloudKit refetch against a single database scope.
-    /// WHY: freshness-only sole authority — stale cache must re-validate via
-    /// CloudKit even when non-empty; empty-cache-offline rendering is handled
-    /// explicitly at call sites, not hidden here.
+    /// Authoritative freshness check: cached data is served only when a freshness watermark exists.
     func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, cachedCount: Int) -> Bool {
         _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored, stale non-empty must still refetch.
         return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
@@ -238,7 +217,7 @@ final class CacheService {
         return isCacheFresh(familyRecordName: familyRecordName, type: type)
     }
 
-    /// Invalidates legacy + both scopes. Scope-isolated — clears private/shared watermarks together (§2, CachedRecordType.fetchScopes).
+    /// Clears freshness watermarks across all scopes for this family and record type.
     func invalidateFreshness(familyRecordName: String, type: CachedRecordType) {
         defaults.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
         for scope in [CKDatabase.Scope.private, .shared] {
@@ -246,7 +225,7 @@ final class CacheService {
         }
     }
 
-    /// Invalidates freshness for `type` in `scope` only. Scope-isolated — removing private must not affect shared (§2, CachedRecordType.fetchScopes).
+    /// Clears freshness watermark for this record type in the specified scope.
     func invalidateFreshness(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) {
         defaults.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
     }

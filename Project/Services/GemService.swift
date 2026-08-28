@@ -63,10 +63,7 @@ final class GemService {
 
     // MARK: - Credit & Spend
 
-    /// Credits gems with a deterministic ledger ID derived from the triggering
-    /// event (`eventKey`) so that re-deliveries (e.g. a cross-device daily-login
-    /// claim synced via CloudKit) collapse to a single record — mirroring the
-    /// `reward-{completionID}` idempotency pattern used by `RewardEvent`.
+    /// Credits gems using deterministic ledger IDs for idempotent cross-device syncing.
     @discardableResult
     func creditGems(amount: Int, to profile: Profile, source: String, eventKey: String, detail: String? = nil) async throws -> Bool {
         guard amount > 0 else { return false }
@@ -118,15 +115,7 @@ final class GemService {
 
             // MARK: - Atomic idempotency and balance update
 
-            // The deterministic ledger ID is the idempotency key. The existence
-            // check and the ledger+profile mutation must be atomic in the same
-            // ModelContext transaction; otherwise two concurrent credits for the
-            // same logical event (e.g. the same loot drop re-delivered via
-            // CKSyncEngine) can both observe `nil` and both enqueue, double-
-            // crediting the hero. `CacheService.atomicallyApplyGemCredit` performs
-            // the check, derives the new balance from in-memory rows plus the
-            // incoming amount, and persists ledger and profile in a single save so
-            // a partial failure can never leave them diverged.
+            // Deterministic ledger ID ensures gem credits are processed exactly once.
             if let cacheService {
                 let inserted = await cacheService.atomicallyApplyGemCredit(ledger: ledger, to: profile)
                 if !inserted {
@@ -139,10 +128,7 @@ final class GemService {
                     return false
                 }
             } else {
-                // No cache — isolated fixture path without a ModelContext. Cannot
-                // enforce local idempotency; preserve the original enqueue+toast so
-                // the fixture can still observe the ledger via CloudKit.
-                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+                // Direct CloudKit save fallback when running without a local cache context.
                 let isOwnerFallback = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
                 let storedOwnerFallback = appState?.isZoneOwner ?? false
                 if isOwnerFallback != storedOwnerFallback {
@@ -220,11 +206,7 @@ final class GemService {
                 return true
             }
 
-            // Local balance check avoids a wasted server round-trip when the
-            // denormalized `Profile.gems` is stale behind the ledger sum.
-            // CloudKit remains the authoritative gate via
-            // `atomicallyDebitGems`; this is an early local rejection with
-            // an explanatory toast.
+            // Checks local gem balance before making server requests.
             if cacheService != nil {
                 do {
                     let localBalance = try balance(for: spendingProfile.id.recordName, familyRecordName: spendingProfile.family.recordID.recordName)
@@ -275,11 +257,7 @@ final class GemService {
 
 // MARK: - GemLock
 
-/// Per-key async lock that serializes callers contending on the same key
-/// while allowing different keys to proceed in parallel. Actor isolation
-/// removes the need for `Synchronization.Mutex` + `Box` +
-/// `CheckedContinuation` + `withTaskCancellationHandler` plumbing. Waiters
-/// suspend via `CheckedContinuation` without busy-spinning on `MainActor`.
+/// Serializes concurrent gem operations on the same key.
 actor GemLock {
     private var locked = Set<String>()
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -295,6 +273,7 @@ actor GemLock {
             locked.insert(key)
             return
         }
+        // resumes exactly once — actor-isolated, no onCancel needed
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             waiters[key, default: []].append(continuation)
         }

@@ -15,10 +15,7 @@ struct DailyLoginBannerView: View {
     @Environment(CelebrationManager.self) private var celebrationManager
     @Environment(AppState.self) private var appState
 
-    /// When `true`, the banner renders a compact one-line pill once today's
-    /// reward has been claimed; otherwise the full 7-day cycle stays visible
-    /// at all times. Set to `false` on screens (such as the Quests view) that
-    /// want to keep the full cycle visible even after claim.
+    /// Renders a compact one-line pill once today's reward is claimed.
     let compactMode: Bool
 
     @State private var isPulsing = false
@@ -37,7 +34,7 @@ struct DailyLoginBannerView: View {
     }
 
     var body: some View {
-        // WHY: Daily login rewards are RPG-era chrome — hidden behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1 gamification contract.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         Group {
             if !FeatureFlags.rpgImmersive {
                 EmptyView()

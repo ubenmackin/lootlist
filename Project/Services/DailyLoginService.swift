@@ -58,10 +58,8 @@ final class DailyLoginService {
 
     // MARK: - Reactive surface (read-through to the CloudKit-backed Profile cache)
 
-    /// To allow UI to bind or read reactively, computed properties resolve the
-    /// authoritative claim state from the local cache mirror of the `Profile`
-    /// record — the same store `CKSyncEngine` hydrates from CloudKit, so a
-    /// claim made on another device surfaces here after sync.
+    /// To allow UI to bind or read reactively, computed properties resolve the authoritative claim state
+    /// from the local cache mirror of the `Profile` record — the same store `CKSyncEngine` hydrates from
     var currentCycleDay: Int {
         resolvedActiveProfile()?.dailyLoginCycleDay ?? 1
     }
@@ -178,18 +176,10 @@ final class DailyLoginService {
         return true
     }
 
-    /// Cross-device claim guard: the last-claim day is read from the
-    /// CloudKit-backed `Profile.dailyLoginLastClaimDay`, so a reward claimed on
-    /// device A is honored on device B after `CKSyncEngine` syncs. The daily
-    /// cycle is now per-profile (each hero carries its own claim state on its
-    /// `Profile` record), so the prior shared-device hero-switch plumbing is
-    /// no longer needed — heroes are inherently isolated by record name.
+    /// Cross-device claim guard: the last-claim day is read from the CloudKit-backed
+    /// `Profile.dailyLoginLastClaimDay`, so a reward claimed on device A is honored on device B after
     func checkDailyLoginStatus(heroProfileRecordName: String) -> DailyLoginStatus {
-        // Fail closed for a caller-supplied profile that is not the
-        // authenticated active profile. Returning `.available` here would
-        // make an invalid target appear claimable in a UI or shortcut.
-        // Single atomic read of resolvedActiveProfile avoids TOCTOU where
-        // currentProfile changes between the id check and profile resolution.
+        // Fail closed for a caller-supplied profile that is not the authenticated active profile.
         guard let profile = resolvedActiveProfile(),
               profile.id.recordName == heroProfileRecordName
         else { return .claimedToday }
@@ -278,10 +268,8 @@ final class DailyLoginService {
 
         let gemsToAward = rewards[cycle] ?? 5
 
-        // Advance claim state on the Profile BEFORE crediting gems so the single
-        // upsert inside `GemService.creditGems` carries both the gem increment
-        // and the new streak/cycle/claim-day fields (avoids a follow-up upsert
-        // overwriting the freshly-credited gemsTotal).
+        // Advance claim state on the Profile BEFORE crediting gems so the single upsert inside
+        // `GemService.creditGems` carries both the gem increment and the new streak/cycle/claim-day fields
         streak += 1
         if streak % 7 == 0 {
             current.streakShields = min(current.streakShields + 1, 3)
@@ -323,10 +311,7 @@ final class DailyLoginService {
             return 0
         }
 
-        // Re-resolve the authoritative profile from cache so the session
-        // reflects the freshly-credited gems. Assigning the stale
-        // `current` copy here would overwrite the `gems` updated inside
-        // `creditGems` with the pre-credit value.
+        // Re-resolve the authoritative profile from cache so the session reflects the freshly-credited gems.
         if let active = appState.currentProfile, active.id == current.id {
             if let refreshed = resolvedProfile(current) ?? cacheService?.fetchProfile(recordName: current.id.recordName, family: current.family.recordID.recordName)?
                 .toProfile(zoneID: current.id.zoneID)

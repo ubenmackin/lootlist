@@ -8,10 +8,8 @@
 import CloudKit
 import Foundation
 
-/// Decoded domain model envelope used to cross the `@MainActor → BackgroundCacheActor`
-/// boundary without carrying non-Sendable `CKRecord`. Parsing happens canonically
-/// on the `@MainActor` side via `ParsedRecord.parse(record:)` (inside `CKSyncEngineDelegateHandler`);
-/// only Sendable domain structs travel across.
+/// Decoded domain model envelope used to cross the `@MainActor → BackgroundCacheActor` boundary without
+/// carrying non-Sendable `CKRecord`.
 enum ParsedRecord: Sendable {
     case family(Family)
     case profile(Profile)
@@ -134,10 +132,8 @@ struct AtomicGemDebit: Sendable {
     let ledger: GemLedger
 }
 
-/// Lightweight mirror of a `CKShare` participant's identity and acceptance
-/// status, consumed by the share-reconciliation pass. `CKShare.Participant`
-/// cannot be synthesized with a chosen acceptance status in unit tests, so the
-/// reconciler reads this testable form rather than the raw participant object.
+/// Lightweight mirror of a `CKShare` participant's identity and acceptance status, consumed by the
+/// share-reconciliation pass.
 struct ShareParticipantStatus: Sendable, Equatable {
     let identityKey: String?
     let recordName: String?
@@ -212,10 +208,7 @@ protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
     /// shares. Covers pending invites that have no iCloud user record name yet.
     func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws
 
-    /// Lightweight view of each participant's identity and acceptance status
-    /// across all role shares. The share-reconciliation pass reads this instead
-    /// of raw `CKShare.Participant` objects so its suspicious-departure logic
-    /// stays unit-testable (statuses can be synthesized in tests).
+    /// Lightweight view of each participant's identity and acceptance status across all role shares.
     func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus]
 
     /// Maps each share participant's stable identity key or record name to the
@@ -280,10 +273,7 @@ extension CloudKitServiceProtocol {
         try await delete(record.recordID, in: record.recordID.zoneID, using: db)
     }
 
-    /// Performs a conditional balance update and ledger creation in one
-    /// CloudKit operation. The mock path intentionally uses the protocol's
-    /// normal save methods because test doubles do not expose a CKDatabase;
-    /// production CloudKitService always takes the atomic custom-zone path.
+    /// Performs a conditional balance update and ledger creation in one CloudKit operation.
     func atomicallyDebitGems(
         amount: Int,
         from profile: Profile,
@@ -327,10 +317,7 @@ extension CloudKitServiceProtocol {
                         using: database
                     )
                 } catch let error as CloudKitServiceError {
-                    // A mock can model a local-first credit without having
-                    // received the profile's pending sync write yet. Real
-                    // CloudKit never uses this fallback; it must fetch the
-                    // server record before allowing a debit.
+                    // A mock can model a local-first credit without having received the profile's pending sync write yet.
                     if isMock, case .notFound = error {
                         authoritativeProfile = profile
                     } else {

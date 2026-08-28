@@ -52,13 +52,7 @@ enum UserRole: String, Codable, CaseIterable, Sendable {
 // MARK: - CKShare Role Token
 
 extension UserRole {
-    /// Role token embedded in `CKShare` titles (as `"<familyName>" + suffix`)
-    /// so the joiner side can recover the target role from the title field of
-    /// the `CKShare` record behind the share metadata
-    /// (`metadata.share[CKShare.SystemFieldKey.title]`). The exact suffix
-    /// literals are the wire contract between the GM-side mint
-    /// (`createShare(for:role:)`) and the joiner-side parse
-    /// (`fromShareTitle(_:)`) — keep the two in sync.
+    /// Role token embedded in CKShare titles to recover target role on join.
     var shareTitleSuffix: String {
         switch self {
         case .guildMaster: ": Guild"
@@ -67,12 +61,7 @@ extension UserRole {
         }
     }
 
-    /// Encodes the role token baked into `CKShare.title` by the GM-side
-    /// invitation flow. Synchronized with the sharing service's
-    /// `createShare(for:role:)` title conventions. Returns the role matching
-    /// the share's title suffix, or nil for titles without a recognized role
-    /// token (e.g. legacy family-name-only titles minted before role-targeted
-    /// invitations) — callers fall back to `.hero` in that case.
+    /// Decodes the role token from CKShare title, defaulting to .hero when absent.
     static func fromShareTitle(_ title: String?) -> UserRole? {
         guard let title else { return nil }
         return allCases.first { title.hasSuffix($0.shareTitleSuffix) }

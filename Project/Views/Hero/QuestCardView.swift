@@ -72,7 +72,7 @@ struct QuestCardView: View {
                             .font(.headline)
                             .foregroundStyle(isFullyCompleted ? .secondary : .primary)
 
-                        // WHY: rarity icon/color is legacy RPG chrome — hidden behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1 gamification contract.
+                        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
                         if FeatureFlags.rpgImmersive, rarity != .common {
                             Image(systemName: rarity.iconSystemName)
                                 .font(.caption2)
@@ -188,7 +188,7 @@ struct QuestCardView: View {
                 .fill(cardBackgroundColor)
         )
 
-        // WHY: rarity border is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         Group {
             if FeatureFlags.rpgImmersive {
                 cardContent.rarityBorder(rarity)

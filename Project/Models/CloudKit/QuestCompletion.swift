@@ -33,12 +33,8 @@ struct QuestCompletion: Identifiable, Equatable, Sendable {
 
     var verifiedDate: Date?
 
-    /// Per-record XP-credit idempotency marker: the XP amount this
-    /// completion's reward step settled (`nil` = not yet
-    /// settled, `0` = settled but capped). A reward-step re-run for a
-    /// completion whose marker is set grants zero additional XP. Server-
-    /// authoritative like every field on the record — shared across family
-    /// devices via the family zone.
+    /// Per-record XP-credit idempotency marker: the XP amount this completion's reward step settled (`nil`
+    /// = not yet settled, `0` = settled but capped).
     var xpCredited: Int?
 
     var weekOf: Date

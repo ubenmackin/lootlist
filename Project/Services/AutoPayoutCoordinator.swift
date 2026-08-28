@@ -20,16 +20,11 @@ final class AutoPayoutCoordinator {
     private let appState: AppState
 
     /// Shared in-app toast surface. Mirrors the `toastManager` injection on
-    /// `AchievementService`/`QuestService`/`TreasuryService`. Optional so the
-    /// coordinator can be constructed without it (read-only test paths); when
-    /// present, a summary banner is emitted after a weekly carry-forward pass.
+    /// `AchievementService`/`QuestService`/`TreasuryService`.
     let toastManager: ToastManager?
 
-    /// Atomic double-run guard. See `processPendingPayoutsIfDue` — a plain Bool on
-    /// `@MainActor` races when two callers (scenePhase .active + BGAppRefreshTask)
-    /// invoke concurrently: the second can read `false` before the first sets `true`
-    /// across the first `await` gap (fetchHeroes). `Mutex<Bool>` makes check-and-set
-    /// synchronous via `withLock` before any suspension point.
+    /// Atomic double-run guard. See `processPendingPayoutsIfDue` — a plain Bool on `@MainActor` races when
+    /// two callers (scenePhase .active + BGAppRefreshTask) invoke concurrently: the second can read `false`
     private let isProcessing = Mutex<Bool>(false)
 
     init(
@@ -60,13 +55,8 @@ final class AutoPayoutCoordinator {
             return 0
         }
 
-        // Atomic check-and-set via Mutex so concurrent callers (scenePhase .active
-        // + BGAppRefreshTask) cannot both enter the heroes loop. The withLock
-        // section is synchronous and completes before the first await (fetchHeroes),
-        // closing the await-gap race where a plain Bool on @MainActor would still
-        // read false after the first caller yielded. Reproduce: concurrent
-        // Task { await coordinator.processPendingPayoutsIfDue(now:) } x2 with same
-        // now where payout is due — processedCount must be 1, not 2.
+        // Atomic check-and-set via Mutex so concurrent callers (scenePhase .active + BGAppRefreshTask) cannot
+        // both enter the heroes loop.
         guard isProcessing.withLock({ flag in
             guard !flag else { return false }
             flag = true
@@ -83,10 +73,8 @@ final class AutoPayoutCoordinator {
             let heroes = try await familyService.fetchHeroes(for: family)
 
             for hero in heroes {
-                // Real-time heroes have no weekly payout step — their earnings are
-                // settled via runPayout's real-time guard on each quest completion.
-                // Skip them here to avoid creating a no-op allowance period and
-                // emitting misleading logs.
+                // Real-time heroes have no weekly payout step — their earnings are settled via runPayout's real-time
+                // guard on each quest completion.
                 let effectivePolicy = hero.payoutPolicy ?? family.payoutPolicy
                 guard effectivePolicy != .realTime else { continue }
 
@@ -152,11 +140,8 @@ final class AutoPayoutCoordinator {
                 logger.info("Swept \(allSweptQuests.count) expired quests for family \(family.name, privacy: .private)")
             }
 
-            // Recurring quest carry-forward: roll template-backed quests from
-            // the previous week into the current week so a parent doesn't have
-            // to reassign recurring chores each week. Parent-only by virtue of
-            // the role guard above; idempotent so re-runs in the same week don't
-            // duplicate assignments.
+            // Recurring quest carry-forward: roll template-backed quests from the previous week into the current
+            // week so a parent doesn't have to reassign recurring chores each week.
             await carryForwardRecurringQuests(
                 family: family,
                 heroes: heroes,
@@ -170,35 +155,7 @@ final class AutoPayoutCoordinator {
         return processedCount
     }
 
-    /// Carries forward recurring template-backed quests from the previous week
-    /// into the current week.
-    ///
-    /// For each unique `(template, assignee)` tuple that existed in the previous
-    /// week, a new quest is assigned for the current week — unless one for that
-    /// tuple already exists (idempotent). A pair whose current-week quest was
-    /// explicitly unassigned by a parent mid-week is protected by a suppression
-    /// tombstone (see ``QuestService.unassignQuest``): the unassigned row is
-    /// retained with `active == false`, so the pair stays occupied in the
-    /// idempotency gate for the current carry window and is never re-created
-    /// until the week rolls over. Quests backed by an inactive template
-    /// (ad-hoc Quick Create quests carry `isActive == false` templates), by a
-    /// template that has since been deleted, or assigned to a profile no longer
-    /// on the family roster are skipped. All template defaults (schedule type,
-    /// target count, specific days) are preserved by passing `nil` overrides to
-    /// ``QuestService.assignQuest``.
-    ///
-    /// **Per-assignee payout-day anchoring.** `assignQuest` stores `weekOf`
-    /// normalized to the assignee's effective payout day (profile override →
-    /// family payout day → `.sunday` fallback), so the source window, the
-    /// idempotency gate, and the `weekOf` value handed to ``assignQuest`` must
-    /// all use the same per-assignee anchor. A hero with a per-profile
-    /// override (e.g. a `.friday` hero in a `.sunday` family) has a week
-    /// shifted by up to six days from the family cycle; anchoring everything
-    /// on the family payday instead would land the stored current-week row
-    /// outside the engine's own gate (duplicate assignments on every run) AND
-    /// hide the unassign tombstone (which is keyed on the same assignee-anchored
-    /// `weekOf`) from the gate. Heroes sharing an effective payout day share
-    /// one fetch pair; override heroes get their own.
+    /// Carries forward recurring template-backed quests from the previous week into the current week.
     private func carryForwardRecurringQuests(
         family: Family,
         heroes: [Profile],
@@ -309,11 +266,8 @@ final class AutoPayoutCoordinator {
         return pendingTuples
     }
 
-    /// Assigns each pending `(template, assignee)` tuple for the current week,
-    /// preserving template defaults via `nil` overrides. Returns the count of
-    /// new assignments plus a per-assignee tally for the summary notification.
-    /// `weekOf` is the current week start for this group of assignees, anchored
-    /// on their effective payout day (see ``carryForwardRecurringQuests``).
+    /// Assigns each pending `(template, assignee)` tuple for the current week, preserving template defaults
+    /// via `nil` overrides.
     private func assignCarriedForwardQuests(
         pendingTuples: [TemplateAssigneePair],
         existingPairs: Set<TemplateAssigneePair>,
@@ -379,7 +333,7 @@ final class AutoPayoutCoordinator {
             guard let hero = heroByRecordName[assigneeRecordName] else { continue }
             let title = count == 1 ? "⚔️ New Quest Assigned!" : "⚔️ New Quests Assigned!"
             let body = "You have \(count) new quest\(count == 1 ? "" : "s") carried over for the new week."
-            Task { @Sendable [logger, notificationService, hero, title, body] in
+            Task { @MainActor @Sendable [logger, notificationService, hero, title, body] in
                 do {
                     try await notificationService.send(.questAssigned, to: hero, title: title, body: body)
                 } catch {

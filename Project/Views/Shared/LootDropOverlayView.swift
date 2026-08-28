@@ -30,7 +30,7 @@ struct LootDropOverlayView: View {
     }
 
     var body: some View {
-        // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         if !FeatureFlags.rpgImmersive {
             EmptyView()
         } else {

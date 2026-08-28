@@ -38,13 +38,7 @@ extension QuestService {
         return streak
     }
 
-    /// Authoritative week earnings for the wallet. Pure `GoldCalculation` math
-    /// over already-fetched quests — no CloudKit access inside the math util.
-    ///
-    /// - Throws: Re-throws `fetchQuestLogs` / quest-fetch CloudKit errors.
-    ///   Callers must handle with `do { try await ... } catch` + toast + retry.
-    ///   Cache-only callers should use `HeroDashboardViewModel.earnedThisWeek`
-    ///   / `GoldCalculation.netWeeklyGold` instead, which are `sync`/`non-throwing`.
+    /// Calculates net weekly earnings from quest completions using pure cache math.
     func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
         let payoutDay = effectivePayoutDay(for: profile)
         let normalizedWeek = QuestService.startOfWeek(for: weekOf, payoutDay: payoutDay)

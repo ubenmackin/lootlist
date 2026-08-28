@@ -163,7 +163,7 @@ struct QuestsView: View {
 
     @ViewBuilder
     private var lootDropOverlay: some View {
-        // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         if FeatureFlags.rpgImmersive {
             LootDropOverlayView(isPresented: $showLootDrop, loot: activeLootDrop)
         }
@@ -196,7 +196,7 @@ struct QuestsView: View {
     }
 
     private func handleLootPresentationChange(_ loot: LootDrop?) {
-        // WHY: Loot drops are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         guard FeatureFlags.rpgImmersive, let loot else { return }
         activeLootDrop = loot
         withAnimation {

@@ -29,10 +29,8 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     var location: String?
     var date: Date
 
-    /// Free-form movement tag. Allowed values: "manual" (default), "quest"
-    /// (payout deposits), "interest", "match", "transfer", plus import-tagged
-    /// entries ("import-…" prefixed). Not an enum on the wire so legacy and
-    /// future sources keep ingesting without a migration.
+    /// Free-form movement tag. Allowed values: "manual" (default), "quest" (payout deposits), "interest",
+    /// "match", "transfer", plus import-tagged entries ("import-…" prefixed).
     var source: String
 
     // MARK: - Bucket attribution (V8)

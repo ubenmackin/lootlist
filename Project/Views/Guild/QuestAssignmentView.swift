@@ -317,7 +317,7 @@ struct QuestAssignmentView: View {
                     .disabled(editHasLogs)
             }
 
-            // WHY: Bonus Reward/XP field is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+            // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
             if FeatureFlags.rpgImmersive {
                 HStack {
                     Text("Bonus Reward")
@@ -518,7 +518,7 @@ struct QuestAssignmentView: View {
         }
 
         let gold: Double? = Double(goldOverrideText.trimmingCharacters(in: .whitespaces))
-        // WHY: XP override is legacy RPG chrome — hidden when immersive off so no XP copy surfaces (ARCHITECTURE.md §1).
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         let xp: Int? = FeatureFlags.rpgImmersive ? Int(xpOverrideText.trimmingCharacters(in: .whitespaces)) : nil
         let approval: ApprovalMode? = switch approvalOverride {
         case .useTemplate: nil
@@ -579,7 +579,7 @@ struct QuestAssignmentView: View {
             return
         }
 
-        // WHY: XP accrues invisibly when RPG layer is off — flat 50xp default per ARCHITECTURE.md §1.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         let xp = FeatureFlags.rpgImmersive ? quickRarity.xpReward : AppConstants.Rarity.commonXP
 
         if quickSchedule == .specificDays, quickSpecificDays.isEmpty {
@@ -669,7 +669,7 @@ struct QuestAssignmentView: View {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
-        // WHY: XP hidden while RPG layer is off — use flat default so no XP copy surfaces (ARCHITECTURE.md §1).
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         let xp: Int
         if FeatureFlags.rpgImmersive {
             guard let parsed = Int(editXpText.trimmingCharacters(in: .whitespaces)), parsed >= 0 else {

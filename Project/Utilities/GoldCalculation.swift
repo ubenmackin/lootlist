@@ -16,13 +16,6 @@ enum GoldCalculation: Sendable {
     )
 
     /// Computes prorated gold credit based on approved completion count and payout policy.
-    ///
-    /// - Parameters:
-    ///   - goldReward: Total gold bounty for the quest.
-    ///   - targetCount: Completions required to fully earn `goldReward`.
-    ///   - isAllOrNothing: Whether full completion is required for any payout.
-    ///   - approvedCount: Number of approved logs for this quest.
-    /// - Returns: The gold amount to credit as a `Decimal`.
     static func credit(goldReward: Double,
                        targetCount: Int,
                        isAllOrNothing: Bool,
@@ -55,11 +48,7 @@ enum GoldCalculation: Sendable {
                approvedCount: approvedCount)
     }
 
-    /// `Double`-returning variant for wallet plumbing that accumulates gold
-    /// into existing `Double` totals (e.g. `TreasuryService.sumGold`,
-    /// dashboard breakdowns). The proration itself still runs in `Decimal`;
-    /// the result is bridged through `NSDecimalNumber` so banker's rounding
-    /// — not `Double` truncation — decides the last cent.
+    /// Double-returning variant using banker's rounding for wallet totals.
     static func creditAsDouble(goldReward: Double,
                                targetCount: Int,
                                isAllOrNothing: Bool,
@@ -88,14 +77,7 @@ enum GoldCalculation: Sendable {
                        approvedCount: approvedCount)
     }
 
-    /// Cumulative XP credit for a quest, prorated and capped at `xpReward`.
-    ///
-    /// - Parameters:
-    ///   - xpReward: Full XP bounty for the quest.
-    ///   - targetCount: Completions required to fully earn `xpReward`.
-    ///   - isAllOrNothing: `true` for `PayoutPolicy.allOrNothing`.
-    ///   - approvedCount: Number of approved logs for this quest.
-    /// - Returns: The cumulative XP credit, capped at `xpReward`.
+    /// Cumulative XP credit for a quest, prorated and capped at xpReward.
     static func xpCredit(xpReward: Int,
                          targetCount: Int,
                          isAllOrNothing: Bool,
@@ -122,12 +104,6 @@ enum GoldCalculation: Sendable {
     }
 
     /// Marginal XP grant for one approved quest completion, bounded by remaining bounty.
-    ///
-    /// - Parameters:
-    ///   - quest: The quest being rewarded.
-    ///   - approvedCount: Approved logs visible to the post-save recount.
-    ///   - alreadyCredited: XP already banked for this quest by earlier completions.
-    /// - Returns: The XP to grant for this completion, always `>= 0`.
     static func marginalXPCredit(for quest: Quest,
                                  approvedCount: Int,
                                  alreadyCredited: Int) -> Int
@@ -186,10 +162,7 @@ enum GoldCalculation: Sendable {
         return approvedCount >= target
     }
 
-    /// Whether a quest's non-rejected logs (approved OR pending) already
-    /// occupy every completion slot — the gate `QuestService.markComplete`
-    /// uses to reject a new completion before the hero logs more. Guarded
-    /// against `targetCount == 0` like every sibling completion check.
+    /// Returns true if non-rejected logs already occupy all target completion slots.
     static func nonRejectedLogsReachTarget(quest: QuestCache, nonRejectedCount: Int) -> Bool {
         let target = max(1, quest.targetCount)
         return nonRejectedCount >= target
@@ -236,10 +209,7 @@ enum GoldCalculation: Sendable {
 
     // MARK: - Pure Domain Gold Aggregation
 
-    /// Pure gold summation over already-fetched `Quest` models. No cache or
-    /// CloudKit access — callers must supply the quest records that
-    /// correspond to `logs`. Missing quests are skipped (treated as 0) and
-    /// logged at warning so CloudKit fetch gaps remain observable.
+    /// Pure gold summation over already-fetched Quest models.
     static func totalCredit(for quests: [Quest], logs: [QuestCompletion]) -> Double {
         let approved = logs.filter {
             $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved

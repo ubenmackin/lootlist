@@ -7,10 +7,7 @@
 
 import SwiftUI
 
-/// Toolbar menu that presents a mutually-exclusive option set and marks the
-/// currently selected option with a checkmark. Generic over any
-/// `Identifiable & Equatable` option so it can drive enums, cache models,
-/// or date-range scopes alike.
+/// Toolbar menu presenting a mutually-exclusive option set with checkmark selection.
 struct CheckmarkMenu<Option: Identifiable & Equatable>: View {
     let systemImage: String
     let options: [Option]

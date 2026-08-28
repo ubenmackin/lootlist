@@ -23,7 +23,7 @@ struct HeroHeaderCardView: View {
             headerRow
             Divider()
             statsRow
-            // WHY: Level/XP bar is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+            // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
             if FeatureFlags.rpgImmersive, levelProgress != nil {
                 Divider()
                 xpProgressBarSection
@@ -119,7 +119,7 @@ struct HeroHeaderCardView: View {
 
             Spacer()
 
-            // WHY: Gems are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+            // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
             if FeatureFlags.rpgImmersive {
                 HStack(spacing: 6) {
                     Text("💎")
@@ -152,7 +152,7 @@ struct HeroHeaderCardView: View {
     private var xpProgressBarSection: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                // WHY: Level badge is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+                // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
                 if FeatureFlags.rpgImmersive {
                     Text("Lv. \(levelProgress?.currentLevel ?? profileCache?.level ?? 1)")
                         .font(.caption.bold())

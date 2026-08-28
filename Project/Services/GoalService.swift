@@ -43,14 +43,7 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
 
 // MARK: - GoalService
 
-/// Creates, archives, and completes savings goals. Contributions flow through
-/// the pure `allocate(amountPennies:goals:)` FIFO allocator so the same cascade
-/// logic is testable in isolation and reused by the payout engine.
-///
-/// Role rules:
-/// - **Heroes own their goals:** a child may create, archive, and complete their
-///   own goals but not touch another hero's goals.
-/// - **Parents may archive any goal** as defense-in-depth moderation.
+/// Creates, archives, and completes savings goals with FIFO bucket allocations.
 @MainActor
 @Observable
 final class GoalService {
@@ -92,19 +85,7 @@ final class GoalService {
 
     // MARK: - FIFO Allocator (pure, no side effects)
 
-    /// Groups goals by `(profileRecordName, bucketKind)`, then within each
-    /// group fills the oldest incomplete non-archived goal first. Overflow
-    /// cascades to the next goal in creation order. Surplus past all goals is
-    /// NOT returned — it stays as unallocated savings in the bucket.
-    ///
-    /// Completed goals consume their target from the pool but produce no
-    /// allocation entry — the funds were already credited when the goal reached
-    /// its target. Archived goals are skipped entirely and do not consume funds.
-    ///
-    /// Callers pre-filter goals to a single `(profile, bucket)` pair so the pool
-    /// maps 1:1 to one bucket's incoming funds. Passing a broader set still
-    /// produces deterministic results but distributes the single pool across
-    /// every `(profile, bucket)` group.
+    /// Groups goals by profile and bucket, projecting FIFO allocations from savings entries.
     static func allocate(amountPennies: Int64, goals: [GoalCache]) -> [GoalAllocation] {
         guard amountPennies > 0 else { return [] }
         var remaining = amountPennies
@@ -287,11 +268,7 @@ final class GoalService {
         return updatedGoal
     }
 
-    /// Archives straight from a `GoalCache` row so view-layer callers never
-    /// convert cache models into the domain struct themselves — that
-    /// conversion belongs at the service mutation boundary. Delegation to
-    /// `archiveGoal(_:family:)` keeps every role and scope guard on the one
-    /// canonical write path.
+    /// Archives goal locally and enqueues CloudKit delete.
     func archiveGoal(_ goalCache: GoalCache, familyRecordName: String?) async throws {
         guard let appState, let family = appState.family else {
             throw ScopeViolation.noActiveFamily
@@ -495,16 +472,7 @@ final class GoalService {
 
     // MARK: - Contribute Funds to Goals (FIFO)
 
-    /// Allocates an incoming bucket deposit across the profile's active
-    /// (non-archived) goals in FIFO order for the given bucket. The allocation
-    /// result drives immutable ledger entries with deterministic contribution
-    /// IDs so CloudKit dedupes them across devices. Returns the allocations so
-    /// callers can inspect which goals received funds.
-    ///
-    /// If a contribution fills the final penny of a goal, the goal is marked
-    /// complete and celebration feedback fires. Callers must pass a stable
-    /// `sourceEventID` (e.g. a payout period record name) to produce
-    /// deterministic contribution record names.
+    /// Allocates deposit across active goals FIFO, returning created contribution events.
     @discardableResult
     func contributeToBucket(amountPennies: Int64,
                             profile: Profile,
@@ -611,10 +579,7 @@ final class GoalService {
 
     // MARK: - Completion Detection
 
-    /// Returns the GoalCache rows that were fully filled by this batch of
-    /// allocations. A goal is "completed" when the cumulative contributions
-    /// (existing ledger entries + this allocation) reach or exceed its target.
-    /// Only goals receiving funds in this batch are checked.
+    /// Returns GoalCache rows that reached full funding from recent allocations.
     private func detectCompletions(allocations: [GoalAllocation],
                                    goals: [GoalCache]) -> [GoalCache]
     {
