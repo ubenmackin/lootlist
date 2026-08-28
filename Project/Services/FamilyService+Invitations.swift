@@ -20,21 +20,15 @@ struct InvitationLinkResolution: Sendable {
 extension FamilyService {
     // MARK: Identity
 
-    /// Resolves the current iCloud user's record name for invitation guards
-    /// (prevents revoking self, hides owner rows). Re-resolves fresh on every
-    /// call so an OS-level iCloud account change is never masked by a cached
-    /// value.
+    /// Resolves the current iCloud user's record name for invitation guards (prevents revoking self, hides
+    /// owner rows).
     func currentUserRecordName() async throws -> String {
         try await cloudKit.currentUserRecordID().recordName
     }
 
     // MARK: Share Operations
 
-    /// Creates or fetches the role-specific `CKShare` for the family. The share
-    /// carries `publicPermission = .none` — joining happens only via explicit
-    /// participant invites minted through `UICloudSharingController`, not a
-    /// public link. Only the zone owner (Guild Master) may mint shares, and the
-    /// caller must verify that guard first.
+    /// Creates or fetches the role-specific `CKShare` for the family.
     func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare {
         try await cloudKit.fetchOrCreateShare(for: family.id, role: role)
     }
@@ -46,10 +40,7 @@ extension FamilyService {
         CloudSharePresentation(share: share, container: cloudKit.container)
     }
 
-    /// Resolves a pasted invitation link into share acceptance metadata. The
-    /// title and zone name ride along so callers can log the resolution
-    /// without touching raw CloudKit types; container access stays behind the
-    /// service boundary.
+    /// Resolves a pasted invitation link into share acceptance metadata.
     func resolveInvitationLink(_ url: URL) async throws -> InvitationLinkResolution {
         let metadata = try await cloudKit.shareMetadata(for: url)
         let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
@@ -86,10 +77,8 @@ extension FamilyService {
         try await cloudKit.removeParticipant(participant, from: family.id)
     }
 
-    /// Removes a share participant by iCloud record name. Used when only the
-    /// identity record name is available (e.g. departed member whose
-    /// participant object was lost after deactivation). Only the zone owner
-    /// may revoke.
+    /// Removes a share participant by iCloud record name. Used when only the identity record name is
+    /// available (e.g.
     func revokeInvitation(identityRecordName: String, from family: Family) async throws {
         try await cloudKit.removeParticipant(iCloudUserRecordName: identityRecordName, from: family.id)
     }

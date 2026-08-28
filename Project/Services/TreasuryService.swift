@@ -24,10 +24,7 @@ final class TreasuryService {
 
     // MARK: - Period Creation Serialization
 
-    /// Serializes concurrent `getOrCreateAllowancePeriod` calls for the same
-    /// deterministic `period-<family>-<profile>-<week>` record name via
-    /// `GemLock`. Two quest completions in the same week would otherwise
-    /// both observe nil and create competing rows with identical record names.
+    /// Serializes concurrent allowance period lookups per profile and week.
     private let periodLock = GemLock()
 
     /// The active session's app state, used to resolve the acting profile for
@@ -77,17 +74,7 @@ final class TreasuryService {
         var paidAmount: Double?
     }
 
-    /// Wallet-week gold breakdown for a single hero. Cache-first for
-    /// quest logs / assigned quests / ledger entries; falls through to
-    /// CloudKit when `CacheService.isCacheFresh` is false. Gold proration is
-    /// pure `GoldCalculation` math over already-fetched quests.
-    ///
-    /// - Throws: `CloudKitServiceError` / `CKError` when `fetchQuestLogs` /
-    ///   `fetchAssignedQuests` / `fetchLedgerEntries` requires a CloudKit
-    ///   round trip that fails. Transient failures are re-thrown so callers
-    ///   surface the failure instead of silently under-crediting the wallet.
-    ///   UI callers must invoke with `do { _ = try await
-    ///   treasury.weeklyBreakdown(...) } catch { toast + retry }`.
+    /// Calculates wallet-week gold breakdown for a hero with cache-first reads.
     func weeklyBreakdown(profile: Profile,
                          family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown
@@ -167,11 +154,7 @@ final class TreasuryService {
         let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(startOfWeek.timeIntervalSince1970))"
 
         return try await periodLock.withLock(key: periodRecordName) {
-            // Fast cache existence check that bypasses the `isCacheFresh` gate.
-            // The cache upsert from the first holder is visible immediately even
-            // when the freshness watermark is stale; `fetchAllowancePeriod` would
-            // otherwise discard the cached row and re-query CloudKit, missing the
-            // just-created local row and creating a duplicate.
+            // Fast cache check for allowance period existence.
             if let cache = cacheService,
                let cached = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName)
             {
@@ -327,10 +310,7 @@ final class TreasuryService {
             resolvedFamily = family
             let breakdown = try await weeklyBreakdown(profile: profile, family: family, weekOf: period.weekOf)
             guard breakdown.totalEarned > 0 else {
-                // Even when nothing was earned this week the period must still
-                // be closed as paid with zero — otherwise the week stays
-                // open and the auto-payout coordinator retries it on every
-                // launch, foreground transition, and background refresh.
+                // Closes empty allowance period so rollover advances correctly.
                 updated.status = .paid
                 updated.paidDate = Date()
                 updated.paidAmount = 0
@@ -399,17 +379,7 @@ final class TreasuryService {
         }
     }
 
-    /// Process real-time settlement for heroes with `.realTime` payout policy.
-    ///
-    /// Auth / scope guards return `nil` (not `throw`) so a benign
-    /// unauthorized or out-of-scope call is a no-op rather than a wallet
-    /// error. All CloudKit-backed work — `getOrCreateAllowancePeriod`,
-    /// `fetchQuestLogs` — throws on transient failure and callers must
-    /// handle with `do/catch` + toast + retry rather than letting the throw
-    /// hang the UI. The canonical caller is `QuestService.applyReward`,
-    /// which wraps this in a detached `Task` with `logger.error` +
-    /// `toastManager.show` so the wallet never appears to hang.
-    /// Gold proration itself is pure `GoldCalculation` math over already-fetched quests.
+    /// Processes immediate settlement for heroes with real-time payout policy.
     @discardableResult
     func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
         guard let appState, let acting = appState.currentProfile,

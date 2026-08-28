@@ -63,7 +63,7 @@ struct TemplateManagerView: View {
                             .focused($isAmountFocused)
                     }
 
-                    // WHY: Bonus Tier/XP picker is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+                    // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
                     if FeatureFlags.rpgImmersive {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
@@ -207,7 +207,7 @@ struct TemplateManagerView: View {
             toastManager.show(message: "Reward must be a non-negative number.", type: .error)
             return
         }
-        // WHY: XP accrues invisibly when RPG layer is off — flat 50xp default per ARCHITECTURE.md §1.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         let xp = FeatureFlags.rpgImmersive ? selectedRarity.xpReward : AppConstants.Rarity.commonXP
         if schedule == .specificDays, specificDays.isEmpty {
             toastManager.show(message: "Pick at least one day for Specific-Days schedule.", type: .error)

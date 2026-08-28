@@ -70,11 +70,7 @@ final class QuestService {
         cloudKit
     }
 
-    /// Record names of quests with a completion save currently in flight.
-    /// Local double-submit guard: a second `markComplete` tap for the
-    /// same quest while a save is pending is a no-op/toast instead of a
-    /// duplicate write. Actor-safe via `Mutex`; entries are inserted
-    /// before the optimistic write and released when the save settles.
+    /// Guards against double-submit completions while a save is pending.
     let inFlightCompletions = Mutex<Set<String>>([])
 
     /// Record names of quest completions with a verify/reject action currently in flight.
@@ -250,12 +246,7 @@ final class QuestService {
         }
     }
 
-    /// Cache-first single-template read for presentation paths. On a cache
-    /// miss it fetches the record from CloudKit and re-ingests it as a
-    /// server-sourced snapshot (persisting changeTag and encodedSystemFields)
-    /// so subsequent reads stay fully local. The hydrated row is never
-    /// re-enqueued for save: it originated from the server, and echoing it
-    /// back would create a redundant write cycle.
+    /// Cache-first template fetch with server hydration fallback for local reads.
     func fetchTemplateCached(id: String, familyRecordName: String) async throws -> QuestTemplate? {
         guard let zoneID = appState?.familyZoneID else { return nil }
         return try await fetchTemplateCached(id: CKRecord.ID(recordName: id, zoneID: zoneID), familyRecordName: familyRecordName)
@@ -599,10 +590,7 @@ final class QuestService {
         }
     }
 
-    /// Deactivates uncompleted quests from past weeks whose payouts have been
-    /// finalized, so they no longer appear on primary active quest views. The
-    /// current week is never swept: a mid-week early payout finalizes the week's
-    /// earnings but must not retire quests the hero is still completing.
+    /// Deactivates uncompleted quests from past weeks on rollover.
     @discardableResult
     func sweepExpiredQuests(family: Family, currentWeekOf: Date) async throws -> [Quest] {
         guard let appState, let acting = appState.currentProfile, acting.role.isParent else {
@@ -644,10 +632,7 @@ final class QuestService {
             }
         }
 
-        // Store raw weekOf values without re-normalizing via startOfDay. Each
-        // AllowancePeriod.weekOf was already normalized via WeekMath.startOfWeek
-        // with the profile's effective payoutDay (profile override → family), so
-        // the raw value is the canonical per-hero week anchor.
+        // Preserves raw weekOf timestamps matching the profile's normalized cycle.
         let paidWeeks = Set(allowancePeriods.filter { $0.status == .paid }.map(\.weekOf))
 
         let allQuests: [Quest]
@@ -737,7 +722,7 @@ final class QuestService {
 
     func sendAssignmentNotification(to assignee: Profile, questName: String) {
         guard let notificationService else { return }
-        Task { @Sendable [logger] in
+        Task { @MainActor @Sendable [logger, notificationService, assignee, questName] in
             do {
                 try await notificationService.send(
                     .questAssigned,
@@ -763,12 +748,7 @@ final class QuestService {
         WeekMath.weekRange(starting: startOfWeek(for: date, payoutDay: payoutDay))
     }
 
-    /// Resolves the effective payout day a profile's quests bucket by: the
-    /// profile's own override wins, then the family's configured payout day
-    /// (read from the local cache when present), falling back to the
-    /// backward-compatible Sunday default when unknown. Mirrors the write-path
-    /// normalization in `assignQuest`/`assignQuickQuest` so reads bucket by the
-    /// same cycle the stored `weekOf` values were normalized to.
+    /// Resolves effective payout day (profile override -> family config -> Sunday default).
     func effectivePayoutDay(for profile: Profile) -> PayoutDay {
         if let profilePayoutDay = profile.payoutDay {
             return profilePayoutDay
@@ -788,15 +768,7 @@ final class QuestService {
         WeekMath.weekdayCodes(inWeekOf: weekOf)
     }
 
-    /// True when `quest` is exactly what the weekly carry-forward engine would
-    /// re-create after a hard delete: a removal from the current carry window
-    /// whose backing template is still active. Mirrors the engine's own source
-    /// filter (`activeTemplates`) from the same cache, day-normalized with the
-    /// assignee's effective payout day — the same cycle `assignQuest` buckets
-    /// the quest's `weekOf` into. Quick Create quests (inactive ad-hoc
-    /// templates) and roster-cleanup quests (template gone) fail this check and
-    /// keep the plain hard-delete semantics, since the engine can never re-create
-    /// them in the first place.
+    /// Checks if quest matches template carry-forward state without local modifications.
     private func isCarryForwardSuppressible(_ quest: Quest) -> Bool {
         let assigneePayoutDay = cacheService?.fetchProfile(recordName: quest.assignee.recordID.recordName, family: quest.family.recordID.recordName)?.payoutDayEnum
             ?? cacheService?.fetchFamily(recordName: quest.family.recordID.recordName)?.payoutDayEnum

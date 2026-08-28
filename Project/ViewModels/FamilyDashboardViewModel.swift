@@ -24,11 +24,7 @@ final class FamilyDashboardViewModel {
 
     private(set) var parents: [ProfileCache] = []
 
-    /// `CKShare` participants shown in the Invitations panel in Guild Settings.
-    /// Active member Profiles are excluded (they're owned by `heroes` /
-    /// `parents`); the rows are pending invites, departed members whose
-    /// identity still holds share access, and recently revoked (`.removed`)
-    /// identities.
+    /// Share participants and pending invites shown in the Invitations panel.
     private(set) var invitations: [FamilyInvitation] = []
 
     private(set) var weekSummary: WeekendSummary?
@@ -55,11 +51,7 @@ final class FamilyDashboardViewModel {
     private let appState: AppState
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboard")
 
-    /// Mirrors `TreasuryService.toastManager` so async breakdown fetches can
-    /// surface `GoldCalculation.totalCredit` throw failures with a retry toast
-    /// rather than silently hanging the wallet. Wired by the view via
-    /// `AppDependencies` when available; nil in unit-test inits where the view
-    /// layer provides the toast.
+    /// Mirrors TreasuryService toast manager to surface breakdown errors in toast banner.
     var toastManager: ToastManager? {
         treasury.toastManager
     }
@@ -69,10 +61,7 @@ final class FamilyDashboardViewModel {
     /// subsequent calls so SwiftUI row identity stays stable across refreshes.
     private var identityTokenCache: [String: String] = [:]
 
-    /// Per-refresh counter for assigning sequential numeric labels to
-    /// identities. Reset at the start of each `refreshInvitations()` call so
-    /// labels stay stable within a single pass regardless of how many
-    /// identities are present.
+    /// Counter for sequential anonymous labels in the Invitations panel.
     private var identityLabelCounter: [String: Int] = [:]
 
     private var syncSubscriptionID: UUID?
@@ -94,13 +83,10 @@ final class FamilyDashboardViewModel {
         self.appState = appState
     }
 
-    /// Starts observing family roster changes to refresh invitations when
-    /// membership updates. Must be called after `init` completes so the
-    /// `@MainActor`-isolated caches (`identityTokenCache`,
-    /// `identityLabelCounter`) are not accessed from a non-isolated context.
+    /// Observes roster changes to refresh invitations when members join or leave.
     func startRosterObserver() {
         guard rosterObserverTask == nil else { return }
-        rosterObserverTask = Task { @MainActor [weak self] in
+        rosterObserverTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
                 guard let self else { return }
                 await self.refreshInvitations()
@@ -130,15 +116,12 @@ final class FamilyDashboardViewModel {
             do {
                 try await achievements.seedDefaultAchievements(family: family)
             } catch {
-                logger.debug("Default achievements seed skipped: \(error, privacy: .private)")
+                logger.warning("Default achievements seed skipped: \(error, privacy: .private)")
             }
         }
     }
 
-    /// Resolves the family's `CKShare` for the given invite role. Only the zone
-    /// owner (Guild Master) may mint shares, enforced by the guard here.
-    /// CloudKit interaction is routed through `FamilyService` so the ViewModel
-    /// never holds a raw CloudKit reference.
+    /// Resolves role-specific CKShare via FamilyService (zone owner only).
     func prepareInviteShare(for role: UserRole) async -> CKShare? {
         guard appState.isZoneOwner,
               appState.familyZoneID != nil,
@@ -171,10 +154,7 @@ final class FamilyDashboardViewModel {
         }
 
         var activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
-        // Deactivated member profiles: their identity can remain an
-        // accepted share participant (a self-leave cannot revoke a share it
-        // does not own), which is why the panel flags them for owner-side
-        // revocation instead of hiding them.
+        // Surfaces deactivated members retaining share access for owner revocation.
         let inactiveIdentities = await departedMemberIdentities(for: family)
 
         let participants: [CKShare.Participant]
@@ -245,10 +225,12 @@ final class FamilyDashboardViewModel {
         guard missingAcceptedMembers else { return }
 
         await familyService.refreshProfilesFromCloudKit(for: family)
-        if let freshProfiles = try? await familyService.fetchAllProfilesForFamily(family) {
-            let freshActive = freshProfiles.filter(\.isActive)
-            let freshActiveRecordNames = Set(freshActive.map(\.iCloudUserID.recordName))
-            activeRecordNames.formUnion(freshActiveRecordNames)
+        do {
+            let fresh = try await familyService.fetchAllProfilesForFamily(family)
+            let freshActive = fresh.filter(\.isActive)
+            activeRecordNames.formUnion(Set(freshActive.map(\.iCloudUserID.recordName)))
+        } catch {
+            logger.warning("FamilyDashboard roster reconciliation skipped: \(error, privacy: .private)")
         }
     }
 
@@ -400,10 +382,7 @@ final class FamilyDashboardViewModel {
         )
     }
 
-    /// Maps each deactivated member's identity record name to their display
-    /// name for the Invitations panel. Best-effort: when the profile query
-    /// fails the map is empty and departed members degrade to plain invitation
-    /// rows rather than blocking the panel.
+    /// Maps deactivated member identity record names to display names (best-effort).
     private func departedMemberIdentities(for family: Family) async -> [String: String] {
         let profiles: [Profile]
         do {
@@ -498,11 +477,7 @@ final class FamilyDashboardViewModel {
         return Self.redactedIdentityLabel(for: key, counter: identityLabelCounter)
     }
 
-    /// Produces a stable display label without exposing the participant's
-    /// record name, email address, phone number, or display name. When a
-    /// counter is available, labels are sequential ("Guild Member 1", etc.)
-    /// so different identities are visually distinguishable without leaking
-    /// any identity-derived information.
+    /// Produces a redacted, distinguishable display label without leaking contact data.
     private static func redactedIdentityLabel(for identityKey: String, counter: [String: Int] = [:]) -> String {
         if let number = counter[identityKey] {
             return "Guild Member \(number + 1)"
@@ -520,10 +495,7 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
-    /// intentionally does not throw or call out to CloudKit directly.
-    /// It derives gold via `GoldCalculation.netWeeklyGold` (pure cache math)
-    /// so the dashboard hydrates instantly offline and updates automatically via UDF.
+    /// Synchronous rebuild from SwiftData `@Query` rows using pure cache math.
     func rebuildLists(
         profiles: [ProfileCache],
         quests: [QuestCache],
@@ -708,11 +680,7 @@ struct WeekendSummary: Equatable {
 
     let totalEarned: Double
 
-    /// Amount pending payout for non-real-time heroes only — quest gold
-    /// awaiting weekly settlement. Deposits/withdrawals (bonusGold) hit the
-    /// ledger immediately and must never be pending or require Process Payout.
-    /// Real-time heroes' weekly gold is disbursed immediately on
-    /// each quest completion, so it is never "pending" a weekly batch.
+    /// Quest gold awaiting weekly payout settlement for non-real-time heroes.
     var pendingPayoutAmount: Double {
         heroSummaries.reduce(into: 0.0) { acc, hero in
             if (hero.profile.payoutPolicyEnum ?? .perQuest) != .realTime {
@@ -778,14 +746,7 @@ struct HeroSummary: Equatable, Identifiable {
     }
 }
 
-/// A `CKShare` participant (or participant-derived identity) shown in the Guild
-/// Settings Invitations panel: with a stable redacted display label, a CloudKit
-/// acceptance status, a `kind` that drives presentation and availability of the
-/// revocation action, and identity fields for the revocation call itself —
-/// `participant` when an object is available, else `identityRecordName`. `id`
-/// is a stable opaque token derived from the identity (never the raw iCloud
-/// record name, email, or phone number) — it backs SwiftUI row identity and
-/// accessibility identifiers only, so no contact data leaks into UI tests.
+/// Redacted share participant shown in the Invitations panel for status and revocation.
 struct FamilyInvitation: Identifiable {
     let id: String
     let identity: String
@@ -820,10 +781,7 @@ enum FamilyInvitationKind: Equatable {
     /// A not-yet-member invite: pending or accepted on the share, with no
     /// active `Profile` yet. The Guild Master can revoke it.
     case pendingInvite
-    /// A member whose `Profile` was deactivated (left the guild) but whose
-    /// identity still holds shared-zone access — e.g. after a hero self-leave,
-    /// since a non-owner device cannot revoke a share it does not own. The
-    /// Guild Master revokes here to close the access-layer gap.
+    /// Deactivated member whose share access is pending owner-side revocation.
     case departedMember
     /// An identity the Guild Master already revoked; CloudKit keeps it visible
     /// on the share with `.removed` status until propagation completes.

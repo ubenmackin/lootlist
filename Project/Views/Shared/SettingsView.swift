@@ -160,10 +160,7 @@ struct SettingsView: View {
                     }
                 }
 
-                // Alternate App Icons — unlocked by savings-streak milestones.
-                // Eligibility is device-local via UserDefaults, keyed to streak
-                // weeks reached. setAlternateIconName is guarded by
-                // UIApplication.shared.supportsAlternateIcons.
+                // Alternate App Icons unlocked by savings-streak milestones.
                 if UIApplication.shared.supportsAlternateIcons {
                     Section("App Icon") {
                         ForEach(AppIconLock.allCases, id: \.rawValue) { icon in
@@ -217,10 +214,7 @@ struct SettingsView: View {
                     }
                 }
 
-                // Section: Developer Tools
-                // The sprite gallery renders the immersive avatar/mascot
-                // artwork; it stays one flag away from reappearing rather
-                // than being removed outright.
+                // Developer Tools: diagnostics, cache resets, and mock seeding.
                 if FeatureFlags.rpgImmersive {
                     Section("Developer") {
                         NavigationLink {

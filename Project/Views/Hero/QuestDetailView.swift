@@ -302,10 +302,7 @@ struct QuestDetailView: View {
         return isCompleting || (isLoadingLog && latestLog == nil)
     }
 
-    /// Disables the multi-completion button when a submission is already in
-    /// flight or non-rejected logs already occupy every completion slot.
-    /// Pending logs never reach this gate — `completeButtonDisabled` returns
-    /// early for them — so only approved/verified logs are counted here.
+    /// Disables completion when submission is in flight or verified slots are filled.
     private var canSubmitAnotherCompletion: Bool {
         isCompleting || GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejected)
     }

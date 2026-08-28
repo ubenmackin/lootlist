@@ -44,7 +44,7 @@ struct GemShopView: View {
     }
 
     var body: some View {
-        // WHY: Gem Shop is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1 gamification contract.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         Group {
             if !FeatureFlags.rpgImmersive {
                 ContentUnavailableView("Gem Shop Unavailable", systemImage: "diamond.slash", description: Text("The Gem Shop is part of the RPG layer, currently hidden."))

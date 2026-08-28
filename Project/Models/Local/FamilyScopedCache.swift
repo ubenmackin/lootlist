@@ -9,13 +9,7 @@ import CloudKit
 import Foundation
 import SwiftData
 
-/// Conformed by every `@Model` cache whose rows are partitioned by family.
-/// `FamilyCache` itself does NOT conform — it is the root record and is queried
-/// only by its own `recordName`.
-///
-/// NOTE: Enum convenience getters in `*Cache` models follow a standardized pattern:
-/// they always use an `*Enum` suffix and always return an optional value (e.g.
-/// `var approvalModeEnum: ApprovalMode? { ApprovalMode(rawValue: approvalMode) }`).
+/// Partition key protocol for SwiftData cache rows scoped by family.
 protocol FamilyScopedCache: PersistentModel {
     var recordName: String { get }
     var familyRecordName: String { get }
@@ -30,16 +24,7 @@ protocol CacheMergeableDomain {
     var id: CKRecord.ID { get }
 }
 
-/// Protocol for cache models that support merging updates from CloudKit domain
-/// models. The field-for-field merge logic lives in `update(from:)` so the
-/// generic batch helpers in `BackgroundCacheActor` stay free of per-type
-/// scaffolding while keeping every SwiftData property assignment explicit and
-/// type-safe (no reflection, no dynamic key paths).
-///
-/// `#Predicate` cannot be written generically (it is a compile-time macro
-/// needing a concrete type), so each conformance provides its own
-/// `fetchDescriptor(familyRecordName:)` for the family-scoped fetch and its own
-/// `fetchDescriptor(recordName:)` for the unique recordName lookup.
+/// Defines explicit typed field-for-field merge logic from CloudKit domain models.
 protocol CacheMergeable: PersistentModel {
     associatedtype DomainModel: CacheMergeableDomain
 
@@ -56,20 +41,14 @@ protocol CacheMergeable: PersistentModel {
     /// Creates a new cache row from the domain model.
     init(from domain: DomainModel)
 
-    /// Applies a field-for-field update from the domain model onto an existing
-    /// row. `changeTag` is copied unconditionally — nil is a meaningful
-    /// "no further tag" value that must propagate. `isServerSync` distinguishes
-    /// background server hydration from local optimistic mutations.
+    /// Applies field updates from domain model; changeTag is copied unconditionally.
     func update(from domain: DomainModel, isServerSync: Bool)
 
     /// Returns the fetch descriptor used by the generic batch helpers.
     /// `FamilyCache` ignores `familyRecordName` (root record, never scoped).
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<Self>
 
-    /// Returns a fetch descriptor scoped to the unique `recordName` key. Used by
-    /// the generic single-record delete helper in `BackgroundCacheActor` so the
-    /// lookup stays on the unique attribute's implicit index instead of pulling
-    /// the full table and filtering in memory.
+    /// Returns a fetch descriptor scoped to the unique recordName key.
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<Self>
 }
 

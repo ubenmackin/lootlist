@@ -11,12 +11,7 @@ import Foundation
 extension FamilyService {
     // MARK: - Owner-Side Identity Dedupe (Guild Master re-onboarding)
 
-    /// Parent-side dedupe: finds an existing owner family for the current user
-    /// by scanning private custom zones (excluding `_defaultZone` / `LootListZone`),
-    /// point-looking up the Family whose name matches the zone, and matching the
-    /// server-stamped `creatorUserRecordName`. Fail-closed — transient errors
-    /// throw rather than returning nil, so the caller never mistakes a failed
-    /// lookup for "no existing family" and mints a duplicate.
+    /// Finds existing owner family matching server-stamped creatorUserRecordName.
     func findExistingOwnerFamily(currentUserRecordName: String) async throws -> (family: Family, zoneID: CKRecordZone.ID)? {
         let privateZones: [CKRecordZone] = try await cloudKit.fetchPrivateZones()
 
@@ -43,11 +38,7 @@ extension FamilyService {
         return nil
     }
 
-    /// Resolves the GM profile for a reused owner family: reuse active, reactivate
-    /// inactive (existing values preserved — stricter than the joiner contract),
-    /// or mint a fresh GM in the existing zone. Query fallback used when the
-    /// point-lookup is `notFound`. Fail-closed: lookup failures surface as
-    /// `creationFailed`, never as raw `CloudKitServiceError`.
+    /// Resolves Guild Master profile for reused owner family: active reuse, reactivation, or fresh mint.
     func resolveExistingOwnerProfile(in zoneID: CKRecordZone.ID,
                                      family: Family,
                                      ownerProfile ownerOnboarding: Profile) async throws -> Profile
@@ -99,10 +90,7 @@ extension FamilyService {
         return try await reactivateOrSaveOwner(ownerOnboarding, in: zoneID, family: family, using: db, forceCreate: true)
     }
 
-    /// Shared save path for `resolveExistingOwnerProfile`: reactivates an
-    /// existing inactive GM (`forceCreate == false`, preserving identity) or
-    /// mints a fresh one from onboarding values (`forceCreate == true`).
-    /// Save failure surfaces as `creationFailed`.
+    /// Saves or reactivates existing Guild Master profile during owner family reuse.
     func reactivateOrSaveOwner(_ profile: Profile,
                                in zoneID: CKRecordZone.ID,
                                family: Family,
@@ -124,10 +112,7 @@ extension FamilyService {
         }
     }
 
-    /// Shared session-saving tail for both the brand-new and reused owner-family
-    /// paths of `createFamily`. Writes the resolved zone/ownership state to
-    /// `AppState`, activates the owner path on `CloudKitService`, persists the
-    /// session, and returns the owner-pair consumed by the onboarding flow.
+    /// Persists resolved family session state to AppState and activates owner scope.
     func finalizeOwnerSession(family: Family,
                               profile: Profile,
                               zoneID: CKRecordZone.ID) -> OwnerSessionResult

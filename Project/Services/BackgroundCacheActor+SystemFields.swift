@@ -9,10 +9,7 @@ import Foundation
 import os
 import SwiftData
 
-/// Sendable descriptor for one server-stamped system-field refresh on an
-/// existing cache row. Carries only plain values so a whole save round-trip
-/// can cross to the background actor and commit under a single context save
-/// instead of one save per record.
+/// Sendable descriptor for one server-stamped system-field refresh on an existing cache row.
 struct SystemFieldRefresh: Sendable {
     let recordName: String
     let type: CachedRecordType
@@ -20,10 +17,8 @@ struct SystemFieldRefresh: Sendable {
     let encodedSystemFields: Data?
 }
 
-/// Result of a system-field refresh pass. A Bool return cannot separate "no
-/// cached row matched" (legal — rows may have been deleted locally mid-flight)
-/// from "the context save failed" (a real cache-write failure), and conflating
-/// them would hide genuine persistence errors from sync accounting.
+/// Result of a system-field refresh pass. A Bool return cannot separate "no cached row matched" (legal
+/// — rows may have been deleted locally mid-flight) from "the context save failed" (a real cache-write
 enum SystemFieldRefreshOutcome: Sendable {
     case updated
     case noMatches
@@ -31,21 +26,8 @@ enum SystemFieldRefreshOutcome: Sendable {
 }
 
 extension BackgroundCacheActor {
-    /// Batch variant of the system-field refresh: applies every descriptor to
-    /// its cache row and commits all of them under one context save. A
-    /// multi-record save round-trip would otherwise pay one fetch+save per
-    /// record, stalling the actor for the whole pass.
-    ///
-    /// Refreshes ONLY the server-owned system fields (`changeTag`,
-    /// `encodedSystemFields`) after CKSyncEngine confirms a successful save.
-    /// Full-record parsing and merging must stay on the fetch path: rewriting
-    /// whole records here would clobber local optimistic state that may
-    /// legitimately have diverged while the save was in flight.
-    ///
-    /// The outcome distinguishes a legal no-op (every row absent — records may
-    /// have been deleted locally mid-flight) from an actual context-save
-    /// failure, so callers can keep sync-completion accounting honest without
-    /// masking real cache-write failures behind silence.
+    /// Batch variant of the system-field refresh: applies every descriptor to its cache row and commits all
+    /// of them under one context save.
     @discardableResult
     func updateSystemFields(_ refreshes: [SystemFieldRefresh], familyRecordName: String) async -> SystemFieldRefreshOutcome {
         guard !refreshes.isEmpty else { return .noMatches }

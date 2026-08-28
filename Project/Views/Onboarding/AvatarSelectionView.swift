@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import os
 import PhotosUI
 import SwiftUI
 
@@ -31,6 +32,8 @@ struct AvatarSelectionView: View {
     @FocusState private var isNameFocused: Bool
     @State private var isRPGExpanded: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AvatarSelectionView")
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 7)
 
@@ -273,11 +276,17 @@ struct AvatarSelectionView: View {
         }
         .onChange(of: selectedPhotoItem) { _, newItem in
             Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let rawImage = UIImage(data: data)
-                {
+                guard let item = newItem else { return }
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self) else { return }
+                    guard let rawImage = UIImage(data: data) else { return }
                     let resized = resizeImageIfNeeded(rawImage, maxDimension: 512)
                     viewModel.customAvatarImageData = resized.jpegData(compressionQuality: 0.8)
+                } catch is CancellationError {
+                    // user cancelled picker — no log/toast
+                } catch {
+                    logger.debug("Avatar photo load failed: \(error, privacy: .private)")
+                    toastManager.show(message: "Couldn’t load that photo. Try another.", type: .error)
                 }
             }
         }

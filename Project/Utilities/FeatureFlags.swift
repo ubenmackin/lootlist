@@ -13,10 +13,7 @@ import Foundation
 enum FeatureFlags {
     private static let rpgImmersiveDefaultsKey = "featureflags.rpgImmersive"
 
-    /// Toggles the fantasy-RPG presentation layer (sprite avatars, Hero classes,
-    /// leveling, quest rarity, journey path, mascots, gems, gear, loot drops,
-    /// daily login rewards). Off by default so the app leads with its
-    /// utility-first experience; underlying services keep running untouched.
+    /// Toggles the fantasy-RPG presentation layer (off by default for utility-first UI).
     static var rpgImmersive: Bool {
         get { UserDefaults.standard.bool(forKey: rpgImmersiveDefaultsKey) }
         set { UserDefaults.standard.set(newValue, forKey: rpgImmersiveDefaultsKey) }

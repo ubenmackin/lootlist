@@ -21,10 +21,7 @@ enum HeroBoardClaimOutcome: Equatable, Sendable {
 @MainActor
 @Observable
 final class HeroBoardService {
-    /// Placeholder assignee carried by board quests: Quest records require an
-    /// assignee reference, so an unassigned board quest points at this record
-    /// name instead of a real profile. Ownership rides the claim fields, never
-    /// the assignee.
+    /// Placeholder assignee for unassigned Hero Board quests.
     static let boardAssigneeRecordName = "__heroboard__"
 
     /// True when the quest is posted on the Hero Board (unassigned).
@@ -70,11 +67,7 @@ final class HeroBoardService {
 
     // MARK: - Reads
 
-    /// Every active quest currently sitting on the board, regardless of claim
-    /// state. Board quests are exempt from week/due-date logic: they stay
-    /// listed until completed, revoked by a parent, or deleted, so reads
-    /// deliberately do NOT filter on `weekOf`. Cache-only by design — ongoing
-    /// refresh rides the CKSyncEngine pipeline.
+    /// Fetches active unassigned quests available on the Hero Board.
     func fetchBoardQuests(family: Family) -> [Quest] {
         guard let cacheService else { return [] }
         return cacheService.fetchQuests(family: family.id.recordName)
@@ -102,10 +95,7 @@ final class HeroBoardService {
 
     // MARK: - Claims
 
-    /// Optimistic claim: stamps the local cache row immediately so UI updates
-    /// with zero latency, then enqueues the save. If a fresher cached copy
-    /// already shows another claimer (their ingest landed first), nothing is
-    /// written and `.lostToAnotherHero` is returned.
+    /// Optimistically stamps quest claim in local cache and enqueues CloudKit save.
     @discardableResult
     func claim(_ quest: Quest, by hero: Profile) async throws -> HeroBoardClaimOutcome {
         guard let appState else {
@@ -191,10 +181,7 @@ final class HeroBoardService {
 
     // MARK: - Posting
 
-    /// Parent-only: creates an unassigned board quest. Mirrors Quick Create's
-    /// ad-hoc inactive template so one-off board quests don't clutter the
-    /// routine template list. No due date: `weekOf` is stamped only because
-    /// the record requires it; all board reads ignore it.
+    /// Creates unassigned board quest with nil assignee (parent only).
     @discardableResult
     func postToBoard(name: String,
                      description: String = "",

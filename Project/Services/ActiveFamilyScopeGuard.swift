@@ -11,13 +11,8 @@ import os
 
 // MARK: - ActiveFamilyScopeGuard
 
-/// Central validation for mutation paths: ensures the record being mutated
-/// belongs to the currently active family/zone/database scope. Call at the
-/// top of every service mutation method.
-///
-/// Scope violations are deny-by-default only when the server identity is proven
-/// mismatched — a stale or unresolved identity must not block the offline cache
-/// fallback path.
+/// Central validation for mutation paths: ensures the record being mutated belongs to the currently
+/// active family/zone/database scope.
 enum ActiveFamilyScopeGuard {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ScopeGuard")
 
@@ -148,9 +143,6 @@ enum ActiveFamilyScopeGuard {
     // MARK: - Owner Anchor Resolution
 
     /// Owner identity resolved from the server-stamped anchor, not role.
-    /// `Family.creatorUserRecordName` is the immutable owner signal; when present
-    /// it dictates the database scope. Role alone is forgeable and must not drive
-    /// `isZoneOwner`-equivalent decisions for sync routing.
     @MainActor
     static func resolvedIsOwner(appState: AppState?) -> Bool {
         guard let appState else { return false }
@@ -179,16 +171,8 @@ enum ActiveFamilyScopeGuard {
         return creator != userRecordName
     }
 
-    /// Validates a recovered profile against CloudKit's server-authenticated
-    /// identity and the exact family/zone it claims to belong to. The profile's
-    /// stored `iCloudUserID` is checked as a consistency value only; the
-    /// server-stamped creator is the binding that authorizes recovery.
-    ///
-    /// Identity is always re-resolved fresh from CloudKit (bypassing any cached
-    /// identity) — a stale cached value after an iCloud account change must not
-    /// spuriously authorize or deny. Violations deny only when the mismatch is
-    /// proven; an unresolved creator (legacy record) is not treated as a mismatch
-    /// so the offline cache fallback remains available.
+    /// Validates a recovered profile against CloudKit's server-authenticated identity and the exact
+    /// family/zone it claims to belong to.
     @MainActor
     static func requireServerAuthenticatedIdentity(
         profile: Profile,

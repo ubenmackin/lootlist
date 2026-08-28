@@ -7,12 +7,7 @@
 
 import SwiftUI
 
-/// Keyboard toolbar that dismisses a decimalPad field.
-///
-/// Binds a Done button in the keyboard toolbar to a `FocusState` binding. The
-/// hosting view owns `@FocusState private var isAmountFocused: Bool`, attaches
-/// `.focused($isAmountFocused)` to the decimalPad TextField, and adds this
-/// toolbar. SwiftUI merges it with any navigation toolbars.
+/// Keyboard toolbar that dismisses a decimalPad field by resigning a FocusState binding.
 struct FocusDecimalPadDismissModifier: ViewModifier {
     var isFocused: FocusState<Bool>.Binding
 

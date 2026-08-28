@@ -46,11 +46,6 @@ final class AppLifecycleCoordinator {
     // MARK: - Lifecycle State Machine
 
     /// Single-flight state machine protecting the coordinator's in-flight flags.
-    /// Plain Bool guards on @MainActor are atomic only until the first await:
-    /// once the task suspends, the actor yields and a second caller can observe
-    /// the stale flag. Wrapping the flags in a `Mutex` makes check-and-set
-    /// atomic via `withLock`, so foreground sync and remote notification cannot
-    /// interleave at the first suspension point.
     private enum Phase: Equatable, Sendable {
         case idle
         case bootstrapping
@@ -58,11 +53,8 @@ final class AppLifecycleCoordinator {
         case zoneChanging
     }
 
-    /// All mutable lifecycle flags are co-located in one `Mutex` so a single
-    /// `withLock` can atomically test every guard that a caller cares about.
-    /// `isManualSyncing` is tracked separately from `phase == .syncing` so a
-    /// user-initiated manual sync is not starved while a foreground sync holds
-    /// the syncing phase — the two sync paths use independent flags.
+    /// All mutable lifecycle flags are co-located in one `Mutex` so a single `withLock` can atomically test
+    /// every guard that a caller cares about.
     private struct LifecycleFlags: Sendable {
         var phase: Phase = .idle
         var isManualSyncing = false
@@ -80,7 +72,9 @@ final class AppLifecycleCoordinator {
 
     // MARK: - Debug Overlay Exposure
 
-    // WHY: Read-only debug overlay surface exposes Mutex-protected reconnect state so push health can be correlated with debounce without exposing the Mutex itself; interval references reconnectSyncMinimumInterval to avoid duplicating the 45s magic.
+    // WHY: Read-only debug overlay surface exposes Mutex-protected reconnect state
+    // so push health can be correlated with debounce without exposing the Mutex itself;
+    // interval references reconnectSyncMinimumInterval to avoid duplicating the 45s magic.
 
     /// Last time a reconnect-triggered sync was issued. Exposed read-only for
     /// the debug overlay so push health can be correlated with debounce state.
@@ -166,9 +160,6 @@ final class AppLifecycleCoordinator {
         }
 
         // Observe session clear so the cached scope key does not survive a sign-out.
-        // `resetState` on the sync coordinator clears engines, but without clearing
-        // `lastSynchronizedScopeKey` a subsequent sign-in to a different family
-        // whose scope string collides could skip `initializeEngines`.
         sessionClearTask = Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: .didClearSession) {
                 guard !Task.isCancelled, let self else { break }
@@ -313,10 +304,7 @@ final class AppLifecycleCoordinator {
 
     private func tryEnterManualSync() -> Bool {
         state.withLock { flags in
-            // Manual sync is user-initiated and must not be starved by a
-            // foreground sync holding `.syncing`. It is gated only on its own
-            // flag and on bootstrap, so it can run concurrently with foreground
-            // sync if the user explicitly requests it.
+            // Manual sync is user-initiated and must not be starved by a foreground sync holding `.syncing`.
             guard flags.phase != .bootstrapping else { return false }
             guard !flags.isManualSyncing else { return false }
             flags.isManualSyncing = true
@@ -616,10 +604,8 @@ final class AppLifecycleCoordinator {
         }
     }
 
-    /// Refreshes the iCloud account status and publishes the CK-free mirror
-    /// onto `appState.cloudAccountStatus`. Views read that published value;
-    /// the container call stays in the lifecycle layer. Returns whether the
-    /// check completed so callers can surface a failure.
+    /// Refreshes the iCloud account status and publishes the CK-free mirror onto
+    /// `appState.cloudAccountStatus`.
     @discardableResult
     func refreshCloudAccountStatus() async -> Bool {
         guard !TestEnvironment.isRunningUnitOrUITests else { return false }
@@ -705,10 +691,8 @@ final class AppLifecycleCoordinator {
     /// this transition before initial bootstrap has been marked complete.
     func performFamilyZoneChange() async {
         let bootstrapIncomplete = !state.withLock { $0.hasCompletedInitialBootstrap }
-        // Hero recovery path: initial bootstrap paused at `detectedPreviousFamily`
-        // before authentication — the subsequent `acceptDetectedFamily` sets
-        // `familyZoneID`/`.authenticated`. Allow this zone change to finish
-        // the bootstrap and trigger the shared-DB fetch for quests/payouts.
+        // Hero recovery path: initial bootstrap paused at `detectedPreviousFamily` before authentication — the
+        // subsequent `acceptDetectedFamily` sets `familyZoneID`/`.authenticated`.
         if bootstrapIncomplete {
             guard let appState,
                   appState.authStatus == .authenticated,

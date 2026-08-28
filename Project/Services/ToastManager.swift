@@ -58,11 +58,7 @@ struct Toast: Identifiable, Sendable {
     }
 }
 
-/// Identity-based equality for `Toast` so `ToastView`'s
-/// `.animation(_:value:)` modifier can detect changes in the toasts array.
-/// Equality is keyed on `id` only (a UUID); two toasts sharing an id are
-/// treated as the same presentation intent. Closures are not Equatable, so
-/// synthesis is impossible — this manual conformance is required.
+/// Identity-based equality for Toast models to drive SwiftUI animations.
 extension Toast: Equatable {
     static func == (lhs: Toast, rhs: Toast) -> Bool {
         lhs.id == rhs.id

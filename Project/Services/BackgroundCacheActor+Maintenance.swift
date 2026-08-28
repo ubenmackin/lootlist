@@ -225,10 +225,8 @@ extension BackgroundCacheActor {
         saveContext()
     }
 
-    /// Typed fan-out mirroring performTypedDeletion for callers holding a
-    /// runtime record type instead of a concrete cache class. Family rows are
-    /// unscoped roots, so they cannot ride the family-scoped generic and are
-    /// matched by record name alone.
+    /// Typed fan-out mirroring performTypedDeletion for callers holding a runtime record type instead of a
+    /// concrete cache class.
     func deleteByNameAndFamily(
         _ type: CachedRecordType,
         recordName: String,
@@ -271,10 +269,7 @@ extension BackgroundCacheActor {
         saveContext()
     }
 
-    /// Sign-out-scale wipe of every cached row. Runs inside the mutation
-    /// queue so an in-flight ingestion batch cannot repopulate rows between
-    /// the deletes and the save; freshness watermarks are device-local
-    /// UserDefaults state and stay with CacheService.
+    /// Wipes all cached rows inside the mutation queue during sign-out.
     func clearAllCachedRows() async {
         await SerialMutationQueue.shared.write {
             await self.clearAllCachedRowsInTransaction()

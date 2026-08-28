@@ -7,10 +7,7 @@
 
 import SwiftUI
 
-/// Segmented control that switches a bound `CalendarScope` and optionally
-/// renders a contextual date-range sublabel beneath it. Designed to embed in
-/// both toolbar placements (sublabel hidden) and inline sticky/embedded view
-/// headers (sublabel visible).
+/// Segmented control that switches a bound CalendarScope filter.
 struct CalendarScopeFilterView: View {
     @Binding var scope: CalendarScope
 

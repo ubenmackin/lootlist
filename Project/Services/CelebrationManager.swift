@@ -135,10 +135,8 @@ final class CelebrationManager {
     /// lifetime rather than stacking competing dismissal timers.
     private var confettiDismissTask: Task<Void, Never>?
 
-    /// Shows the full-screen canvas confetti overlay and schedules an
-    /// auto-dismiss after the configured lifetime. Redeemable from any
-    /// service or view that holds the manager — goal completions, trophy
-    /// unlocks, payout celebrations, quest verifications.
+    /// Shows the full-screen canvas confetti overlay and schedules an auto-dismiss after the configured
+    /// lifetime.
     func triggerConfetti() {
         confettiDismissTask?.cancel()
         isConfettiShowing = true

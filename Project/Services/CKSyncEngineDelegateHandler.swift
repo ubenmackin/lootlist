@@ -208,31 +208,14 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         await ingest(records: records, databaseScope: scope, zoneID: resolvedZoneID)
     }
 
-    /// Single shared ingestion pipeline for inbound CKRecords. Internal —
-    /// non-delegate callers (e.g. AppLifecycleCoordinator hydration passes)
-    /// must reuse this exact path rather than duplicating validation or
-    /// persistence, keeping one merge/save semantics across all entry points.
-    ///
-    /// Inbound sync validates scope and parses inbound records canonically here
-    /// on MainActor into Sendable `ParsedRecord` domain models, then hands the
-    /// batch to `BackgroundCacheActor.batchUpsertParsedRecords` for single-save
-    /// atomic persistence. The actor's DefaultSerialModelExecutor +
-    /// autosaveEnabled=false ensures the save triggers ModelContext.didSave →
-    /// CacheService processPendingChanges exactly once per batch for atomic
-    /// @Query visibility. Shared and private engines share this identical
-    /// pipeline.
-    ///
-    /// - Parameter notifiesOnCompletion: Hydration/backfill passes reconcile
-    ///   local state with what the server already holds; they are not
-    ///   user-actionable events, so they opt out of sync notifications while
-    ///   still receiving the identical parse/accounting/cache-write treatment.
+    /// Ingests server record batches, validating scope and committing via background actor.
     func ingest(
         records: [CKRecord],
         databaseScope: CKDatabase.Scope,
         zoneID: CKRecordZone.ID,
         notifiesOnCompletion: Bool = true
     ) async {
-        // WHY: Fail-closed until family/zone resolve — dropped records re-deliver via persisted change tokens after bootstrap.
+        // Fails closed if family zone is unresolved to avoid cross-scope pollution.
         guard let activeFamily = appState?.family?.id.recordName,
               let activeZone = appState?.familyZoneID
         else {

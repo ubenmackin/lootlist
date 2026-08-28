@@ -87,7 +87,7 @@ struct QuickCreateFormView: View {
                     .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             }
 
-            // WHY: Bonus Tier/XP picker is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive so default view stays utility-first (ARCHITECTURE.md §1).
+            // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
             if FeatureFlags.rpgImmersive {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {

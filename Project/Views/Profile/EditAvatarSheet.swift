@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
+import os
 import PhotosUI
 import SwiftUI
 
@@ -18,10 +19,7 @@ private let profileEmojiGrid: [String] = [
     "🎨", "🎵", "🚀", "💎", "🎯"
 ]
 
-/// Full visual avatar and class editor for heroes, featuring a live interactive preview
-/// with equipped gear, visual RPG class selection cards, and a sprite variant grid.
-/// Emoji avatar selection is always visible; RPG class/sprite pickers are gated
-/// behind `FeatureFlags.rpgImmersive`.
+/// Visual avatar and class editor for heroes, writing edits through ProfileService.
 @MainActor
 struct EditAvatarSheet: View {
     let profileCache: ProfileCache
@@ -30,6 +28,8 @@ struct EditAvatarSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
     @Environment(\.dismiss) private var dismiss
+
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "EditAvatarSheet")
 
     @State private var selectedClass: AvatarClass?
     @State private var selectedPresetID: String?
@@ -95,8 +95,14 @@ struct EditAvatarSheet: View {
             .onChange(of: photoItem) { _, newItem in
                 Task {
                     guard let newItem else { return }
-                    if let data = try? await newItem.loadTransferable(type: Data.self) {
+                    do {
+                        guard let data = try await newItem.loadTransferable(type: Data.self) else { return }
                         customData = AvatarService.resizeImageData(data, maxDimension: 400)
+                    } catch is CancellationError {
+                        // user cancelled picker — no log/toast
+                    } catch {
+                        logger.debug("Avatar photo load failed: \(error, privacy: .private)")
+                        toastManager.show(message: "Couldn’t load that photo. Try another.", type: .error)
                     }
                 }
             }

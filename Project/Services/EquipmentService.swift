@@ -47,9 +47,6 @@ final class EquipmentService {
     private(set) var revision: Int = 0
 
     /// Record names of profiles with an equipment change currently in flight.
-    /// Local double-tap guard: a second equip/unequip while a write is pending
-    /// skips instead of letting two overlapping persists clobber each other
-    /// across the await gap. Entries release when the write settles.
     private let inFlightEquipmentChanges = Mutex<Set<String>>([])
 
     init(
@@ -70,12 +67,7 @@ final class EquipmentService {
 
     // MARK: - Ownership & equipped state (CloudKit-backed Profile fields)
 
-    /// Resolves the authoritative profile from the local cache (the write-through
-    /// read store in front of CloudKit). Equipment ownership/equip state lives on
-    /// `Profile.ownedEquipment` / `Profile.equippedItems` so it syncs cross-device
-    /// and cannot be forged by editing the device-local UserDefaults plist.
-    /// Falls back to the passed profile when the cache is unavailable (cold
-    /// install before the first CKSyncEngine full-sync pass hydrates the cache).
+    /// Resolves authoritative profile from local cache for equipment ownership checks.
     private func resolvedProfile(_ profile: Profile) -> Profile? {
         guard let cacheService else { return nil }
         let familyRecordName = profile.family.recordID.recordName

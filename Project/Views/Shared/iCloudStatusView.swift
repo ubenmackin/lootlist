@@ -385,12 +385,7 @@ import SwiftUI
 
         // MARK: Section 5 — Debug — Sync Health (DEBUG overlay, read-only)
 
-        // WHY: Field diagnosis of the silent-push regression class requires
-        // visibility beyond the user-facing status. This section is DEBUG-only
-        // (the whole view is `#if DEBUG`) so it never ships to users; it
-        // surfaces lastSyncedAt, syncError, push age, per-scope freshness,
-        // engine existence, pending counts, and lifecycle debounce state.
-        // No manual sync trigger — that control lives in AppLifecycleCoordinator.
+        /// Diagnostic view inspecting OS APNs token and CloudKit subscription states.
         private var debugSyncHealthSection: some View {
             Section {
                 // lastSyncedAt — relative + absolute

@@ -30,11 +30,8 @@ extension CacheService {
         }
     }
 
-    /// Fail-closed variant of `fetch`: returns `nil` when the cache context is
-    /// unavailable or the underlying fetch throws, instead of collapsing the
-    /// failure into an empty array. Callers that must *prove* absence (e.g.
-    /// local-deletion confirmation before enqueueing a server-side delete)
-    /// use this so a cache failure is never mistaken for "no rows exist".
+    /// Fail-closed variant of `fetch`: returns `nil` when the cache context is unavailable or the
+    /// underlying fetch throws, instead of collapsing the failure into an empty array.
     func tryFetch<T: PersistentModel>(
         _: T.Type,
         predicate: Predicate<T>? = nil,
@@ -50,12 +47,7 @@ extension CacheService {
         }
     }
 
-    /// Fetches every record of `T`, optionally scoped to a single family and sorted
-    /// by `sortBy`. Returns `[]` if the fetch fails (mirrors the inline
-    /// `(try? context.fetch(...)) ?? []` pattern used elsewhere in this service).
-    /// Constrained to `FamilyScopedCache` so the family predicate compiles
-    /// without per-type duplication.
-    /// WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
+    /// Fetches every record of `T`, optionally scoped to a single family and sorted by `sortBy`.
     func familyScopedFetch<T: FamilyScopedCache>(
         _ type: T.Type,
         family: String?,

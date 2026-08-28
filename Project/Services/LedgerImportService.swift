@@ -61,11 +61,7 @@ enum LedgerImportError: Error, LocalizedError, Equatable {
     }
 }
 
-/// Best-effort CSV parsing for ledger imports. The parser never throws and
-/// never discards data rows: anything it cannot fully understand is staged
-/// with `parseIssue` populated instead. Tolerates an optional header row,
-/// quoted fields (embedded commas/newlines/escaped quotes), ISO and US-style
-/// dates, and `$`-prefixed / parenthesized-negative / bare-decimal amounts.
+/// Parses ledger CSV imports into editable staging rows.
 enum LedgerCSVParser {
     static func parse(_ csvText: String) -> [StagedImportRow] {
         let records = tokenize(csvText)
@@ -123,12 +119,7 @@ enum LedgerCSVParser {
         func field(_ index: Int?) -> String? {
             guard let index, fields.indices.contains(index) else { return nil }
             var value = fields[index].trimmingCharacters(in: .whitespacesAndNewlines)
-            // The apostrophe here is a spreadsheet formula-guard marker, not
-            // punctuation: stripping it unconditionally would corrupt literal
-            // text like "'90s toy" and change its content hash, breaking
-            // re-import dedup. Strip only when it actually guards a formula
-            // character, keeping the marker symmetrical with how exports are
-            // written.
+            // Strips leading formula-guard apostrophe from CSV cells.
             if value.hasPrefix("'"), value.dropFirst().first.map({ "=+-@".contains($0) }) == true {
                 value.removeFirst()
             }
@@ -251,10 +242,7 @@ enum LedgerCSVParser {
         return negative ? -value : value
     }
 
-    /// Accepts full ISO timestamps, ISO date-only values, and common US
-    /// formats. Parsing pins to en_US_POSIX / UTC so a device locale change
-    /// can never reinterpret the same file differently — that determinism is
-    /// what keeps a re-import of the same row hashing to the same record ID.
+    /// Parses flexible date formats (ISO timestamps, date-only, US slashes).
     static func parseDate(_ raw: String) -> Date? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -293,10 +281,7 @@ enum LedgerCSVParser {
     }
 }
 
-/// Creates ledger entries from confirmed staging rows using deterministic
-/// record names (`import-{rowContentHash}`) so re-importing the same file
-/// dedupes instead of duplicating purchases. Nothing touches the ledger
-/// until `finalize` runs after explicit parent confirmation.
+/// Creates ledger entries from confirmed staging rows using deterministic IDs.
 @MainActor
 @Observable
 final class LedgerImportService {

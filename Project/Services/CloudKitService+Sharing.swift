@@ -48,12 +48,8 @@ extension CloudKitService {
 
     // MARK: - CKShare Support
 
-    /// Mints a role-targeted share for the family root. The title carries the
-    /// role token (`"<familyName>: Hero Invitation"` / `": Co-Parent
-    /// Invitation"`) that the joiner side parses via
-    /// `UserRole.fromShareTitle`. A root record can be referenced by
-    /// multiple `CKShare` records, so a Hero invite and a Ranger invite for the
-    /// same family coexist as distinct shares.
+    /// Mints a role-targeted share for the family root. The title carries the role token (`"<familyName>:
+    /// Hero Invitation"` / `": Co-Parent Invitation"`) that the joiner side parses via
     func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
@@ -86,11 +82,8 @@ extension CloudKitService {
         return share
     }
 
-    /// GM-side helper for "the role-specific share I want to present": returns
-    /// the existing share whose title carries `role`, or mints one via
-    /// `createShare(for:role:)`. The returned `CKShare` is handed to
-    /// `UICloudSharingController`; the share's public link is not a bearer
-    /// credential, so only participants the GM adds can join.
+    /// GM-side helper for "the role-specific share I want to present": returns the existing share whose
+    /// title carries `role`, or mints one via `createShare(for:role:)`.
     func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
@@ -166,10 +159,7 @@ extension CloudKitService {
         }
     }
 
-    /// Finds the family's share whose title carries the given role token. A
-    /// root record can be referenced by multiple `CKShare` records (one per
-    /// role-targeted invitation), so the match is by title suffix across all
-    /// shares in the zone, not by the root's single `share` reference.
+    /// Finds the family's share whose title carries the given role token.
     private func roleMatchingShare(in zoneID: CKRecordZone.ID, role: UserRole, using pvtDB: CKDatabase) async throws -> CKShare? {
         let shares = try await allShares(in: zoneID, using: pvtDB)
         return shares.first { share in
@@ -229,10 +219,8 @@ extension CloudKitService {
                 ? CKError.Code(rawValue: (error as NSError).code)
                 : nil
             logger.error("Accepting share invitation failed: \(error, privacy: .private)")
-            // The raw CloudKit error is logged above with a `.private`
-            // annotation and must never reach the user-facing string —
-            // keep the accept-failure message static and generic. The
-            // symbolic `code` remains available for classification.
+            // The raw CloudKit error is logged above with a `.private` annotation and must never reach the
+            // user-facing string — keep the accept-failure message static and generic.
             throw CloudKitServiceError.shareAcceptFailed(
                 code: code,
                 message: "The share invitation could not be accepted."
@@ -270,25 +258,8 @@ extension CloudKitService {
         }
     }
 
-    /// Best-effort owner-side revocation: removes a member's participant entry
-    /// from the family's `CKShare` so they lose access to the shared zone. The
-    /// participant is matched by iCloud user record name against the share's
-    /// participant list.
-    ///
-    /// Only the zone owner can mutate a share's participant list. Any other
-    /// caller (e.g. a hero self-leaving) will fail or no-op on the server, so
-    /// this method must not be treated as the revocation mechanism for those
-    /// flows — profile deactivation and the owner-side reconciler pass own that.
-    ///
-    /// Every matching share in the zone is processed, not just the first: a
-    /// member can appear on both the Hero and Ranger shares (re-invited via the
-    /// other role), so a single role share must not leave them with access
-    /// through the second. Each share is persisted only when it actually
-    /// contains the matching participant.
-    ///
-    /// The revocation throws when no role share contains a matching
-    /// participant, so the caller can surface the failure instead of assuming
-    /// access was revoked.
+    /// Best-effort owner-side revocation: removes a member's participant entry from the family's `CKShare`
+    /// so they lose access to the shared zone.
     func removeParticipant(iCloudUserRecordName: String, from rootRecordID: CKRecord.ID) async throws {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable
@@ -339,10 +310,8 @@ extension CloudKitService {
         var participants: [CKShare.Participant] = []
         for share in shares {
             for participant in share.participants {
-                // Participants with no stable identity key (no record name,
-                // email, phone, or participant ID) cannot be matched across
-                // fetches and can never be revoked; exclude them rather than
-                // surfacing an unrevocable row in the Invitations panel.
+                // Participants with no stable identity key (no record name, email, phone, or participant ID) cannot be
+                // matched across fetches and can never be revoked; exclude them rather than surfacing an unrevocable
                 guard let key = ShareParticipantKey.key(for: participant) else { continue }
                 if seen.insert(key).inserted {
                     participants.append(participant)
@@ -352,11 +321,8 @@ extension CloudKitService {
         return participants
     }
 
-    /// Testable identity + acceptance summary of every aggregated share
-    /// participant (see `fetchShareParticipants` for the deduplication rule).
-    /// `recordName` is nil for pending invites whose iCloud identity is not
-    /// established yet; `isRemoved` mirrors the participant's removal state
-    /// after a GM revoke.
+    /// Testable identity + acceptance summary of every aggregated share participant (see
+    /// `fetchShareParticipants` for the deduplication rule).
     func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus] {
         let participants = try await fetchShareParticipants(for: rootRecordID)
         return participants.map { participant in
@@ -397,19 +363,8 @@ extension CloudKitService {
         return rolesByIdentity
     }
 
-    /// Removes a specific participant (matched by identity, so pending invites
-    /// without an iCloud record name can be revoked too) from every matching
-    /// role share. Removal must span all shares that contain the participant —
-    /// the same identity can be re-invited onto both the Hero and the Ranger
-    /// share, so revoking from only the first match would leave them with live
-    /// access through the second. Each share is persisted only when it actually
-    /// contains the participant.
-    ///
-    /// The revocation is never a silent no-op: it throws when the participant
-    /// carries no matchable identity (no user record name, email, phone, or
-    /// participant ID) or when no role share contains a matching participant,
-    /// so the caller can surface the failure instead of assuming access was
-    /// revoked.
+    /// Removes a specific participant (matched by identity, so pending invites without an iCloud record
+    /// name can be revoked too) from every matching role share.
     func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws {
         guard let pvtDB = privateDatabase else {
             throw CloudKitServiceError.accountUnavailable

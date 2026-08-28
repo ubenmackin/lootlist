@@ -54,10 +54,7 @@ final class HeroDashboardViewModel {
 
     // MARK: - List Building
 
-    /// Cache-first, synchronous rebuild from SwiftData `@Query` rows. This path
-    /// intentionally does not throw or call out to CloudKit directly.
-    /// It derives gold via `Self.earnedThisWeek(...)` (pure cache math)
-    /// so the hero dashboard hydrates instantly offline and updates automatically via UDF.
+    /// Synchronous rebuild from SwiftData `@Query` rows using pure cache math.
     func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache] = [], allowancePeriods: [AllowancePeriodCache] = []) {
         guard let profileName = appState.currentProfile?.id.recordName,
               appState.family != nil

@@ -13,15 +13,8 @@ import os
 class MockCloudKitService: CloudKitServiceProtocol {
     static let mockUserRecordName = "mockUser"
 
-    private static var _containerInstance: CKContainer?
-
     static var defaultContainer: CKContainer {
-        if let instance = _containerInstance {
-            return instance
-        }
-        let instance = CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
-        _containerInstance = instance
-        return instance
+        CKContainer(identifier: "iCloud.com.volcrypt.lootlist")
     }
 
     var container: CKContainer {

@@ -8,11 +8,7 @@
 import SwiftData
 import SwiftUI
 
-/// Compact avatar tile shared by list/header cards that render a profile's
-/// miniature avatar (small size, name/title hidden).
-///
-/// A `nil` profile renders the default "Hero" placeholder so a
-/// card with a still-restoring session never shows an empty avatar.
+/// Compact avatar tile combining character sprite/emoji, level badge, and role icon.
 struct ProfileAvatarView: View {
     let profileCache: ProfileCache?
 

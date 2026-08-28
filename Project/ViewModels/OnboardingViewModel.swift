@@ -31,10 +31,7 @@ enum UserIntent: String, Hashable, Sendable {
     case joinFamily
 }
 
-/// A single active `Profile` bound to the current iCloud user, discovered in a
-/// shared zone during hero onboarding, together with the family and zone it
-/// belongs to. Lets a returning hero reconnect to their existing guild instead
-/// of minting a duplicate profile (see `checkForExistingHero`).
+/// Active Profile matching current iCloud user in a shared zone, for reconnecting without duplicates.
 struct DetectedHero {
     let family: Family
     let profile: Profile
@@ -224,10 +221,7 @@ final class OnboardingViewModel {
 
         error = nil
 
-        // Resolve the iCloud user ID up front. Surfacing a failure here (vs.
-        // synthesizing a random UUID) prevents duplicate `Profile` records on
-        // re-runs over a flaky network. The finalize button serves as the
-        // retry affordance — see `iCloudUserID()` docs.
+        // Resolve iCloud user ID up front to prevent duplicate Profile creation on retry.
         let owneriCloudID: CKRecord.ID
         do {
             owneriCloudID = try await iCloudUserID()
@@ -267,13 +261,7 @@ final class OnboardingViewModel {
         }
     }
 
-    /// Joiner entry: consumes the pending share metadata that an apple share
-    /// invitation resolved (see `pendingShareMetadata`) and accepts the invite
-    /// via `FamilyService.joinFamilyViaAcceptedShare`. The joiner's role is
-    /// decoded from the share's title by the service — the flow never asks for a
-    /// role up front. The accept path mints the Profile with empty
-    /// display-name/avatar defaults, so the flow advances straight to Avatar
-    /// Selection for the user to pick them.
+    /// Consumes pending share metadata to join family, resolving role from share title.
     func joinFamilyViaAcceptedShare() async {
         let intent = String(describing: self.userIntent)
         let hasMetadata = self.pendingShareMetadata != nil
@@ -328,11 +316,7 @@ final class OnboardingViewModel {
     }
 
     #if DEBUG
-        /// Development-only stand-in for an incoming Apple Messages share link: the
-        /// Simulator can't receive CloudKit invites, so a tester pastes the URL and
-        /// this drives the identical accept machinery — resolving the link into
-        /// `pendingShareMetadata` through the service layer (never touching
-        /// CloudKit directly), which the view's `.onChange(of:)` then accepts.
+        /// Development-only helper to accept a pasted share URL via the service layer.
         func simulateInviteLink(_ url: URL) async {
             joinProgressStatus = "Reading invitation link..."
             joinProgressFraction = 0.15
@@ -391,10 +375,7 @@ final class OnboardingViewModel {
                 avatarEmoji: avatarEmoji
             )
 
-            // updateProfileDisplayName/updateProfileAvatar already dual-wrote cache
-            // and enqueued engine saves; a raw save here would race that queue and
-            // leave the cache holding a stale changeTag, forcing a
-            // serverRecordChanged conflict on the first post-onboarding sync.
+            // Profile updates already wrote cache and enqueued saves; raw save would cause conflict.
             await syncCoordinator.sendPendingChanges()
             builtProfile = saved
             push(.done)

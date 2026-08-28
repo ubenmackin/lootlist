@@ -469,12 +469,8 @@ extension CacheService {
         )
     }
 
-    /// Batch upserts ledger entries and goals in one transaction.
-    /// WHY: canonical grouped-family batch lives on BackgroundCacheActor via
-    /// batchUpsertWithoutSave with isServerSync=false and single saveContext();
-    /// this wrapper delegates there to avoid duplicating grouping, fan-out, and
-    /// family-mismatch logic. In-memory/test stores coalesce via withBatch so
-    /// only one main-context save fires, preserving deterministic IDs and FIFO.
+    /// Batch upserts ledger entries and goals in one transaction. WHY: canonical grouped-family batch lives
+    /// on BackgroundCacheActor via batchUpsertWithoutSave with isServerSync=false and single saveContext();
     func batchUpsertLedgerEntriesAndGoals(
         ledgerEntries: [LedgerEntry],
         goals: [Goal],

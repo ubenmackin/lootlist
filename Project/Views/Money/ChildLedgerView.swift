@@ -8,10 +8,7 @@
 import SwiftData
 import SwiftUI
 
-/// Read-only transaction history for a child profile, grouped by date into
-/// Today / Yesterday / This Week / Older sections. Each row shows a semantic
-/// source icon, the entry description, the amount (green for credits, red for
-/// debits), and a formatted date.
+/// Read-only transaction history for a child profile, grouped by date into daily sections.
 struct ChildLedgerView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?

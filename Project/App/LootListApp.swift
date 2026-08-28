@@ -182,8 +182,10 @@ struct LootListApp: App {
                 // UI tests force light or dark via `--uitest-appearance` so a
                 // single simulator captures both modes per run.
                 .preferredColorScheme(TestEnvironment.preferredAppearanceOverride)
-                .onReceive(NotificationCenter.default.publisher(for: .familyAccessRevoked)) { _ in
-                    toastManager.show(message: "You were removed from this Guild.", type: .warning)
+                .task {
+                    for await _ in NotificationCenter.default.notifications(named: .familyAccessRevoked) {
+                        toastManager.show(message: "You were removed from this Guild.", type: .warning)
+                    }
                 }
                 // Celebration fullscreen overlay sits above the toast layer so
                 // trophy unlocks and streak milestones take visual priority.

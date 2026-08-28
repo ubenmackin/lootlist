@@ -28,7 +28,7 @@ public enum QuestRarity: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 
     public var color: Color {
-        // WHY: semantic tokens per ARCH §2; rarity palette maps to DesignSystemConstants asset catalog.
+        // Rarity color tokens mapped from DesignSystemConstants.
         switch self {
         case .common: Color(DesignSystemConstants.Colors.rarityCommon)
         case .rare: Color(DesignSystemConstants.Colors.rarityRare)

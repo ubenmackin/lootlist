@@ -16,10 +16,7 @@ enum VerificationStatus: String, Sendable, CaseIterable, Codable {
 
     case rejected
 
-    /// A pending submission that the completer (or a parent) unsubmitted. The
-    /// completion record is never deleted — the state transition keeps log
-    /// entries append-only — and a withdrawn log no longer occupies a quest
-    /// completion slot, so the hero may submit the quest again.
+    /// Pending submission unsubmitted by the completer or parent (keeps history append-only).
     case withdrawn
 
     var displayName: String {
@@ -42,10 +39,7 @@ enum VerificationStatus: String, Sendable, CaseIterable, Codable {
         }
     }
 
-    /// Whether a completion in this state still holds one of the quest's
-    /// completion slots. Approved and pending logs reserve a slot; rejected
-    /// (by a parent) and withdrawn (by the completer) logs do not, so both
-    /// keep the quest gated open for another submission.
+    /// Whether completion holds a slot (approved/pending reserve slots; rejected/withdrawn do not).
     var countsTowardCompletion: Bool {
         switch self {
         case .autoApproved, .pending, .verified: true

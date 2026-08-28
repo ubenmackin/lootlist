@@ -9,20 +9,8 @@ import SwiftUI
 
 // MARK: - Compact Sprite Authoring Engine
 
-//
-// Sprites are authored as small native-resolution grids (one String per row,
-// one Character per pixel) and upscaled 2x onto the 64x64 canvas with
-// nearest-neighbor scaling. Feet land on canvas row 60 per the authoring spec.
-//
-// Structural character contract (colors are assigned per class palette):
-//   .  transparent      k  outline
-//   H  hair             h  hair shadow
-//   s  skin             S  skin shadow
-//   e  eye
-//   b  outfit primary    d  outfit dark
-//   a  arm/accent       t  belt       T  boots
-//   g  metal light      G  metal dark  A  metal shine
-//   y  gold trim        q  class accent (plume/gem/etc.)
+// Sprites are authored as small native-resolution grids (one String per row, one Character per pixel)
+// and upscaled 2x onto the 64x64 canvas with nearest-neighbor scaling.
 
 extension HeroAvatarSprites {
     /// An overlay grid stamped onto a base grid at a native-resolution origin.

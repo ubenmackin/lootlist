@@ -28,13 +28,8 @@ struct Family: Identifiable, Equatable, Sendable {
     /// field.
     let createdBy: CKRecord.ID
 
-    /// The iCloud user record name of the family's founding user, read from the
-    /// server-owned `CKRecord.creatorUserRecordID` on the read path. Anchors
-    /// owner-gated mutations (delete, role change, member removal) on CloudKit's
-    /// read-only creator identity rather than the forgeable `Profile.role` field.
-    /// Not authored locally — `toRecord()` never stamps this field. Nil for
-    /// legacy families / records where the creator is unresolved — those fall
-    /// back to the legacy parent-role check.
+    /// The iCloud user record name of the family's founding user, read from the server-owned
+    /// `CKRecord.creatorUserRecordID` on the read path.
     var creatorUserRecordName: String?
 
     var createdAt: Date

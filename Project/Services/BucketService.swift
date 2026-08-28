@@ -40,10 +40,7 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
-/// Computes bucket balances and payout splits across the three `BucketKind`
-/// buckets. Split math runs in whole pennies so allocations always sum to the
-/// exact payout total. Split percentages are a future-only snapshot: they are
-/// read once at payout time and never rebalance historical ledger entries.
+/// Computes bucket balances and payout splits across the three `BucketKind` buckets.
 @MainActor
 @Observable
 final class BucketService {
@@ -69,12 +66,8 @@ final class BucketService {
         var pennies: Int
     }
 
-    /// Splits `totalPennies` across the three buckets using the largest
-    /// remainder method so the shares sum exactly to the total — a payout can
-    /// never gain or lose a penny to rounding. Percentages are normalized
-    /// against their own sum, so a config that doesn't total 100 still
-    /// conserves every penny; an all-zero config fails safe to spend, matching
-    /// the pre-bucket default where earnings stayed in the wallet.
+    /// Splits `totalPennies` across the three buckets using the largest remainder method so the shares sum
+    /// exactly to the total — a payout can never gain or lose a penny to rounding.
     static func splitPennies(_ totalPennies: Int,
                              spendPercent: Int,
                              shortPercent: Int,
@@ -122,11 +115,8 @@ final class BucketService {
 
     // MARK: - Balance Attribution
 
-    /// Single-source attribution formula for bucket balances: an entry credits
-    /// its `bucketKind`, and a transfer entry ALSO debits its `fromBucket` —
-    /// keeping ONE ledger row per transfer while both sides of the movement
-    /// reflect. Views feed their `@Query` rows through this same helper so the
-    /// view-side math can never drift from the service's.
+    /// Single-source attribution formula for bucket balances: an entry credits its `bucketKind`, and a
+    /// transfer entry ALSO debits its `fromBucket` — keeping ONE ledger row per transfer while both sides
     static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Double]) {
         if entry.source == "transfer",
            let fromRaw = entry.fromBucket,
@@ -154,18 +144,8 @@ final class BucketService {
 
     // MARK: - Transfers
 
-    /// Moves money between two buckets for the given profile. Creates exactly
-    /// ONE ledger entry (source = "transfer", fromBucket → toBucket). The
-    /// documented contract is a caller-supplied `transferID` keyed to
-    /// (dayBucket, from, to): record name `transfer-{profile}-{dayBucket}-{from}-{to}`,
-    /// deterministic per (profile, UTC day, bucket pair) so CloudKit dedupes
-    /// double-runs across devices. Callers with no natural day-key (tests
-    /// exercising append-only behavior) fall back to a timestamp + nonce.
-    /// The debit side is reflected by `bucketBalances` subtracting from `fromBucket` directly.
-    ///
-    /// - Throws `BucketServiceError.insufficientFunds` when the source bucket
-    ///   doesn't have enough; `.sameBucket` when from == to; `.unauthorized`
-    ///   when the caller is not the bucket owner.
+    /// Moves money between two buckets for the given profile. Creates exactly ONE ledger entry (source =
+    /// "transfer", fromBucket → toBucket).
     func transfer(from: BucketKind,
                   to: BucketKind,
                   amount: Double,

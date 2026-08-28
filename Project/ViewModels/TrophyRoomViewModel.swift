@@ -65,7 +65,13 @@ final class TrophyRoomViewModel {
             achievement.recordName == latest.achievementRecordName
                 || achievement.requirementTypeEnum?.rawValue == latest.achievementRecordName
                 || latest.achievementRecordName.hasSuffix("-\(achievement.recordName)")
-                || (achievement.requirementTypeEnum != nil && latest.achievementRecordName.hasSuffix("-\(achievement.requirementTypeEnum!.rawValue)"))
+                || {
+                    if let raw = achievement.requirementTypeEnum?.rawValue {
+                        latest.achievementRecordName.hasSuffix("-\(raw)")
+                    } else {
+                        false
+                    }
+                }()
         })?.name
     }
 
@@ -101,7 +107,7 @@ final class TrophyRoomViewModel {
             }
         }
         self.allAchievements = filteredAchievements.sorted(by: { $0.name < $1.name })
-        // WHY: level/title/avatar spec is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         if FeatureFlags.rpgImmersive {
             avatarCard = makeAvatarCard(profile: profile)
         } else {

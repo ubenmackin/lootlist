@@ -36,10 +36,7 @@ enum FamilyServiceError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
-/// Outcome of removing a member from the guild. The profile deactivation is
-/// the authoritative kick and always succeeds; the share-access revocation is
-/// best-effort and may fail, which the Guild Master must be told about so the
-/// lingering access can be revoked from the Invitations panel.
+/// Outcome of member removal, tracking profile deactivation and share revocation.
 enum FamilyKickResult: Equatable, Sendable {
     /// Member removed and their share access revoked.
     case fully
@@ -72,12 +69,7 @@ struct OwnerSessionResult {
     let profile: Profile
 }
 
-/// The joiner session result consumed by the onboarding flow: the resolved
-/// `Family` and the joined `Profile`, plus a flag marking whether the join
-/// reused an existing ACTIVE profile as-is. When `didReuseActiveProfile` is
-/// true the profile's identity was preserved untouched, so the caller must
-/// skip any onboarding displayName/avatar writes; only the reactivation and
-/// fresh-mint branches (flag false) take those values.
+/// Join session result returning resolved Family, Profile, and active reuse status.
 struct JoinedFamilyResult {
     let family: Family
     let profile: Profile
@@ -109,10 +101,7 @@ final class FamilyService: FamilyProfileFetching {
 
     let toastManager: ToastManager?
 
-    /// Bootstrap seeder for default achievements. Injected when available;
-    /// when nil an ephemeral `AchievementService` is built from the current
-    /// `cacheService`/`syncCoordinator`/`appState` at seeding time so tests
-    /// using the legacy initializer still seed idempotently.
+    /// Bootstrap seeder for default achievements during family creation.
     var achievementService: AchievementService?
 
     /// Optional collaborators for hero bootstrap seeding. When not injected the
@@ -126,37 +115,12 @@ final class FamilyService: FamilyProfileFetching {
     /// TreasuryService to avoid duplicate period races.
     private let allowancePeriodSeedMutex = Mutex<Set<String>>([])
 
-    /// Keys of immediate profile refreshes currently in flight, formatted as
-    /// `"<operation>|<familyRecordName>"`. Actor-isolated dedupe guard: when a
-    /// genuinely-required immediate refresh for the same operation + family is
-    /// already running, concurrent callers collapse onto it instead of issuing
-    /// duplicate CloudKit queries that race CKSyncEngine's push-driven sync
-    /// and duplicate server-derived writes.
+    /// Deduplicates concurrent profile refresh operations in flight for the same family.
     private let refreshInFlightKeys = Mutex<Set<String>>([])
 
     // MARK: - Identity Caching
 
-    /// The current user's CloudKit record ID, resolved lazily and cached so an
-    /// onboarding flow resolves the identity exactly once. CloudKit identities
-    /// are immutable for a signed-in user within a session, so the cached value
-    /// stays valid for the lifetime of the service. Serves the onboarding
-    /// checks (`checkForExistingFamily`, `findOwnedFamily`) without repeated
-    /// network round-trips to `CKContainer.fetchUserRecordID()`.
-    ///
-    /// Coalesced via `Task` caching: concurrent callers share the same
-    /// in-flight `currentUserRecordID()` fetch instead of issuing duplicate
-    /// network calls. Two concurrent `resolveCurrentUserRecordID()` invocations
-    /// that both observe `nil` coalesce onto the single stored
-    /// `Task<CKRecord.ID, Error>`; a flaky-network failure in one of two raced
-    /// fetches cannot spuriously throw `accountUnavailable` when the other
-    /// succeeded. On failure the cached task is cleared so a later retry can
-    /// re-resolve. Stored as MainActor-isolated state — no extra lock
-    /// needed because `FamilyService` itself is `@MainActor` and all access is
-    /// serialized. This cache is **private to onboarding
-    /// dedupe** — the security-relevant owner-anchor check (`isFamilyOwner`)
-    /// deliberately bypasses it and re-resolves `cloudKit.currentUserRecordID()`
-    /// fresh on every call so an OS-level iCloud account switch without an app
-    /// relaunch can never be masked by a stale pre-switch identity.
+    /// Resolves and caches current iCloud user record ID per session.
     private var cachedUserRecordIDTask: Task<CKRecord.ID, any Error>?
 
     init(
@@ -277,10 +241,7 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Achievement Seeding
 
-    /// Best-effort bootstrap of default achievements after family creation.
-    /// Idempotent: `AchievementService` checks `cache.isCacheFresh` and
-    /// CloudKit for existing definitions before enqueuing saves, using the
-    /// deterministic recordName `<familyRecordName>-<requirementRawValue>`.
+    /// Seeds default achievements idempotently using deterministic record names.
     private func seedDefaultAchievements(for family: Family) async {
         if let cacheService {
             let familyName = family.id.recordName
@@ -320,12 +281,7 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Join Family (Joiner Flow via CKShare Link)
 
-    /// `metadata` is optional only for tests (`CKShare.Metadata` cannot be
-    /// synthesized in this SDK); production callers always pass a resolved value.
-    /// `displayName`/`avatarClass` are written by the fresh-mint and reactivation
-    /// branches, preserved by the active-reuse branch. `didReuseActiveProfile`
-    /// flags whether the caller must skip overwriting identity fields. The role
-    /// is decoded from the share title, not passed in, so one path serves all roles.
+    /// Joins family via accepted share metadata, resolving role from share title.
     func joinFamilyViaAcceptedShare(metadata: CKShare.Metadata?,
                                     displayName: String?,
                                     avatarClass: AvatarClass?,
@@ -337,10 +293,7 @@ final class FamilyService: FamilyProfileFetching {
 
         let sharedDB = cloudKit.sharedDatabase
 
-        // Step 3: Point-lookup the Family by ID (no query index required).
-        // Zone and record name both derive from the metadata's
-        // `hierarchicalRootRecordID`, targeting the exact family accepted; only
-        // the metadata-absent test path falls back to `.first` + `"root"`.
+        // Point-lookup Family by ID matching the accepted share metadata.
         let metadataRoot: CKRecord.ID? = metadata?.hierarchicalRootRecordID
         let family: Family
         let zoneID: CKRecordZone.ID
@@ -473,11 +426,7 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Role & Membership Management
 
-    /// Cache-first read. A fresh cache is served as-is;
-    /// background updates flow through CKSyncEngine's push-driven pipeline, so no
-    /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
-    /// partial cache falls through to a single synchronous CloudKit query that
-    /// re-ingests server snapshots through the shared pipeline.
+    /// Cache-first read serving fresh cache or falling back to CloudKit query.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
@@ -512,11 +461,7 @@ final class FamilyService: FamilyProfileFetching {
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    /// Cache-first read. A fresh cache is served as-is;
-    /// background updates flow through CKSyncEngine's push-driven pipeline, so no
-    /// ad-hoc CloudKit refresh is issued on the cache-hit path. A stale or
-    /// partial cache falls through to a single synchronous CloudKit query that
-    /// re-ingests server snapshots through the shared pipeline.
+    /// Cache-first read serving fresh cache or falling back to CloudKit query.
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
         if let cache = cacheService {
             let familyName = family.id.recordName
@@ -576,10 +521,7 @@ final class FamilyService: FamilyProfileFetching {
     }
 
     func updateMemberRole(profile: Profile, newRole: UserRole) async throws {
-        // Privileged mutation: only the owner anchor (server-authenticated
-        // family owner) may promote, demote, or reassign a member's role.
-        // Legacy families without an owner anchor fall back to the parent-role
-        // check (Guild Master / Ranger).
+        // Role mutation reserved for server-authenticated family owner anchor.
         _ = try await requireParentOrOwner(for: profile)
 
         var updated = profile
@@ -624,21 +566,7 @@ final class FamilyService: FamilyProfileFetching {
         return appState.isZoneOwner
     }
 
-    /// Resolves the current user's CloudKit record ID exactly once per session,
-    /// caching it so the onboarding dedupe flows (`createFamily`,
-    /// `joinFamilyViaAcceptedShare`) resolve the identity a single time instead of
-    /// re-issuing the network round-trip on each lookup. The
-    /// security-relevant owner-anchor check (`isFamilyOwner`) does NOT use this
-    /// helper — it re-resolves `cloudKit.currentUserRecordID()` fresh on every
-    /// call so an OS-level iCloud account change cannot be masked by a stale
-    /// cached identity. Throws `FamilyServiceError.accountUnavailable` when
-    /// CloudKit cannot resolve the identity so callers can surface the
-    /// iCloud-account failure to the user.
-    ///
-    /// Concurrency: coalesced via `Task` caching. Stored as MainActor-isolated
-    /// state so two concurrent onboarding callers cannot both create a fetch —
-    /// the second caller awaits the first caller's in-flight task. A failed
-    /// task is cleared so a later retry can re-resolve.
+    /// Resolves current user's iCloud user record ID once per session.
     private func resolveCurrentUserRecordID() async throws -> CKRecord.ID {
         if let existingTask = cachedUserRecordIDTask {
             do {
@@ -672,10 +600,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    /// Resolves the Family for a member profile (cache-first, then CloudKit) so
-    /// owner-anchor authorization can be evaluated without threading a `family`
-    /// parameter through `updateMemberRole` / `kickMember`. Returns nil when the
-    /// family cannot be resolved — callers treat that as unauthorized.
+    /// Resolves Family for a member profile via cache-first lookup.
     func family(for profile: Profile) async -> Family? {
         let familyID = profile.family.recordID
         if let cached = cacheService?.fetchFamily(recordName: familyID.recordName) {
@@ -725,17 +650,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    /// Immediately re-queries a family's profiles from CloudKit and routes the
-    /// snapshots through the shared ingestion pipeline. Deduped by
-    /// an actor-isolated in-flight guard keyed by operation + family, so
-    /// concurrent callers collapse to a single query instead of racing
-    /// CKSyncEngine's push-driven sync with duplicate
-    /// server-derived writes. Reserved for the few places where an
-    /// immediate refresh is genuinely required (e.g. joining a family via
-    /// share link) — routine background updates belong to CKSyncEngine, and
-    /// stale cache-first reads already fall through to the synchronous query
-    /// in `fetchHeroes`/`fetchAllProfilesForFamily`. Internal so tests can
-    /// exercise the in-flight dedupe.
+    /// Re-queries profiles from CloudKit and routes snapshot through ingestion.
     func refreshProfilesFromCloudKit(for family: Family) async {
         let key = "profiles|\(family.id.recordName)"
         let alreadyInFlight = refreshInFlightKeys.withLock {
@@ -771,10 +686,7 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Hero Bootstrap Seeding
 
-    /// Seeds per-hero notification preferences for the newly joined profile.
-    /// Each `NotificationEventType` receives a deterministic record so the
-    /// seed is idempotent across retries and devices; existing rows are left
-    /// untouched so a user's prior opt-out is never clobbered.
+    /// Seeds default notification preferences for newly joined heroes.
     private func seedNotificationPreferences(for profile: Profile, family: Family) async {
         guard let cacheService else { return }
         let familyRecordName = family.id.recordName
@@ -825,11 +737,7 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    /// Seeds the active allowance period for the current week for the new hero.
-    /// Uses the payout-day-aware week anchor so the period matches the week
-    /// bucket treasury reads use. The deterministic period name makes the
-    /// write idempotent, and a lightweight in-flight mutex prevents concurrent
-    /// join retries from racing to create the same period.
+    /// Seeds current-week allowance period for newly joined heroes.
     private func seedAllowancePeriod(for profile: Profile, family: Family) async {
         // Prefer the injected treasury when available so the period creation
         // shares its single-flight and authorization checks.
@@ -843,10 +751,7 @@ final class FamilyService: FamilyProfileFetching {
         defer { allowancePeriodSeedMutex.withLock { _ = $0.remove(recordName) } }
 
         if let treasuryService {
-            // Treasury path already handles cache and enqueue with its own mutex.
-            // Throw contract: `TreasuryService.getOrCreateAllowancePeriod` re-throws
-            // transient failures (never `try?` → stale `totalEarned`); surface the
-            // failure via logger + toast with retry affordance.
+            // Handles allowance period initialization with retry error handling.
             do {
                 _ = try await treasuryService.getOrCreateAllowancePeriod(profile: profile, weekOf: startOfWeek, family: family)
             } catch {
@@ -880,13 +785,7 @@ final class FamilyService: FamilyProfileFetching {
         syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
     }
 
-    /// Looks up the joining user's existing `Profile` (any role) within the
-    /// joined shared zone so a re-join can reactivate rather than duplicate.
-    /// The predicate keys on `iCloudUserID + family` — never `displayName`, which is
-    /// user-editable and not unique — so the match is anchored on the
-    /// server-authenticated CloudKit identity scoped to this family. Returns the
-    /// first active profile (reactivation path), else the first profile overall
-    /// (inactive-reactivate branch), else nil when the user has no profile here yet.
+    /// Finds joining user's existing Profile for deduplication before creating a new one.
     func findExistingProfileForCurrentUser(in zoneID: CKRecordZone.ID,
                                            family: Family,
                                            currentUserRecordID: CKRecord.ID) async throws -> Profile?

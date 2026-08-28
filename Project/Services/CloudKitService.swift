@@ -34,11 +34,8 @@ enum CloudKitServiceError: Error, Equatable, Sendable, LocalizedError {
 
     case shareFailed(String)
 
-    /// Accepting a share invitation failed. The underlying `CKError.Code` is
-    /// preserved (when CloudKit supplied one) so callers can classify the
-    /// failure symbolically — e.g. `.unknownItem` / `.zoneNotFound` mean the
-    /// shared zone was deleted or the invite expired — instead of probing
-    /// numeric codes or localized/domain error text.
+    /// Accepting a share invitation failed. The underlying `CKError.Code` is preserved (when CloudKit
+    /// supplied one) so callers can classify the failure symbolically — e.g.
     case shareAcceptFailed(code: CKError.Code?, message: String)
 
     /// Cursor pagination exceeded a sane page budget without CloudKit signaling
@@ -158,10 +155,8 @@ class CloudKitService: CloudKitServiceProtocol {
 
     private static let maxRetries = AppConstants.CloudKit.maxRetries
 
-    /// Defensive upper bound on cursor pagination. CloudKit's contract is that a
-    /// non-nil cursor always means more results exist, but if the server ever
-    /// returns a non-nil cursor alongside an empty page we abort here rather
-    /// than loop indefinitely.
+    /// Defensive upper bound on cursor pagination. CloudKit's contract is that a non-nil cursor always
+    /// means more results exist, but if the server ever returns a non-nil cursor alongside an empty page we
     static let maxFetchPages = AppConstants.CloudKit.maxFetchPages
 
     private static let backoffSchedule: [UInt64] = AppConstants.CloudKit.backoffScheduleNanos
@@ -192,12 +187,8 @@ class CloudKitService: CloudKitServiceProtocol {
                     : .retryable(attempt: attempt, code: error.code.rawValue)
 
                 if attempt < Self.maxRetries {
-                    // Server-supplied retry-after values are untrusted: negative
-                    // or non-finite values would trap in the UInt64 conversion,
-                    // and even a large-but-finite value can overflow at that
-                    // same conversion, so anything invalid falls back to the
-                    // fixed backoff schedule while anything above the schedule's
-                    // largest delay clamps to that maximum.
+                    // Server-supplied retry-after values are untrusted: negative or non-finite values would trap in the
+                    // UInt64 conversion, and even a large-but-finite value can overflow at that same conversion, so
                     let maxScheduledNanos = Self.backoffSchedule.max() ?? 1_000_000_000
                     let maxScheduledSeconds = Double(maxScheduledNanos) / 1_000_000_000
                     let delayNanos: UInt64 = if let retryAfter = error.retryAfterSeconds,

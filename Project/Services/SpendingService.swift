@@ -162,10 +162,7 @@ class SpendingService {
         return isOwner
     }
 
-    /// Deterministic-first duplicate handling: an identical replay reuses the
-    /// base name so the upsert is idempotent; only a genuinely different entry
-    /// already occupying the truncated identity (same millisecond, amount, and
-    /// description hash but distinct content) mints a nonce suffix so both rows survive.
+    /// Handles manual spending replay idempotently using deterministic transaction IDs.
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, location: String?, date: Date) -> CKRecord.ID {
         let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
         var recordName = base

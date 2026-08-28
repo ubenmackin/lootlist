@@ -157,7 +157,11 @@ struct KidsSavingsGoalsView: View {
         ) { goal in
             Button("Delete", role: .destructive) {
                 Task {
-                    try? await deleteGoal(goal)
+                    do {
+                        try await deleteGoal(goal)
+                    } catch {
+                        // already toasted in deleteGoal — intentional swallow
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {

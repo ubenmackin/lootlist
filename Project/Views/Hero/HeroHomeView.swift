@@ -137,7 +137,7 @@ struct HeroHomeView: View {
 
             playerCard
 
-            // WHY: Journey map and mascot banner are legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+            // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
             if FeatureFlags.rpgImmersive, let row = currentProfileRow {
                 journeyMapCard(row: row)
                 mascotBanner(row: row)
@@ -174,7 +174,7 @@ struct HeroHomeView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // WHY: Gem Shop is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         if FeatureFlags.rpgImmersive {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -252,7 +252,7 @@ struct HeroHomeView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
 
-                    // WHY: Level badge is legacy RPG chrome — gated behind FeatureFlags.rpgImmersive per ARCHITECTURE.md §1.
+                    // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
                     if FeatureFlags.rpgImmersive {
                         Text("Lv. \(progress.currentLevel)")
                             .font(.caption.weight(.bold))

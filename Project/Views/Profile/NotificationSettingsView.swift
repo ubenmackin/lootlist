@@ -239,7 +239,7 @@ struct NotificationSettingsView: View {
                 Task {
                     do {
                         try await notificationService.updatePreference(event: event, enabled: newValue)
-                        UserDefaults.standard.set(newValue, forKey: event.userDefaultsKey)
+                        await notificationService.setLocalFlag(event: event, enabled: newValue)
                     } catch {
                         toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                     }

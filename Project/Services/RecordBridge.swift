@@ -36,17 +36,7 @@ enum RecordBridge {
         return nil
     }
 
-    /// Returns true only when no cached row exists for the record name across
-    /// every cache table — i.e., local deletion is confirmed. Lookups are
-    /// deliberately family- and database-scope-agnostic. The check is
-    /// FAIL-CLOSED: each table lookup must complete successfully and find no
-    /// row before a server-side delete may be enqueued. A nil result from
-    /// `record(for:)` alone proves nothing — family validation, scope
-    /// validation (locally-created rows are never hydrated with
-    /// `sourceDatabaseScope`), or a cache fetch failure can all produce it —
-    /// so any unavailable context or thrown fetch aborts confirmation here
-    /// and returns false (treat as NOT deleted). A cache error must never be
-    /// misread as "row absent", which would destroy a live cloud record.
+    /// Confirms local deletion across all cache tables before enqueuing server delete.
     static func confirmedLocalDeletion(for identity: ScopedRecordIdentity, cacheService: CacheService) -> Bool {
         let name = identity.recordName
 

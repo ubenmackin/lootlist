@@ -75,9 +75,12 @@ extension FamilyService {
         await cacheService?.upsertFamily(updated)
         appState.family = updated
 
-        // Re-resolve owner from authoritative CloudKit scope after AppState sync;
-        // avoids using a pre-debounce stale owner when the zone switched.
-        let isOwner = cloudKit.activeIsOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = resolvedIsOwner()
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updatePayoutPolicy isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -147,8 +150,12 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        // Re-resolve owner from authoritative CloudKit scope after AppState sync.
-        let isOwner = cloudKit.activeIsOwner
+        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+        let isOwner = resolvedIsOwner()
+        let storedOwner = appState.isZoneOwner
+        if isOwner != storedOwner {
+            logger.warning("FamilyService.updateProfilePayoutPolicy isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
         syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
         return updated
     }
@@ -289,10 +296,7 @@ extension FamilyService {
         return try await updateSavingsSplit(profile: profileCache.toProfile(zoneID: zoneID), spend: spend, short: short, long: long)
     }
 
-    /// Updates the 3-jar split percentages for a hero profile. Percentages are
-    /// a future-only snapshot read at payout time — never retroactively
-    /// rebalanced — so this write only affects subsequent deposits/payouts.
-    /// The 100-sum invariant is enforced before persisting.
+    /// Updates 3-jar split percentages for a hero profile, applying to future payouts.
     @discardableResult
     func updateSavingsSplit(profile: Profile, spend: Int, short: Int, long: Int) async throws -> Profile {
         // 100-sum invariant: every payout split must allocate exactly 100%.

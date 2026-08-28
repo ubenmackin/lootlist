@@ -50,11 +50,7 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
     }
 
     var rarityEnum: QuestRarity? {
-        // Rarity is a pure function of XP in the domain layer (Quest.rarity
-        // derives the same way), so derive it at read time instead of trusting
-        // the stored string — a change to the XP↔rarity constants is then
-        // reflected immediately without waiting for a resync. Legacy rows that
-        // predate a meaningful xpReward fall back to the stored raw string.
+        // Rarity derived from XP at read time, falling back to raw string for legacy rows.
         if xpReward > 0 {
             return QuestRarity.from(xp: xpReward)
         }

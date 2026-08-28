@@ -30,16 +30,16 @@ enum DesignSystemConstants {
         /// Light #FF3B30 / Dark #FF453A — destructive actions, overdue.
         static let dangerRed = "dangerRed"
 
-        /// Light #D9A834 / Dark #E8C05C — legacy gold identifier sanctioned per ARCH §1; asset-backed semantic token.
+        /// Light #D9A834 / Dark #E8C05C asset-backed semantic gold token.
         static let gold = "gold"
 
-        // Rarity palette — semantic asset tokens for QuestRarity per §2 (maps to pendingAmber/accentBlue spectrum).
+        // Rarity palette semantic asset tokens for QuestRarity.
         static let rarityCommon = "rarityCommon"
         static let rarityRare = "rarityRare"
         static let rarityEpic = "rarityEpic"
         static let rarityLegendary = "rarityLegendary"
 
-        // Journey map art palette — game-art owned by JourneyZone.ZonePalette; asset-catalog backed tokens per §2 exception.
+        // Journey map art palette semantic tokens owned by JourneyZone.ZonePalette.
         static let journeyStartingMeadowPath = "journeyStartingMeadowPath"
         static let journeyStartingMeadowGround = "journeyStartingMeadowGround"
         static let journeyStartingMeadowAccent = "journeyStartingMeadowAccent"

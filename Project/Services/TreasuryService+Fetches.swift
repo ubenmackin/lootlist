@@ -446,8 +446,7 @@ extension TreasuryService {
         )
     }
 
-    /// Pure gold summation over already-fetched quests. No CloudKit access —
-    /// callers must supply the quest records that correspond to `logs`.
+    /// Calculates total gold credit from logs and quests via GoldCalculation.
     func sumGold(for logs: [QuestCompletion], quests: [Quest]) -> Double {
         GoldCalculation.totalCredit(for: quests, logs: logs)
     }

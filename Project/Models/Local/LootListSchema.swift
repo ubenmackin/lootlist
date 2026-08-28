@@ -30,11 +30,7 @@ enum LootListSchemaV7: VersionedSchema {
     }
 }
 
-/// V8 adds the savings-engine model surface (GoalCache, per-profile savings
-/// config, ledger bucket attribution, quest claims, profile avatar emoji).
-/// Adding a new @Model type is an incompatible SwiftData change, so existing
-/// stores are destructively reset and rehydrated from CloudKit by design —
-/// no lightweight migration path is attempted.
+/// Schema V8: adds goals, savings config, ledger bucket attribution, and claims.
 enum LootListSchemaV8: VersionedSchema {
     static var versionIdentifier: Schema.Version {
         Schema.Version(8, 0, 0)

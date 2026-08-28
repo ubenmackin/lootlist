@@ -9,10 +9,7 @@ import os
 import SwiftData
 import SwiftUI
 
-/// Child-centric assigned chores screen. Displays two sections: chores awaiting
-/// parent review (amber) and upcoming active quests (gray with green amount pill).
-/// Complete action wires through the existing QuestCompletion pipeline, with
-/// celebration overlay and success haptic on auto-approve completions.
+/// Child-centric assigned chores screen displaying pending and open chores for the week.
 struct MyChoresView: View {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyChoresView")
     @Environment(AppState.self) private var appState

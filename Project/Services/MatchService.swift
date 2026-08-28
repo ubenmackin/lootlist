@@ -20,18 +20,7 @@ enum MatchServiceError: LocalizedError {
     }
 }
 
-/// Parent X% match toward a hero's long-term-save goals. Config lives on the
-/// hero's `Profile` record and is edited by parents only; the match itself is
-/// applied whenever a contribution lands on a long-term goal, with an optional
-/// monthly cap. Like every money-movement path, match credits are immutable
-/// ledger entries with deterministic IDs (`match-{goal}-{contributionID}`), so
-/// a replay is idempotent — CloudKit dedupes the record name across devices.
-///
-/// Integration point: call `applyMatch(for:contributionEventID:amount:date:heroProfile:family:)`
-/// right after each contribution creation that targets a `.longTermSave` goal.
-/// The deterministic contribution event ID — already produced by the upstream
-/// contribution path — serves as the match dedup anchor, so a double-run of
-/// the same contribution never mints two match entries.
+/// Parent savings match engine applying match percentages up to configured caps.
 @MainActor
 @Observable
 final class MatchService {
@@ -133,17 +122,7 @@ final class MatchService {
 
     // MARK: - Match Application
 
-    /// Applies a parent match for a contribution that landed on a
-    /// long-term-save goal. The match rate may exceed 100% and is
-    /// capped by the optional monthly limit.
-    ///
-    /// Month-to-date matched is derived by querying existing match ledger
-    /// entries whose date falls in the same calendar month — no stored
-    /// counter is ever maintained.
-    ///
-    /// Returns the minted entry, or `nil` when nothing was owed: config
-    /// disabled, goal is not long-term-save, a sub-penny match, or the
-    /// contribution already matched.
+    /// Applies parent match using idempotent record ID: match-{goal}-{sourceEventID}.
     @discardableResult
     func applyMatch(for goal: Goal,
                     contributionEventID: String,

@@ -10,11 +10,8 @@ import SwiftUI
 extension HeroAvatarSprites {
     // MARK: - Equipment Layers
 
-    //
-    // Gear grids are generated at full 64x64 canvas resolution (1px density,
-    // matching the pixel bases) by tools/generate_pixel_gear.py, so they stamp
-    // at scale 1 with no offset. Background pieces use negative zIndex,
-    // foreground positive.
+    // Gear grids are generated at full 64x64 canvas resolution (1px density, matching the pixel bases) by
+    // tools/generate_pixel_gear.py, so they stamp at scale 1 with no offset.
 
     private static func gearLayer(
         id: String,

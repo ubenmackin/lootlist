@@ -117,10 +117,7 @@ struct TrophyRoomView: View {
         .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
     }
 
-    // WHY: cache-first rebuild keeps the Trophy Room instant from SwiftData;
-    // @Query rows are family-scoped at the store layer and filtered to the
-    // active hero here so earned state stays correct after cache hydration or
-    // a manual sync. Sorting and stable IDs are handled in the view model.
+    /// Instant cache-first rebuild; background sync updates SwiftData @Query automatically.
     private func rebuild() {
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 

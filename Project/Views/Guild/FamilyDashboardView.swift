@@ -270,7 +270,7 @@ private extension FamilyDashboardView {
                 }
                 .onPreferenceChange(ChildCardHeightPreferenceKey.self) { newHeight in
                     if newHeight > 0, maxChildCardHeight != newHeight {
-                        DispatchQueue.main.async {
+                        Task { @MainActor in
                             maxChildCardHeight = newHeight
                         }
                     }

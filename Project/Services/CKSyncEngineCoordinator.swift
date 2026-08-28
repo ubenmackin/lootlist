@@ -11,8 +11,7 @@ import Observation
 import os
 import Synchronization
 
-/// Manages `CKSyncEngine` instances across private and shared database scopes,
-/// orchestrating local-first state persistence and sync execution.
+/// Manages CKSyncEngine instances across private and shared database scopes.
 @MainActor
 @Observable
 final class CKSyncEngineCoordinator {
@@ -23,10 +22,7 @@ final class CKSyncEngineCoordinator {
 
     // MARK: - State Key Resolution
 
-    /// Resolves the stable family identifier that scopes persisted engine state.
-    /// Uses the active zone name when available (set during engine initialization)
-    /// falling back to the in-memory family record name. This avoids coupling
-    /// the key to the mutable profile identity which can change after dedupe reuse.
+    /// Resolves stable family identifier scoping engine state (zone name or in-memory ID).
     private func stableFamilyRecordName() -> String? {
         if let zoneName = cloudKitService.activeFamilyZoneID?.zoneName, !zoneName.isEmpty {
             return zoneName
@@ -34,9 +30,7 @@ final class CKSyncEngineCoordinator {
         return appState?.family?.id.recordName
     }
 
-    /// Builds the UserDefaults key for persisted `CKSyncEngine` state.
-    /// Keyed by stable family plus database scope so pending saves survive
-    /// profile switches and re-onboarding within the same family.
+    /// Builds UserDefaults state key per family and database scope.
     private func stateKey(for scope: CKDatabase.Scope) -> String? {
         guard let familyRecordName = stableFamilyRecordName() else {
             return nil
@@ -50,9 +44,7 @@ final class CKSyncEngineCoordinator {
     let delegateHandler: CKSyncEngineDelegateHandler
     let defaults: UserDefaults
 
-    /// Weak session reference used to resolve the active family for the
-    /// cache-freshness watermark after a full-sync pass. Kept weak (like the
-    /// delegate's) to avoid retaining the app root from the long-lived engine.
+    /// Weak session reference used to resolve active family for freshness stamping.
     private weak var appState: AppState?
 
     @ObservationIgnored var privateSyncEngine: CKSyncEngine?
@@ -99,9 +91,7 @@ final class CKSyncEngineCoordinator {
     // MARK: - Engine Setup
 
     func initializeEngines() {
-        // Tests run without entitlements — never instantiate real CKSyncEngine
-        // with a live container in unit tests, even if authStatus is
-        // authenticated (e.g. via a seeded Mock AppState).
+        // Skips engine initialization in unit test environments.
         guard !TestEnvironment.isRunningUnitOrUITests else {
             logger.info("CKSyncEngine initialization skipped: unit test environment")
             return
@@ -204,10 +194,8 @@ final class CKSyncEngineCoordinator {
 
     // MARK: - Active Engine Selection
 
-    /// Fail-closed accessor: engines exist only after `initializeEngines`
-    /// passes the authenticated-scope gate, so a mutation arriving during a
-    /// signed-out or account-transition window buffers instead of minting a
-    /// live engine against a stale scope.
+    /// Fail-closed accessor: engines exist only after `initializeEngines` passes the authenticated-scope
+    /// gate, so a mutation arriving during a signed-out or account-transition window buffers instead of
     func activeEngine(isOwner: Bool) -> CKSyncEngine? {
         isOwner ? privateSyncEngine : sharedSyncEngine
     }
@@ -255,13 +243,8 @@ final class CKSyncEngineCoordinator {
     }
 
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool) {
-        // Dangling pending fix: if a save is pending and the underlying cache
-        // row is deleted before transmission, the save would forever retry nil
-        // from RecordBridge. Nil-out any pending save so the delete is canonical.
-        // Callers must only enqueue after CONFIRMED local deletion — a nil from
-        // RecordBridge.record(for:) alone can mean family/scope validation or a
-        // fetch failure on a live row; gate ambiguous cases through
-        // RecordBridge.confirmedLocalDeletion instead of deleting server-side.
+        // Dangling pending fix: if a save is pending and the underlying cache row is deleted before
+        // transmission, the save would forever retry nil from RecordBridge.
         pendingEnqueueBuffer.withLock { buffer in
             buffer.removeAll { $0.recordID == recordID }
         }
@@ -284,12 +267,6 @@ final class CKSyncEngineCoordinator {
     // MARK: - Manual Trigger APIs
 
     /// Manually triggers a remote fetch pass across active engines.
-    ///
-    /// Note on ordering: `fetchChanges()` and `sendPendingChanges()` are independent operations.
-    /// During initial bootstrap (`AppLifecycleCoordinator.initializeAndSyncActiveScope`), `fetchChanges()`
-    /// is called prior to `sendPendingChanges()` to hydrate server state before pushing optimistic local
-    /// writes. At runtime, calls may arrive in any order; the engine's conflict resolution resolves
-    /// any interleaved changes.
     func fetchChanges() async {
         guard !isSyncing else {
             logger.info("Fetch changes skipped: sync pass already in progress")
@@ -332,10 +309,6 @@ final class CKSyncEngineCoordinator {
     }
 
     /// Manually triggers a push pass for all queued saves and deletes.
-    ///
-    /// Operates independently of `fetchChanges()`. If called before a fetch pass, pending local
-    /// mutations are transmitted immediately; server conflicts will be reconciled on the subsequent
-    /// fetch pass via `CKSyncConflictResolver`.
     func sendPendingChanges() async {
         guard !isSyncing else {
             logger.info("Send changes skipped: sync pass already in progress")
@@ -386,11 +359,9 @@ final class CKSyncEngineCoordinator {
         currentPassHadCacheWriteFailures = true
     }
 
-    /// Finalizes a sync pass: stamps freshness only when all active scopes
-    /// succeed — §2 gating prevents private-only success stamping shared types.
+    /// Stamps freshness watermarks when all active database scopes succeed without errors.
     private func completeSyncPass() {
-        // §2 freshness gating: private-only must not stamp shared types.
-        // Prevents empty hero list when shared scope never completed.
+        // Freshness gating: private scope success must not stamp shared record types.
         if !activeFetchPassScopes.isEmpty,
            activeFetchPassScopes.isSubset(of: completedFetchPassScopes),
            !currentPassHadParseFailures, !currentPassHadCacheWriteFailures
