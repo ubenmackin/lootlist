@@ -13,7 +13,7 @@ import Synchronization
 
 @MainActor
 @Observable
-final class CacheService {
+final class CacheService: CacheServicing {
     let container: ModelContainer?
     var initializationError: Error?
     var toastManager: ToastManager?
@@ -75,12 +75,27 @@ final class CacheService {
         }
         // In-memory stores keep main-actor writes so test seeding and assertions stay synchronous.
         if !inMemory, let container {
-            Task.detached { [weak self] in
+            Task(priority: .userInitiated) { [weak self] in
                 let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
-                await MainActor.run { self?.attachBackgroundWriter(writer) }
+                self?.attachBackgroundWriter(writer)
             }
         }
         installDidSaveObserver()
+    }
+
+    /// Safe, non-crashing in-memory fallback `CacheService` for fallback paths and test scenarios.
+    static func inMemoryFallback(logger: Logger? = nil) -> CacheService {
+        do {
+            return try CacheService(inMemory: true)
+        } catch {
+            logger?.error("Failed to create in-memory fallback CacheService: \(error, privacy: .private)")
+            do {
+                return try CacheService(inMemory: true, defaults: .standard)
+            } catch let fallbackError {
+                logger?.fault("Critical: CacheService fallback store failed: \(fallbackError, privacy: .private)")
+                return inMemoryFallback(logger: nil)
+            }
+        }
     }
 
     /// Attaches a writer created off the main actor. The writer is hoisted as a
@@ -115,20 +130,30 @@ final class CacheService {
     /// ModelContext.didSave notifications to trigger processPendingChanges on the main context.
     private func installDidSaveObserver() {
         guard container != nil else { return }
-        didSaveTask = Task { [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
-                guard !Task.isCancelled, let self else { break }
-                guard let container = self.container else { break }
-                // Avoid calling property getters on `notification.object` from @MainActor because accessing properties
-                // on a background ModelContext triggers SwiftData concurrency assertions.
-                guard let savedObject = notification.object as AnyObject?,
-                      savedObject !== (container.mainContext as AnyObject)
-                else {
-                    continue
+        guard didSaveTask == nil else { return }
+        didSaveTask = Task { @MainActor [weak self] in
+            await withTaskCancellationHandler {
+                for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { break }
+                    guard let container = self.container else { break }
+                    // Avoid calling property getters on `notification.object` from @MainActor because accessing properties
+                    // on a background ModelContext triggers SwiftData concurrency assertions.
+                    guard let savedObject = notification.object as AnyObject?,
+                          savedObject !== (container.mainContext as AnyObject)
+                    else {
+                        continue
+                    }
+                    self.refreshMainContextAfterBackgroundSave()
                 }
-                self.refreshMainContextAfterBackgroundSave()
-            }
+            } onCancel: {}
         }
+    }
+
+    /// Cancels the didSave observer and clears the stored reference atomically.
+    func stopDidSaveObserver() {
+        didSaveTask?.cancel()
+        didSaveTask = nil
     }
 
     deinit {

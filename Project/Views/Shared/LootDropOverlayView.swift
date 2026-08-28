@@ -160,7 +160,9 @@ struct LootDropOverlayView: View {
 
         animationTask = Task {
             // 2. Wobble
-            try? await Task.sleep(for: .milliseconds(500))
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+            } catch {}
             guard !Task.isCancelled else { return }
 
             phase = .wobbling
@@ -168,7 +170,9 @@ struct LootDropOverlayView: View {
                 chestRotation = 15
             }
 
-            try? await Task.sleep(for: .milliseconds(500))
+            do {
+                try await Task.sleep(for: .milliseconds(500))
+            } catch {}
             guard !Task.isCancelled else { return }
 
             withAnimation {
@@ -176,7 +180,10 @@ struct LootDropOverlayView: View {
             }
 
             // 3. Open (0.2s after wobble finishes, matching the 1.2s total delay)
-            try? await Task.sleep(for: .milliseconds(200))
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {}
+
             guard !Task.isCancelled else { return }
 
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
@@ -197,7 +204,9 @@ struct LootDropOverlayView: View {
             triggerHaptic()
 
             // Auto-dismiss after 4.5 seconds from opening
-            try? await Task.sleep(for: .milliseconds(4500))
+            do {
+                try await Task.sleep(for: .milliseconds(4500))
+            } catch {}
             guard !Task.isCancelled else { return }
 
             if isPresented {

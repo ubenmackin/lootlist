@@ -30,26 +30,29 @@ extension CloudKitService {
         }
         record.setParent(CKRecord.ID(recordName: event.family.recordID.recordName, zoneID: zone))
 
-        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
-        operation.savePolicy = .ifServerRecordUnchanged
-        operation.isAtomic = true
-
-        return try await withCheckedThrowingContinuation { continuation in
-            operation.modifyRecordsResultBlock = { result in
+        do {
+            let (saveResults, _) = try await targetDB.modifyRecords(
+                saving: [record],
+                deleting: [],
+                savePolicy: .ifServerRecordUnchanged,
+                atomically: true
+            )
+            if let result = saveResults[record.recordID] {
                 switch result {
                 case .success:
-                    continuation.resume(returning: true)
+                    return true
                 case let .failure(error):
                     if let ckError = error as? CKError,
                        ckError.code == .serverRecordChanged || ckError.code == .constraintViolation
                     {
-                        continuation.resume(returning: false)
-                    } else {
-                        continuation.resume(throwing: error)
+                        return false
                     }
+                    throw error
                 }
             }
-            targetDB.add(operation)
+            return true
+        } catch let ckError as CKError where ckError.code == .serverRecordChanged || ckError.code == .constraintViolation {
+            return false
         }
     }
 

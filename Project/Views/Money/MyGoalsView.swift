@@ -184,7 +184,9 @@ struct MyGoalsView: View {
                 // surface as a validation message stored in parsing-error state.
                 if msg != nil {
                     Task {
-                        try? await Task.sleep(for: .seconds(4))
+                        do {
+                            try await Task.sleep(for: .seconds(4))
+                        } catch {}
                         errorMessage = nil
                     }
                 }

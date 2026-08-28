@@ -24,22 +24,47 @@ enum InterestServiceError: LocalizedError {
 @MainActor
 @Observable
 final class InterestService {
+    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "InterestService")
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "InterestService")
     private let cloudKit: any CloudKitServiceProtocol
-    var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
-    var appState: AppState?
+    let cacheService: any CacheServicing
+    let syncCoordinator: any SyncEnqueuing
+    let appState: AppState
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        cacheService: any CacheServicing,
+        appState: AppState,
+        syncCoordinator: any SyncEnqueuing
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
+    }
+
+    @_disfavoredOverload
+    convenience init(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: (any CacheServicing)? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil
+    ) {
+        final class NoopSync: SyncEnqueuing {
+            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
+        }
+        let cache: any CacheServicing
+        if let cacheService {
+            cache = cacheService
+        } else {
+            Self.staticLogger.warning("InterestService initialized without cacheService; using fallback in-memory cache.")
+            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
+        }
+        let state = appState ?? AppState()
+        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSync()
+        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 
     // MARK: - Deterministic Identity
@@ -64,7 +89,7 @@ final class InterestService {
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         // Hoisted local: Swift 6 requires explicit capture semantics for
         // self-referencing property access inside the logger interpolation.
-        let storedOwner = appState?.isZoneOwner ?? false
+        let storedOwner = appState.isZoneOwner
         if isOwner != storedOwner {
             logger.warning("isOwner corrected via creator anchor for sync enqueue: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -83,7 +108,7 @@ final class InterestService {
                               rateBps: Int,
                               isCompound: Bool) async throws -> Profile
     {
-        guard let appState, let acting = appState.currentProfile, acting.role.isParent else {
+        guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -104,11 +129,11 @@ final class InterestService {
         updated.interestRateBps = max(0, rateBps)
         updated.interestIsCompound = isCompound
 
-        await cacheService?.upsertProfile(updated)
+        await cacheService.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: correctedIsOwnerForSync())
+        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: correctedIsOwnerForSync())
         return updated
     }
 
@@ -127,7 +152,7 @@ final class InterestService {
                               family: Family,
                               date: Date = Date()) async throws -> LedgerEntry?
     {
-        guard let appState, let acting = appState.currentProfile, acting.role.isParent else {
+        guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -144,10 +169,10 @@ final class InterestService {
             return nil
         }
 
-        let cachedEntries = cacheService?.fetchLedgerEntries(
+        let cachedEntries = cacheService.fetchLedgerEntries(
             profileRecordName: profile.id.recordName,
             family: family.id.recordName
-        ) ?? []
+        )
 
         // Check-before-apply: an existing deterministic row for this month is
         // the double-run guard, independent of any caller-side state.
@@ -159,7 +184,7 @@ final class InterestService {
             return nil
         }
 
-        let balances = BucketService(cacheService: cacheService).bucketBalances(
+        let balances = BucketService(cacheService: cacheService, syncCoordinator: syncCoordinator, appState: appState).bucketBalances(
             profileRecordName: profile.id.recordName,
             familyRecordName: family.id.recordName
         )
@@ -168,7 +193,7 @@ final class InterestService {
             // Simple interest ignores prior credits: only deposits earn
             // interest, never interest already paid into the bucket.
             let priorInterestPennies = cachedEntries
-                .filter { $0.source == Self.ledgerSource && $0.bucketKind == bucket.rawValue }
+                .filter { $0.sourceEnum == .interest && $0.bucketKind == bucket.rawValue }
                 .reduce(0) { $0 + Int(($1.amount * 100).rounded()) }
             basePennies -= priorInterestPennies
         }
@@ -181,13 +206,13 @@ final class InterestService {
             amount: Double(creditPennies) / 100.0,
             description: Self.entryDescription,
             date: date,
-            source: Self.ledgerSource,
+            source: LedgerSource.interest.rawValue,
             bucketKind: bucket.rawValue,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: recordNameStr, zoneID: family.id.zoneID)
         )
-        await cacheService?.upsertLedgerEntry(entry)
-        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: correctedIsOwnerForSync())
+        await cacheService.upsertLedgerEntry(entry)
+        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: correctedIsOwnerForSync())
         // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
         let formattedAmount = CurrencyFormatter.string(Double(creditPennies) / 100.0)
         logger
@@ -199,7 +224,7 @@ final class InterestService {
 
     // MARK: - Explainer Projection
 
-    static let ledgerSource = "interest"
+    static let ledgerSource = LedgerSource.interest.rawValue
     static let entryDescription = "Parent Interest"
 
     /// Month-by-month credits powering the plain-language explainer table.

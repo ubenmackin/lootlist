@@ -14,7 +14,7 @@ import Synchronization
 /// Manages CKSyncEngine instances across private and shared database scopes.
 @MainActor
 @Observable
-final class CKSyncEngineCoordinator {
+final class CKSyncEngineCoordinator: SyncEnqueuing {
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "LootList",
         category: "CKSyncEngineCoordinator"

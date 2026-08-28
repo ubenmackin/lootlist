@@ -141,7 +141,11 @@ final class CelebrationManager {
         confettiDismissTask?.cancel()
         isConfettiShowing = true
         confettiDismissTask = Task {
-            try? await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+            do {
+                try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
+            } catch {
+                // Task.sleep only throws CancellationError, intentionally ignored for auto-dismiss
+            }
             guard !Task.isCancelled else { return }
             isConfettiShowing = false
         }

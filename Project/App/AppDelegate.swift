@@ -133,7 +133,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                     return .deadlineExpired
                 }
                 group.addTask {
-                    try? await Task.sleep(for: .seconds(25))
+                    do {
+                        try await Task.sleep(for: .seconds(25))
+                    } catch {
+                        // Task.sleep only throws CancellationError, intentionally ignored for deadline handling
+                    }
                     return .deadlineExpired
                 }
 

@@ -152,7 +152,9 @@ struct MascotBannerView: View {
         .cornerRadius(DesignSystemConstants.CornerRadius.card)
         .task {
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
+                do {
+                    try await Task.sleep(for: .milliseconds(500))
+                } catch {}
                 guard !Task.isCancelled else { break }
                 withAnimation(.easeInOut(duration: 0.5)) {
                     frameIndex = (frameIndex + 1) % 2

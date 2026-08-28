@@ -44,7 +44,7 @@ struct CompleteQuestIntent: AppIntent, Sendable {
 
         let zoneID = dep.appState.resolvedFamilyZoneID()
         let familyName = dep.appState.family?.id.recordName
-        let questModel = dep.cacheService?.fetchQuests(family: familyName, weekInRange: nil)
+        let questModel = dep.cacheService.fetchQuests(family: familyName, weekInRange: nil)
             .first(where: { $0.recordName == targetQuestEntity.id && $0.isActive })?
             .toQuest(zoneID: zoneID)
 

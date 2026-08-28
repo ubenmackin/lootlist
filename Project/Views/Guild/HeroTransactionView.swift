@@ -184,19 +184,10 @@ struct HeroTransactionView: View {
 
     // MARK: - Parsing
 
+    // WHY: Delegate to shared FormatStyle so no per-call NumberFormatter is allocated.
     /// Parses amount using the current locale, falling back to dot-normalized Double.
     static func parseAmount(_ text: String) -> Double? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let formatter = NumberFormatter()
-        formatter.locale = Locale.current
-        formatter.numberStyle = .decimal
-        if let number = formatter.number(from: trimmed) {
-            return number.doubleValue
-        }
-        // Fallback for pasted values with comma separator.
-        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
-        return Double(normalized)
+        CurrencyFormatter.decimalDouble(from: text)
     }
 }
 

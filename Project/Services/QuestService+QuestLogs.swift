@@ -49,7 +49,7 @@ extension QuestService {
             }
 
         guard !logs.isEmpty else { return 0 }
-        let quests = try await fetchQuestsForLogs(logs, family: appState?.family)
+        let quests = try await fetchQuestsForLogs(logs, family: appState.family)
         return GoldCalculation.totalCredit(for: quests, logs: logs)
     }
 
@@ -59,7 +59,8 @@ extension QuestService {
     ) async throws -> [Quest] {
         guard !logs.isEmpty else { return [] }
         let needed = Set(logs.map(\.quest.recordID.recordName))
-        if let cache = cacheService, let family {
+        if let family {
+            let cache = cacheService
             let familyName = family.id.recordName
             // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback at call site (FamilyService-style).
             let isAuthoritative = await MainActor.run {
@@ -109,7 +110,8 @@ extension QuestService {
 
     /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestLogs(forQuest quest: Quest, useCache: Bool = true) async throws -> [QuestCompletion] {
-        if useCache, let cache = cacheService {
+        if useCache {
+            let cache = cacheService
             let questName = quest.id.recordName
             let familyName = quest.family.recordID.recordName
             let cached = cache.fetchQuestCompletions(family: familyName)
@@ -129,30 +131,25 @@ extension QuestService {
             in: quest.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        if let syncCoordinator {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: all,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
-                zoneID: quest.id.zoneID
-            )
-        } else {
-            await cacheService?.upsertQuestCompletions(all, family: quest.family.recordID.recordName)
-        }
+        await syncCoordinator.delegateHandler.hydrateFromQuery(
+            models: all,
+            databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+            zoneID: quest.id.zoneID
+        )
         return all
     }
 
     /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
-        if let cache = cacheService {
-            let profileName = profile.id.recordName
-            let familyName = profile.family.recordID.recordName
-            let cached = cache.fetchQuestCompletions(family: familyName)
-                .filter { $0.completerRecordName == profileName }
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
-                return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
-                    .sorted { $0.completedDate > $1.completedDate }
-            }
+        let cache = cacheService
+        let profileName = profile.id.recordName
+        let familyName = profile.family.recordID.recordName
+        let cached = cache.fetchQuestCompletions(family: familyName)
+            .filter { $0.completerRecordName == profileName }
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
+            return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
+                .sorted { $0.completedDate > $1.completedDate }
         }
 
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
@@ -163,15 +160,11 @@ extension QuestService {
             in: profile.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        if let syncCoordinator {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: all,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
-                zoneID: profile.id.zoneID
-            )
-        } else {
-            await cacheService?.upsertQuestCompletions(all, family: profile.family.recordID.recordName)
-        }
+        await syncCoordinator.delegateHandler.hydrateFromQuery(
+            models: all,
+            databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+            zoneID: profile.id.zoneID
+        )
         return all
     }
 
@@ -179,13 +172,12 @@ extension QuestService {
 
     /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestCompletionsForFamily(family: Family) async throws -> [QuestCompletion] {
-        if let cache = cacheService {
-            let familyName = family.id.recordName
-            let cached = cache.fetchQuestCompletions(family: familyName)
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
-                return cached.map { $0.toQuestCompletion(zoneID: family.id.zoneID) }
-            }
+        let cache = cacheService
+        let familyName = family.id.recordName
+        let cached = cache.fetchQuestCompletions(family: familyName)
+        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
+            return cached.map { $0.toQuestCompletion(zoneID: family.id.zoneID) }
         }
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
@@ -196,15 +188,11 @@ extension QuestService {
             in: family.id.zoneID,
             sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
         )
-        if let syncCoordinator {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: completions,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
-                zoneID: family.id.zoneID
-            )
-        } else {
-            await cacheService?.upsertQuestCompletions(completions, family: family.id.recordName)
-        }
+        await syncCoordinator.delegateHandler.hydrateFromQuery(
+            models: completions,
+            databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+            zoneID: family.id.zoneID
+        )
         return completions
     }
 }

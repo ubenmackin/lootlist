@@ -184,7 +184,9 @@ struct NotificationSettingsView: View {
         }
         .task(id: showClearedToast) {
             if showClearedToast {
-                try? await Task.sleep(nanoseconds: DesignSystemConstants.AnimationDuration.toggleFeedbackNanos)
+                do {
+                    try await Task.sleep(nanoseconds: DesignSystemConstants.AnimationDuration.toggleFeedbackNanos)
+                } catch {}
                 showClearedToast = false
             }
         }
@@ -239,7 +241,7 @@ struct NotificationSettingsView: View {
                 Task {
                     do {
                         try await notificationService.updatePreference(event: event, enabled: newValue)
-                        await notificationService.setLocalFlag(event: event, enabled: newValue)
+                        notificationService.setLocalFlag(event: event, enabled: newValue)
                     } catch {
                         toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                     }

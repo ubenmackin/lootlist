@@ -47,7 +47,7 @@ extension FamilyService {
         let creatorID = CKRecord.ID(recordName: family.createdBy.recordName, zoneID: zoneID)
         do {
             // `fetch` throws on absence, so the provable-absence vs error split
-            // is made in the catch (fail-closed) rather than via `try?`.
+            // is made in the catch (fail-closed) rather than via optional try.
             let fetched: Profile = try await cloudKit.fetch(Profile.self, id: creatorID, using: db)
             if fetched.isActive {
                 logger.info("Direct point lookup found active Guild Master profile: '\(fetched.displayName, privacy: .private)'")

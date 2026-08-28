@@ -7,6 +7,12 @@
 
 import CloudKit
 import Foundation
+import os
+
+private let ckRecordSystemFieldsLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "LootList",
+    category: "CKRecordSystemFields"
+)
 
 extension CKRecord {
     /// Encodes this record's system fields into serialized Data for local persistence.
@@ -20,12 +26,18 @@ extension CKRecord {
     /// creation/modification dates, and record ID) from encoded system fields data.
     /// Falls back to constructing a fresh `CKRecord` if `systemFields` is nil or cannot be decoded.
     static func from(systemFields: Data?, fallbackType: String, fallbackID: CKRecord.ID) -> CKRecord {
-        if let systemFields,
-           let unarchiver = try? NSKeyedUnarchiver(forReadingFrom: systemFields)
-        {
-            unarchiver.requiresSecureCoding = true
-            if let record = CKRecord(coder: unarchiver) {
-                return record
+        if let systemFields {
+            do {
+                let unarchiver = try NSKeyedUnarchiver(forReadingFrom: systemFields)
+                unarchiver.requiresSecureCoding = true
+                if let record = CKRecord(coder: unarchiver) {
+                    return record
+                }
+            } catch {
+                ckRecordSystemFieldsLogger
+                    .warning(
+                        "CKRecord systemFields decode failed for \(fallbackID.recordName, privacy: .private) type \(fallbackType, privacy: .public): \(error, privacy: .private)"
+                    )
             }
         }
         return CKRecord(recordType: fallbackType, recordID: fallbackID)

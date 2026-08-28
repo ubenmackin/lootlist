@@ -91,6 +91,15 @@ final class TreasuryViewModel {
         ledgers.filter { $0.profileRecordName == profileRecordName }.reduce(0.0) { $0 + $1.amount }
     }
 
+    // WHY: Bucket balances are the single source via BucketService so transfers debit/credit correctly.
+    static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
+        var balances: [BucketKind: Double] = [:]
+        for entry in ledgers where entry.profileRecordName == profileRecordName {
+            BucketService.applyBucketAttribution(entry, to: &balances)
+        }
+        return balances
+    }
+
     // WHY: Single cache→row path (profile filter + CalendarScope bucket filter + sorted) so Treasury/HeroLedger share one bucket logic instead of duplicating rebuildSpendingLog/rebuildLedger.
     static func spendingRows(from ledgers: [LedgerEntryCache], profileRecordName: String, scope: CalendarScope, payoutDay: PayoutDay) -> [SpendingLogRow] {
         ledgers
@@ -156,12 +165,12 @@ final class TreasuryViewModel {
         }
 
         let weekLedgers = profileLedgers.filter { weekRange.contains($0.date) }
-        let hasPaidQuestThisWeek = weekLedgers.contains { $0.source == "quest" }
+        let hasPaidQuestThisWeek = weekLedgers.contains { $0.sourceEnum == .quest }
         let weekBonusGold = weekLedgers
             .filter { $0.source == "deposit" }
             .reduce(into: 0.0) { $0 += $1.amount }
         let weekSpent = weekLedgers
-            .filter { $0.source == "manual" || $0.source == "withdrawal" }
+            .filter { $0.sourceEnum == .manual || $0.source == "withdrawal" }
             .reduce(into: 0.0) { $0 += $1.amount }
 
         let profileLogs = logs.filter { $0.completerRecordName == profileName }

@@ -16,8 +16,8 @@ final class TreasuryService {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TreasuryService")
     let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
-    var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
+    var cacheService: CacheService
+    let syncCoordinator: CKSyncEngineCoordinator
 
     /// Guards against concurrent settlement of the same period.
     private let inFlightSettlements = Mutex<Set<String>>([])
@@ -27,20 +27,17 @@ final class TreasuryService {
     /// Serializes concurrent allowance period lookups per profile and week.
     private let periodLock = GemLock()
 
-    /// The active session's app state, used to resolve the acting profile for
-    /// privileged payout finalization. Wired by `AppDependencies`; optional so
-    /// read-only callers (tests, real-time settlement) need not set it.
-    var appState: AppState?
+    var appState: AppState
 
     let toastManager: ToastManager?
 
     init(
         cloudKit: any CloudKitServiceProtocol,
         notificationService: NotificationService? = nil,
-        cacheService: CacheService? = nil,
+        cacheService: CacheService,
         toastManager: ToastManager? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        appState: AppState,
+        syncCoordinator: CKSyncEngineCoordinator
     ) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
@@ -48,6 +45,36 @@ final class TreasuryService {
         self.appState = appState
         self.toastManager = toastManager
         self.syncCoordinator = syncCoordinator
+    }
+
+    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TreasuryService")
+
+    @_disfavoredOverload
+    convenience init(
+        cloudKit: any CloudKitServiceProtocol,
+        notificationService: NotificationService? = nil,
+        cacheService: CacheService? = nil,
+        toastManager: ToastManager? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) {
+        let cache: CacheService
+        if let cacheService {
+            cache = cacheService
+        } else {
+            Self.staticLogger.warning("TreasuryService initialized without cacheService; using fallback in-memory cache.")
+            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
+        }
+        let state = appState ?? AppState()
+        let ck = cloudKit as? CloudKitService ?? CloudKitService()
+        let delegate = CKSyncEngineDelegateHandler(
+            backgroundCache: nil,
+            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, toastManager: toastManager, appState: state),
+            cacheService: cache,
+            appState: state
+        )
+        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        self.init(cloudKit: cloudKit, notificationService: notificationService, cacheService: cache, toastManager: toastManager, appState: state, syncCoordinator: coord)
     }
 
     // MARK: - Balance & Weekly Breakdown
@@ -79,8 +106,7 @@ final class TreasuryService {
                          family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown
     {
-        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: profile.payoutDay ?? family.payoutDay)
-        let weekRange = TreasuryService.weekRange(starting: startOfWeek)
+        let (startOfWeek, weekRange) = WeekMath.range(for: weekOf, payoutDay: profile.payoutDay ?? family.payoutDay)
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: startOfWeek,
                                             weekEnding: weekRange.upperBound)
@@ -106,11 +132,38 @@ final class TreasuryService {
             }
         }
 
-        let ledgerEntries = try await fetchLedgerEntries(
-            profile: profile, in: weekRange
+        let ledgerEntries: [LedgerEntry] = try await CacheFirst.cacheFirst(
+            type: .ledgerEntry,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService, profile, weekRange] familyName in
+                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
+                    .filter { weekRange.contains($0.date) }
+            },
+            map: { [profile] cache in
+                cache.toLedgerEntry(zoneID: profile.id.zoneID)
+            },
+            query: { [cloudKit, profile, weekRange] in
+                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                let predicate = NSPredicate(
+                    format: "profile == %@ AND date >= %@ AND date < %@",
+                    profileRef as CVarArg,
+                    weekRange.lowerBound as CVarArg,
+                    weekRange.upperBound as CVarArg
+                )
+                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
+            },
+            hydrate: { [syncCoordinator, appState, profile] models in
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: models,
+                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    zoneID: profile.id.zoneID
+                )
+            }
         )
         let bonusGold = ledgerEntries
-            .filter { $0.amount > 0 && $0.source != "quest" }
+            .filter { $0.amount > 0 && $0.sourceEnum != .quest }
             .reduce(0.0) { $0 + $1.amount }
         let spent = ledgerEntries
             .filter { $0.amount < 0 }
@@ -133,7 +186,7 @@ final class TreasuryService {
                                     weekOf: Date,
                                     family: Family) async throws -> AllowancePeriod
     {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
@@ -150,18 +203,46 @@ final class TreasuryService {
         )
 
         let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
-        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
+        let (startOfWeek, _) = WeekMath.range(for: weekOf, payoutDay: effectivePayoutDay)
         let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(startOfWeek.timeIntervalSince1970))"
 
         return try await periodLock.withLock(key: periodRecordName) {
             // Fast cache check for allowance period existence.
-            if let cache = cacheService,
-               let cached = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName)
-            {
+            if let cached = cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.id.recordName) {
                 return cached.toAllowancePeriod(zoneID: family.id.zoneID)
             }
 
-            if let existing = try await fetchAllowancePeriod(profile: profile, weekOf: startOfWeek) {
+            let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: startOfWeek)
+            let matched: [AllowancePeriod] = try await CacheFirst.cacheFirst(
+                type: .allowancePeriod,
+                family: family,
+                cacheService: cacheService,
+                appState: appState,
+                fetchCache: { [cacheService, profile, normalizedWeekStart] familyName in
+                    cacheService.fetchAllowancePeriods(profileRecordName: profile.id.recordName, family: familyName)
+                        .filter { $0.weekOf == normalizedWeekStart }
+                },
+                map: { [family] cache in
+                    cache.toAllowancePeriod(zoneID: family.id.zoneID)
+                },
+                query: { [cloudKit, profile, normalizedWeekStart] in
+                    let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                    let predicate = NSPredicate(
+                        format: "profile == %@ AND weekOf == %@",
+                        profileRef as CVarArg,
+                        normalizedWeekStart as CVarArg
+                    )
+                    return try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
+                },
+                hydrate: { [syncCoordinator, appState, profile] models in
+                    await syncCoordinator.delegateHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                        zoneID: profile.id.zoneID
+                    )
+                }
+            )
+            if let existing = matched.first {
                 return existing
             }
 
@@ -170,7 +251,7 @@ final class TreasuryService {
     }
 
     private func createPeriod(profile: Profile, family: Family, weekOf: Date) async throws -> AllowancePeriod {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
@@ -187,11 +268,10 @@ final class TreasuryService {
         )
 
         let effectivePayoutDay = profile.payoutDay ?? family.payoutDay
-        let startOfWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: effectivePayoutDay)
+        let (startOfWeek, weekRange) = WeekMath.range(for: weekOf, payoutDay: effectivePayoutDay)
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: startOfWeek,
-                                            weekEnding: TreasuryService
-                                                .weekRange(starting: startOfWeek).upperBound)
+                                            weekEnding: weekRange.upperBound)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         let period = AllowancePeriod(
@@ -205,14 +285,8 @@ final class TreasuryService {
             )
         )
 
-        await cacheService?.upsertAllowancePeriod(period)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("TreasuryService.createPeriod isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
+        await cacheService.upsertAllowancePeriod(period)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: period.id, appState: appState, logger: logger, context: "TreasuryService.createPeriod")
         return period
     }
 
@@ -221,7 +295,7 @@ final class TreasuryService {
                          questsCompleted: Int? = nil,
                          questsTotal: Int? = nil) async throws -> AllowancePeriod
     {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == period.profile.recordID || acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
@@ -258,21 +332,15 @@ final class TreasuryService {
             updated.questsTotal = questsTotal
         }
 
-        await cacheService?.upsertAllowancePeriod(updated)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("TreasuryService.updateAllowance isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        await cacheService.upsertAllowancePeriod(updated)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "TreasuryService.updateAllowance")
         return updated
     }
 
     // MARK: - Payout & Settlement
 
     func runPayout(period: AllowancePeriod) async throws {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.role.isParent
         else {
             throw FamilyServiceError.unauthorized
@@ -316,14 +384,8 @@ final class TreasuryService {
                 updated.paidAmount = 0
                 updated.totalEarned = breakdown.totalEarned
                 updated.questsCompleted = breakdown.questsCount
-                await cacheService?.upsertAllowancePeriod(updated)
-                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-                let isOwnerZero = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-                let storedOwnerZero = appState.isZoneOwner
-                if isOwnerZero != storedOwnerZero {
-                    logger.warning("TreasuryService.runPayout zero isOwner corrected via creator anchor: stored=\(storedOwnerZero) resolved=\(isOwnerZero)")
-                }
-                syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwnerZero)
+                await cacheService.upsertAllowancePeriod(updated)
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "TreasuryService.runPayout.zero")
                 return
             }
             updated.totalEarned = breakdown.totalEarned
@@ -338,23 +400,12 @@ final class TreasuryService {
         updated.paidDate = Date()
         updated.paidAmount = questGoldToPayout
 
-        await cacheService?.upsertAllowancePeriod(updated)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("TreasuryService.runPayout isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        await cacheService.upsertAllowancePeriod(updated)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "TreasuryService.runPayout")
 
         let effectivePolicy = resolvedProfile.map { effectivePayoutPolicy(for: $0, family: resolvedFamily) } ?? resolvedFamily?.payoutPolicy ?? .perQuest
         if effectivePolicy != .realTime {
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let mintIsOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let mintStoredOwner = appState.isZoneOwner
-            if mintIsOwner != mintStoredOwner {
-                logger.warning("TreasuryService.runPayout mint isOwner corrected via creator anchor: stored=\(mintStoredOwner) resolved=\(mintIsOwner)")
-            }
+            let mintIsOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "TreasuryService.runPayout.mint")
             await mintBucketSplitPayout(
                 periodRecordName: period.id.recordName,
                 amount: updated.paidAmount ?? questGoldToPayout,
@@ -382,7 +433,7 @@ final class TreasuryService {
     /// Processes immediate settlement for heroes with real-time payout policy.
     @discardableResult
     func processRealTimeSettlement(profile: Profile, family: Family, date: Date = Date()) async throws -> AllowancePeriod? {
-        guard let appState, let acting = appState.currentProfile,
+        guard let acting = appState.currentProfile,
               acting.id == profile.id || acting.role.isParent
         else {
             logger.warning("processRealTimeSettlement aborted: acting profile unauthorized for \(profile.id.recordName, privacy: .private)")
@@ -408,7 +459,7 @@ final class TreasuryService {
 
         let effectivePolicy = effectivePayoutPolicy(for: profile, family: family)
         guard effectivePolicy == .realTime else { return nil }
-        let weekOf = WeekMath.startOfWeek(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
+        let (weekOf, weekRange) = WeekMath.range(for: date, payoutDay: profile.payoutDay ?? family.payoutDay)
         let periodRecordName = "period-\(family.id.recordName)-\(profile.id.recordName)-\(Int(weekOf.timeIntervalSince1970))"
         let inserted = inFlightSettlements.withLock { $0.insert(periodRecordName).inserted }
         guard inserted else {
@@ -423,7 +474,7 @@ final class TreasuryService {
         // changes between separate async fetches.
         let logs = try await fetchQuestLogs(profile: profile,
                                             weekStarting: weekOf,
-                                            weekEnding: TreasuryService.weekRange(starting: weekOf).upperBound)
+                                            weekEnding: weekRange.upperBound)
         let quests = try await fetchQuestsForGold(family: family, logs: logs)
         let questGold = sumGold(for: logs, quests: quests)
         let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
@@ -438,12 +489,7 @@ final class TreasuryService {
                                               totalEarned: questGold,
                                               questsCompleted: questsCount)
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let rtIsOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let rtStoredOwner = appState.isZoneOwner
-        if rtIsOwner != rtStoredOwner {
-            logger.warning("TreasuryService.processRealTimeSettlement isOwner corrected via creator anchor: stored=\(rtStoredOwner) resolved=\(rtIsOwner)")
-        }
+        let rtIsOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "TreasuryService.processRealTimeSettlement")
         await mintRealTimeLedgerEntry(
             periodRecordName: period.id.recordName,
             amount: questGold,
@@ -478,12 +524,12 @@ final class TreasuryService {
             amount: abs(amount),
             description: "Quest earnings — real-time (week of \(formatter.string(from: weekOf)))",
             date: date,
-            source: "quest",
+            source: LedgerSource.quest.rawValue,
             family: family,
             id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
         )
-        await cacheService?.upsertLedgerEntry(entry)
-        syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        await cacheService.upsertLedgerEntry(entry)
+        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
         // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
         let formatted = CurrencyFormatter.string(amount)
         logger.info("Minted real-time earnings \(formatted, privacy: .public) for period \(periodRecordName, privacy: .private)")

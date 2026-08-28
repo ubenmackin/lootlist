@@ -32,26 +32,24 @@ extension TreasuryService {
         let baseRecordName = "payout-\(periodRecordName)"
         let rtRecordName = "rt-\(periodRecordName)"
 
-        if let cache = cacheService {
-            let cachedEntries = cache.fetchLedgerEntries(
-                profileRecordName: profile.id.recordName,
-                family: family.recordID.recordName
-            )
-            if cachedEntries.contains(where: { $0.recordName == baseRecordName }) {
-                return
-            }
-            if cachedEntries.contains(where: { $0.recordName == rtRecordName }) {
-                // Defense-in-depth twin of the legacy payout guard: a real-time
-                // settlement already credited this week, so the batch split
-                // must not double-count it.
-                return
-            }
+        let cachedEntries = cacheService.fetchLedgerEntries(
+            profileRecordName: profile.id.recordName,
+            family: family.recordID.recordName
+        )
+        if cachedEntries.contains(where: { $0.recordName == baseRecordName }) {
+            return
+        }
+        if cachedEntries.contains(where: { $0.recordName == rtRecordName }) {
+            // Defense-in-depth twin of the legacy payout guard: a real-time
+            // settlement already credited this week, so the batch split
+            // must not double-count it.
+            return
+        }
 
-            if let cachedPeriod = cache.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName) {
-                guard cachedPeriod.statusEnum == .paid, abs((cachedPeriod.paidAmount ?? 0.0) - amount) < 0.001 else {
-                    logger.warning("Skipping bucket payout split: period \(periodRecordName) status is not paid or amount mismatch")
-                    return
-                }
+        if let cachedPeriod = cacheService.fetchAllowancePeriod(recordName: periodRecordName, family: family.recordID.recordName) {
+            guard cachedPeriod.statusEnum == .paid, abs((cachedPeriod.paidAmount ?? 0.0) - amount) < 0.001 else {
+                logger.warning("Skipping bucket payout split: period \(periodRecordName) status is not paid or amount mismatch")
+                return
             }
         }
 
@@ -76,13 +74,13 @@ extension TreasuryService {
                 amount: Double(share.pennies) / 100.0,
                 description: entryDescription,
                 date: date,
-                source: "quest",
+                source: LedgerSource.quest.rawValue,
                 bucketKind: share.kind.rawValue,
                 family: family,
                 id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
             )
-            await cacheService?.upsertLedgerEntry(entry)
-            syncCoordinator?.enqueueSave(recordID: entry.id, isOwner: isOwner)
+            await cacheService.upsertLedgerEntry(entry)
+            syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
         }
     }
 }

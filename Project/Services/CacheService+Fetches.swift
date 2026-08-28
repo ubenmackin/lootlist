@@ -9,6 +9,7 @@ import Foundation
 import os
 import SwiftData
 
+@MainActor
 extension CacheService {
     private static let fetchLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
 
@@ -61,30 +62,54 @@ extension CacheService {
         return fetch(type, predicate: predicate, sortBy: sortBy)
     }
 
+    /// Generic FamilyScoped fetch helper — single predicate source for every
+    /// family-scoped cache read. Reduces per-type boilerplate; future cached
+    /// types get fetch for free by conforming to ``FamilyScopedFetchable``.
+    func fetchAll<T: FamilyScopedFetchable>(_ type: T.Type, family: String) -> [T] {
+        guard !family.isEmpty else {
+            Self.fetchLogger.warning("fetchAll<\(String(describing: T.self), privacy: .private)> called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        return fetch(type, predicate: #Predicate { $0.familyRecordName == family })
+    }
+
+    /// Sorted overload for call sites that require deterministic ordering.
+    func fetchAll<T: FamilyScopedFetchable>(_ type: T.Type, family: String, sortBy: [SortDescriptor<T>]) -> [T] {
+        guard !family.isEmpty else {
+            Self.fetchLogger.warning("fetchAll<\(String(describing: T.self), privacy: .private)> called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        let predicate: Predicate<T> = #Predicate<T> { $0.familyRecordName == family }
+        return fetch(type, predicate: predicate, sortBy: sortBy)
+    }
+
     // MARK: - Public fetch API
 
     /// Fetches quests, optionally filtered by family and/or a week range.
     /// WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
-    func fetchQuests(family: String?, weekInRange: Range<Date>? = nil) -> [QuestCache] {
+    func fetchQuests(family: String?, weekInRange: Range<Date>?) -> [QuestCache] {
         guard let family, !family.isEmpty else {
             Self.fetchLogger.warning("fetchQuests called without family scope — returning empty (fail-closed)")
             return []
         }
-        let predicate: Predicate<QuestCache>?
         if let range = weekInRange {
             let start = range.lowerBound
             let end = range.upperBound
-            predicate = #Predicate { item in
-                item.familyRecordName == family
-                    && item.weekOf >= start
-                    && item.weekOf < end
-            }
-        } else {
-            predicate = #Predicate { item in
-                item.familyRecordName == family
-            }
+            return fetch(
+                QuestCache.self,
+                predicate: #Predicate { item in
+                    item.familyRecordName == family
+                        && item.weekOf >= start
+                        && item.weekOf < end
+                }
+            )
         }
-        return fetch(QuestCache.self, predicate: predicate)
+        return fetchAll(QuestCache.self, family: family)
+    }
+
+    /// Protocol witness for `CacheServicing.fetchQuests(family:)` – forwards to the ranged fetch with nil range.
+    func fetchQuests(family: String?) -> [QuestCache] {
+        fetchQuests(family: family, weekInRange: nil)
     }
 
     func fetchQuest(recordName: String, family: String) -> QuestCache? {
@@ -102,7 +127,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchQuestCompletions called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(QuestCompletionCache.self, family: family)
+        return fetchAll(QuestCompletionCache.self, family: family)
     }
 
     func fetchQuestCompletion(recordName: String, family: String) -> QuestCompletionCache? {
@@ -129,7 +154,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchProfiles called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(ProfileCache.self, family: family)
+        return fetchAll(ProfileCache.self, family: family)
     }
 
     // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
@@ -138,7 +163,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchQuestTemplates called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(QuestTemplateCache.self, family: family)
+        return fetchAll(QuestTemplateCache.self, family: family)
     }
 
     func fetchQuestTemplate(recordName: String, family: String) -> QuestTemplateCache? {
@@ -226,7 +251,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchLedgerEntries(family:) called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(
+        return fetchAll(
             LedgerEntryCache.self,
             family: family,
             sortBy: [SortDescriptor(\.date, order: .reverse)]
@@ -253,7 +278,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchAllowancePeriods(family:) called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(
+        return fetchAll(
             AllowancePeriodCache.self,
             family: family,
             sortBy: [SortDescriptor(\.weekOf, order: .reverse)]
@@ -266,7 +291,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchAchievements called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(AchievementCache.self, family: family)
+        return fetchAll(AchievementCache.self, family: family)
     }
 
     // WHY: a profile-scoped fetch without a family scope would read rows across
@@ -313,7 +338,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchGemLedgers called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(GemLedgerCache.self, family: family)
+        return fetchAll(GemLedgerCache.self, family: family)
     }
 
     func fetchGemLedger(recordName: String, family: String) -> GemLedgerCache? {
@@ -326,7 +351,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchRewardEvents called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(RewardEventCache.self, family: family)
+        return fetchAll(RewardEventCache.self, family: family)
     }
 
     func fetchRewardEvent(recordName: String, family: String) -> RewardEventCache? {
@@ -344,7 +369,7 @@ extension CacheService {
             Self.fetchLogger.warning("fetchGoals called without family scope — returning empty (fail-closed)")
             return []
         }
-        return familyScopedFetch(GoalCache.self, family: family)
+        return fetchAll(GoalCache.self, family: family)
     }
 
     /// FIFO fill order for a single bucket: oldest incomplete non-archived

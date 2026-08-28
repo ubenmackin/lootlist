@@ -171,7 +171,7 @@ final class MatchService {
         let monthEnd = monthEnd(for: date)
         let mtdPennies = cachedEntries
             .filter { entry in
-                guard entry.source == Self.ledgerSource else { return false }
+                guard entry.sourceEnum == .match else { return false }
                 guard let entryDate = Calendar.iso8601UTC.date(
                     from: Calendar.iso8601UTC.dateComponents([.year, .month, .day], from: entry.date)
                 ) else { return false }
@@ -200,7 +200,7 @@ final class MatchService {
             amount: Double(matchPennies) / 100.0,
             description: Self.entryDescription,
             date: date,
-            source: Self.ledgerSource,
+            source: LedgerSource.match.rawValue,
             bucketKind: BucketKind.longTermSave.rawValue,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: recordNameStr, zoneID: family.id.zoneID)
@@ -215,7 +215,7 @@ final class MatchService {
 
     // MARK: - Constants
 
-    static let ledgerSource = "match"
+    static let ledgerSource = LedgerSource.match.rawValue
     static let entryDescription = "Parent Match"
 
     // MARK: - Helpers

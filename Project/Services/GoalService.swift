@@ -47,23 +47,27 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
 @MainActor
 @Observable
 final class GoalService {
+    private static let staticLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "LootList",
+        category: "GoalService"
+    )
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "LootList",
         category: "GoalService"
     )
 
     private let cloudKit: any CloudKitServiceProtocol
-    var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
-    var appState: AppState?
+    let cacheService: any CacheServicing
+    let syncCoordinator: any SyncEnqueuing
+    let appState: AppState
     var achievementService: AchievementService?
     var celebrationManager: CelebrationManager?
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil,
+        cacheService: any CacheServicing,
+        appState: AppState,
+        syncCoordinator: any SyncEnqueuing,
         achievementService: AchievementService? = nil,
         celebrationManager: CelebrationManager? = nil
     ) {
@@ -73,6 +77,33 @@ final class GoalService {
         self.syncCoordinator = syncCoordinator
         self.achievementService = achievementService
         self.celebrationManager = celebrationManager
+    }
+
+    /// Test convenience that supplies in-memory cache and no-op coordinator when callers omit dependencies.
+    @_disfavoredOverload
+    convenience init(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: (any CacheServicing)? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil,
+        achievementService: AchievementService? = nil,
+        celebrationManager: CelebrationManager? = nil
+    ) {
+        final class NoopSync: SyncEnqueuing {
+            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
+            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
+        }
+        let cache: any CacheServicing
+        if let cacheService {
+            cache = cacheService
+        } else {
+            Self.staticLogger.warning("GoalService initialized without cacheService; using fallback in-memory cache.")
+            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
+        }
+        let state = appState ?? AppState()
+        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSync()
+        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord, achievementService: achievementService, celebrationManager: celebrationManager)
     }
 
     // MARK: - Deterministic Contribution Identity
@@ -101,17 +132,24 @@ final class GoalService {
         let sortedGroups = grouped.values.sorted { groupA, groupB in
             let minA = groupA.map(\.createdAt).min() ?? .distantPast
             let minB = groupB.map(\.createdAt).min() ?? .distantPast
-            if minA == minB {
-                return (groupA.first?.profileRecordName ?? "") < (groupB.first?.profileRecordName ?? "")
+            if minA != minB {
+                return minA < minB
             }
-            return minA < minB
+            let recordA = groupA.filter { $0.createdAt == minA }.map(\.recordName).min() ?? groupA.map(\.recordName).min() ?? ""
+            let recordB = groupB.filter { $0.createdAt == minB }.map(\.recordName).min() ?? groupB.map(\.recordName).min() ?? ""
+            return recordA < recordB
         }
 
         for bucketGoals in sortedGroups {
             guard remaining > 0 else { break }
 
             // Oldest incomplete non-archived goal first.
-            let sorted = bucketGoals.sorted { $0.createdAt < $1.createdAt }
+            let sorted = bucketGoals.sorted {
+                if $0.createdAt != $1.createdAt {
+                    return $0.createdAt < $1.createdAt
+                }
+                return $0.recordName < $1.recordName
+            }
 
             for goal in sorted {
                 guard remaining > 0 else { break }
@@ -155,7 +193,7 @@ final class GoalService {
                     for targetProfile: Profile,
                     family: Family) async throws -> Goal
     {
-        guard let appState, let acting = appState.currentProfile else {
+        guard let acting = appState.currentProfile else {
             throw GoalServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -189,19 +227,8 @@ final class GoalService {
             id: id
         )
 
-        await cacheService?.upsertGoal(goal)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("GoalService.createGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: goal.id, isOwner: isOwner)
-        if let syncCoordinator {
-            Task {
-                await syncCoordinator.sendPendingChanges()
-            }
-        }
+        await cacheService.upsertGoal(goal)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: goal.id, appState: appState, logger: logger, context: "GoalService.createGoal")
 
         logger.info("Created goal \"\(name, privacy: .private)\" for profile \(targetProfile.id.recordName, privacy: .private)")
 
@@ -223,7 +250,7 @@ final class GoalService {
     /// (hero archiving own) OR be a parent (parents may archive any goal).
     @discardableResult
     func archiveGoal(_ goal: Goal, family: Family) async throws -> Goal {
-        guard let appState, let acting = appState.currentProfile else {
+        guard let acting = appState.currentProfile else {
             throw GoalServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -249,19 +276,8 @@ final class GoalService {
             return copy
         }()
 
-        await cacheService?.upsertGoal(updatedGoal)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("GoalService.archiveGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: isOwner)
-        if let syncCoordinator {
-            Task {
-                await syncCoordinator.sendPendingChanges()
-            }
-        }
+        await cacheService.upsertGoal(updatedGoal)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updatedGoal.id, appState: appState, logger: logger, context: "GoalService.archiveGoal")
 
         logger.info("Archived goal \"\(goal.name, privacy: .private)\"")
 
@@ -270,7 +286,7 @@ final class GoalService {
 
     /// Archives goal locally and enqueues CloudKit delete.
     func archiveGoal(_ goalCache: GoalCache, familyRecordName: String?) async throws {
-        guard let appState, let family = appState.family else {
+        guard let family = appState.family else {
             throw ScopeViolation.noActiveFamily
         }
         if let supplied = familyRecordName, supplied != family.id.recordName {
@@ -293,7 +309,7 @@ final class GoalService {
                     bucketKind: BucketKind,
                     family: Family) async throws -> Goal
     {
-        guard let appState, let acting = appState.currentProfile else {
+        guard let acting = appState.currentProfile else {
             throw GoalServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -320,19 +336,8 @@ final class GoalService {
         updated.targetAmountPennies = targetAmountPennies
         updated.bucketKind = bucketKind.rawValue
 
-        await cacheService?.upsertGoal(updated)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("GoalService.updateGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
-        if let syncCoordinator {
-            Task {
-                await syncCoordinator.sendPendingChanges()
-            }
-        }
+        await cacheService.upsertGoal(updated)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "GoalService.updateGoal")
 
         logger.info("Updated goal \"\(name, privacy: .private)\" for profile \(goal.profile.recordID.recordName, privacy: .private)")
         return updated
@@ -343,7 +348,7 @@ final class GoalService {
                     draft: GoalDraft,
                     familyRecordName: String?) async throws
     {
-        guard let appState, let family = appState.family else {
+        guard let family = appState.family else {
             throw ScopeViolation.noActiveFamily
         }
         if let supplied = familyRecordName, supplied != family.id.recordName {
@@ -367,7 +372,7 @@ final class GoalService {
     /// Deletes a savings goal. The acting profile must match the goal's owner
     /// OR be a parent.
     func deleteGoal(_ goal: Goal, family: Family) async throws {
-        guard let appState, let acting = appState.currentProfile else {
+        guard let acting = appState.currentProfile else {
             throw GoalServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -386,26 +391,15 @@ final class GoalService {
             }
         }
 
-        await cacheService?.invalidate(recordName: goal.id.recordName, family: family.id.recordName, type: .goal)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("GoalService.deleteGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueDelete(recordID: goal.id, isOwner: isOwner)
-        if let syncCoordinator {
-            Task {
-                await syncCoordinator.sendPendingChanges()
-            }
-        }
+        await cacheService.invalidate(recordName: goal.id.recordName, family: family.id.recordName, type: .goal)
+        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: goal.id, appState: appState, logger: logger, context: "GoalService.deleteGoal")
 
         logger.info("Deleted goal \"\(goal.name, privacy: .private)\"")
     }
 
     /// Deletes straight from a `GoalCache` row.
     func deleteGoal(_ goalCache: GoalCache, familyRecordName: String?) async throws {
-        guard let appState, let family = appState.family else {
+        guard let family = appState.family else {
             throw ScopeViolation.noActiveFamily
         }
         if let supplied = familyRecordName, supplied != family.id.recordName {
@@ -423,7 +417,7 @@ final class GoalService {
     /// hero completes own; parent completes any.
     @discardableResult
     func completeGoal(_ goal: Goal, family: Family) async throws -> Goal {
-        guard let appState, let acting = appState.currentProfile else {
+        guard let acting = appState.currentProfile else {
             throw GoalServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -448,19 +442,8 @@ final class GoalService {
             return copy
         }()
 
-        await cacheService?.upsertGoal(updatedGoal)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("GoalService.completeGoal isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updatedGoal.id, isOwner: isOwner)
-        if let syncCoordinator {
-            Task {
-                await syncCoordinator.sendPendingChanges()
-            }
-        }
+        await cacheService.upsertGoal(updatedGoal)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updatedGoal.id, appState: appState, logger: logger, context: "GoalService.completeGoal")
 
         // Centralized celebration hook.
         triggerGoalCompletionFeedback(goalName: goal.name, profile: goal.profile, family: family)
@@ -482,9 +465,6 @@ final class GoalService {
                             contributionDate: Date = Date()) async throws -> [GoalAllocation]
     {
         guard amountPennies > 0 else { return [] }
-        guard let appState else {
-            throw GoalServiceError.unauthorized
-        }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             family: family,
             cloudKit: cloudKit,
@@ -492,11 +472,11 @@ final class GoalService {
         )
 
         // Fetch goals scoped to this profile + bucket, ordered by createdAt.
-        let activeGoals = cacheService?.fetchGoals(
+        let activeGoals = cacheService.fetchGoals(
             profileRecordName: profile.id.recordName,
             bucketKind: bucketKind.rawValue,
             familyRecordName: family.id.recordName
-        ) ?? []
+        )
 
         let allocations = Self.allocate(amountPennies: amountPennies, goals: activeGoals)
         guard !allocations.isEmpty else { return [] }
@@ -516,7 +496,7 @@ final class GoalService {
                 amount: Double(alloc.allocatedPennies) / 100.0,
                 description: "Goal Contribution",
                 date: contributionDate,
-                source: "goal",
+                source: LedgerSource.goal.rawValue,
                 bucketKind: bucketKind.rawValue,
                 family: CKRecord.Reference(recordID: family.id, action: .none),
                 id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
@@ -537,17 +517,9 @@ final class GoalService {
             completedGoals.append(updated)
         }
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        // Deterministic routing must survive zone flips across the await: resolve before the write.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("GoalService.contributeToBucket isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-
         // Single transaction: one `saveContext()` for all ledger entries + completions.
         if !ledgerEntries.isEmpty || !completedGoals.isEmpty {
-            await cacheService?.batchUpsertLedgerEntriesAndGoals(
+            await cacheService.batchUpsertLedgerEntriesAndGoals(
                 ledgerEntries: ledgerEntries,
                 goals: completedGoals,
                 familyRecordName: family.id.recordName
@@ -559,10 +531,7 @@ final class GoalService {
         allRecordIDs.append(contentsOf: ledgerEntries.map(\.id))
         allRecordIDs.append(contentsOf: completedGoals.map(\.id))
         if !allRecordIDs.isEmpty {
-            // Enqueue is cheap state mutation; one tight loop or batch call.
-            if let syncCoordinator {
-                syncCoordinator.batchEnqueueSave(recordIDs: allRecordIDs, isOwner: isOwner)
-            }
+            ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(syncCoordinator, ids: allRecordIDs, appState: appState, logger: logger, context: "GoalService.contributeToBucket")
         }
 
         for completed in completedGoals {
@@ -613,10 +582,10 @@ final class GoalService {
                                          familyRecordName: String) -> Int64
     {
         let prefix = "contrib-\(goalRecordName)-"
-        guard let entries = cacheService?.fetchLedgerEntries(
+        let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
             family: familyRecordName
-        ) else { return 0 }
+        )
 
         return entries
             .filter { $0.recordName.hasPrefix(prefix) }
@@ -642,7 +611,7 @@ final class GoalService {
         // Also notify AchievementService for "Goal Getter" re-evaluation.
         if let achievementService {
             let profileID = profile.recordID
-            if let cached = cacheService?.fetchProfile(
+            if let cached = cacheService.fetchProfile(
                 recordName: profileID.recordName,
                 family: family.id.recordName
             ) {

@@ -136,6 +136,7 @@ final class AppLifecycleCoordinator {
     @ObservationIgnored private var sessionClearTask: Task<Void, Never>?
     @ObservationIgnored private var zoneChangeTask: Task<Void, Never>?
     @ObservationIgnored private var networkReconnectTask: Task<Void, Never>?
+    @ObservationIgnored private var accountChangeTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -200,12 +201,20 @@ final class AppLifecycleCoordinator {
                 await self.performManualSync()
             }
         }
+
+        accountChangeTask = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: .CKAccountChanged) {
+                guard !Task.isCancelled, let self, let appState = self.appState else { break }
+                await appState.authStateMachine.send(.accountChanged)
+            }
+        }
     }
 
     deinit {
         sessionClearTask?.cancel()
         zoneChangeTask?.cancel()
         networkReconnectTask?.cancel()
+        accountChangeTask?.cancel()
     }
 
     /// Convenience initializer preserving the existing `CKSyncEngineCoordinator` call site.
@@ -562,8 +571,11 @@ final class AppLifecycleCoordinator {
             let snapshot = try await fetchFamilySnapshot(family: family, zoneID: zoneID, isOwner: isOwner)
 
             guard !snapshot.isEmpty else {
-                logger
-                    .warning("Cache reconciliation aborted: empty snapshot for family \(family.id.recordName, privacy: .private) — pruning skipped to preserve pending rows")
+                logger.warning(
+                    "Cache reconciliation aborted: empty snapshot — pruning skipped to preserve pending rows",
+                    family: family.id.recordName,
+                    zone: zoneID.zoneName
+                )
                 return
             }
 
@@ -579,10 +591,16 @@ final class AppLifecycleCoordinator {
 
                 if !outcome.commitSucceeded {
                     logger.error(
-                        "Participant cache reconciliation commit failed; \(outcome.recordCount, privacy: .public) record(s) left for the next pass"
+                        "Participant cache reconciliation commit failed; \(outcome.recordCount) record(s) left for the next pass",
+                        family: family.id.recordName,
+                        zone: zoneID.zoneName
                     )
                 } else if outcome.parseFailures > 0 {
-                    logger.warning("Participant cache reconciliation dropped \(outcome.parseFailures, privacy: .public) unparseable record(s)")
+                    logger.warning(
+                        "Participant cache reconciliation dropped \(outcome.parseFailures) unparseable record(s)",
+                        family: family.id.recordName,
+                        zone: zoneID.zoneName
+                    )
                 }
             } else if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
                 await concrete.delegateHandler.handleIncomingRecordsDirectly(
@@ -600,7 +618,11 @@ final class AppLifecycleCoordinator {
                 concrete.notePushReceived()
             }
         } catch {
-            logger.error("Cache reconciliation failed: \(error, privacy: .private)")
+            logger.error(
+                "Cache reconciliation failed: \(error)",
+                family: family.id.recordName,
+                zone: zoneID.zoneName
+            )
         }
     }
 
@@ -795,5 +817,19 @@ final class AppLifecycleCoordinator {
 
     var hasCompletedInitialBootstrap: Bool {
         state.withLock { $0.hasCompletedInitialBootstrap }
+    }
+}
+
+private extension Logger {
+    func warning(_ message: String, family: String, zone: String) {
+        log(level: .default, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func info(_ message: String, family: String, zone: String) {
+        log(level: .info, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
+    }
+
+    func error(_ message: String, family: String, zone: String) {
+        log(level: .error, "\(message, privacy: .public) family=\(family, privacy: .private) zone=\(zone, privacy: .private)")
     }
 }

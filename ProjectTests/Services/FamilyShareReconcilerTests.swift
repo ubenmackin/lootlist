@@ -39,9 +39,7 @@ struct FamilyShareReconcilerTests {
         let appState = AppState()
         appState.isZoneOwner = true
 
-        guard let cache = try? CacheService(inMemory: true) else {
-            fatalError("Failed to initialize in-memory CacheService for tests")
-        }
+        let cache = CacheService.inMemoryFallback()
         let xpService = XPService(cloudKit: cloudKit, appState: appState)
         let questService = QuestService(cloudKit: cloudKit, xpService: xpService, appState: appState)
         let familyService = FamilyService(cloudKit: cloudKit, appState: appState, questService: questService, cacheService: cache)

@@ -53,9 +53,8 @@ struct QuestEntityQuery: EntityStringQuery {
     private func fetchActiveQuests() async throws -> [QuestEntity] {
         await MainActor.run {
             // The app must be running so intents dispatch through its services.
-            guard let dep = AppDependencies.shared,
-                  let cacheService = dep.cacheService
-            else { return [] }
+            guard let dep = AppDependencies.shared else { return [] }
+            let cacheService = dep.cacheService
             let familyName = dep.appState.family?.id.recordName
             let currentProfile = dep.appState.currentProfile
             let profileRecordName = currentProfile?.id.recordName

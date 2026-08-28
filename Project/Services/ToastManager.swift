@@ -136,7 +136,11 @@ final class ToastManager {
     private func scheduleAutoDismiss(for id: UUID) {
         autoDismissTasks[id]?.cancel()
         let task = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(AppConstants.UserInterface.toastAutoDismissSeconds))
+            do {
+                try await Task.sleep(for: .seconds(AppConstants.UserInterface.toastAutoDismissSeconds))
+            } catch {
+                // Task.sleep only throws CancellationError, intentionally ignored for auto-dismiss
+            }
             if !Task.isCancelled {
                 self?.dismiss(id: id)
             }

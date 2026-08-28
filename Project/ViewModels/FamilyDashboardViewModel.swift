@@ -6,7 +6,6 @@
 //
 
 import CloudKit
-import CryptoKit
 import Foundation
 import Observation
 import os
@@ -56,19 +55,16 @@ final class FamilyDashboardViewModel {
         treasury.toastManager
     }
 
-    /// Stable, non-PII row token cache. Each unique identity key is mapped to
-    /// a deterministic SHA256 token on first encounter and reused on
-    /// subsequent calls so SwiftUI row identity stays stable across refreshes.
-    private var identityTokenCache: [String: String] = [:]
-
-    /// Counter for sequential anonymous labels in the Invitations panel.
-    private var identityLabelCounter: [String: Int] = [:]
+    /// Delegates invitation token generation, redaction, and classification to a
+    /// single-responsibility resolver. The resolver owns the SHA token cache and
+    /// sequential label counter so row identity remains stable across refreshes.
+    private var invitationResolver = InvitationResolver()
 
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
 
     /// Observer for roster changes to refresh invitations when membership updates.
-    private var rosterObserverTask: Task<Void, Never>?
+    @ObservationIgnored private var rosterObserverTask: Task<Void, Never>?
 
     init(questService: QuestService,
          treasury: TreasuryService,
@@ -86,11 +82,14 @@ final class FamilyDashboardViewModel {
     /// Observes roster changes to refresh invitations when members join or leave.
     func startRosterObserver() {
         guard rosterObserverTask == nil else { return }
-        rosterObserverTask = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
-                guard let self else { return }
-                await self.refreshInvitations()
-            }
+        rosterObserverTask = Task { @MainActor [weak self] in
+            await withTaskCancellationHandler {
+                for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
+                    guard !Task.isCancelled else { break }
+                    guard let self else { break }
+                    await self.refreshInvitations()
+                }
+            } onCancel: {}
         }
     }
 
@@ -98,6 +97,10 @@ final class FamilyDashboardViewModel {
     func stopRosterObserver() {
         rosterObserverTask?.cancel()
         rosterObserverTask = nil
+    }
+
+    deinit {
+        rosterObserverTask?.cancel()
     }
 
     func refresh() async {
@@ -196,9 +199,9 @@ final class FamilyDashboardViewModel {
             activeRecordNames: &activeRecordNames
         )
 
-        computeIdentityLabels(from: statuses)
+        invitationResolver.computeIdentityLabels(from: statuses)
 
-        invitations = assembleInvitations(
+        invitations = await invitationResolver.assembleInvitations(
             statuses: statuses,
             participants: participants,
             currentUserRecordName: currentUserRecordName,
@@ -234,154 +237,6 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    private func computeIdentityLabels(from statuses: [ShareParticipantStatus]) {
-        identityLabelCounter = [:]
-        var labelIndex = 0
-        for status in statuses.sorted(by: { ($0.identityKey ?? "") < ($1.identityKey ?? "") }) {
-            if let key = status.identityKey {
-                identityLabelCounter[key] = labelIndex
-                labelIndex += 1
-            }
-        }
-    }
-
-    private func assembleInvitations(
-        statuses: [ShareParticipantStatus],
-        participants: [CKShare.Participant],
-        currentUserRecordName: String,
-        activeRecordNames: Set<String>,
-        inactiveIdentities: [String: String],
-        participantByRecordName: [String: CKShare.Participant],
-        roleMap: [String: UserRole]
-    ) -> [FamilyInvitation] {
-        var result: [FamilyInvitation] = []
-        var handledRecordNames = Set<String>()
-        var handledKeys = Set<String>()
-
-        // Statuses are the authoritative identity view (they include
-        // `.removed` markers that object-only reading has to filter).
-        for status in statuses {
-            let key = status.identityKey ?? status.recordName.map { "record:\($0)" }
-            guard let key else { continue }
-            handledKeys.insert(key)
-            if let recordName = status.recordName {
-                handledRecordNames.insert(recordName)
-            }
-            if let invitation = buildStatusInvitation(
-                status: status,
-                currentUserRecordName: currentUserRecordName,
-                activeRecordNames: activeRecordNames,
-                inactiveIdentities: inactiveIdentities,
-                participantByRecordName: participantByRecordName,
-                roleMap: roleMap
-            ) {
-                result.append(invitation)
-            }
-        }
-
-        // Pending invites without an established iCloud identity have no
-        // status entry; render them from the participant objects.
-        for participant in participants {
-            if let invitation = buildParticipantInvitation(
-                participant: participant,
-                currentUserRecordName: currentUserRecordName,
-                handledRecordNames: handledRecordNames,
-                handledKeys: handledKeys,
-                roleMap: roleMap
-            ) {
-                result.append(invitation)
-            }
-        }
-
-        return result
-    }
-
-    private func buildStatusInvitation(
-        status: ShareParticipantStatus,
-        currentUserRecordName: String,
-        activeRecordNames: Set<String>,
-        inactiveIdentities: [String: String],
-        participantByRecordName: [String: CKShare.Participant],
-        roleMap: [String: UserRole]
-    ) -> FamilyInvitation? {
-        let key = status.identityKey ?? status.recordName.map { "record:\($0)" }
-        guard let key else { return nil }
-        let participant = status.recordName.flatMap { participantByRecordName[$0] }
-        let targetRole = status.recordName.flatMap { roleMap[$0] } ?? roleMap[key]
-
-        if participant?.role == .owner || status.recordName == currentUserRecordName {
-            return nil
-        }
-        if let recordName = status.recordName, activeRecordNames.contains(recordName) {
-            return nil
-        }
-        if status.isRemoved {
-            return FamilyInvitation(
-                id: opaqueIdentityToken(key),
-                identity: identityDisplay(for: key, recordName: status.recordName, participant: participant),
-                statusText: "Removed",
-                participant: participant,
-                identityRecordName: status.recordName,
-                kind: .removedIdentity,
-                targetRole: targetRole
-            )
-        }
-        if let recordName = status.recordName, let displayName = inactiveIdentities[recordName] {
-            return FamilyInvitation(
-                id: opaqueIdentityToken(key),
-                identity: displayName,
-                statusText: "Left the guild — revoke share access",
-                participant: participant,
-                identityRecordName: recordName,
-                kind: .departedMember,
-                targetRole: targetRole
-            )
-        }
-        if let recordName = status.recordName {
-            return FamilyInvitation(
-                id: opaqueIdentityToken(key),
-                identity: identityDisplay(for: key, recordName: recordName, participant: participant),
-                statusText: "Accepted",
-                participant: participant,
-                identityRecordName: recordName,
-                kind: .pendingInvite,
-                targetRole: targetRole
-            )
-        }
-        return nil
-    }
-
-    private func buildParticipantInvitation(
-        participant: CKShare.Participant,
-        currentUserRecordName: String,
-        handledRecordNames: Set<String>,
-        handledKeys: Set<String>,
-        roleMap: [String: UserRole]
-    ) -> FamilyInvitation? {
-        let recordName = participant.userIdentity.userRecordID?.recordName
-        if participant.role == .owner || (recordName != nil && recordName == currentUserRecordName) {
-            return nil
-        }
-        if let recordName, handledRecordNames.contains(recordName) {
-            return nil
-        }
-        let pKey = ShareParticipantKey.key(for: participant)
-        if let pKey, handledKeys.contains(pKey) {
-            return nil
-        }
-        let targetRole = recordName.flatMap { roleMap[$0] } ?? pKey.flatMap { roleMap[$0] }
-        let isRemoved = participant.acceptanceStatus == .removed
-        return FamilyInvitation(
-            id: invitationID(for: participant),
-            identity: participantIdentityDisplay(participant),
-            statusText: isRemoved ? "Removed" : Self.invitationStatusText(participant.acceptanceStatus),
-            participant: participant,
-            identityRecordName: recordName,
-            kind: isRemoved ? .removedIdentity : .pendingInvite,
-            targetRole: targetRole
-        )
-    }
-
     /// Maps deactivated member identity record names to display names (best-effort).
     private func departedMemberIdentities(for family: Family) async -> [String: String] {
         let profiles: [Profile]
@@ -396,17 +251,6 @@ final class FamilyDashboardViewModel {
             identities[profile.iCloudUserID.recordName] = profile.displayName
         }
         return identities
-    }
-
-    /// Returns a stable, redacted label for a status-driven row. CloudKit
-    /// record names and contact lookup values are retained only in the
-    /// revocation fields, never in the value rendered by the dashboard.
-    private func identityDisplay(for key: String, recordName: String?, participant: CKShare.Participant?) -> String {
-        if let participant {
-            return participantIdentityDisplay(participant)
-        }
-        let identityKey = recordName.map { "record:\($0)" } ?? key
-        return Self.redactedIdentityLabel(for: identityKey, counter: identityLabelCounter)
     }
 
     /// Revokes a pending invitation or departed member's share access.
@@ -451,51 +295,11 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    private func invitationID(for participant: CKShare.Participant) -> String {
-        // Hash identity key to create stable, non-PII row tokens.
-        if let key = ShareParticipantKey.key(for: participant) {
-            return opaqueIdentityToken(key)
-        }
-        return opaqueIdentityToken("object:\(ObjectIdentifier(participant))")
-    }
-
-    /// Generates a stable, non-PII SHA256 token for row identification.
-    private func opaqueIdentityToken(_ value: String) -> String {
-        if let cached = identityTokenCache[value] {
-            return cached
-        }
-        let digest = SHA256.hash(data: Data(value.utf8))
-        let result = digest.map { String(format: "%02x", $0) }.joined()
-        identityTokenCache[value] = result
-        return result
-    }
-
-    private func participantIdentityDisplay(_ participant: CKShare.Participant) -> String {
-        guard let key = ShareParticipantKey.key(for: participant) else {
-            return "Invited member"
-        }
-        return Self.redactedIdentityLabel(for: key, counter: identityLabelCounter)
-    }
-
-    /// Produces a redacted, distinguishable display label without leaking contact data.
-    private static func redactedIdentityLabel(for identityKey: String, counter: [String: Int] = [:]) -> String {
-        if let number = counter[identityKey] {
-            return "Guild Member \(number + 1)"
-        }
-        return "Guild Member"
-    }
-
-    private static func invitationStatusText(_ status: CKShare.ParticipantAcceptanceStatus) -> String {
-        switch status {
-        case .pending: "Invited"
-        case .accepted: "Accepted"
-        case .removed: "Removed"
-        case .unknown: "Pending"
-        @unknown default: "Invited"
-        }
-    }
-
     /// Synchronous rebuild from SwiftData `@Query` rows using pure cache math.
+    /// Delegates roster sorting to `RosterViewState` and all metric derivations to
+    /// `DashboardMetricsCalculator` so each concern is independently testable.
+    /// DashboardMetricsCalculator centralizes ledger attribution via `BucketService.applyBucketAttribution`
+    /// and `BucketService.bucketBalances` so familyOutflow and childAccountCards never re-implement bucket math.
     func rebuildLists(
         profiles: [ProfileCache],
         quests: [QuestCache],
@@ -505,123 +309,44 @@ final class FamilyDashboardViewModel {
         profileAchievements: [ProfileAchievementCache],
         achievements _: [AchievementCache]
     ) {
-        let familyName = appState.family?.id.recordName
+        let roster = RosterViewState(profiles: profiles)
+        heroes = roster.heroes
+        parents = roster.parents
 
-        let familyPayoutDay = appState.family?.payoutDay ?? .sunday
-        let active = profiles.filter(\.isActive)
-        let computedHeroes = active
-            .filter { $0.roleEnum == .hero }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-        let computedParents = active
-            .filter { $0.roleEnum?.isParent == true }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-        var heroSummaries: [HeroSummary] = []
-        heroSummaries.reserveCapacity(computedHeroes.count)
-
-        for hero in computedHeroes {
-            let heroPayoutDay = hero.payoutDayEnum ?? familyPayoutDay
-            let heroWeekOf = WeekMath.startOfWeek(for: Date(), payoutDay: heroPayoutDay)
-            let heroWeekRange = WeekMath.weekRange(starting: heroWeekOf)
-
-            let heroQuests = quests.filter { $0.assigneeRecordName == hero.recordName && heroWeekRange.contains($0.weekOf) }
-            let heroLogs = logs.filter { $0.completerRecordName == hero.recordName && (heroWeekRange.contains($0.weekOf) || heroWeekRange.contains($0.completedDate)) }
-
-            let approvedLogs = heroLogs.filter {
-                $0.verificationStatusEnum == .autoApproved || $0.verificationStatusEnum == .verified
-            }
-
-            let fullyCompletedQuestsCount = heroQuests.filter { quest in
-                let qApprovedLogs = approvedLogs.filter { $0.questRecordName == quest.recordName }
-                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: qApprovedLogs.count)
-            }.count
-
-            let heroPeriod = allowancePeriods.first {
-                $0.profileRecordName == hero.recordName &&
-                    WeekMath.startOfWeek(for: $0.weekOf, payoutDay: heroPayoutDay) == heroWeekOf
-            }
-            let isPeriodPaid = heroPeriod?.statusEnum == .paid
-
-            let questGold: Double
-            let bonusGold: Double
-            if isPeriodPaid {
-                questGold = 0.0
-                bonusGold = 0.0
-            } else {
-                let effectivePolicy = hero.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
-                questGold = GoldCalculation.netWeeklyGold(
-                    quests: quests,
-                    logs: logs,
-                    profileRecordName: hero.recordName,
-                    payoutPolicy: effectivePolicy,
-                    weekRange: heroWeekRange
-                )
-
-                let heroLedgers = ledgers.filter {
-                    $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
-                }
-                bonusGold = heroLedgers
-                    .filter { $0.amount > 0 && $0.source != "quest" }
-                    .reduce(0.0) { $0 + $1.amount }
-            }
-            let earned = questGold + bonusGold
-
-            let streakLogs = logs.filter { $0.completerRecordName == hero.recordName }
-            let streak = StreakCalculator.computeStreak(from: streakLogs)
-            let trophies = profileAchievements
-                .filter { $0.profileRecordName == hero.recordName }
-                .count
-
-            heroSummaries.append(HeroSummary(
-                profile: hero,
-                weeklyQuestsCompleted: fullyCompletedQuestsCount,
-                weeklyQuestsTotal: heroQuests.count,
-                weeklyGoldEarned: earned,
-                weeklyQuestGold: questGold,
-                currentStreak: streak,
-                trophiesEarned: trophies
-            ))
-        }
-
-        let totalEarned = heroSummaries.reduce(into: 0.0) { $0 += $1.weeklyGoldEarned }
-        let totalQuests = heroSummaries.reduce(into: 0) { $0 += $1.weeklyQuestsCompleted }
-        let computedWeekSummary = WeekendSummary(
-            weekOf: WeekMath.startOfWeek(for: Date(), payoutDay: familyPayoutDay),
-            totalEarned: totalEarned,
-            totalQuestsCompleted: totalQuests,
-            heroSummaries: heroSummaries
+        let familyContext = DashboardMetricsCalculator.FamilyContext(
+            recordName: appState.family?.id.recordName,
+            payoutDay: PayoutDayResolver.resolved(for: nil as Profile?, family: appState.family),
+            payoutPolicy: appState.family?.payoutPolicy
         )
 
-        let computedPastPayouts = allowancePeriods
-            .filter { familyName == nil || $0.familyRecordName == familyName }
-            .sorted { $0.weekOf > $1.weekOf }
+        let metrics = DashboardMetricsCalculator.calculate(
+            profiles: profiles,
+            quests: quests,
+            logs: logs,
+            ledgers: ledgers,
+            allowancePeriods: allowancePeriods,
+            profileAchievements: profileAchievements,
+            familyContext: familyContext
+        )
 
-        // Dashboard card computations — derived from the same cached rows
-        // the rest of rebuildLists already processes, so no extra query.
-        let heroRecordNames = Set(computedHeroes.map(\.recordName))
-        let heroLedgerEntries = ledgers.filter { heroRecordNames.contains($0.profileRecordName) }
-        familyOutflow = heroLedgerEntries.reduce(0.0) { $0 + $1.amount }
+        weekSummary = metrics.weekSummary
+        pastPayouts = metrics.pastPayouts
+        familyOutflow = metrics.familyOutflow
+        pendingReviewCount = metrics.pendingReviewCount
+        childAccountCards = metrics.childAccountCards
 
-        let pendingLogs = logs.filter { $0.verificationStatusEnum == .pending }
-        pendingReviewCount = pendingLogs.count
-
-        childAccountCards = computedHeroes.map { hero in
-            let heroBalance = heroLedgerEntries
-                .filter { $0.profileRecordName == hero.recordName }
-                .reduce(0.0) { $0 + $1.amount }
-            let heroPending = pendingLogs
-                .filter { $0.completerRecordName == hero.recordName }
-                .count
-            return ChildAccountCard(profile: hero, balance: heroBalance, pendingReviewCount: heroPending)
-        }
-
-        heroes = computedHeroes
-        parents = computedParents
-        weekSummary = computedWeekSummary
-        pastPayouts = computedPastPayouts
         if loadError != nil {
             loadError = nil
         }
+    }
+
+    // WHY: Single-source bucket attribution via BucketService for any direct balance aggregation outside DashboardMetricsCalculator.
+    private func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
+        var balances: [BucketKind: Double] = [:]
+        for entry in ledgers where entry.profileRecordName == profileRecordName {
+            BucketService.applyBucketAttribution(entry, to: &balances)
+        }
+        return balances
     }
 
     var isGuildMaster: Bool {

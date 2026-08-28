@@ -30,6 +30,15 @@ final class HeroLedgerViewModel {
         self.appState = appState
     }
 
+    // WHY: Bucket balances centralized via BucketService so transfers debit/credit correctly.
+    static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
+        var balances: [BucketKind: Double] = [:]
+        for entry in ledgers where entry.profileRecordName == profileRecordName {
+            BucketService.applyBucketAttribution(entry, to: &balances)
+        }
+        return balances
+    }
+
     func rebuildLedger(
         ledgers: [LedgerEntryCache],
         quests: [QuestCache] = [],
@@ -45,7 +54,7 @@ final class HeroLedgerViewModel {
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let effectivePolicy = heroProfile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
-        let hasPaidQuestThisWeek = ledgers.filter { $0.profileRecordName == heroProfile.recordName }.contains { $0.source == "quest" && weekRange.contains($0.date) }
+        let hasPaidQuestThisWeek = ledgers.filter { $0.profileRecordName == heroProfile.recordName }.contains { $0.sourceEnum == .quest && weekRange.contains($0.date) }
         // WHY: AllowancePeriod.status == .paid is the atomic double-run skip-guard; replicate Treasury's payoutStatus == .paid check so pending zeros after payout.
         let currentAllowance = allowancePeriods.first {
             $0.profileRecordName == heroProfile.recordName &&

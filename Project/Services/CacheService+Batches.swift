@@ -11,6 +11,7 @@ import SwiftData
 
 // MARK: - Batch Upserts
 
+@MainActor
 extension CacheService {
     private func existingByRecordName<T: CacheMergeable>(_: T.Type, family: String?) -> [String: T]? {
         guard let context else { return nil }

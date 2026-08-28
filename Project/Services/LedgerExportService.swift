@@ -34,9 +34,12 @@ final class LedgerExportService {
 
     // MARK: - CSV
 
+    /// Canonical CSV header — mirrors `LedgerImportService` column mapping so export round-trips.
+    static let csvHeader = "Transaction Date,Description,Merchant,Amount,Purchased By"
+
     /// Builds CSV payload matching canonical import headers.
     func buildCSV(entries: [LedgerEntryCache], childName: String) -> Data {
-        var csv = "Transaction Date,Description,Merchant,Amount,Purchased By\n"
+        var csv = Self.csvHeader + "\n"
 
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"

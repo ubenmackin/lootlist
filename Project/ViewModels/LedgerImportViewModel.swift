@@ -160,8 +160,8 @@ final class LedgerImportViewModel {
 
             let lowered = rawName.lowercased()
             let matches = children.filter { $0.displayName.lowercased() == lowered }
-            if matches.count == 1 {
-                row.assignedProfileRecordName = matches[0].recordName
+            if matches.count == 1, let first = matches.first {
+                row.assignedProfileRecordName = first.recordName
             }
             return row
         }

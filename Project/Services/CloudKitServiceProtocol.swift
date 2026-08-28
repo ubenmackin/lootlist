@@ -393,23 +393,19 @@ extension CloudKitServiceProtocol {
         let ledgerRecord = ledger.toRecord()
         ledgerRecord.parent = parent
 
-        let operation = CKModifyRecordsOperation(
-            recordsToSave: [profileRecord, ledgerRecord],
-            recordIDsToDelete: nil
+        let (saveResults, _) = try await database.modifyRecords(
+            saving: [profileRecord, ledgerRecord],
+            deleting: [],
+            savePolicy: .ifServerRecordUnchanged,
+            atomically: true
         )
-        operation.isAtomic = true
-        operation.savePolicy = .ifServerRecordUnchanged
-
-        try await withCheckedThrowingContinuation { continuation in
-            operation.modifyRecordsResultBlock = { result in
-                switch result {
-                case .success:
-                    continuation.resume()
-                case let .failure(error):
-                    continuation.resume(throwing: error)
-                }
+        for (_, result) in saveResults {
+            switch result {
+            case .success:
+                break
+            case let .failure(error):
+                throw error
             }
-            database.add(operation)
         }
     }
 

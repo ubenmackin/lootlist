@@ -33,6 +33,15 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     /// "match", "transfer", plus import-tagged entries ("import-…" prefixed).
     var source: String
 
+    /// Typed view of `source` for exhaustive switching. Additive migration —
+    /// `source` remains the persisted CloudKit string.
+    var sourceEnum: LedgerSource? {
+        if source.hasPrefix(LedgerSource.import.rawValue) {
+            return .import
+        }
+        return LedgerSource(rawValue: source)
+    }
+
     // MARK: - Bucket attribution (V8)
 
     /// Raw value of `BucketKind` the entry credited; nil for pre-bucket rows
@@ -101,7 +110,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
          description: String,
          location: String? = nil,
          date: Date = Date(),
-         source: String = "manual",
+         source: String = LedgerSource.manual.rawValue,
          bucketKind: String? = nil,
          fromBucket: String? = nil,
          toBucket: String? = nil,
