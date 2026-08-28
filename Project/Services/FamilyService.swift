@@ -533,13 +533,7 @@ final class FamilyService: FamilyProfileFetching {
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updateMemberRole isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateMemberRole")
     }
 
     // MARK: - Private Helpers
@@ -600,6 +594,12 @@ final class FamilyService: FamilyProfileFetching {
             cachedUserRecordIDTask = nil
             throw FamilyServiceError.accountUnavailable
         }
+    }
+
+    /// Resets the memoized iCloud user record ID task on account change or sign-out.
+    func resetCachedUserRecordID() {
+        cachedUserRecordIDTask?.cancel()
+        cachedUserRecordIDTask = nil
     }
 
     /// Resolves Family for a member profile via cache-first lookup.
@@ -728,15 +728,13 @@ final class FamilyService: FamilyProfileFetching {
         // Batch upsert mirrors BackgroundCacheActor.batchUpsertNotificationPreferences
         // to keep the write off the per-row save path.
         await cacheService.upsertNotificationPreferences(missing, family: familyRecordName)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.seedNotificationPreferences isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        for pref in missing {
-            syncCoordinator?.enqueueSave(recordID: pref.id, isOwner: isOwner)
-        }
+        ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
+            syncCoordinator,
+            ids: missing.map(\.id),
+            appState: appState,
+            logger: logger,
+            context: "FamilyService.seedNotificationPreferences"
+        )
     }
 
     /// Seeds current-week allowance period for newly joined heroes.
@@ -778,13 +776,7 @@ final class FamilyService: FamilyProfileFetching {
             id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
         )
         await cacheService.upsertAllowancePeriod(period)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.seedAllowancePeriod isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: period.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: period.id, appState: appState, logger: logger, context: "FamilyService.seedAllowancePeriod")
     }
 
     /// Finds joining user's existing Profile for deduplication before creating a new one.

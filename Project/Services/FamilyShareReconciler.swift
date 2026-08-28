@@ -9,11 +9,6 @@ import CloudKit
 import Foundation
 import os
 
-private extension Notification.Name {
-    /// Posted on MainActor after share participant reconciliation updates membership.
-    static let familyRosterChanged = Notification.Name("familyRosterChanged")
-}
-
 /// Reconciles active Profile cache with CloudKit share participants, deactivating departed members.
 @MainActor
 final class FamilyShareReconciler {

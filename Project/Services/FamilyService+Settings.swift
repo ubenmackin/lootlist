@@ -38,14 +38,7 @@ extension FamilyService {
 
         await cacheService?.upsertFamily(updated)
         appState.family = updated
-
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = resolvedIsOwner()
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updateFamilyName isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateFamilyName")
         return updated
     }
 
@@ -75,13 +68,7 @@ extension FamilyService {
         await cacheService?.upsertFamily(updated)
         appState.family = updated
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = resolvedIsOwner()
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updatePayoutPolicy isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updatePayoutPolicy")
         return updated
     }
 
@@ -111,13 +98,7 @@ extension FamilyService {
         await cacheService?.upsertFamily(updated)
         appState.family = updated
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = resolvedIsOwner()
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updatePayoutDay isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updatePayoutDay")
         return updated
     }
 
@@ -150,13 +131,7 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = resolvedIsOwner()
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updateProfilePayoutPolicy isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateProfilePayoutPolicy")
         return updated
     }
 
@@ -189,13 +164,7 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = resolvedIsOwner()
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updateProfilePayoutDay isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateProfilePayoutDay")
         return updated
     }
 
@@ -223,13 +192,7 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = resolvedIsOwner()
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updateProfileDisplayName isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateProfileDisplayName")
         return updated
     }
 
@@ -278,13 +241,7 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = resolvedIsOwner()
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.updateProfileAvatar isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateProfileAvatar")
         return updated
     }
 
@@ -325,15 +282,7 @@ extension FamilyService {
             appState.currentProfile = updated
         }
 
-        let isOwner = resolvedIsOwner()
-        // WHY: Hero completions must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
-        // Hoisted local: Swift 6 requires explicit capture semantics for
-        // self-referencing property access inside the logger interpolation.
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("updateSavingsSplit isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.updateSavingsSplit")
         return updated
     }
 

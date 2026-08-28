@@ -10,12 +10,6 @@ import Foundation
 import Observation
 import os
 
-/// Duplicated from `FamilyShareReconciler` (file-private) — the view model
-/// is the canonical subscriber for roster-change notifications.
-private extension Notification.Name {
-    static let familyRosterChanged = Notification.Name("familyRosterChanged")
-}
-
 @MainActor
 @Observable
 final class FamilyDashboardViewModel {

@@ -52,13 +52,7 @@ final class GemService {
 
     func updateProfile(_ profile: Profile) async throws {
         await cacheService?.upsertProfile(profile)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("GemService.updateProfile isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: profile.id, appState: appState, logger: logger, context: "GemService.updateProfile")
     }
 
     // MARK: - Credit & Spend
@@ -129,27 +123,28 @@ final class GemService {
                 }
             } else {
                 // Direct CloudKit save fallback when running without a local cache context.
-                let isOwnerFallback = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-                let storedOwnerFallback = appState?.isZoneOwner ?? false
-                if isOwnerFallback != storedOwnerFallback {
-                    logger.warning("GemService.creditGems fallback isOwner corrected via creator anchor: stored=\(storedOwnerFallback) resolved=\(isOwnerFallback)")
-                }
-                syncCoordinator?.enqueueSave(recordID: ledger.id, isOwner: isOwnerFallback)
-                syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwnerFallback)
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    id: ledger.id,
+                    appState: appState,
+                    logger: logger,
+                    context: "GemService.creditGems.fallback.ledger"
+                )
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    id: profile.id,
+                    appState: appState,
+                    logger: logger,
+                    context: "GemService.creditGems.fallback.profile"
+                )
                 soundManager?.play(.gemEarned)
                 toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
                 return true
             }
 
             // Enqueue both records atomically for CKSyncEngine.
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwner = appState?.isZoneOwner ?? false
-            if isOwner != storedOwner {
-                logger.warning("GemService.creditGems isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-            }
-            syncCoordinator?.enqueueSave(recordID: ledger.id, isOwner: isOwner)
-            syncCoordinator?.enqueueSave(recordID: profile.id, isOwner: isOwner)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: ledger.id, appState: appState, logger: logger, context: "GemService.creditGems.ledger")
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: profile.id, appState: appState, logger: logger, context: "GemService.creditGems.profile")
 
             // Play sound & Toast
             var updatedProfile = profile
@@ -160,13 +155,13 @@ final class GemService {
                 return false
             }
             await cacheService?.upsertProfile(updatedProfile)
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwnerUpdated = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwnerUpdated = appState?.isZoneOwner ?? false
-            if isOwnerUpdated != storedOwnerUpdated {
-                logger.warning("GemService.creditGems updatedProfile isOwner corrected via creator anchor: stored=\(storedOwnerUpdated) resolved=\(isOwnerUpdated)")
-            }
-            syncCoordinator?.enqueueSave(recordID: updatedProfile.id, isOwner: isOwnerUpdated)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                syncCoordinator,
+                id: updatedProfile.id,
+                appState: appState,
+                logger: logger,
+                context: "GemService.creditGems.updatedProfile"
+            )
 
             soundManager?.play(.gemEarned)
             toastManager?.show(message: "+\(amount) Gems! 💎", type: .success)
@@ -238,12 +233,7 @@ final class GemService {
             }
 
             await cacheService?.applyGemDebit(profile: debit.profile, ledger: debit.ledger)
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwnerDebit = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwnerDebit = appState?.isZoneOwner ?? false
-            if isOwnerDebit != storedOwnerDebit {
-                logger.warning("GemService.spendGems isOwner corrected via creator anchor: stored=\(storedOwnerDebit) resolved=\(isOwnerDebit)")
-            }
+            let isOwnerDebit = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "GemService.spendGems")
             syncCoordinator?.enqueueGemDebit(
                 profileID: debit.profile.id,
                 ledgerID: debit.ledger.id,
@@ -251,45 +241,6 @@ final class GemService {
             )
 
             return true
-        }
-    }
-}
-
-// MARK: - GemLock
-
-/// Serializes concurrent gem operations on the same key.
-actor GemLock {
-    private var locked = Set<String>()
-    private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
-
-    func withLock<T: Sendable>(key: String, _ body: @MainActor () async throws -> T) async rethrows -> T {
-        await lock(key: key)
-        defer { unlock(key: key) }
-        return try await body()
-    }
-
-    private func lock(key: String) async {
-        if !locked.contains(key) {
-            locked.insert(key)
-            return
-        }
-        // resumes exactly once — actor-isolated, no onCancel needed
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            waiters[key, default: []].append(continuation)
-        }
-    }
-
-    private func unlock(key: String) {
-        if var queue = waiters[key], !queue.isEmpty {
-            let next = queue.removeFirst()
-            if queue.isEmpty {
-                waiters.removeValue(forKey: key)
-            } else {
-                waiters[key] = queue
-            }
-            next.resume()
-        } else {
-            locked.remove(key)
         }
     }
 }

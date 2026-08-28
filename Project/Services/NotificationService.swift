@@ -173,14 +173,7 @@ final class NotificationService {
 
         await cacheService?.upsertNotificationPreference(preference)
         mirrorToUserDefaults(event: event, enabled: enabled)
-
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("NotificationService.updatePreference isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: preference.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: preference.id, appState: appState, logger: logger, context: "NotificationService.updatePreference")
         return preference
     }
 

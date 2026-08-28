@@ -153,24 +153,16 @@ final class DailyLoginService {
             }
         }
 
-        let descriptor = FetchDescriptor<GemLedgerCache>(
-            predicate: #Predicate {
-                $0.profileRecordName == profileRecordName &&
-                    $0.familyRecordName == familyRecordName
-            }
+        let allLedgers = cacheService.fetchGemLedgers(
+            profileRecordName: profileRecordName,
+            family: familyRecordName
         )
-        do {
-            if let allLedgers = try cacheService.context?.fetch(descriptor) {
-                let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
-                if loginLedgers.contains(where: { calendar.isDateInToday($0.createdAt) }) {
-                    return true
-                }
-                if !loginLedgers.isEmpty {
-                    return false
-                }
-            }
-        } catch {
-            logger.warning("Failed to fetch login ledgers from cache: \(error, privacy: .private)")
+        let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
+        if loginLedgers.contains(where: { calendar.isDateInToday($0.createdAt) }) {
+            return true
+        }
+        if !loginLedgers.isEmpty {
+            return false
         }
 
         return true
@@ -298,13 +290,7 @@ final class DailyLoginService {
             // Gems were already minted for today (idempotent duplicate ledger), but the profile
             // claim date was out of sync. Persist the current claim state and update appState.
             await cacheService?.upsertProfile(current)
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwner = appState.isZoneOwner
-            if isOwner != storedOwner {
-                logger.warning("DailyLoginService dailyLogin isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-            }
-            syncCoordinator?.enqueueSave(recordID: current.id, isOwner: isOwner)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: current.id, appState: appState, logger: logger, context: "DailyLoginService.dailyLogin")
             if let active = appState.currentProfile, active.id == current.id {
                 appState.currentProfile = current
             }

@@ -9,26 +9,6 @@ import CloudKit
 import Foundation
 import os
 
-@MainActor
-protocol CloudKitServicing {
-    func save<T: CloudKitRecord>(_ model: T,
-                                 in zoneID: CKRecordZone.ID?,
-                                 using db: CKDatabase?) async throws -> T
-    func fetch<T: CloudKitRecord>(_ type: T.Type,
-                                  id: CKRecord.ID,
-                                  using db: CKDatabase?) async throws -> T
-}
-
-extension CloudKitServicing {
-    func save<T: CloudKitRecord>(_ model: T) async throws -> T {
-        try await save(model, in: nil, using: nil)
-    }
-
-    func fetch<T: CloudKitRecord>(_ type: T.Type, id: CKRecord.ID) async throws -> T {
-        try await fetch(type, id: id, using: nil)
-    }
-}
-
 enum XPServiceError: Error, LocalizedError, Equatable, Sendable {
     case persistenceFailed
 
@@ -36,8 +16,6 @@ enum XPServiceError: Error, LocalizedError, Equatable, Sendable {
         "Could not update XP. Please try again."
     }
 }
-
-extension CloudKitService: CloudKitServicing {}
 
 struct LevelProgress: Equatable, Sendable {
     let currentLevel: Int
@@ -140,13 +118,7 @@ final class XPService {
             appState.currentProfile = reconciled
         }
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("XPService.addXP isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "XPService.addXP")
 
         if updated.level > oldLevel {
             celebrationManager?.enqueueLevelUp(

@@ -81,21 +81,6 @@ final class InterestService {
         "interest-\(profileRecordName)-\(monthKey)"
     }
 
-    // MARK: - Sync Owner Resolution
-
-    /// Resolved owner scope for sync enqueues, logging when it diverges from the stored flag.
-    /// WHY: Hero writes must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
-    private func correctedIsOwnerForSync() -> Bool {
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        // Hoisted local: Swift 6 requires explicit capture semantics for
-        // self-referencing property access inside the logger interpolation.
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("isOwner corrected via creator anchor for sync enqueue: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        return isOwner
-    }
-
     // MARK: - Config
 
     /// Parent-only edit of the hero's monthly interest config. Client-side
@@ -133,7 +118,7 @@ final class InterestService {
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: correctedIsOwnerForSync())
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "InterestService.updateInterestConfig")
         return updated
     }
 
@@ -212,7 +197,7 @@ final class InterestService {
             id: CKRecord.ID(recordName: recordNameStr, zoneID: family.id.zoneID)
         )
         await cacheService.upsertLedgerEntry(entry)
-        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: correctedIsOwnerForSync())
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "InterestService.applyInterest")
         // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
         let formattedAmount = CurrencyFormatter.string(Double(creditPennies) / 100.0)
         logger

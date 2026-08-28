@@ -13,6 +13,7 @@ extension Notification.Name {
     static let didClearSession = Notification.Name("didClearSession")
     static let didChangeFamilyZoneID = Notification.Name("didChangeFamilyZoneID")
     static let familyAccessRevoked = Notification.Name("familyAccessRevoked")
+    static let familyRosterChanged = Notification.Name("familyRosterChanged")
 }
 
 @MainActor

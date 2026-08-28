@@ -94,6 +94,7 @@
 		41081C28F4838B129AA6E6E1 /* FamilyService+OwnerDedupe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594A3FD4CBF91B10B9A8AF29 /* FamilyService+OwnerDedupe.swift */; };
 		414B42FD4BE7ED21FD68D3F4 /* AvatarServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 545576473F44072E1C3C7301 /* AvatarServiceTests.swift */; };
 		41A51D171301F8D6A3F741F5 /* LedgerImportServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D1AAC2315FD1466EB3A1BA9 /* LedgerImportServiceTests.swift */; };
+		44DAA13F5DBA575DA5F2DE9D /* KeyedAsyncLock.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAC35CA355DB9D5A210DF69 /* KeyedAsyncLock.swift */; };
 		45EC1C14F78F4C89775BD5BE /* AvatarSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8927C4361B88112B84836480 /* AvatarSelectionView.swift */; };
 		46230B910FEDE4B1BB3B6260 /* GoldBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728481C95C3C2C620C57038C /* GoldBadge.swift */; };
 		46584BEAD23C267A9DCABF46 /* CelebrationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC47BB651069A93E615E07DB /* CelebrationManager.swift */; };
@@ -620,6 +621,7 @@
 		A8F1B3A1C922E5E356ECF38F /* InvitationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InvitationResolver.swift; sourceTree = "<group>"; };
 		A907907D1304953A129B62F2 /* BucketTransferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BucketTransferView.swift; sourceTree = "<group>"; };
 		AA3DB9B4D9031427F0B6BD3F /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		AAAC35CA355DB9D5A210DF69 /* KeyedAsyncLock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyedAsyncLock.swift; sourceTree = "<group>"; };
 		ABA42BBAB735F6B5A5407BD2 /* RosterViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RosterViewState.swift; sourceTree = "<group>"; };
 		ABEF2FC4366881264C70BF9E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ADCF93C3FA2FCF0F94FBA4EE /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
@@ -1325,6 +1327,7 @@
 				90BFC96A7EB4DB94588DE1F4 /* FeatureFlags.swift */,
 				EF2DC12FFCE65FB67EBD3F1A /* FlavorTextProvider.swift */,
 				A85B9291C88BFC4D0535CE6E /* GoldCalculation.swift */,
+				AAAC35CA355DB9D5A210DF69 /* KeyedAsyncLock.swift */,
 				E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */,
 				BEA32A99EF7AD83493CB7E19 /* SampleData.swift */,
 				FC7893018C0628EC0C02B355 /* SHA256+Hex.swift */,
@@ -1667,6 +1670,7 @@
 				DD10546803CF9D52F6BFE0B8 /* JourneyService.swift in Sources */,
 				3B2464646AC2862B4DEDEC29 /* JourneyZone.swift in Sources */,
 				E6422527DABCC4BFA26C4ABD /* JourneyZoneDecorations.swift in Sources */,
+				44DAA13F5DBA575DA5F2DE9D /* KeyedAsyncLock.swift in Sources */,
 				A5D88598EB951E148054A337 /* KidsSavingsGoalsView.swift in Sources */,
 				311A36B8F51F7B4451661892 /* LedgerEntry.swift in Sources */,
 				9CA4A3AE779F12A599F703DE /* LedgerEntryCache.swift in Sources */,

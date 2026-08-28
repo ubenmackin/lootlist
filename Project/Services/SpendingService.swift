@@ -168,19 +168,6 @@ class SpendingService {
         }
     }
 
-    /// Resolved owner scope for sync enqueues, logging when it diverges from the stored flag.
-    /// WHY: Participant writes must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
-    private func correctedIsOwnerForSync() -> Bool {
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        // Hoisted local: Swift 6 requires explicit capture semantics for
-        // self-referencing property access inside the logger interpolation.
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("isOwner corrected via creator anchor for sync enqueue: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        return isOwner
-    }
-
     /// Handles manual spending replay idempotently using deterministic transaction IDs.
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, location: String?, date: Date) -> CKRecord.ID {
         let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
@@ -244,8 +231,7 @@ class SpendingService {
         )
 
         await cacheService.upsertLedgerEntry(entry)
-        let isOwner = correctedIsOwnerForSync()
-        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "SpendingService.logSpending")
         return entry
     }
 
@@ -294,8 +280,7 @@ class SpendingService {
         )
 
         await cacheService.upsertLedgerEntry(entry)
-        let isOwner = correctedIsOwnerForSync()
-        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "SpendingService.deposit")
         return entry
     }
 
@@ -344,8 +329,7 @@ class SpendingService {
         )
 
         await cacheService.upsertLedgerEntry(entry)
-        let isOwner = correctedIsOwnerForSync()
-        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "SpendingService.withdraw")
         return entry
     }
 
@@ -364,7 +348,6 @@ class SpendingService {
 
         let name = entry.id.recordName
         await cacheService.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
-        let isOwner = correctedIsOwnerForSync()
-        syncCoordinator.enqueueDelete(recordID: entry.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "SpendingService.delete")
     }
 }
