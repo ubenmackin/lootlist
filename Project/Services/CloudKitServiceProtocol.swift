@@ -168,7 +168,7 @@ enum ShareParticipantKey {
 }
 
 @MainActor
-protocol CloudKitServiceProtocol: CloudKitServicing, AnyObject, Sendable {
+protocol CloudKitServiceProtocol: AnyObject, Sendable {
     static var defaultContainer: CKContainer { get }
     var container: CKContainer { get }
 

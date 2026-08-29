@@ -80,14 +80,13 @@ extension QuestService {
                 var updatedQuest = currentQuest
                 updatedQuest.xpBanked = currentQuest.xpBanked + remaining
                 await cacheService.upsertQuest(updatedQuest)
-                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-                let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-                let storedOwner = appState.isZoneOwner
-                if isOwner != storedOwner {
-                    Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
-                        .warning("QuestService.applyReward quest isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-                }
-                syncCoordinator.enqueueSave(recordID: updatedQuest.id, isOwner: isOwner)
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    id: updatedQuest.id,
+                    appState: appState,
+                    logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+                    context: "QuestService.applyReward"
+                )
 
                 await stampCompletionCredit(completion, xpGain: remaining)
 
@@ -150,14 +149,13 @@ extension QuestService {
         var updated = completion
         updated.xpCredited = xpGain
         await cacheService.upsertQuestCompletion(updated)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
-                .warning("QuestService.stampCompletionCredit isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: updated.id,
+            appState: appState,
+            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+            context: "QuestService.stampCompletionCredit"
+        )
     }
 
     /// Computes quest completion streak from local cache without network round-trips.

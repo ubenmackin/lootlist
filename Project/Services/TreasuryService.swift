@@ -25,7 +25,7 @@ final class TreasuryService {
     // MARK: - Period Creation Serialization
 
     /// Serializes concurrent allowance period lookups per profile and week.
-    private let periodLock = GemLock()
+    private let periodLock = KeyedAsyncLock()
 
     var appState: AppState
 

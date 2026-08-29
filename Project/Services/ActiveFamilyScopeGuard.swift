@@ -180,12 +180,12 @@ enum ActiveFamilyScopeGuard {
     static func enqueueWithCorrectedOwner(
         _ coordinator: CKSyncEngineCoordinator?,
         id: CKRecord.ID,
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) {
         let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
+        let storedOwner = appState?.isZoneOwner ?? false
         if isOwner != storedOwner {
             logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -197,12 +197,12 @@ enum ActiveFamilyScopeGuard {
     static func enqueueWithCorrectedOwner(
         _ coordinator: (any SyncEnqueuing)?,
         id: CKRecord.ID,
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) {
         let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
+        let storedOwner = appState?.isZoneOwner ?? false
         if isOwner != storedOwner {
             logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -214,7 +214,7 @@ enum ActiveFamilyScopeGuard {
     static func enqueueWithCorrectedOwner(
         _ coordinator: any SyncEnqueuing,
         id: CKRecord.ID,
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) {
@@ -226,12 +226,12 @@ enum ActiveFamilyScopeGuard {
     static func batchEnqueueWithCorrectedOwner(
         _ coordinator: CKSyncEngineCoordinator?,
         ids: [CKRecord.ID],
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) {
         let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
+        let storedOwner = appState?.isZoneOwner ?? false
         if isOwner != storedOwner {
             logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -243,12 +243,12 @@ enum ActiveFamilyScopeGuard {
     static func batchEnqueueWithCorrectedOwner(
         _ coordinator: (any SyncEnqueuing)?,
         ids: [CKRecord.ID],
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) {
         let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
+        let storedOwner = appState?.isZoneOwner ?? false
         if isOwner != storedOwner {
             logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -260,12 +260,12 @@ enum ActiveFamilyScopeGuard {
     static func enqueueDeleteWithCorrectedOwner(
         _ coordinator: CKSyncEngineCoordinator?,
         id: CKRecord.ID,
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) {
         let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
+        let storedOwner = appState?.isZoneOwner ?? false
         if isOwner != storedOwner {
             logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -277,12 +277,12 @@ enum ActiveFamilyScopeGuard {
     static func enqueueDeleteWithCorrectedOwner(
         _ coordinator: (any SyncEnqueuing)?,
         id: CKRecord.ID,
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) {
         let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
+        let storedOwner = appState?.isZoneOwner ?? false
         if isOwner != storedOwner {
             logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
@@ -293,12 +293,12 @@ enum ActiveFamilyScopeGuard {
     /// Use when the caller needs the `isOwner` value for branching before enqueuing.
     @MainActor
     static func correctedIsOwner(
-        appState: AppState,
+        appState: AppState?,
         logger: Logger,
         context: String
     ) -> Bool {
         let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
+        let storedOwner = appState?.isZoneOwner ?? false
         if isOwner != storedOwner {
             logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }

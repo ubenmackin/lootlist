@@ -138,13 +138,7 @@ final class HeroBoardService {
         current.claimedAt = Date()
 
         await cacheService.upsertQuest(current)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("HeroBoardService.claim isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator.enqueueSave(recordID: current.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: current.id, appState: appState, logger: logger, context: "HeroBoardService.claim")
         return .claimed
     }
 
@@ -174,13 +168,7 @@ final class HeroBoardService {
         released.claimedAt = nil
 
         await cacheService.upsertQuest(released)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("HeroBoardService.revoke isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator.enqueueSave(recordID: released.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: released.id, appState: appState, logger: logger, context: "HeroBoardService.revoke")
     }
 
     // MARK: - Posting
@@ -253,13 +241,7 @@ final class HeroBoardService {
         )
 
         await cacheService.upsertQuest(quest)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("HeroBoardService.postToBoard isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator.enqueueSave(recordID: quest.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: quest.id, appState: appState, logger: logger, context: "HeroBoardService.postToBoard")
         return quest
     }
 }

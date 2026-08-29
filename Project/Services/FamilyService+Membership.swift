@@ -136,13 +136,7 @@ extension FamilyService {
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("FamilyService.deactivateProfile isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "FamilyService.deactivateProfile")
     }
 
     func deleteFamilyAndReset(family: Family) async throws {
@@ -179,6 +173,7 @@ extension FamilyService {
         }
 
         // 2. Clear CloudKit active state, purge family cache, reset sync coordinator, and clear session.
+        resetCachedUserRecordID()
         appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
 
@@ -198,10 +193,12 @@ extension FamilyService {
     }
 
     func signOutAndDiscover() async {
+        resetCachedUserRecordID()
         await appState.signOutAndDiscover(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
 
     func clearSessionAndScope() {
+        resetCachedUserRecordID()
         appState.clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
     }
 }

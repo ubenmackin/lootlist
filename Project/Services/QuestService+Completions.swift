@@ -106,13 +106,17 @@ extension QuestService {
                 // (applyReward returned early), so the @Query-driven UI reflects
                 // it and validateCanCompleteQuest prevents duplicates.
                 await cacheService.upsertQuestCompletion(log)
-                let isOwner = correctedIsOwnerForSync()
-                syncCoordinator.enqueueSave(recordID: log.id, isOwner: isOwner)
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    id: log.id,
+                    appState: appState,
+                    logger: logger,
+                    context: "QuestService.completeQuest.autoApproved"
+                )
             }
         } else {
             await cacheService.upsertQuestCompletion(log)
-            let isOwner = correctedIsOwnerForSync()
-            syncCoordinator.enqueueSave(recordID: log.id, isOwner: isOwner)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: log.id, appState: appState, logger: logger, context: "QuestService.completeQuest")
         }
 
         if quest.approvalMode == .parentVerify {
@@ -151,10 +155,8 @@ extension QuestService {
             updated = cached.toQuestCompletion(zoneID: questLog.id.zoneID)
         }
         updated.verificationStatus = .withdrawn
-
         await cacheService.upsertQuestCompletion(updated)
-        let isOwner = resolvedIsOwner()
-        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "QuestService.withdrawCompletion")
         Task {
             await syncCoordinator.sendPendingChanges()
         }
@@ -167,6 +169,8 @@ extension QuestService {
         }
         try await withdrawCompletion(questLog: questLog.toQuestCompletion(zoneID: zoneID), by: profile)
     }
+
+    // MARK: - Parent Review
 
     @discardableResult
     func verify(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
@@ -202,8 +206,7 @@ extension QuestService {
 
         // Persists verification decision locally first; enqueues engine save for CloudKit.
         await cacheService.upsertQuestCompletion(updated)
-        let isOwner = resolvedIsOwner()
-        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "QuestService.verify")
 
         try await handlePostVerifySettlement(questLog: questLog, updated: updated)
 
@@ -213,6 +216,11 @@ extension QuestService {
         }
 
         return updated
+    }
+
+    @discardableResult
+    func approve(questLog: QuestCompletion, by parent: Profile) async throws -> QuestCompletion {
+        try await verify(questLog: questLog, by: parent)
     }
 
     @discardableResult
@@ -248,8 +256,7 @@ extension QuestService {
         updated.verifiedDate = Date()
 
         await cacheService.upsertQuestCompletion(updated)
-        let isOwner = resolvedIsOwner()
-        syncCoordinator.enqueueSave(recordID: updated.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "QuestService.reject")
 
         dispatchRejectionNotification(for: updated)
         return updated

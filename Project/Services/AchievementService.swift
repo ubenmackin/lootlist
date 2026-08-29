@@ -141,13 +141,13 @@ final class AchievementService {
 
         for achievement in toSeed {
             await cacheService?.upsertAchievement(achievement)
-            // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-            let storedOwner = appState.isZoneOwner
-            if isOwner != storedOwner {
-                logger.warning("AchievementService.seedDefaultAchievements isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-            }
-            syncCoordinator?.enqueueSave(recordID: achievement.id, isOwner: isOwner)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                syncCoordinator,
+                id: achievement.id,
+                appState: appState,
+                logger: logger,
+                context: "AchievementService.seedDefaultAchievements"
+            )
         }
     }
 
@@ -316,15 +316,19 @@ final class AchievementService {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let defaults = Self.defaultAchievements(for: familyRef)
         for achievement in defaults {
-            Task { await cacheService?.upsertAchievement(achievement) }
-            if appState?.currentProfile?.role.isParent == true {
-                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-                let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-                let storedOwner = appState?.isZoneOwner ?? false
-                if isOwner != storedOwner {
-                    logger.warning("AchievementService.ensureDefaultAchievements isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+            if let cache = cacheService {
+                Task {
+                    await cache.upsertAchievement(achievement)
+                    if self.appState?.currentProfile?.role.isParent == true {
+                        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                            self.syncCoordinator,
+                            id: achievement.id,
+                            appState: self.appState,
+                            logger: self.logger,
+                            context: "AchievementService.ensureDefaultAchievements"
+                        )
+                    }
                 }
-                syncCoordinator?.enqueueSave(recordID: achievement.id, isOwner: isOwner)
             }
         }
         return defaults.map { AchievementCache(from: $0) }
@@ -359,13 +363,13 @@ final class AchievementService {
         for achievement in defaults {
             await cacheService?.upsertAchievement(achievement)
             if appState?.currentProfile?.role.isParent == true {
-                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-                let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-                let storedOwner = appState?.isZoneOwner ?? false
-                if isOwner != storedOwner {
-                    logger.warning("AchievementService.fetchAllDefinitions fallback isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-                }
-                syncCoordinator?.enqueueSave(recordID: achievement.id, isOwner: isOwner)
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    id: achievement.id,
+                    appState: appState,
+                    logger: logger,
+                    context: "AchievementService.fetchAllDefinitions.fallback"
+                )
             }
         }
         return defaults
@@ -572,13 +576,13 @@ final class AchievementService {
         )
 
         await cacheService?.upsertProfileAchievement(row)
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
-        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("AchievementService.award isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        syncCoordinator?.enqueueSave(recordID: row.id, isOwner: isOwner)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: row.id,
+            appState: appState,
+            logger: logger,
+            context: "AchievementService.award"
+        )
         if let syncCoordinator {
             Task {
                 await syncCoordinator.sendPendingChanges()

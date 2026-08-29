@@ -284,7 +284,7 @@ struct GoalEditorSheet: View {
         Task {
             do {
                 try await onSave(draft)
-                await MainActor.run { dismiss() }
+                dismiss()
             } catch {
                 // Keep sheet open on failure — parent surfaces the error.
                 parsingError = (error as? LocalizedError)?.errorDescription
@@ -300,7 +300,7 @@ struct GoalEditorSheet: View {
         Task {
             do {
                 try await onDelete()
-                await MainActor.run { dismiss() }
+                dismiss()
             } catch {
                 parsingError = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription

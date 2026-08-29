@@ -280,9 +280,9 @@ final class AutoPayoutCoordinator {
         var carriedCount = 0
         var carriedPerAssignee: [String: Int] = [:]
         let zoneID = family.id.zoneID
-        // Ensure assignments consistently target the family zoneID.
-        guard zoneID == family.id.zoneID else {
-            logger.error("Carry-forward zoneID mismatch for family \(family.name, privacy: .private). Aborting carry-forward assignments for this group.")
+        // Ensure executing profile scope consistently matches the target family.
+        guard currentProfile.family.recordID == family.id, currentProfile.id.zoneID == zoneID else {
+            logger.error("Carry-forward profile scope mismatch for family \(family.name, privacy: .private). Aborting carry-forward assignments for this group.")
             return (0, [:])
         }
         guard !zoneID.zoneName.isEmpty else {

@@ -341,6 +341,16 @@ extension CacheService {
         return fetchAll(GemLedgerCache.self, family: family)
     }
 
+    func fetchGemLedgers(profileRecordName: String, family: String) -> [GemLedgerCache] {
+        guard !family.isEmpty else { return [] }
+        return fetch(
+            GemLedgerCache.self,
+            predicate: #Predicate {
+                $0.profileRecordName == profileRecordName && $0.familyRecordName == family
+            }
+        )
+    }
+
     func fetchGemLedger(recordName: String, family: String) -> GemLedgerCache? {
         fetch(GemLedgerCache.self, predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == family }).first
     }
