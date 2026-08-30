@@ -16,7 +16,7 @@ struct MyGoalsView: View {
     @Environment(GoalService.self) private var envGoalService: GoalService?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
-    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyGoals")
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyGoals")
 
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
@@ -165,7 +165,7 @@ struct MyGoalsView: View {
                         do {
                             try await deleteGoal(goal)
                         } catch {
-                            logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
+                            Self.logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
                             toastManager?.show(message: "Couldn’t delete “\(goal.name)”. Please try again.", type: .error)
                         }
                     }
@@ -186,7 +186,9 @@ struct MyGoalsView: View {
                     Task {
                         do {
                             try await Task.sleep(for: .seconds(4))
-                        } catch {}
+                        } catch {
+                            Self.logger.debug("Error message auto-dismiss interrupted: \(error, privacy: .private)")
+                        }
                         errorMessage = nil
                     }
                 }
@@ -251,18 +253,49 @@ struct MyGoalsView: View {
         let saved = Double(savedPennies(for: goal)) / 100.0
         let target = Double(goal.targetAmountPennies) / 100.0
         let isCompleted = goal.completedAt != nil
+        let pacing = GoalPacingCalculator.calculatePacing(
+            targetAmountPennies: goal.targetAmountPennies,
+            savedPennies: savedPennies(for: goal),
+            createdAt: goal.createdAt,
+            targetDate: goal.targetDate,
+            completedAt: goal.completedAt
+        )
+        let validURL = goal.linkURL.flatMap { LinkMetadataService.normalizeURL(from: $0) }
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(goal.emojiIcon ?? "🎯")
                     .font(.title2)
 
-                Text(goal.name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(goal.name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if let pacing, pacing.status != .noDeadline {
+                        HStack(spacing: 4) {
+                            Image(systemName: pacing.status.iconSystemName)
+                                .font(.caption2)
+                            Text(pacing.status.badgeText)
+                                .font(.caption2.weight(.bold))
+                        }
+                        .foregroundStyle(pacing.status.tintColor)
+                    }
+                }
 
                 Spacer()
+
+                if let validURL {
+                    Link(destination: validURL) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.subheadline)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                            .padding(4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("View \(goal.name) online")
+                }
 
                 if isCompleted {
                     Image(systemName: "checkmark.seal.fill")
@@ -276,11 +309,7 @@ struct MyGoalsView: View {
             HStack(spacing: 4) {
                 Text(CurrencyFormatter.string(saved))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(
-                        isCompleted
-                            ? Color(DesignSystemConstants.Colors.primaryGreen)
-                            : Color(DesignSystemConstants.Colors.primaryGreen)
-                    )
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
 
                 Text("of")
                     .font(.caption)
@@ -289,6 +318,13 @@ struct MyGoalsView: View {
                 Text(CurrencyFormatter.string(target))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if let pacing, !isCompleted {
+                    Spacer()
+                    Text(pacing.formattedTargetDate)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // Progress bar.
@@ -300,17 +336,13 @@ struct MyGoalsView: View {
                         .frame(height: 8)
 
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(
-                            isCompleted
-                                ? Color(DesignSystemConstants.Colors.primaryGreen)
-                                : Color(DesignSystemConstants.Colors.primaryGreen)
-                        )
+                        .fill(Color(DesignSystemConstants.Colors.primaryGreen))
                         .frame(width: max(0, geometry.size.width * progress), height: 8)
                 }
             }
             .frame(height: 8)
 
-            // Footer: percent earned + category.
+            // Footer: percent earned + pacing / category.
             let percent = Int((progress * 100).rounded())
             HStack {
                 Text(isCompleted ? "✓ \(percent)% earned" : "\(percent)% earned")
@@ -319,7 +351,11 @@ struct MyGoalsView: View {
 
                 Spacer()
 
-                if let category = goal.category, !category.isEmpty {
+                if let pacing, !isCompleted, pacing.daysRemaining > 7 {
+                    Text("Save \(CurrencyFormatter.string(pacing.weeklyRequiredSavingsDollars))/wk")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(pacing.status.tintColor)
+                } else if let category = goal.category, !category.isEmpty {
                     Text(category)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -366,6 +402,9 @@ struct MyGoalsView: View {
             emojiIcon: draft.emojiIcon,
             targetAmountPennies: draft.targetAmountPennies,
             bucketKind: draft.bucketKind,
+            targetDate: draft.targetDate,
+            linkURL: draft.linkURL,
+            imageURL: draft.imageURL,
             for: profile,
             family: family
         )

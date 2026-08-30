@@ -5,12 +5,14 @@
 //  Created by Ben Mackin on 8/9/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 import UserNotifications
 
 @MainActor
 struct NotificationSettingsView: View {
+    private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "NotificationSettingsView")
     private let notificationService: NotificationService
     private let profileCache: ProfileCache
 
@@ -24,6 +26,8 @@ struct NotificationSettingsView: View {
     /// or streak milestone unlocks. Defaults to on; surfaced here because this
     /// view is the canonical home for notification/sound toggles.
     @AppStorage("celebrationSoundEnabled") private var celebrationSoundEnabled = true
+
+    @AppStorage(NotificationService.clearBadgeOnLaunchDefaultsKey) private var clearBadgeOnLaunch = false
 
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showClearedToast = false
@@ -136,6 +140,28 @@ struct NotificationSettingsView: View {
                 Text("Sounds")
             }
 
+            // MARK: - 2c. App Icon Badge Section
+
+            Section {
+                Toggle("Clear on App Launch", isOn: $clearBadgeOnLaunch)
+                    .tint(.accentColor)
+                    .onChange(of: clearBadgeOnLaunch) { _, newValue in
+                        if newValue {
+                            Task {
+                                await notificationService.clearAppBadge()
+                            }
+                        }
+                    }
+
+                Text(clearBadgeOnLaunch
+                    ? "Opening LootList automatically clears the badge number from your home screen."
+                    : "The home screen badge remains until pending chore reviews are resolved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("App Icon Badge")
+            }
+
             // MARK: - 3. Grouped Event Toggles
 
             ForEach(NotificationCategory.allCases, id: \.self) { category in
@@ -186,7 +212,9 @@ struct NotificationSettingsView: View {
             if showClearedToast {
                 do {
                     try await Task.sleep(nanoseconds: DesignSystemConstants.AnimationDuration.toggleFeedbackNanos)
-                } catch {}
+                } catch {
+                    Self.logger.debug("Toggle feedback sleep interrupted: \(error, privacy: .private)")
+                }
                 showClearedToast = false
             }
         }

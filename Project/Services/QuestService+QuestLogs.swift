@@ -41,7 +41,7 @@ extension QuestService {
     /// Calculates net weekly earnings from quest completions using pure cache math.
     func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
         let payoutDay = effectivePayoutDay(for: profile)
-        let normalizedWeek = QuestService.startOfWeek(for: weekOf, payoutDay: payoutDay)
+        let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
         let logs = try await fetchQuestLogs(for: profile)
             .filter { $0.weekOf == normalizedWeek
                 && ($0.verificationStatus == .autoApproved

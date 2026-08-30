@@ -63,6 +63,20 @@
                ReferencedContainer = "container:LootList.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "31C5E72175BCACDAFBA85611"
+               BuildableName = "LootListWidgets.appex"
+               BlueprintName = "LootListWidgets"
+               ReferencedContainer = "container:LootList.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

@@ -271,7 +271,7 @@ extension BackgroundCacheActor {
 
     /// Wipes all cached rows inside the mutation queue during sign-out.
     func clearAllCachedRows() async {
-        await SerialMutationQueue.shared.write {
+        await mutationQueue.write {
             await self.clearAllCachedRowsInTransaction()
         }
     }

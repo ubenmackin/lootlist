@@ -39,6 +39,12 @@ struct Goal: Identifiable, Equatable, Sendable {
     var completedAt: Date?
     /// Archived goals keep their history but drop out of FIFO cascade ordering.
     var isArchived: Bool
+    /// Optional target completion date for pacing calculations.
+    var targetDate: Date?
+    /// Optional web link to an external wishlist item / product page.
+    var linkURL: String?
+    /// Optional image URL for wishlist thumbnail previews.
+    var imageURL: String?
 
     init(record: CKRecord) throws {
         guard record.recordType == Self.recordType else {
@@ -79,6 +85,9 @@ struct Goal: Identifiable, Equatable, Sendable {
 
         completedAt = record["completedAt"] as? Date
         isArchived = record.bool(forKey: "isArchived", default: false)
+        targetDate = record["targetDate"] as? Date
+        linkURL = record.extractOptional("linkURL")
+        imageURL = record.extractOptional("imageURL")
     }
 
     func toRecord() -> CKRecord {
@@ -93,6 +102,9 @@ struct Goal: Identifiable, Equatable, Sendable {
         record["createdAt"] = createdAt as CKRecordValue
         record["completedAt"] = completedAt as CKRecordValue?
         record["isArchived"] = isArchived as CKRecordValue
+        record["targetDate"] = targetDate as CKRecordValue?
+        record["linkURL"] = linkURL as CKRecordValue?
+        record["imageURL"] = imageURL as CKRecordValue?
         return record
     }
 
@@ -106,6 +118,9 @@ struct Goal: Identifiable, Equatable, Sendable {
          createdAt: Date = Date(),
          completedAt: Date? = nil,
          isArchived: Bool = false,
+         targetDate: Date? = nil,
+         linkURL: String? = nil,
+         imageURL: String? = nil,
          id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
     {
         self.id = id
@@ -119,6 +134,9 @@ struct Goal: Identifiable, Equatable, Sendable {
         self.createdAt = createdAt
         self.completedAt = completedAt
         self.isArchived = isArchived
+        self.targetDate = targetDate
+        self.linkURL = linkURL
+        self.imageURL = imageURL
     }
 }
 
@@ -134,7 +152,10 @@ extension Goal: CloudKitRecord {
             "targetAmountPennies",
             "createdAt",
             "completedAt",
-            "isArchived"
+            "isArchived",
+            "targetDate",
+            "linkURL",
+            "imageURL"
         ]
     }
 }

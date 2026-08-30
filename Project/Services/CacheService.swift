@@ -21,6 +21,7 @@ final class CacheService: CacheServicing {
     /// Single off-main writer for every cache mutation, built from this service's own container so
     /// app-level wiring can hand the same instance to the sync stack.
     private let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
+    private let bootstrapLock = Mutex<Bool>(false)
     var backgroundWriter: BackgroundCacheActor? {
         backgroundWriterLock.withLock { $0 }
     }
@@ -76,8 +77,21 @@ final class CacheService: CacheServicing {
         // In-memory stores keep main-actor writes so test seeding and assertions stay synchronous.
         if !inMemory, let container {
             Task(priority: .userInitiated) { [weak self] in
+                guard let self else { return }
+                // Early exit avoids wastefully constructing a second writer when bootstrap already won.
+                guard !self.hasBackgroundWriter else { return }
+                let shouldCreate = self.bootstrapLock.withLock { flag in
+                    if flag {
+                        return false
+                    }
+                    flag = true
+                    return true
+                }
+                guard shouldCreate else { return }
+                defer { self.bootstrapLock.withLock { $0 = false } }
+                guard !self.hasBackgroundWriter else { return }
                 let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
-                self?.attachBackgroundWriter(writer)
+                self.attachBackgroundWriter(writer)
             }
         }
         installDidSaveObserver()
@@ -85,17 +99,42 @@ final class CacheService: CacheServicing {
 
     /// Safe, non-crashing in-memory fallback `CacheService` for fallback paths and test scenarios.
     static func inMemoryFallback(logger: Logger? = nil) -> CacheService {
+        if let service = makeInMemoryFallbackOrNil(logger: logger) {
+            return service
+        }
+        logger?.fault("Critical: CacheService fallback store failed — running in degraded network-direct mode")
+        return CacheService(degradedDefaults: .standard)
+    }
+
+    /// Degraded initialization when all ModelContainer creations fail.
+    private init(degradedDefaults: UserDefaults) {
+        self.defaults = degradedDefaults
+        self.inMemory = true
+        self.container = nil
+        self.initializationError = CacheServiceError.inMemoryFallbackFailed
+    }
+
+    /// Optional helper that never recurses: attempts twice then returns nil on double failure.
+    static func makeInMemoryFallbackOrNil(logger: Logger? = nil) -> CacheService? {
         do {
             return try CacheService(inMemory: true)
         } catch {
             logger?.error("Failed to create in-memory fallback CacheService: \(error, privacy: .private)")
-            do {
-                return try CacheService(inMemory: true, defaults: .standard)
-            } catch let fallbackError {
-                logger?.fault("Critical: CacheService fallback store failed: \(fallbackError, privacy: .private)")
-                return inMemoryFallback(logger: nil)
-            }
         }
+        do {
+            return try CacheService(inMemory: true, defaults: .standard)
+        } catch {
+            logger?.fault("Critical: CacheService fallback store failed: \(error, privacy: .private)")
+            return nil
+        }
+    }
+
+    /// Throwing variant for callers that prefer explicit error handling over fatalError.
+    static func makeInMemoryFallback(logger: Logger? = nil) throws -> CacheService {
+        guard let service = makeInMemoryFallbackOrNil(logger: logger) else {
+            throw CacheServiceError.inMemoryFallbackFailed
+        }
+        return service
     }
 
     /// Attaches a writer created off the main actor. The writer is hoisted as a
@@ -118,6 +157,16 @@ final class CacheService: CacheServicing {
     /// Async bootstrap for call sites that can await before publishing.
     func bootstrapBackgroundWriterIfNeeded() async {
         guard !inMemory, !hasBackgroundWriter, let container else { return }
+        let shouldCreate = bootstrapLock.withLock { flag in
+            if flag {
+                return false
+            }
+            flag = true
+            return true
+        }
+        guard shouldCreate else { return }
+        defer { bootstrapLock.withLock { $0 = false } }
+        guard !hasBackgroundWriter else { return }
         let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
         attachBackgroundWriter(writer)
     }
@@ -132,18 +181,27 @@ final class CacheService: CacheServicing {
         guard container != nil else { return }
         guard didSaveTask == nil else { return }
         didSaveTask = Task { @MainActor [weak self] in
+            #if DEBUG
+                assert(Thread.isMainThread, "installDidSaveObserver must hop to MainActor")
+            #endif
             await withTaskCancellationHandler {
                 for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
                     guard !Task.isCancelled else { break }
                     guard let self else { break }
                     guard let container = self.container else { break }
-                    // Avoid calling property getters on `notification.object` from @MainActor because accessing properties
-                    // on a background ModelContext triggers SwiftData concurrency assertions.
+                    // WHY: `notification.object` is a background ModelContext when the save originates off-main.
+                    // Casting to `AnyObject` and comparing identity (`!==`) is load-bearing: it avoids
+                    // touching any typed property getter on the background context from @MainActor, which
+                    // would trigger SwiftData concurrency assertions. Only `processPendingChanges()` on
+                    // the main context is safe here.
                     guard let savedObject = notification.object as AnyObject?,
                           savedObject !== (container.mainContext as AnyObject)
                     else {
                         continue
                     }
+                    #if DEBUG
+                        assert(Thread.isMainThread)
+                    #endif
                     self.refreshMainContextAfterBackgroundSave()
                 }
             } onCancel: {}
@@ -285,13 +343,25 @@ final class CacheService: CacheServicing {
     }
 }
 
+enum CacheServiceError: Error {
+    case inMemoryFallbackFailed
+}
+
 /// Shared gem-credit mutation — single transaction keeps ledger and profile
 /// in sync and guarantees idempotency via deterministic ledger recordName.
+/// Caller must be on BackgroundCacheActor; ModelContext is not MainActor-isolated.
 func sharedGemCreditPrepare(
     context: ModelContext,
     ledger: GemLedger,
     profile: Profile
 ) -> Bool {
+    // BackgroundCacheActor owns this ModelContext — main-thread access would trigger SwiftData concurrency assertions.
+    #if DEBUG
+        if !TestEnvironment.isRunningUnitOrUITests {
+            assert(!Thread.isMainThread, "sharedGemCreditPrepare must be called off the main thread (BackgroundCacheActor)")
+        }
+    #endif
+    precondition(!Thread.isMainThread || TestEnvironment.isRunningUnitOrUITests, "sharedGemCreditPrepare must not run on the main thread")
     let familyName = ledger.family.recordID.recordName
     let recordName = ledger.id.recordName
     let profileRecordName = ledger.profileRecordName

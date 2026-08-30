@@ -17,23 +17,6 @@ extension QuestService {
         Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
     }
 
-    private func resolvedIsOwner() -> Bool {
-        ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-    }
-
-    /// Resolved owner scope for sync enqueues, logging when it diverges from the stored flag.
-    /// WHY: Hero completions must ride .shared; owner check uses Family.creatorUserRecordName anchor, not role.
-    private func correctedIsOwnerForSync() -> Bool {
-        let isOwner = resolvedIsOwner()
-        // Hoisted local: Swift 6 requires explicit capture semantics for
-        // self-referencing property access inside the logger interpolation.
-        let storedOwner = appState.isZoneOwner
-        if isOwner != storedOwner {
-            logger.warning("markComplete isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        return isOwner
-    }
-
     @discardableResult
     func markComplete(quest: QuestCache, by profile: Profile, at completedDate: Date = Date()) async throws -> QuestCompletion {
         guard let zoneID = appState.familyZoneID else {
@@ -264,12 +247,21 @@ extension QuestService {
 
     // MARK: - Validation Helpers
 
+    // WHY: xpCredited non-nil preserve is frozen per ARCHITECTURE.md §2 — conflict merge keeps the
+    // first credited value so a re-delivered completion can never be re-minted. See
+    // CKSyncConflictResolver.resolveQuestCompletionConflict; do not alter without review.
+
     private func validateCanCompleteQuest(_ quest: Quest, questName: String) async throws {
         if let cachedQuest = cacheService.fetchQuest(recordName: questName, family: quest.family.recordID.recordName) {
             guard cachedQuest.isActive else {
                 throw QuestServiceError.alreadyCompleted
             }
-            if let expectedTag = quest.changeTag, let currentTag = cachedQuest.changeTag, expectedTag != currentTag {
+            // WHY: First write has nil changeTag (new QuestCompletion/Quest not yet saved) — only
+            // flag staleData when both sides have a tag and they differ. Nil on either side means
+            // not yet round-tripped, so not a conflict.
+            if let expectedTag = quest.changeTag, let currentTag = cachedQuest.changeTag,
+               expectedTag != currentTag
+            {
                 throw QuestServiceError.staleData("quest was updated on another device")
             }
         }
@@ -290,6 +282,7 @@ extension QuestService {
             guard cached.verificationStatusEnum == .pending else {
                 throw QuestServiceError.alreadyResolved(cached.verificationStatus)
             }
+            // WHY: Same nil-coalesced rule as validateCanCompleteQuest — nil changeTag on first write is not stale; only mismatched non-nil tags indicate a conflicting edit.
             if let expectedTag = questLog.changeTag, let currentTag = cached.changeTag, expectedTag != currentTag {
                 throw QuestServiceError.staleData("completion was updated on another device")
             }

@@ -13,8 +13,6 @@ import os
 @MainActor
 @Observable
 final class NetworkMonitor {
-    static let shared = NetworkMonitor()
-
     enum ConnectionType: String, Sendable {
         case wifi = "Wi-Fi"
         case cellular = "Cellular"

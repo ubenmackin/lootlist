@@ -305,7 +305,7 @@ final class AchievementService {
     // WHY: empty grid before first CloudKit pull has no cached definitions — View
     // is cache-only (@Query) and must not import CloudKit; service synthesizes
     // defaults into cache and enqueues via coordinator so hydration rides ingest.
-    func ensureDefaultAchievements(for family: Family) -> [AchievementCache] {
+    func ensureDefaultAchievements(for family: Family) async -> [AchievementCache] {
         let familyName = family.id.recordName
         if let cache = cacheService {
             let existing = cache.fetchAchievements(family: familyName)
@@ -315,19 +315,31 @@ final class AchievementService {
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let defaults = Self.defaultAchievements(for: familyRef)
-        for achievement in defaults {
-            if let cache = cacheService {
-                Task {
-                    await cache.upsertAchievement(achievement)
-                    if self.appState?.currentProfile?.role.isParent == true {
-                        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
-                            self.syncCoordinator,
-                            id: achievement.id,
-                            appState: self.appState,
-                            logger: self.logger,
-                            context: "AchievementService.ensureDefaultAchievements"
-                        )
-                    }
+        // WHY: optimistic seeds must ride the sanctioned ingest door (hydrateFromQuery) so
+        // SerialMutationQueue serializes writes and encodedSystemFields are preserved; detached Tasks would race.
+        if let handler = syncCoordinator?.delegateHandler {
+            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            await handler.hydrateFromQuery(models: defaults, databaseScope: scope, zoneID: family.id.zoneID)
+            if appState?.currentProfile?.role.isParent == true {
+                ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    ids: defaults.map(\.id),
+                    appState: appState,
+                    logger: logger,
+                    context: "AchievementService.ensureDefaultAchievements"
+                )
+            }
+        } else if let cache = cacheService {
+            for achievement in defaults {
+                await cache.upsertAchievement(achievement)
+                if appState?.currentProfile?.role.isParent == true {
+                    ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                        syncCoordinator,
+                        id: achievement.id,
+                        appState: appState,
+                        logger: logger,
+                        context: "AchievementService.ensureDefaultAchievements"
+                    )
                 }
             }
         }

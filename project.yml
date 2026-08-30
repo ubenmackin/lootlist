@@ -58,7 +58,9 @@ targets:
           ICLOUD_CONTAINER_ENVIRONMENT: Development
         Release:
           ICLOUD_CONTAINER_ENVIRONMENT: Production
-        
+    dependencies:
+      - target: LootListWidgets
+
     entitlements:
       path: LootList.entitlements
       properties:
@@ -68,6 +70,33 @@ targets:
           - InProcessOneTimeLinks
         com.apple.developer.icloud-services:
           - CloudKit
+        com.apple.security.application-groups:
+          - group.com.volcrypt.lootlist
+
+  LootListWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ProjectWidgets
+      - path: Project/Utilities/WidgetDataBridge.swift
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+    settings:
+      base:
+        INFOPLIST_FILE: ProjectWidgets/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.volcrypt.lootlist.widgets
+        PRODUCT_NAME: LootListWidgets
+        SWIFT_VERSION: "6.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: LootListWidgets.entitlements
+        CODE_SIGN_IDENTITY: "iPhone Developer"
+    entitlements:
+      path: LootListWidgets.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.volcrypt.lootlist
 
   LootListTests:
     type: bundle.unit-test
@@ -123,6 +152,7 @@ schemes:
     build:
       targets:
         LootList: all
+        LootListWidgets: all
         LootListTests: [test]
         LootListUITests: [test]
         LootListIntegrationTests: [test]

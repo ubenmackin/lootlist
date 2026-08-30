@@ -87,10 +87,29 @@ struct ChildHubCardsView: View {
             if let summary = viewModel.activeGoal {
                 let savedDollars = Double(summary.savedPennies) / 100.0
                 let targetDollars = Double(summary.goal.targetAmountPennies) / 100.0
+                let pacing = GoalPacingCalculator.calculatePacing(
+                    targetAmountPennies: summary.goal.targetAmountPennies,
+                    savedPennies: summary.savedPennies,
+                    createdAt: summary.goal.createdAt,
+                    targetDate: summary.goal.targetDate,
+                    completedAt: summary.goal.completedAt
+                )
+
                 VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
                     HStack(spacing: DesignSystemConstants.Padding.small) {
                         Text(summary.goal.emojiIcon ?? "🎯").font(.title3)
-                        Text(summary.goal.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(summary.goal.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                            if let pacing, pacing.status != .noDeadline {
+                                HStack(spacing: 3) {
+                                    Image(systemName: pacing.status.iconSystemName)
+                                        .font(.caption2)
+                                    Text(pacing.status.badgeText)
+                                        .font(.caption2.weight(.bold))
+                                }
+                                .foregroundStyle(pacing.status.tintColor)
+                            }
+                        }
                         Spacer(minLength: DesignSystemConstants.Padding.small)
                         Text("\(CurrencyFormatter.string(savedDollars)) / \(CurrencyFormatter.string(targetDollars))").font(.caption.weight(.semibold)).monospacedDigit()
                             .foregroundStyle(.secondary)

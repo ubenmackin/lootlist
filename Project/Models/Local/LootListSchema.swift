@@ -55,4 +55,29 @@ enum LootListSchemaV8: VersionedSchema {
     }
 }
 
-typealias LootListSchema = LootListSchemaV8
+/// Schema V9: adds targetDate, linkURL, and imageURL to GoalCache.
+enum LootListSchemaV9: VersionedSchema {
+    static var versionIdentifier: Schema.Version {
+        Schema.Version(9, 0, 0)
+    }
+
+    static var models: [any PersistentModel.Type] {
+        [
+            FamilyCache.self,
+            ProfileCache.self,
+            QuestCache.self,
+            QuestTemplateCache.self,
+            QuestCompletionCache.self,
+            AllowancePeriodCache.self,
+            LedgerEntryCache.self,
+            AchievementCache.self,
+            ProfileAchievementCache.self,
+            NotificationPreferenceCache.self,
+            GemLedgerCache.self,
+            RewardEventCache.self,
+            GoalCache.self
+        ]
+    }
+}
+
+typealias LootListSchema = LootListSchemaV9

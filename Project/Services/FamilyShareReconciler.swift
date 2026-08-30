@@ -36,9 +36,15 @@ final class FamilyShareReconciler {
     func start() {
         guard !isStarted else { return }
         isStarted = true
-        observerTask = Task { [weak self] in
+        observerTask = Task { @MainActor [weak self] in
+            #if DEBUG
+                assert(Thread.isMainThread, "FamilyShareReconciler observer must hop to MainActor")
+            #endif
             for await _ in NotificationCenter.default.notifications(named: .syncDidComplete) {
                 guard let self else { return }
+                #if DEBUG
+                    assert(Thread.isMainThread)
+                #endif
                 await self.reconcileIfOwner()
             }
         }

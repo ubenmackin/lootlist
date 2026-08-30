@@ -183,6 +183,26 @@ final class ChildHubViewModel {
         } else {
             activeGoal = nil
         }
+
+        // Publish snapshot to WidgetDataBridge for Lock Screen widgets.
+        let todayBucket = WeekMath.dayBucket(for: Date())
+        let todayLogs = myLogs.filter { WeekMath.dayBucket(for: $0.completedDate) == todayBucket && ($0.isApproved || $0.verificationStatusEnum == .pending) }
+        let savingsStreak = StreakCalculator.computeSavingsStreak(from: ledgerEntries, profileRecordName: profileName, payoutDay: payoutDay)
+        let nextChore = choreRows.first(where: { !$0.isPendingReview })?.title
+
+        let snapshot = WidgetSnapshot(
+            todayCompletedQuests: todayLogs.count,
+            todayTotalQuests: max(todayLogs.count, weekQuests.count),
+            dailyQuestStreak: streak,
+            weeklySavingsStreak: savingsStreak,
+            activeGoalName: activeGoal?.goal.name,
+            activeGoalTargetPennies: activeGoal?.goal.targetAmountPennies,
+            activeGoalSavedPennies: activeGoal?.savedPennies,
+            activeGoalEmoji: activeGoal?.goal.emojiIcon,
+            nextQuestTitle: nextChore,
+            lastUpdated: Date()
+        )
+        WidgetDataBridge.saveSnapshot(snapshot)
     }
 
     // MARK: - Chore Rows

@@ -43,6 +43,7 @@ final class NotificationService {
 
     private(set) var deviceToken: Data?
     private(set) var verificationCategoryRegistered = false
+    private(set) var currentAppBadgeCount: Int = 0
 
     var weeklySummaryProvider: (@Sendable (Profile, Family, Date) async -> String?)?
 
@@ -180,6 +181,7 @@ final class NotificationService {
     // MARK: - UserDefaults Keys
 
     static let masterDefaultsKey = "masterNotificationsEnabled"
+    static let clearBadgeOnLaunchDefaultsKey = "clearBadgeOnLaunch"
 
     func send(_ eventType: NotificationEventType,
               to profile: Profile,
@@ -365,11 +367,29 @@ final class NotificationService {
         verificationCategoryRegistered = true
     }
 
-    func updateAppBadgeCount(pendingCount: Int) async {
+    func updateAppBadgeCount(pendingCount: Int, role: UserRole? = nil) async {
+        let isParent = role?.isParent ?? appState.currentProfile?.role.isParent ?? false
+        guard isParent else {
+            await clearAppBadge()
+            return
+        }
+
+        let clearOnLaunch = defaults.bool(forKey: Self.clearBadgeOnLaunchDefaultsKey)
+        let targetCount = clearOnLaunch ? 0 : max(0, pendingCount)
+        currentAppBadgeCount = targetCount
         do {
-            try await UNUserNotificationCenter.current().setBadgeCount(max(0, pendingCount))
+            try await UNUserNotificationCenter.current().setBadgeCount(targetCount)
         } catch {
-            logger.warning("Failed to update app badge count to \(pendingCount): \(error, privacy: .private)")
+            logger.warning("Failed to update app badge count to \(targetCount): \(error, privacy: .private)")
+        }
+    }
+
+    func clearAppBadge() async {
+        currentAppBadgeCount = 0
+        do {
+            try await UNUserNotificationCenter.current().setBadgeCount(0)
+        } catch {
+            logger.warning("Failed to clear app badge count: \(error, privacy: .private)")
         }
     }
 }

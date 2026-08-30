@@ -116,64 +116,47 @@ final class GoalService {
 
     // MARK: - FIFO Allocator (pure, no side effects)
 
-    /// Groups goals by profile and bucket, projecting FIFO allocations from savings entries.
+    /// FIFO allocation within a single bucket. Callers must filter to one
+    /// profile + bucket via `fetchGoals(profile:bucket:)`; surplus past all
+    /// goals sits unallocated in the bucket.
     static func allocate(amountPennies: Int64, goals: [GoalCache]) -> [GoalAllocation] {
         guard amountPennies > 0 else { return [] }
+        guard !goals.isEmpty else { return [] }
         var remaining = amountPennies
         var result: [GoalAllocation] = []
 
-        // Group by (profile, bucket) — FIFO is within a single bucket.
-        let grouped = Dictionary(grouping: goals) {
-            "\($0.profileRecordName)|\($0.bucketKind)"
-        }
-
-        // Sort groups deterministically by oldest goal creation time so broader goal
-        // sets cascade funds in creation order across buckets.
-        let sortedGroups = grouped.values.sorted { groupA, groupB in
-            let minA = groupA.map(\.createdAt).min() ?? .distantPast
-            let minB = groupB.map(\.createdAt).min() ?? .distantPast
-            if minA != minB {
-                return minA < minB
+        // WHY: Spec is FIFO within the bucket only — oldest incomplete
+        // non-archived goal fills first, overflow cascades. No cross-bucket
+        // group ordering; the caller already scoped to a single bucket.
+        let sorted = goals.sorted {
+            if $0.createdAt != $1.createdAt {
+                return $0.createdAt < $1.createdAt
             }
-            let recordA = groupA.filter { $0.createdAt == minA }.map(\.recordName).min() ?? groupA.map(\.recordName).min() ?? ""
-            let recordB = groupB.filter { $0.createdAt == minB }.map(\.recordName).min() ?? groupB.map(\.recordName).min() ?? ""
-            return recordA < recordB
+            return $0.recordName < $1.recordName
         }
 
-        for bucketGoals in sortedGroups {
+        for goal in sorted {
             guard remaining > 0 else { break }
-
-            // Oldest incomplete non-archived goal first.
-            let sorted = bucketGoals.sorted {
-                if $0.createdAt != $1.createdAt {
-                    return $0.createdAt < $1.createdAt
-                }
-                return $0.recordName < $1.recordName
+            if goal.isArchived {
+                continue
             }
 
-            for goal in sorted {
-                guard remaining > 0 else { break }
-                if goal.isArchived {
-                    continue
-                }
-
-                if goal.completedAt != nil {
-                    // Already completed — consume its target from the pool so
-                    // the cascade moves past it. The funds were credited when
-                    // the goal was marked complete.
-                    remaining = max(remaining - goal.targetAmountPennies, 0)
-                    continue
-                }
-
-                let alloc = min(remaining, goal.targetAmountPennies)
-                result.append(GoalAllocation(
-                    goalRecordName: goal.recordName,
-                    profileRecordName: goal.profileRecordName,
-                    bucketKind: goal.bucketKind,
-                    allocatedPennies: alloc
-                ))
-                remaining -= alloc
+            if goal.completedAt != nil {
+                // Already completed — consume its target from the pool so
+                // the cascade moves past it. The funds were credited when
+                // the goal was marked complete.
+                remaining = max(remaining - goal.targetAmountPennies, 0)
+                continue
             }
+
+            let alloc = min(remaining, goal.targetAmountPennies)
+            result.append(GoalAllocation(
+                goalRecordName: goal.recordName,
+                profileRecordName: goal.profileRecordName,
+                bucketKind: goal.bucketKind,
+                allocatedPennies: alloc
+            ))
+            remaining -= alloc
         }
 
         return result
@@ -190,6 +173,9 @@ final class GoalService {
                     emojiIcon: String? = nil,
                     targetAmountPennies: Int64,
                     bucketKind: BucketKind,
+                    targetDate: Date? = nil,
+                    linkURL: String? = nil,
+                    imageURL: String? = nil,
                     for targetProfile: Profile,
                     family: Family) async throws -> Goal
     {
@@ -224,6 +210,9 @@ final class GoalService {
             emojiIcon: emojiIcon,
             targetAmountPennies: targetAmountPennies,
             createdAt: Date(),
+            targetDate: targetDate,
+            linkURL: linkURL,
+            imageURL: imageURL,
             id: id
         )
 
@@ -307,6 +296,9 @@ final class GoalService {
                     emojiIcon: String? = nil,
                     targetAmountPennies: Int64,
                     bucketKind: BucketKind,
+                    targetDate: Date? = nil,
+                    linkURL: String? = nil,
+                    imageURL: String? = nil,
                     family: Family) async throws -> Goal
     {
         guard let acting = appState.currentProfile else {
@@ -335,6 +327,9 @@ final class GoalService {
         updated.emojiIcon = emojiIcon
         updated.targetAmountPennies = targetAmountPennies
         updated.bucketKind = bucketKind.rawValue
+        updated.targetDate = targetDate
+        updated.linkURL = linkURL
+        updated.imageURL = imageURL
 
         await cacheService.upsertGoal(updated)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "GoalService.updateGoal")
@@ -363,6 +358,9 @@ final class GoalService {
             emojiIcon: draft.emojiIcon,
             targetAmountPennies: draft.targetAmountPennies,
             bucketKind: draft.bucketKind,
+            targetDate: draft.targetDate,
+            linkURL: draft.linkURL,
+            imageURL: draft.imageURL,
             family: family
         )
     }

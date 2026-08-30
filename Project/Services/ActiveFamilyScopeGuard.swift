@@ -143,6 +143,12 @@ enum ActiveFamilyScopeGuard {
     // MARK: - Owner Anchor Resolution
 
     /// Owner identity resolved from the server-stamped anchor, not role.
+    /// `appState` is optional to support non-owner bootstrap paths that synthesize
+    /// before a session exists (e.g., cache-only achievement defaults) — nil
+    /// intentionally routes to `.shared` (false) as a fail-safe. Owner-gated
+    /// mutations must pass a non-nil session; nil there is logged/asserted in
+    /// `correctedIsOwnerAndLog` so callers are audited rather than silently
+    /// masking a missing session.
     @MainActor
     static func resolvedIsOwner(appState: AppState?) -> Bool {
         guard let appState else { return false }
@@ -155,6 +161,25 @@ enum ActiveFamilyScopeGuard {
             logger.warning("isZoneOwner fallback: family has creator anchor but no currentProfile — using stored isZoneOwner")
         }
         return appState.isZoneOwner
+    }
+
+    // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
+    @MainActor
+    private static func correctedIsOwnerAndLog(
+        appState: AppState?,
+        logger: Logger,
+        context: String
+    ) -> Bool {
+        if appState == nil {
+            logger.error("ActiveFamilyScopeGuard nil AppState in \(context, privacy: .private) — routing to shared; audit caller if this should be owner-gated")
+            assertionFailure("ActiveFamilyScopeGuard: nil AppState in \(context) — owner-gated writes must provide a session")
+        }
+        let isOwner = resolvedIsOwner(appState: appState)
+        let storedOwner = appState?.isZoneOwner ?? false
+        if isOwner != storedOwner {
+            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
+        }
+        return isOwner
     }
 
     /// A creator anchor is usable only when non-empty and not one of the legacy
@@ -184,12 +209,9 @@ enum ActiveFamilyScopeGuard {
         logger: Logger,
         context: String
     ) {
-        let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        coordinator?.enqueueSave(recordID: id, isOwner: isOwner)
+        guard let coordinator else { return }
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.enqueueSave(recordID: id, isOwner: isOwner)
     }
 
     /// Overload for services that depend on the `SyncEnqueuing` seam rather than the concrete coordinator.
@@ -201,12 +223,9 @@ enum ActiveFamilyScopeGuard {
         logger: Logger,
         context: String
     ) {
-        let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        coordinator?.enqueueSave(recordID: id, isOwner: isOwner)
+        guard let coordinator else { return }
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.enqueueSave(recordID: id, isOwner: isOwner)
     }
 
     /// Non-optional convenience forwarding to the optional overload.
@@ -230,12 +249,9 @@ enum ActiveFamilyScopeGuard {
         logger: Logger,
         context: String
     ) {
-        let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        coordinator?.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
+        guard let coordinator else { return }
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
     }
 
     /// Batch overload for the `SyncEnqueuing` seam.
@@ -247,12 +263,9 @@ enum ActiveFamilyScopeGuard {
         logger: Logger,
         context: String
     ) {
-        let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        coordinator?.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
+        guard let coordinator else { return }
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.batchEnqueueSave(recordIDs: ids, isOwner: isOwner)
     }
 
     /// Delete variant for owner-corrected enqueues.
@@ -264,12 +277,9 @@ enum ActiveFamilyScopeGuard {
         logger: Logger,
         context: String
     ) {
-        let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        coordinator?.enqueueDelete(recordID: id, isOwner: isOwner)
+        guard let coordinator else { return }
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.enqueueDelete(recordID: id, isOwner: isOwner)
     }
 
     /// Delete overload for the `SyncEnqueuing` seam.
@@ -281,12 +291,9 @@ enum ActiveFamilyScopeGuard {
         logger: Logger,
         context: String
     ) {
-        let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        coordinator?.enqueueDelete(recordID: id, isOwner: isOwner)
+        guard let coordinator else { return }
+        let isOwner = correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
+        coordinator.enqueueDelete(recordID: id, isOwner: isOwner)
     }
 
     /// Resolves the corrected owner anchor, logging when the stored flag diverges.
@@ -297,12 +304,7 @@ enum ActiveFamilyScopeGuard {
         logger: Logger,
         context: String
     ) -> Bool {
-        let isOwner = resolvedIsOwner(appState: appState)
-        let storedOwner = appState?.isZoneOwner ?? false
-        if isOwner != storedOwner {
-            logger.warning("\(context, privacy: .private) isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
-        }
-        return isOwner
+        correctedIsOwnerAndLog(appState: appState, logger: logger, context: context)
     }
 
     /// Validates a recovered profile against CloudKit's server-authenticated identity and the exact

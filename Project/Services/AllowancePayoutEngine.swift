@@ -82,5 +82,48 @@ extension TreasuryService {
             await cacheService.upsertLedgerEntry(entry)
             syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
         }
+
+        // Fan out save-bucket portions to FIFO goals concurrently. Each
+        // contributeToBucket call coalesces its N allocations + M completions
+        // into a single saveContext, so withThrowingTaskGroup avoids serial
+        // N+M saves across buckets.
+        let saveShares = receiving.filter { $0.kind == .shortTermSave || $0.kind == .longTermSave }
+        guard !saveShares.isEmpty else { return }
+        guard let cachedFamily = cacheService.fetchFamily(recordName: family.recordID.recordName) else { return }
+        let familyDomain = cachedFamily.toFamily(zoneID: zoneID)
+
+        // Captured MainActor-isolated dependencies before fan-out: child tasks run
+        // off the MainActor and GoalService's initializer is MainActor-isolated,
+        // so both the property reads and the init require await inside the group.
+        let capturedCloudKit = self.cloudKit
+        let capturedCacheService = self.cacheService
+        let capturedAppState = self.appState
+        let capturedSyncCoordinator = self.syncCoordinator
+
+        await withThrowingTaskGroup(of: Void.self) { group in
+            for share in saveShares {
+                group.addTask {
+                    let goalService = await GoalService(
+                        cloudKit: capturedCloudKit,
+                        cacheService: capturedCacheService,
+                        appState: capturedAppState,
+                        syncCoordinator: capturedSyncCoordinator
+                    )
+                    _ = try await goalService.contributeToBucket(
+                        amountPennies: Int64(share.pennies),
+                        profile: profile,
+                        family: familyDomain,
+                        bucketKind: share.kind,
+                        sourceEventID: periodRecordName,
+                        contributionDate: date
+                    )
+                }
+            }
+            do {
+                try await group.waitForAll()
+            } catch {
+                logger.warning("Goal allocation failed during payout \(periodRecordName, privacy: .private): \(error, privacy: .private)")
+            }
+        }
     }
 }

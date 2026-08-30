@@ -30,15 +30,6 @@ final class HeroLedgerViewModel {
         self.appState = appState
     }
 
-    // WHY: Bucket balances centralized via BucketService so transfers debit/credit correctly.
-    static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
-        var balances: [BucketKind: Double] = [:]
-        for entry in ledgers where entry.profileRecordName == profileRecordName {
-            BucketService.applyBucketAttribution(entry, to: &balances)
-        }
-        return balances
-    }
-
     func rebuildLedger(
         ledgers: [LedgerEntryCache],
         quests: [QuestCache] = [],
@@ -47,7 +38,7 @@ final class HeroLedgerViewModel {
         scope: CalendarScope
     ) {
         // WHY: Balance derives from shared ledger-total formula; keeps Treasury + HeroLedger on one Double-sum path.
-        balance = TreasuryViewModel.ledgerBalance(for: ledgers, profileRecordName: heroProfile.recordName)
+        balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: heroProfile.recordName)
 
         let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
@@ -73,8 +64,8 @@ final class HeroLedgerViewModel {
             )
         }
 
-        // WHY: Single cache→row path shared via TreasuryViewModel; avoids duplicating profile/scope filter + sorted mapping.
-        ledgerRows = TreasuryViewModel.spendingRows(from: ledgers, profileRecordName: heroProfile.recordName, scope: scope, payoutDay: payoutDay)
+        // WHY: Single cache→row path via LedgerRowFactory; avoids duplicating profile/scope filter + sorted mapping.
+        ledgerRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: heroProfile.recordName, scope: scope, payoutDay: payoutDay)
     }
 
     func deposit(description: String, amount: Double, date: Date) async -> Bool {

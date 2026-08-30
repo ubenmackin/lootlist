@@ -9,8 +9,6 @@ import Foundation
 
 /// Linearizes background cache commits and reconciliation passes to prevent overlapping saves.
 actor SerialMutationQueue {
-    static let shared = SerialMutationQueue()
-
     private var isGateHeld = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 

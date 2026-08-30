@@ -13,6 +13,7 @@ struct TabBarView: View {
     @Environment(AvatarService.self) private var avatarService
     @Environment(XPService.self) private var xpService
     @Environment(NotificationService.self) private var notificationService
+    @Environment(\.scenePhase) private var scenePhase
 
     private let spending: SpendingService
     private let familyRecordName: String?
@@ -59,13 +60,25 @@ struct TabBarView: View {
             }
             checkPendingNotificationRoute(appState.pendingNotificationRoute)
             Task {
-                await notificationService.updateAppBadgeCount(pendingCount: pendingCount)
+                await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: appState.currentProfile?.role)
             }
         }
-        .onChange(of: roleKind) { _, _ in reconcileDefaultSelection() }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task {
+                    await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: appState.currentProfile?.role)
+                }
+            }
+        }
+        .onChange(of: roleKind) { _, _ in
+            reconcileDefaultSelection()
+            Task {
+                await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: appState.currentProfile?.role)
+            }
+        }
         .onChange(of: pendingCount) { _, newCount in
             Task {
-                await notificationService.updateAppBadgeCount(pendingCount: newCount)
+                await notificationService.updateAppBadgeCount(pendingCount: newCount, role: appState.currentProfile?.role)
             }
         }
         .onChange(of: appState.pendingQuickAction) { _, action in
@@ -87,7 +100,7 @@ struct TabBarView: View {
         switch route {
         case .pendingVerifications:
             if roleKind == .parent {
-                selectedTab = .manage
+                selectedTab = .family
             }
         case .quests:
             selectedTab = (roleKind == .parent) ? .manage : .quests
@@ -153,6 +166,8 @@ struct TabBarView: View {
             .tabItem {
                 Label("Family", systemImage: "house.fill")
             }
+            .badge(pendingCount)
+            .accessibilityLabel(pendingCount > 0 ? "Family, \(pendingCount) pending approvals" : "Family")
             .tag(RootTab.family)
 
         QuestManagerView(familyRecordName: familyName)
@@ -160,8 +175,6 @@ struct TabBarView: View {
             .tabItem {
                 Label("Manage", systemImage: "rectangle.stack.fill")
             }
-            .badge(pendingCount)
-            .accessibilityLabel(pendingCount > 0 ? "Manage, \(pendingCount) pending approvals" : "Manage")
             .tag(RootTab.manage)
 
         PayoutHistoryView(familyRecordName: familyName)
@@ -201,8 +214,6 @@ struct TabBarView: View {
             .tabItem {
                 Label("Quests", systemImage: "list.bullet.clipboard")
             }
-            .badge(pendingCount)
-            .accessibilityLabel(pendingCount > 0 ? "Quests, \(pendingCount) pending approvals" : "Quests")
             .tag(RootTab.quests)
 
         ChildLedgerView(familyRecordName: familyName)

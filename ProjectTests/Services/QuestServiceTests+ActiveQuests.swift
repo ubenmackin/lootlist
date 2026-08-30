@@ -44,7 +44,7 @@ extension QuestServiceTests {
             id: heroID
         )
 
-        let monday = QuestService.startOfWeek(for: Date(), payoutDay: .sunday)
+        let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
         let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
         let templateRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
@@ -94,6 +94,7 @@ extension QuestServiceTests {
             payoutDay: .friday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
+        await cache.upsertFamily(family)
         var hero = Profile(
             displayName: "Hero",
             avatarClass: .knight,
@@ -105,7 +106,7 @@ extension QuestServiceTests {
         )
         hero.payoutDay = nil
 
-        let fridayStart = QuestService.startOfWeek(for: Date(), payoutDay: .friday)
+        let fridayStart = WeekMath.startOfWeek(for: Date(), payoutDay: .friday)
         let templateRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
         )
@@ -164,7 +165,7 @@ extension QuestServiceTests {
             id: heroID
         )
 
-        let monday = QuestService.startOfWeek(for: Date(), payoutDay: .sunday)
+        let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
         let templateRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
         )
@@ -216,7 +217,7 @@ extension QuestServiceTests {
             id: heroID
         )
 
-        let monday = QuestService.startOfWeek(for: Date(), payoutDay: .sunday)
+        let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
         let templateRef = CKRecord.Reference(
             recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none
         )
@@ -472,7 +473,7 @@ extension QuestServiceTests {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
         let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 7, day: 22, hour: 14)))
-        let currentCycle = QuestService.startOfWeek(for: now, payoutDay: .sunday)
+        let currentCycle = WeekMath.startOfWeek(for: now, payoutDay: .sunday)
         let previousCycle = try #require(calendar.date(byAdding: .day, value: -7, to: currentCycle))
 
         let templateRef = CKRecord.Reference(
@@ -520,7 +521,7 @@ extension QuestServiceTests {
             "fetchQuestsForFamilyWeek cache-hit must return the in-range quest, not the out-of-range row"
         )
         let servedWeekOf = try #require(results.first?.weekOf)
-        let servedRange = QuestService.weekRange(for: now, payoutDay: .sunday)
+        let servedRange = WeekMath.range(for: now, payoutDay: .sunday).range
         #expect(
             servedRange.contains(servedWeekOf),
             "fetchQuestsForFamilyWeek cache-hit must return a quest whose weekOf is within the requested half-open range"

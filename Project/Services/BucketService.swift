@@ -15,6 +15,7 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     case insufficientFunds(available: Double, requested: Double)
     case sameBucket
     case invalidAmount
+    case invalidTransferID
     case unauthorized
     case persistenceFailed
     case duplicateTodayTransfer
@@ -27,6 +28,8 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
             "Pick two different buckets to move money between."
         case .invalidAmount:
             "Enter a valid positive amount."
+        case .invalidTransferID:
+            "The transfer identifier is invalid. Please try again."
         case .unauthorized:
             "Only the bucket's owner can move money between buckets."
         case .persistenceFailed:
@@ -168,17 +171,28 @@ final class BucketService {
         balances[kind, default: 0] += entry.amount
     }
 
+    // WHY: Single-source ledger total for balance displays; keeps Treasury + HeroLedger on one Double-sum path.
+    nonisolated static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
+        ledgers.filter { $0.profileRecordName == profileRecordName }.reduce(0) { $0 + $1.amount }
+    }
+
+    // WHY: Pure array variant keeps @Query-driven ViewModels on the same attribution formula as the cached fetch path.
+    nonisolated static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
+        var balances: [BucketKind: Double] = [:]
+        for entry in ledgers where entry.profileRecordName == profileRecordName {
+            applyBucketAttribution(entry, to: &balances)
+        }
+        return balances
+    }
+
     /// Balance per bucket, summed from ledger entries carrying an explicit
     /// `bucketKind` attribution via the shared `applyBucketAttribution` formula.
     func bucketBalances(profileRecordName: String, familyRecordName: String) -> [BucketKind: Double] {
-        var balances: [BucketKind: Double] = [:]
-        for entry in cacheService.fetchLedgerEntries(
+        let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
             family: familyRecordName
-        ) {
-            Self.applyBucketAttribution(entry, to: &balances)
-        }
-        return balances
+        )
+        return Self.bucketBalances(for: entries, profileRecordName: profileRecordName)
     }
 
     // MARK: - Transfers
@@ -233,7 +247,7 @@ final class BucketService {
         if let transferID, !transferID.isEmpty {
             let expectedID = "\(todayBucket)-\(from.rawValue)-\(to.rawValue)"
             guard transferID == expectedID else {
-                throw BucketServiceError.invalidAmount
+                throw BucketServiceError.invalidTransferID
             }
         }
         // WHY: Per-day/per-pair guard — hoisted from view so the service is the mutation boundary.

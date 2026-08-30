@@ -54,7 +54,7 @@ struct HeroDetailView: View {
     }
 
     private var availableBalance: Double {
-        TreasuryViewModel.ledgerBalance(for: cachedLedgers, profileRecordName: hero.recordName)
+        BucketService.ledgerBalance(for: cachedLedgers, profileRecordName: hero.recordName)
     }
 
     var body: some View {

@@ -26,6 +26,9 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
     var createdAt: Date
     var completedAt: Date?
     var isArchived: Bool
+    var targetDate: Date?
+    var linkURL: String?
+    var imageURL: String?
     var changeTag: String?
     var encodedSystemFields: Data?
     var sourceZoneName: String?
@@ -47,6 +50,9 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
          createdAt: Date,
          completedAt: Date? = nil,
          isArchived: Bool = false,
+         targetDate: Date? = nil,
+         linkURL: String? = nil,
+         imageURL: String? = nil,
          changeTag: String? = nil,
          encodedSystemFields: Data? = nil,
          sourceZoneName: String? = nil,
@@ -64,6 +70,9 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
         self.createdAt = createdAt
         self.completedAt = completedAt
         self.isArchived = isArchived
+        self.targetDate = targetDate
+        self.linkURL = linkURL
+        self.imageURL = imageURL
         self.changeTag = changeTag
         self.encodedSystemFields = encodedSystemFields
         self.sourceZoneName = sourceZoneName
@@ -84,6 +93,9 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
             createdAt: goal.createdAt,
             completedAt: goal.completedAt,
             isArchived: goal.isArchived,
+            targetDate: goal.targetDate,
+            linkURL: goal.linkURL,
+            imageURL: goal.imageURL,
             changeTag: goal.changeTag,
             encodedSystemFields: goal.encodedSystemFields,
             sourceZoneName: goal.id.zoneID.zoneName,
@@ -105,6 +117,9 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
         createdAt = goal.createdAt
         completedAt = goal.completedAt
         isArchived = goal.isArchived
+        targetDate = goal.targetDate
+        linkURL = goal.linkURL
+        imageURL = goal.imageURL
         changeTag = goal.changeTag
         sourceZoneName = goal.id.zoneID.zoneName
         sourceZoneOwnerName = goal.id.zoneID.ownerName

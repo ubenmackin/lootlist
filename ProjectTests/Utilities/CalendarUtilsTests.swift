@@ -201,7 +201,7 @@ struct CalendarUtilsTests {
         let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3)))
         let weekMathRange = WeekMath.weekRange(starting: monday)
         #expect(TreasuryService.weekRange(starting: monday) == weekMathRange)
-        #expect(QuestService.weekRange(for: monday) == weekMathRange)
+        #expect(WeekMath.range(for: monday, payoutDay: .sunday).range == weekMathRange)
         #expect(TreasuryService.weekRange(starting: monday).upperBound == monday.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek)))
     }
 
@@ -210,7 +210,7 @@ struct CalendarUtilsTests {
         let monday = WeekMath.mondayOfWeek(for: Date())
         let range = WeekMath.weekRange(starting: monday)
         let treasuryRange = TreasuryService.weekRange(starting: monday)
-        let questRange = QuestService.weekRange(for: monday)
+        let questRange = WeekMath.range(for: monday, payoutDay: .sunday).range
 
         for weekRange in [range, treasuryRange, questRange] {
             let duration = weekRange.upperBound.timeIntervalSince(weekRange.lowerBound)

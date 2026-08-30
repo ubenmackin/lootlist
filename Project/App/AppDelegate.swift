@@ -26,7 +26,7 @@ extension SyncOutcome {
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     static let weeklyPayoutTaskId = "com.volcrypt.lootlist.weeklypayout"
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppDelegate")
+    private nonisolated static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppDelegate")
 
     func application(
         _: UIApplication,
@@ -136,7 +136,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                     do {
                         try await Task.sleep(for: .seconds(25))
                     } catch {
-                        // Task.sleep only throws CancellationError, intentionally ignored for deadline handling
+                        Self.logger.debug("Background task deadline timer interrupted: \(error, privacy: .private)")
                     }
                     return .deadlineExpired
                 }

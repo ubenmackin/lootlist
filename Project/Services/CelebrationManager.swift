@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 import SwiftUI
 
 struct CelebrationItem: Identifiable, Sendable, Equatable {
@@ -85,6 +86,8 @@ extension CelebrationItem {
 @MainActor
 @Observable
 final class CelebrationManager {
+    private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "CelebrationManager")
+
     var toastManager: ToastManager?
 
     init() {}
@@ -144,7 +147,7 @@ final class CelebrationManager {
             do {
                 try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
             } catch {
-                // Task.sleep only throws CancellationError, intentionally ignored for auto-dismiss
+                Self.logger.debug("Confetti auto-dismiss timer interrupted: \(error, privacy: .private)")
             }
             guard !Task.isCancelled else { return }
             isConfettiShowing = false

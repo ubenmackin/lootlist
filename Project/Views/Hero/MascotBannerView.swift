@@ -154,7 +154,9 @@ struct MascotBannerView: View {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .milliseconds(500))
-                } catch {}
+                } catch {
+                    Self.logger.debug("Mascot frame animation sleep interrupted: \(error, privacy: .private)")
+                }
                 guard !Task.isCancelled else { break }
                 withAnimation(.easeInOut(duration: 0.5)) {
                     frameIndex = (frameIndex + 1) % 2

@@ -58,7 +58,7 @@ struct TreasuryServiceTests {
         let lastSecond = monday.addingTimeInterval(secondsInWeek - 1)
 
         let treasuryRange = TreasuryService.weekRange(starting: monday)
-        let questRange = QuestService.weekRange(for: monday)
+        let questRange = WeekMath.range(for: monday, payoutDay: .sunday).range
 
         // Half-open [start, end): last second (end - 1s) is contained.
         #expect(treasuryRange.contains(lastSecond))
@@ -73,9 +73,9 @@ struct TreasuryServiceTests {
         let nextWeekStart = monday.addingTimeInterval(secondsInWeek)
 
         let treasuryRange = TreasuryService.weekRange(starting: monday)
-        let questRange = QuestService.weekRange(for: monday)
+        let questRange = WeekMath.range(for: monday, payoutDay: .sunday).range
         let nextTreasuryRange = TreasuryService.weekRange(starting: nextWeekStart)
-        let nextQuestRange = QuestService.weekRange(for: nextWeekStart)
+        let nextQuestRange = WeekMath.range(for: nextWeekStart, payoutDay: .sunday).range
 
         // Excluded from THIS week...
         #expect(!treasuryRange.contains(nextWeekStart))
@@ -92,7 +92,7 @@ struct TreasuryServiceTests {
         let weekMath = WeekMath.mondayOfWeek(for: now)
         let weekMathAlias = WeekMath.weekOf(date: now)
         let treasury = TreasuryService.mondayOfWeek(for: now)
-        let quest = QuestService.mondayOfWeek(for: now)
+        let quest = WeekMath.mondayOfWeek(for: now)
 
         #expect(weekMath == weekMathAlias)
         #expect(weekMath == treasury)

@@ -289,6 +289,9 @@ struct RecordBridgeTests {
             createdAt: Date(timeIntervalSince1970: 1_750_000_000),
             completedAt: Date(timeIntervalSince1970: 1_750_100_000),
             isArchived: false,
+            targetDate: Date(timeIntervalSince1970: 1_750_200_000),
+            linkURL: "https://example.com/bike",
+            imageURL: "https://example.com/bike.jpg",
             id: id("goal1")
         )
         let actual = Set(goal.toRecord().allKeys())
