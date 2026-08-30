@@ -5,12 +5,14 @@
 //  Created by Ben Mackin on 8/22/26.
 //
 
+import os
 import SwiftUI
 import UIKit
 
 /// Full-screen horizontally-scrollable journey map showing the hero's progression
 /// through seamlessly blended themed zones with milestone nodes along a winding path.
 struct JourneyMapView: View {
+    private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "JourneyMapView")
     let journeyState: JourneyState
     let profileCache: ProfileCache
 
@@ -138,7 +140,7 @@ struct JourneyMapView: View {
                         syncCoordinator: syncCoordinator
                     )
                 } catch {
-                    // Task cancelled (e.g. view dismissed mid-animation) — exit without updating sync state.
+                    Self.logger.debug("Journey level animation interrupted: \(error, privacy: .private)")
                 }
             }
         } else {

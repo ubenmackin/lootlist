@@ -55,6 +55,7 @@ final class AppDependencies {
     let familyShareReconciler: FamilyShareReconciler
     let lifecycleCoordinator: AppLifecycleCoordinator
     let heroBoardService: HeroBoardService
+    let familyDiscoveryService: FamilyDiscoveryService
 
     init() {
         let foundations = Self.makeFoundations()
@@ -106,6 +107,10 @@ final class AppDependencies {
         )
         lifecycle.achievementService = core.achievement
 
+        // Inject discovery service so AppState stays a thin session holder.
+        let discoveryService = FamilyDiscoveryService()
+        foundations.app.discoveryService = discoveryService
+
         appState = foundations.app
         cloudKitService = foundations.cloudKit
         cacheService = foundations.cache
@@ -140,6 +145,7 @@ final class AppDependencies {
         dailyLoginService = gamification.dailyLogin
         bonusObjectiveService = gamification.bonusObjective
         equipmentService = gamification.equipment
+        familyDiscoveryService = discoveryService
 
         Self.shared = self
     }
@@ -186,7 +192,7 @@ final class AppDependencies {
         let celebration = CelebrationManager()
         celebration.toastManager = toast
         let sound = SoundManager()
-        let network = NetworkMonitor.shared
+        let network = NetworkMonitor()
         network.start()
         let sharedBgActor = cache.backgroundWriter
         app.backgroundCacheActor = sharedBgActor

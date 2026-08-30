@@ -136,7 +136,7 @@ struct HeroBoardView: View {
                     Task { await vm.claim(row) }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(isSubmitting)
+                .disabled(isSubmitting || vm.isClaiming(row))
                 .accessibilityIdentifier("board.claimButton-\(row.id)")
             }
         }

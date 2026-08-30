@@ -11,13 +11,13 @@ import SwiftUI
 /// footer row (% earned + dollar amount remaining).
 struct GoalCardView: View {
     let emoji: String
-
     let name: String
-
     let savedAmount: Double
-
     let targetAmount: Double
-
+    var targetDate: Date?
+    var createdAt: Date = .init()
+    var linkURL: String?
+    var isCompleted: Bool = false
     var accessibilityID: String?
 
     private var progress: Double {
@@ -29,19 +29,57 @@ struct GoalCardView: View {
         "\(Int((progress * 100).rounded()))% earned"
     }
 
+    private var pacingSummary: GoalPacingCalculator.PacingSummary? {
+        GoalPacingCalculator.calculatePacing(
+            targetAmountPennies: Int64((targetAmount * 100).rounded()),
+            savedPennies: Int64((savedAmount * 100).rounded()),
+            createdAt: createdAt,
+            targetDate: targetDate,
+            completedAt: isCompleted ? Date() : nil
+        )
+    }
+
+    private var validWebURL: URL? {
+        guard let linkURL else { return nil }
+        return LinkMetadataService.normalizeURL(from: linkURL)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Emoji + title row
+            // Emoji + title row + optional store link
             HStack(spacing: 8) {
                 Text(emoji)
                     .font(.title2)
 
-                Text(name)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if let summary = pacingSummary, summary.status != .noDeadline {
+                        HStack(spacing: 4) {
+                            Image(systemName: summary.status.iconSystemName)
+                                .font(.caption2)
+                            Text(summary.status.badgeText)
+                                .font(.caption2.weight(.bold))
+                        }
+                        .foregroundStyle(summary.status.tintColor)
+                    }
+                }
 
                 Spacer()
+
+                if let validWebURL {
+                    Link(destination: validWebURL) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.subheadline)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                            .padding(4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("View \(name) online")
+                }
             }
 
             // Saved / Target status line
@@ -57,6 +95,13 @@ struct GoalCardView: View {
                 Text(CurrencyFormatter.string(targetAmount))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if let summary = pacingSummary, summary.status != .completed {
+                    Spacer()
+                    Text(summary.formattedTargetDate)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             // Progress bar
@@ -73,7 +118,7 @@ struct GoalCardView: View {
             }
             .frame(height: 8)
 
-            // Footer: % earned | remaining
+            // Footer: % earned | remaining / pacing note
             HStack {
                 Text(percentText)
                     .font(.caption2.weight(.semibold))
@@ -81,10 +126,15 @@ struct GoalCardView: View {
 
                 Spacer()
 
-                // WHY: Use CurrencyFormatter so remaining amount is locale-aware and "$" never hard-coded.
-                Text("\(CurrencyFormatter.string(max(targetAmount - savedAmount, 0))) left")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if let summary = pacingSummary, summary.status != .completed, summary.daysRemaining > 7 {
+                    Text("Save \(CurrencyFormatter.string(summary.weeklyRequiredSavingsDollars))/wk")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(summary.status.tintColor)
+                } else {
+                    Text("\(CurrencyFormatter.string(max(targetAmount - savedAmount, 0))) left")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(DesignSystemConstants.Padding.medium)

@@ -722,6 +722,6 @@ struct QuestAssignmentView: View {
     }
 
     private static func defaultWeekOf() -> Date {
-        QuestService.mondayOfWeek(for: Date())
+        WeekMath.mondayOfWeek(for: Date())
     }
 }

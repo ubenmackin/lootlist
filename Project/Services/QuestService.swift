@@ -653,44 +653,6 @@ final class QuestService {
         return deactivated
     }
 
-    private func stampNameIfNeeded(_ quest: Quest) async -> Quest {
-        guard quest.name == nil else { return quest }
-        let template: QuestTemplate
-        do {
-            template = try await cloudKit.fetch(QuestTemplate.self, id: quest.template.recordID)
-        } catch {
-            logger.debug("Template fetch failed for \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
-            return quest
-        }
-        var updated = quest
-        updated.name = template.name
-        return updated
-    }
-
-    private func stampAllQuests(_ quests: [Quest]) async -> [Quest] {
-        var stamped: [Quest] = []
-        stamped.reserveCapacity(quests.count)
-        var nameStamped: [Quest] = []
-        for quest in quests {
-            let resolved = await stampNameIfNeeded(quest)
-            if resolved.name != quest.name {
-                nameStamped.append(resolved)
-            }
-            stamped.append(resolved)
-        }
-        // Stamped names originate from server templates, so the rows re-enter
-        // the cache through the single ingestion path; batching keeps N per-
-        // quest stamps from becoming N separate ingest passes.
-        if let zoneID = stamped.first?.id.zoneID {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: nameStamped,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
-                zoneID: zoneID
-            )
-        }
-        return stamped
-    }
-
     func sendAssignmentNotification(to assignee: Profile, questName: String) {
         guard let notificationService else { return }
         Task { @MainActor @Sendable [logger, notificationService, assignee, questName] in
@@ -707,26 +669,10 @@ final class QuestService {
         }
     }
 
-    static func startOfWeek(for date: Date, payoutDay: PayoutDay = .sunday) -> Date {
-        WeekMath.startOfWeek(for: date, payoutDay: payoutDay)
-    }
-
-    static func mondayOfWeek(for date: Date) -> Date {
-        WeekMath.mondayOfWeek(for: date)
-    }
-
-    static func weekRange(for date: Date, payoutDay: PayoutDay = .sunday) -> Range<Date> {
-        WeekMath.range(for: date, payoutDay: payoutDay).range
-    }
-
     /// Resolves effective payout day (profile override -> family config -> Sunday default).
     func effectivePayoutDay(for profile: Profile) -> PayoutDay {
         let familyCache = cacheService.fetchFamily(recordName: profile.family.recordID.recordName)
         return PayoutDayResolver.resolved(for: profile, family: familyCache)
-    }
-
-    private func weekdayCodes(inWeekOf weekOf: Date) -> Set<String> {
-        WeekMath.weekdayCodes(inWeekOf: weekOf)
     }
 
     /// Checks if quest matches template carry-forward state without local modifications.

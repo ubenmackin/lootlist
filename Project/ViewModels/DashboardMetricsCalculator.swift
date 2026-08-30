@@ -137,15 +137,9 @@ enum DashboardMetricsCalculator {
         // WHY: Centralize ledger attribution via BucketService so transfers debit/credit correctly and bucket math lives in one place.
         var computedFamilyOutflow: Double = 0
         for hero in computedHeroes {
-            var balances: [BucketKind: Double] = [:]
-            var legacyUnattributed: Double = 0
-            for entry in heroLedgerEntries where entry.profileRecordName == hero.recordName {
-                if entry.bucketKindEnum != nil || entry.sourceEnum == .transfer {
-                    BucketService.applyBucketAttribution(entry, to: &balances)
-                } else {
-                    legacyUnattributed += entry.amount
-                }
-            }
+            let heroEntries = heroLedgerEntries.filter { $0.profileRecordName == hero.recordName }
+            let balances = BucketService.bucketBalances(for: heroEntries, profileRecordName: hero.recordName)
+            let legacyUnattributed = heroEntries.filter { $0.bucketKindEnum == nil && $0.sourceEnum != .transfer }.reduce(0) { $0 + $1.amount }
             computedFamilyOutflow += balances.values.reduce(0, +) + legacyUnattributed
         }
 
@@ -153,15 +147,9 @@ enum DashboardMetricsCalculator {
         let computedPendingReviewCount = pendingLogs.count
 
         let computedChildAccountCards: [ChildAccountCard] = computedHeroes.map { hero in
-            var balances: [BucketKind: Double] = [:]
-            var legacyUnattributed: Double = 0
-            for entry in heroLedgerEntries where entry.profileRecordName == hero.recordName {
-                if entry.bucketKindEnum != nil || entry.sourceEnum == .transfer {
-                    BucketService.applyBucketAttribution(entry, to: &balances)
-                } else {
-                    legacyUnattributed += entry.amount
-                }
-            }
+            let heroEntries = heroLedgerEntries.filter { $0.profileRecordName == hero.recordName }
+            let balances = BucketService.bucketBalances(for: heroEntries, profileRecordName: hero.recordName)
+            let legacyUnattributed = heroEntries.filter { $0.bucketKindEnum == nil && $0.sourceEnum != .transfer }.reduce(0) { $0 + $1.amount }
             let heroBalance = balances.values.reduce(0, +) + legacyUnattributed
             let heroPending = pendingLogs
                 .filter { $0.completerRecordName == hero.recordName }

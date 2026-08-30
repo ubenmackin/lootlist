@@ -71,7 +71,7 @@ enum CurrencyFormatter: Sendable {
             guard value.isFinite else { return nil }
             return value
         } catch {
-            // Continue to fallback normalization below.
+            // Expected for pasted values with alternate locale decimal separator — continue to fallback below
         }
         // Fallback for pasted values with alternate separator.
         let normalized = trimmed.replacingOccurrences(of: ",", with: ".")

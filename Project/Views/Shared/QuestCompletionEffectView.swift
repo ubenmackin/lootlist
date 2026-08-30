@@ -5,9 +5,11 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
+import os
 import SwiftUI
 
 struct QuestCompletionEffectView: View {
+    private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "QuestCompletionEffectView")
     let xpEarned: Int
     let goldEarned: Double?
     let rarity: QuestRarity
@@ -148,7 +150,9 @@ struct QuestCompletionEffectView: View {
             // Small delay to allow layout
             do {
                 try await Task.sleep(nanoseconds: 10_000_000)
-            } catch {}
+            } catch {
+                Self.logger.debug("Quest completion layout sleep interrupted: \(error, privacy: .private)")
+            }
 
             // 1. Flash
             flashVisible = true
@@ -170,7 +174,9 @@ struct QuestCompletionEffectView: View {
                 Task {
                     do {
                         try await Task.sleep(nanoseconds: 200_000_000)
-                    } catch {}
+                    } catch {
+                        Self.logger.debug("Gold pop delay sleep interrupted: \(error, privacy: .private)")
+                    }
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
                         goldScale = 1.2
                         goldOpacity = 1.0
@@ -178,7 +184,9 @@ struct QuestCompletionEffectView: View {
 
                     do {
                         try await Task.sleep(nanoseconds: 300_000_000)
-                    } catch {}
+                    } catch {
+                        Self.logger.debug("Gold float delay sleep interrupted: \(error, privacy: .private)")
+                    }
                     withAnimation(.easeOut(duration: 1.2)) {
                         goldFloatUp = true
                         goldOpacity = 0.0
@@ -189,7 +197,9 @@ struct QuestCompletionEffectView: View {
             // 5. XP text float
             do {
                 try await Task.sleep(nanoseconds: 300_000_000)
-            } catch {}
+            } catch {
+                Self.logger.debug("XP text float delay sleep interrupted: \(error, privacy: .private)")
+            }
             withAnimation(.easeOut(duration: 1.2)) {
                 textFloatUp = true
                 textOpacity = 0.0
@@ -198,7 +208,9 @@ struct QuestCompletionEffectView: View {
             // 6. Finish
             do {
                 try await Task.sleep(nanoseconds: 1_500_000_000)
-            } catch {}
+            } catch {
+                Self.logger.debug("Quest completion finish sleep interrupted: \(error, privacy: .private)")
+            }
             isShowing = false
         }
     }

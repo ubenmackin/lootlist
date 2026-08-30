@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 
 extension Notification.Name {
     static let didClearSession = Notification.Name("didClearSession")
@@ -53,7 +54,7 @@ final class AppState {
     var authStatus: AuthStatus
 
     /// Explicit state machine serializing auth transitions and owning the persisted-session check.
-    var authStateMachine: AuthStateMachine!
+    var authStateMachine: AuthStateMachine
 
     var currentProfile: Profile? {
         didSet {
@@ -132,6 +133,11 @@ final class AppState {
     var backgroundCacheActor: BackgroundCacheActor?
     var cacheInitError: AppStateError?
 
+    /// Discovery service injected via `AppDependencies` so `AppState` stays a
+    /// thin session holder (`authStatus`, `currentProfile`, `family`,
+    /// `familyZoneID`, `isZoneOwner`). Discovery no longer checks `authStatus`.
+    var discoveryService: FamilyDiscoveryService?
+
     /// WHY: CK-free mirror of the iCloud account status; the lifecycle layer
     /// refreshes it so views render published state instead of calling CloudKit.
     var cloudAccountStatus: CloudAccountStatus = .couldNotDetermine
@@ -148,11 +154,57 @@ final class AppState {
     @ObservationIgnored
     private var notificationRouteTask: Task<Void, Never>?
 
-    @ObservationIgnored
-    private var isDiscoveryInFlight = false
+    // WHY: Discovery coordinator actor encapsulates in-flight state and waiter continuation lifecycle safely under actor isolation.
+    private actor DiscoveryCoordinator {
+        private var isInFlight = false
+        private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+        var isRunning: Bool {
+            isInFlight
+        }
+
+        func begin() -> Bool {
+            if isInFlight {
+                return false
+            }
+            isInFlight = true
+            return true
+        }
+
+        func finish() {
+            isInFlight = false
+            let pending = Array(waiters.values)
+            waiters.removeAll()
+            for waiter in pending {
+                waiter.resume()
+            }
+        }
+
+        func wait() async {
+            guard isInFlight else { return }
+            let id = UUID()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    if Task.isCancelled {
+                        continuation.resume()
+                    } else {
+                        waiters[id] = continuation
+                    }
+                }
+            } onCancel: {
+                Task { await self.cancelWaiter(id: id) }
+            }
+        }
+
+        private func cancelWaiter(id: UUID) {
+            if let waiter = waiters.removeValue(forKey: id) {
+                waiter.resume()
+            }
+        }
+    }
 
     @ObservationIgnored
-    private var discoveryWaiters: [CheckedContinuation<Void, Never>] = []
+    private let discoveryCoordinator = DiscoveryCoordinator()
 
     // MARK: - Session Persistence Keys
 
@@ -463,351 +515,96 @@ final class AppState {
         return true
     }
 
-    /// Probes family zone reachability with a timeout to verify zone existence.
+    /// Zone reachability now delegates to `FamilyDiscoveryService` so session
+    /// restoration does not embed CloudKit query logic.
     private static func isZoneReachable(
         cloudKit: any CloudKitServiceProtocol,
         familyRecordName: String,
         zoneID: CKRecordZone.ID
     ) async -> Bool {
-        let rootRecordID = CKRecord.ID(recordName: familyRecordName, zoneID: zoneID)
-        let deadline = Date().addingTimeInterval(max(0.1, AppConstants.Session.zoneCheckTimeoutSeconds))
-        for _ in 0 ..< max(1, AppConstants.Session.restoreRetryBudget) {
-            if Date() >= deadline {
-                return false
-            }
-            do {
-                _ = try await cloudKit.fetchShareParticipants(for: rootRecordID)
-                return true
-            } catch {
-                continue
-            }
-        }
-        return false
+        let service = FamilyDiscoveryService()
+        return await service.isZoneReachable(
+            cloudKit: cloudKit,
+            familyRecordName: familyRecordName,
+            zoneID: zoneID
+        )
     }
 
-    // MARK: - Cloud State Discovery
+    // MARK: - Cloud State Discovery — thin delegation
 
+    /// Thin delegation to `FamilyDiscoveryService`. Discovery itself no longer
+    /// checks `authStatus`; this wrapper keeps coalescing and session gating
+    /// while the service owns the CloudKit queries.
     func discoverExistingCloudState(cloudKit: any CloudKitServiceProtocol) async {
-        guard authStatus == .checkingCloudData else { return }
-
-        if isDiscoveryInFlight {
+        let canStart = await discoveryCoordinator.begin()
+        if !canStart {
             logger.info("Cloud state discovery joined the in-progress discovery")
-            // Cancelled waiters remain until next discovery sweep — bounded (1 entry per cancelled launch) — acceptable; if strict, add onCancel cleanup.
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                discoveryWaiters.append(continuation)
-            }
+            await discoveryCoordinator.wait()
             return
         }
 
-        // If restoration has already populated the active session, a
-        // redundant account-change callback must not replace it with
-        // discovery and the "Guild Detected" screen.
+        defer {
+            Task { await self.discoveryCoordinator.finish() }
+        }
+
+        // WHY: A successful discovery sets `authStatus` to `detectedPreviousFamily`
+        // without yet populating `family`/`currentProfile` (those are set on
+        // acceptance). Ignore a later duplicate sequential pass so the bounded
+        // shared-zone retry does not re-fire and inflate `sharedZoneFetchCount`.
+        if case .detectedPreviousFamily = authStatus {
+            return
+        }
+        if case .authenticated = authStatus {
+            return
+        }
+
         if family != nil, currentProfile != nil {
             authStatus = .authenticated
             return
         }
 
-        isDiscoveryInFlight = true
-        defer {
-            isDiscoveryInFlight = false
-            let waiters = discoveryWaiters
-            discoveryWaiters.removeAll()
-            for waiter in waiters {
-                waiter.resume()
-            }
+        let service = discoveryService ?? FamilyDiscoveryService()
+        let result = await service.discoverExistingCloudState(cloudKit: cloudKit)
+        switch result {
+        case let .owner(candidate):
+            authStatus = .detectedPreviousFamily(family: candidate.family, profile: candidate.profile, zoneID: candidate.zoneID, isOwner: true)
+        case let .hero(candidate):
+            authStatus = .detectedPreviousFamily(family: candidate.family, profile: candidate.profile, zoneID: candidate.zoneID, isOwner: false)
+        case .none:
+            authStatus = .onboarding
         }
-
-        logger.info("Starting iCloud family discovery...")
-        let userRecordID = await resolveCurrentUserRecordID(cloudKit: cloudKit)
-
-        let ownerCandidates = await discoverPrivateOwnerCandidates(
-            cloudKit: cloudKit,
-            userRecordID: userRecordID
-        )
-        if ownerCandidates.count == 1, let owner = ownerCandidates.first {
-            logger.info("SUCCESS: Detected Guild Master profile '\(owner.profile.displayName, privacy: .private)' in family '\(owner.family.name, privacy: .private)'")
-            authStatus = .detectedPreviousFamily(family: owner.family, profile: owner.profile, zoneID: owner.zoneID, isOwner: true)
-            return
-        }
-        if ownerCandidates.count > 1 {
-            logger.warning("Rejecting ambiguous owner family discovery for the current iCloud account")
-        }
-
-        let heroCandidates = await discoverSharedHeroCandidates(
-            cloudKit: cloudKit,
-            userRecordID: userRecordID
-        )
-        if heroCandidates.count == 1, let hero = heroCandidates.first {
-            logger.info("SUCCESS: Detected Hero profile '\(hero.profile.displayName, privacy: .private)' in shared family '\(hero.family.name, privacy: .private)'")
-            authStatus = .detectedPreviousFamily(family: hero.family, profile: hero.profile, zoneID: hero.zoneID, isOwner: false)
-            return
-        }
-        if heroCandidates.count > 1 {
-            logger.warning("Rejecting ambiguous hero family discovery for the current iCloud account")
-        }
-
-        logger.info("Discovery complete — no active family detected. Transitioning to onboarding.")
-        authStatus = .onboarding
     }
+
+    // MARK: - Discovery helpers — forwarded to FamilyDiscoveryService
 
     private func resolveCurrentUserRecordID(cloudKit: any CloudKitServiceProtocol) async -> CKRecord.ID? {
-        let userRecordID: CKRecord.ID?
-        do {
-            userRecordID = try await cloudKit.currentUserRecordID()
-        } catch {
-            logger.warning("Could not resolve current iCloud user record ID: \(error, privacy: .private)")
-            userRecordID = nil
-        }
-        logger.info("Current user record ID: \(userRecordID?.recordName ?? "nil", privacy: .private)")
-        return userRecordID
+        let service = discoveryService ?? FamilyDiscoveryService()
+        return await service.resolveCurrentUserRecordID(cloudKit: cloudKit)
     }
 
-    private func discoverPrivateOwnerCandidates(
-        cloudKit: any CloudKitServiceProtocol,
-        userRecordID: CKRecord.ID?
-    ) async -> [DiscoveredFamilyCandidate] {
-        do {
-            let privateZones = try await cloudKit.fetchPrivateZones()
-            logger.info("Found \(privateZones.count) private zones")
-            let customZones = privateZones.filter { $0.zoneID.zoneName != "_defaultZone" && $0.zoneID.zoneName != "LootListZone" }
+    // MARK: - Shared-Zone Hero Discovery Helpers — thin shims for existing callers
 
-            var candidates: [DiscoveredFamilyCandidate] = []
-            for zone in customZones {
-                logger.info("Inspecting private custom zone: '\(zone.zoneID.zoneName, privacy: .private)'")
-                let db = cloudKit.privateDatabase
-                var family: Family?
-
-                let familyID = CKRecord.ID(recordName: zone.zoneID.zoneName, zoneID: zone.zoneID)
-                do {
-                    family = try await cloudKit.fetch(Family.self, id: familyID, using: db)
-                    if let family {
-                        logger.info("Direct point lookup found Family: '\(family.name, privacy: .private)'")
-                    }
-                } catch {
-                    logger.debug("Direct point lookup for Family in zone '\(zone.zoneID.zoneName, privacy: .private)' did not hit: \(error, privacy: .private)")
-                }
-
-                if family == nil {
-                    do {
-                        let families: [Family] = try await cloudKit.query(Family.self, predicate: NSPredicate(value: true), in: zone.zoneID, using: db)
-                        family = families.count == 1 ? families.first : nil
-                        if families.count > 1 {
-                            logger.warning("Rejecting ambiguous Family records in private zone '\(zone.zoneID.zoneName, privacy: .private)'")
-                        }
-                        logger.info("Query fallback returned \(families.count) Family records.")
-                    } catch {
-                        logger.error("Query fallback error for zone '\(zone.zoneID.zoneName, privacy: .private)': \(error, privacy: .private)")
-                    }
-                }
-
-                if let foundFamily = family,
-                   let userRecordID
-                {
-                    // Accept families where the private zone is owned by current user despite placeholder creators.
-                    let zoneOwner = zone.zoneID.ownerName
-                    let isZoneOwnedByUser = zoneOwner == userRecordID.recordName
-                        || zoneOwner == CKCurrentUserDefaultName
-                        || zoneOwner == "__defaultOwner__"
-                        || zoneOwner == "_defaultOwner_"
-                    let familyCreatorMatches = foundFamily.creatorUserRecordName == userRecordID.recordName
-                        || foundFamily.createdBy.recordName == userRecordID.recordName
-                    let isPlaceholderFamilyCreator = AppConstants.Security.legacyPlaceholderCreators
-                        .contains(foundFamily.creatorUserRecordName ?? "")
-                        || AppConstants.Security.legacyPlaceholderCreators.contains(foundFamily.createdBy.recordName)
-                    let shouldConsiderFamily = familyCreatorMatches || isZoneOwnedByUser || (isPlaceholderFamilyCreator && isZoneOwnedByUser)
-                    guard shouldConsiderFamily else {
-                        logger.info(
-                            """
-                            Skipping family '\(foundFamily.name, privacy: .private)' — owner mismatch \
-                            (family creator \(foundFamily.creatorUserRecordName ?? "nil", privacy: .private), \
-                            zone owner \(zoneOwner, privacy: .private))
-                            """
-                        )
-                        continue
-                    }
-                    do {
-                        let familyRef = CKRecord.Reference(recordID: foundFamily.id, action: .none)
-                        let profiles: [Profile] = try await cloudKit.query(
-                            Profile.self,
-                            predicate: NSPredicate(format: "family == %@", familyRef),
-                            in: zone.zoneID,
-                            using: db
-                        )
-                        let matchingProfiles = profiles.filter {
-                            let creatorOK = $0.creatorUserRecordName == userRecordID.recordName
-                                || $0.creatorUserRecordName == nil
-                                || AppConstants.Security.legacyPlaceholderCreators.contains($0.creatorUserRecordName ?? "")
-                            return $0.isActive
-                                && $0.role == .guildMaster
-                                && $0.family.recordID == foundFamily.id
-                                && creatorOK
-                                && $0.iCloudUserID.recordName == userRecordID.recordName
-                        }
-                        guard matchingProfiles.count == 1, let activeProfile = matchingProfiles.first else {
-                            if matchingProfiles.count > 1 {
-                                logger.warning("Rejecting ambiguous owner identity in family '\(foundFamily.name, privacy: .private)'")
-                            }
-                            continue
-                        }
-                        candidates.append(DiscoveredFamilyCandidate(family: foundFamily, profile: activeProfile, zoneID: zone.zoneID))
-                    } catch {
-                        logger.error("Profile query error for zone '\(zone.zoneID.zoneName, privacy: .private)': \(error, privacy: .private)")
-                    }
-                }
-            }
-            return candidates
-        } catch {
-            logger.error("Error fetching private zones: \(error, privacy: .private)")
-            return []
-        }
-    }
-
-    private func discoverSharedHeroCandidates(
-        cloudKit: any CloudKitServiceProtocol,
-        userRecordID: CKRecord.ID?
-    ) async -> [DiscoveredFamilyCandidate] {
-        let sharedZones = await fetchSharedZonesWithBoundedRetry(cloudKit: cloudKit)
-
-        logger.info("Final shared zones count: \(sharedZones.count)")
-
-        var candidates: [DiscoveredFamilyCandidate] = []
-        for zone in sharedZones {
-            logger.info("Inspecting shared zone: '\(zone.zoneID.zoneName, privacy: .private)' (owner: '\(zone.zoneID.ownerName, privacy: .private)')")
-
-            // Matches current user iCloud identity to avoid adopting another profile.
-            let activeProfiles = await Self.activeSharedHeroProfiles(
-                cloudKit: cloudKit,
-                userRecordID: userRecordID,
-                zoneID: zone.zoneID
-            )
-            if activeProfiles.count == 1,
-               let activeHeroProfile = activeProfiles.first,
-               let family = await Self.sharedZoneFamily(cloudKit: cloudKit, zoneID: zone.zoneID),
-               activeHeroProfile.family.recordID == family.id
-            {
-                candidates.append(DiscoveredFamilyCandidate(family: family, profile: activeHeroProfile, zoneID: zone.zoneID))
-            }
-        }
-        return candidates
-    }
-
-    private func fetchSharedZonesWithBoundedRetry(
-        cloudKit: any CloudKitServiceProtocol
-    ) async -> [CKRecordZone] {
-        do {
-            let sharedZones = try await cloudKit.fetchSharedZones()
-            logger.info("Initial shared zones check: \(sharedZones.count) shared zones")
-
-            // Retries zone lookup on cold start to allow accepted shares to settle.
-            if sharedZones.isEmpty {
-                for attempt in 1 ... AppConstants.Sync.maxPulseAttempts {
-                    logger.info("Shared zone sync pulse attempt \(attempt)...")
-                    do {
-                        let retryZones = try await cloudKit.fetchSharedZones()
-                        if !retryZones.isEmpty {
-                            return retryZones
-                        }
-                    } catch {
-                        logger.debug("Shared zone sync pulse attempt \(attempt) failed: \(error, privacy: .private)")
-                    }
-                }
-            }
-
-            return sharedZones
-        } catch {
-            logger.error("Error fetching shared zones: \(error, privacy: .private)")
-            return []
-        }
-    }
-
-    // MARK: - Shared-Zone Hero Discovery Helpers
-
-    /// Finds active Profile matching current iCloud user in shared zones for recovery.
+    /// Shim for `OnboardingViewModel` and tests; forwards to `FamilyDiscoveryService`.
     static func activeSharedHeroProfiles(
         cloudKit: any CloudKitServiceProtocol,
         userRecordID: CKRecord.ID?,
         zoneID: CKRecordZone.ID
     ) async -> [Profile] {
-        guard userRecordID != nil else { return [] }
-
-        let profiles: [Profile]
-        do {
-            profiles = try await cloudKit.query(
-                Profile.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID,
-                using: cloudKit.sharedDatabase
-            )
-        } catch {
-            logger.error("Failed to query shared hero profiles in zone '\(zoneID.zoneName, privacy: .private)': \(error, privacy: .private)")
-            return []
-        }
-
-        guard let userRecordName = userRecordID?.recordName else { return [] }
-
-        var matches: [Profile] = []
-        for profile in profiles where profile.isActive && profile.iCloudUserID.recordName == userRecordName {
-            if let creatorUserRecordName = profile.creatorUserRecordName {
-                guard creatorUserRecordName == userRecordName
-                    || AppConstants.Security.legacyPlaceholderCreators.contains(creatorUserRecordName)
-                else { continue }
-                matches.append(profile)
-                continue
-            }
-
-            let serverProfile: Profile
-            do {
-                serverProfile = try await cloudKit.fetch(
-                    Profile.self,
-                    id: profile.id,
-                    using: cloudKit.sharedDatabase
-                )
-            } catch {
-                logger
-                    .debug(
-                        "Shared profile fetch failed for '\(profile.id.recordName, privacy: .private)' (expected for revoked/missing shares): \(error, privacy: .private)"
-                    )
-                continue
-            }
-
-            guard serverProfile.isActive,
-                  serverProfile.iCloudUserID.recordName == userRecordName,
-                  serverProfile.creatorUserRecordName == userRecordName
-                  || AppConstants.Security.legacyPlaceholderCreators.contains(serverProfile.creatorUserRecordName ?? ""),
-                  serverProfile.family.recordID == profile.family.recordID
-            else { continue }
-
-            matches.append(serverProfile)
-        }
-        return matches.count == 1 ? matches : []
+        let service = FamilyDiscoveryService()
+        return await service.activeSharedHeroProfiles(
+            cloudKit: cloudKit,
+            userRecordID: userRecordID,
+            zoneID: zoneID
+        )
     }
 
-    /// The `Family` record in a shared zone: a direct point lookup on the
-    /// zone-named record first, with a full-zone query as fallback when the
-    /// point lookup misses. Returns nil when neither path resolves a family.
+    /// Shim for existing callers; forwards to `FamilyDiscoveryService`.
     static func sharedZoneFamily(
         cloudKit: any CloudKitServiceProtocol,
         zoneID: CKRecordZone.ID
     ) async -> Family? {
-        let familyID = CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
-        do {
-            return try await cloudKit.fetch(Family.self, id: familyID, using: cloudKit.sharedDatabase)
-        } catch {
-            logger.debug("Point lookup for shared family in zone '\(zoneID.zoneName, privacy: .private)' missed: \(error, privacy: .private)")
-        }
-
-        do {
-            let families = try await cloudKit.query(
-                Family.self,
-                predicate: NSPredicate(value: true),
-                in: zoneID,
-                using: cloudKit.sharedDatabase
-            )
-            return families.count == 1 ? families.first : nil
-        } catch {
-            logger.error("Fallback query for shared family in zone '\(zoneID.zoneName, privacy: .private)' failed: \(error, privacy: .private)")
-            return nil
-        }
+        let service = FamilyDiscoveryService()
+        return await service.sharedZoneFamily(cloudKit: cloudKit, zoneID: zoneID)
     }
 
     func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
@@ -889,14 +686,12 @@ final class AppState {
 
     /// Wipes local session and scope, then immediately re-discovers existing iCloud state.
     func signOutAndDiscover(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
-        if isDiscoveryInFlight {
+        let alreadyInFlight = await discoveryCoordinator.isRunning
+        if alreadyInFlight {
             // Clear local session immediately, then await in-flight discovery completion before fresh scan.
             clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
             authStatus = .checkingCloudData
-            // Cancelled waiters remain until next discovery sweep — bounded (1 entry per cancelled launch) — acceptable; if strict, add onCancel cleanup.
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                discoveryWaiters.append(continuation)
-            }
+            await discoveryCoordinator.wait()
             // Run fresh discovery scan reflecting the cleared session.
             authStatus = .checkingCloudData
             await discoverExistingCloudState(cloudKit: cloudKit)

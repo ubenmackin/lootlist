@@ -524,4 +524,73 @@ struct NotificationServiceTests {
         pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
         #expect(!pending.isEmpty, "Peer notification should be delivered")
     }
+
+    private func makeParentProfile(zoneID: CKRecordZone.ID) -> Profile {
+        let familyRef = CKRecord.Reference(
+            recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID),
+            action: .none
+        )
+        let userID = CKRecord.ID(recordName: "uParent", zoneID: zoneID)
+        return Profile(
+            displayName: "Test Parent",
+            avatarClass: .knight,
+            avatarPresetID: "knight_01",
+            role: .guildMaster,
+            iCloudUserID: userID,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+        )
+    }
+
+    @Test
+    func `updateAppBadgeCount clears badge for non-parent profile`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let hero = makeProfile(zoneID: zoneID)
+        app.currentProfile = hero
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        await service.updateAppBadgeCount(pendingCount: 5)
+        #expect(service.currentAppBadgeCount == 0, "Hero profile should always clear badge count")
+    }
+
+    @Test
+    func `updateAppBadgeCount sets count for parent when clear on launch is disabled`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let parent = makeParentProfile(zoneID: zoneID)
+        app.currentProfile = parent
+
+        defaults.set(false, forKey: NotificationService.clearBadgeOnLaunchDefaultsKey)
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        await service.updateAppBadgeCount(pendingCount: 3)
+        #expect(service.currentAppBadgeCount == 3, "Parent profile should update badge count to pending count")
+    }
+
+    @Test
+    func `updateAppBadgeCount clears count for parent when clear on launch is enabled`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let parent = makeParentProfile(zoneID: zoneID)
+        app.currentProfile = parent
+
+        defaults.set(true, forKey: NotificationService.clearBadgeOnLaunchDefaultsKey)
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        await service.updateAppBadgeCount(pendingCount: 3)
+        #expect(service.currentAppBadgeCount == 0, "When clear on launch is enabled, badge count should be cleared to 0")
+    }
 }

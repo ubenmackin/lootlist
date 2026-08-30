@@ -67,14 +67,6 @@ extension FamilyService {
         let payoutDay = profile.payoutDay ?? family.payoutDay
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
 
-        #if DEBUG
-            let questStart = QuestService.startOfWeek(for: Date(), payoutDay: payoutDay)
-            assert(
-                currentWeek == questStart,
-                "QuestService.startOfWeek and WeekMath.startOfWeek diverged: \(currentWeek) vs \(questStart)"
-            )
-        #endif
-
         let currentQuests: [Quest]
         do {
             currentQuests = try await questService.fetchActiveQuests(profile: profile, weekOf: currentWeek)

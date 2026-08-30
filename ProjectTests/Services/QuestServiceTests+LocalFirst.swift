@@ -261,7 +261,7 @@ extension QuestServiceTests {
             id: heroID
         )
 
-        let monday = QuestService.startOfWeek(for: Date(), payoutDay: .sunday)
+        let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
         let templateRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none)
         let cachedQuest = Quest(
             template: templateRef,
@@ -306,7 +306,7 @@ extension QuestServiceTests {
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
 
-        let monday = QuestService.startOfWeek(for: Date(), payoutDay: .sunday)
+        let monday = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
         let templateRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let cachedQuest = Quest(

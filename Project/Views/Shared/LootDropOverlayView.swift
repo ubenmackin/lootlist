@@ -6,9 +6,11 @@
 //
 
 import AudioToolbox
+import os
 import SwiftUI
 
 struct LootDropOverlayView: View {
+    private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "LootDropOverlayView")
     @Binding var isPresented: Bool
     let loot: LootDrop?
 
@@ -162,7 +164,9 @@ struct LootDropOverlayView: View {
             // 2. Wobble
             do {
                 try await Task.sleep(for: .milliseconds(500))
-            } catch {}
+            } catch {
+                Self.logger.debug("Loot drop wobble sleep interrupted: \(error, privacy: .private)")
+            }
             guard !Task.isCancelled else { return }
 
             phase = .wobbling
@@ -172,7 +176,9 @@ struct LootDropOverlayView: View {
 
             do {
                 try await Task.sleep(for: .milliseconds(500))
-            } catch {}
+            } catch {
+                Self.logger.debug("Loot drop chest rotation sleep interrupted: \(error, privacy: .private)")
+            }
             guard !Task.isCancelled else { return }
 
             withAnimation {
@@ -182,7 +188,9 @@ struct LootDropOverlayView: View {
             // 3. Open (0.2s after wobble finishes, matching the 1.2s total delay)
             do {
                 try await Task.sleep(for: .milliseconds(200))
-            } catch {}
+            } catch {
+                Self.logger.debug("Loot drop open delay sleep interrupted: \(error, privacy: .private)")
+            }
 
             guard !Task.isCancelled else { return }
 
@@ -206,7 +214,9 @@ struct LootDropOverlayView: View {
             // Auto-dismiss after 4.5 seconds from opening
             do {
                 try await Task.sleep(for: .milliseconds(4500))
-            } catch {}
+            } catch {
+                Self.logger.debug("Loot drop auto-dismiss sleep interrupted: \(error, privacy: .private)")
+            }
             guard !Task.isCancelled else { return }
 
             if isPresented {

@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 
@@ -70,6 +71,8 @@ enum GoalProgressCalculator {
 }
 
 struct KidsSavingsGoalsView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "KidsSavingsGoalsView")
+
     private let familyRecordName: String?
     private let focusedProfileRecordName: String?
 
@@ -160,7 +163,7 @@ struct KidsSavingsGoalsView: View {
                     do {
                         try await deleteGoal(goal)
                     } catch {
-                        // already toasted in deleteGoal — intentional swallow
+                        Self.logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
                     }
                 }
             }
@@ -255,67 +258,119 @@ struct KidsSavingsGoalsView: View {
         let remainingPennies = max(targetPennies - savedPennies, 0)
         let remainingDollars = Double(remainingPennies) / 100.0
         let isCompleted = goal.completedAt != nil || savedPennies >= goal.targetAmountPennies
+        let pacing = GoalPacingCalculator.calculatePacing(
+            targetAmountPennies: goal.targetAmountPennies,
+            savedPennies: savedPennies,
+            createdAt: goal.createdAt,
+            targetDate: goal.targetDate,
+            completedAt: goal.completedAt
+        )
+        let validURL = goal.linkURL.flatMap { LinkMetadataService.normalizeURL(from: $0) }
 
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(goal.emojiIcon ?? "🎯")
-                    .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(goal.name)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    if let category = goal.category, !category.isEmpty {
-                        Text(category)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                if isCompleted {
-                    Label("Done", systemImage: "checkmark.circle.fill")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.14)))
-                }
-                Menu {
-                    Button {
-                        goalToEdit = goal
-                    } label: {
-                        Label("Edit Goal", systemImage: "pencil")
-                    }
-                    .disabled(!canModifyGoals)
-
-                    Button(role: .destructive) {
-                        goalToDelete = goal
-                    } label: {
-                        Label("Delete Goal", systemImage: "trash")
-                    }
-                    .disabled(!canModifyGoals)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                }
-                .accessibilityLabel("Goal actions for \(goal.name)")
-            }
+            goalCardHeader(goal: goal, isCompleted: isCompleted, validURL: validURL)
 
             ProgressBar(value: Double(savedPennies), maximum: Double(targetPennies), label: nil, tint: accent, height: 10)
 
-            HStack(spacing: 6) {
-                Text("\(percent)% Earned")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(accent)
-                    .monospacedDigit()
-                    .accessibilityLabel("\(percent) percent earned")
-                Text("·")
+            goalCardFooter(
+                goal: goal,
+                pacing: pacing,
+                isCompleted: isCompleted,
+                percent: percent,
+                remainingDollars: remainingDollars,
+                accent: accent
+            )
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(.tertiarySystemGroupedBackground))
+        )
+        .contextMenu {
+            goalCardContextMenu(goal: goal)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel(goal: goal, hero: hero, percent: percent, remainingDollars: remainingDollars))
+        .accessibilityIdentifier("kidsGoals.goalCard-\(goal.recordName)")
+    }
+
+    private func goalCardHeader(goal: GoalCache, isCompleted: Bool, validURL: URL?) -> some View {
+        HStack(spacing: 8) {
+            Text(goal.emojiIcon ?? "🎯")
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(goal.name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if let category = goal.category, !category.isEmpty {
+                    Text(category)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+
+            if let validURL {
+                Link(destination: validURL) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.subheadline)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View \(goal.name) online")
+            }
+
+            if isCompleted {
+                Label("Done", systemImage: "checkmark.circle.fill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.14)))
+            }
+            Menu {
+                goalCardContextMenu(goal: goal)
+            } label: {
+                Image(systemName: "ellipsis.circle")
                     .foregroundStyle(.secondary)
-                Text("\(CurrencyFormatter.string(remainingDollars)) Remaining")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                Spacer()
+                    .padding(4)
+            }
+            .accessibilityLabel("Goal actions for \(goal.name)")
+        }
+    }
+
+    private func goalCardFooter(
+        goal: GoalCache,
+        pacing: GoalPacingCalculator.PacingSummary?,
+        isCompleted: Bool,
+        percent: Int,
+        remainingDollars: Double,
+        accent: Color
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text("\(percent)% Earned")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(accent)
+                .monospacedDigit()
+                .accessibilityLabel("\(percent) percent earned")
+            Text("·")
+                .foregroundStyle(.secondary)
+            Text("\(CurrencyFormatter.string(remainingDollars)) Remaining")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            Spacer()
+
+            if let pacing, !isCompleted, pacing.status != .noDeadline {
+                HStack(spacing: 3) {
+                    Image(systemName: pacing.status.iconSystemName)
+                        .font(.caption2)
+                    Text(pacing.status.badgeText)
+                        .font(.caption2.weight(.bold))
+                }
+                .foregroundStyle(pacing.status.tintColor)
+            } else {
                 Text(bucketLabel(for: goal.bucketKindEnum))
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6)
@@ -324,29 +379,23 @@ struct KidsSavingsGoalsView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(.tertiarySystemGroupedBackground))
-        )
-        .contextMenu {
-            Button {
-                goalToEdit = goal
-            } label: {
-                Label("Edit Goal", systemImage: "pencil")
-            }
-            .disabled(!canModifyGoals)
+    }
 
-            Button(role: .destructive) {
-                goalToDelete = goal
-            } label: {
-                Label("Delete Goal", systemImage: "trash")
-            }
-            .disabled(!canModifyGoals)
+    @ViewBuilder
+    private func goalCardContextMenu(goal: GoalCache) -> some View {
+        Button {
+            goalToEdit = goal
+        } label: {
+            Label("Edit Goal", systemImage: "pencil")
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel(goal: goal, hero: hero, percent: percent, remainingDollars: remainingDollars))
-        .accessibilityIdentifier("kidsGoals.goalCard-\(goal.recordName)")
+        .disabled(!canModifyGoals)
+
+        Button(role: .destructive) {
+            goalToDelete = goal
+        } label: {
+            Label("Delete Goal", systemImage: "trash")
+        }
+        .disabled(!canModifyGoals)
     }
 
     private func bucketLabel(for kind: BucketKind?) -> String {

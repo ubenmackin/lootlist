@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 import SwiftUI
 
 /// Severity/category for a toast banner. Each case carries the SF Symbol name and
@@ -71,6 +72,8 @@ extension Toast: Equatable {
 @MainActor
 @Observable
 final class ToastManager {
+    private static let logger = Logger(subsystem: "com.volcrypt.lootlist", category: "ToastManager")
+
     /// Currently presented toasts. Index `0` is the newest (topmost) banner.
     private(set) var toasts: [Toast] = []
 
@@ -139,7 +142,7 @@ final class ToastManager {
             do {
                 try await Task.sleep(for: .seconds(AppConstants.UserInterface.toastAutoDismissSeconds))
             } catch {
-                // Task.sleep only throws CancellationError, intentionally ignored for auto-dismiss
+                Self.logger.debug("Toast auto-dismiss timer interrupted: \(error, privacy: .private)")
             }
             if !Task.isCancelled {
                 self?.dismiss(id: id)

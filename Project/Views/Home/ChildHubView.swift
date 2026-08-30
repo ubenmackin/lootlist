@@ -457,7 +457,9 @@ struct ChildHubView: View {
                     Task {
                         do {
                             try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
-                        } catch {}
+                        } catch {
+                            Self.logger.debug("Celebration dismiss sleep interrupted: \(error, privacy: .private)")
+                        }
                         showCelebration = false
                     }
                 }

@@ -294,6 +294,9 @@ extension GoalCache {
                 createdAt: createdAt,
                 completedAt: completedAt,
                 isArchived: isArchived,
+                targetDate: targetDate,
+                linkURL: linkURL,
+                imageURL: imageURL,
                 id: CKRecord.ID(recordName: recordName, zoneID: zid)
             )
         }

@@ -13,6 +13,7 @@ import SwiftData
 @ModelActor
 actor BackgroundCacheActor {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
+    let mutationQueue = SerialMutationQueue()
 
     /// Creates the background cache actor off-main to avoid main-thread affinity.
     static func makeBackgroundWriter(for container: ModelContainer) async -> BackgroundCacheActor {
@@ -336,7 +337,7 @@ actor BackgroundCacheActor {
             batch.append(record)
         }
         let capturedBatch = batch
-        return await SerialMutationQueue.shared.write {
+        return await mutationQueue.write {
             await self.commitParsedBatch(capturedBatch)
         }
     }
@@ -385,7 +386,7 @@ actor BackgroundCacheActor {
             logger.warning("\(parseFailures) record(s) failed to parse during participant reconciliation", family: familyRecordName, zone: zoneID.zoneName)
         }
         let capturedBatch = batch
-        let commitSucceeded = await SerialMutationQueue.shared.write {
+        let commitSucceeded = await mutationQueue.write {
             await self.commitParticipantReconciliation(
                 capturedBatch,
                 validRecordNamesByType: validRecordNamesByType,

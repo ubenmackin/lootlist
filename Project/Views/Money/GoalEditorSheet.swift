@@ -22,6 +22,11 @@ struct GoalEditorSheet: View {
     @State private var categoryText: String
     @State private var targetAmountText: String
     @State private var bucketKind: BucketKind
+    @State private var hasTargetDate: Bool
+    @State private var targetDate: Date
+    @State private var linkURLText: String
+    @State private var resolvedTitle: String?
+    @State private var isResolvingLink: Bool = false
     @FocusState private var isAmountFocused: Bool
     @State private var isSaving: Bool = false
     @State private var isDeleting: Bool = false
@@ -42,8 +47,14 @@ struct GoalEditorSheet: View {
         if let goal {
             let dollars = Double(goal.targetAmountPennies) / 100.0
             _targetAmountText = State(initialValue: String(format: "%.2f", dollars))
+            _hasTargetDate = State(initialValue: goal.targetDate != nil)
+            _targetDate = State(initialValue: goal.targetDate ?? Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
+            _linkURLText = State(initialValue: goal.linkURL ?? "")
         } else {
             _targetAmountText = State(initialValue: "")
+            _hasTargetDate = State(initialValue: false)
+            _targetDate = State(initialValue: Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
+            _linkURLText = State(initialValue: "")
         }
         _bucketKind = State(initialValue: goal?.bucketKindEnum ?? .shortTermSave)
     }
@@ -63,8 +74,10 @@ struct GoalEditorSheet: View {
             Form {
                 emojiPickerSection
                 nameSection
+                wishlistLinkSection
                 categorySection
                 targetAmountSection
+                targetDateSection
                 bucketPickerSection
 
                 if onDelete != nil {
@@ -85,6 +98,7 @@ struct GoalEditorSheet: View {
                         .accessibilityIdentifier("goalEditor.saveButton")
                 }
             }
+            .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             .alert("Delete Goal?", isPresented: $showDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     deleteGoal()
@@ -133,6 +147,70 @@ struct GoalEditorSheet: View {
             TextField("e.g. New Bike", text: $nameText)
                 .submitLabel(.done)
                 .accessibilityIdentifier("goalEditor.nameField")
+
+            if let title = resolvedTitle, !title.isEmpty, nameText.isEmpty {
+                Button {
+                    nameText = title
+                } label: {
+                    Label("Use “\(title)” from link", systemImage: "arrow.up.left")
+                        .font(.caption)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                }
+            }
+        }
+    }
+
+    // MARK: - Wishlist Link
+
+    private var wishlistLinkSection: some View {
+        Section {
+            HStack {
+                Image(systemName: "link")
+                    .foregroundStyle(.secondary)
+                TextField("https://amazon.com/... or product link", text: $linkURLText)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .onChange(of: linkURLText) { _, newURL in
+                        resolveURLMetadata(newURL)
+                    }
+
+                if !linkURLText.isEmpty {
+                    Button {
+                        linkURLText = ""
+                        resolvedTitle = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if isResolvingLink {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Fetching product details...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let url = LinkMetadataService.normalizeURL(from: linkURLText) {
+                HStack {
+                    Text("Store: \(url.host?.replacingOccurrences(of: "www.", with: "") ?? "Web Link")")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                        .font(.caption)
+                }
+            }
+        } header: {
+            Text("Wishlist Web Link (optional)")
+        } footer: {
+            Text("Paste a link to an online item (Amazon, Target, LEGO) to add a 1-tap store shortcut.")
+                .font(.caption2)
         }
     }
 
@@ -183,7 +261,6 @@ struct GoalEditorSheet: View {
                 TextField("0.00", text: $targetAmountText)
                     .keyboardType(.decimalPad)
                     .focused($isAmountFocused)
-                    .decimalPadDoneToolbar(isFocused: $isAmountFocused)
                     .accessibilityIdentifier("goalEditor.amountField")
                     .onChange(of: targetAmountText) { _, newValue in
                         validateAmount(newValue)
@@ -197,6 +274,92 @@ struct GoalEditorSheet: View {
             }
         } header: {
             Text("Target Amount")
+        }
+    }
+
+    // MARK: - Target Date & Pacing
+
+    private var targetDateSection: some View {
+        Section {
+            Toggle("Set Target Date", isOn: $hasTargetDate)
+
+            if hasTargetDate {
+                DatePicker(
+                    "Target Date",
+                    selection: $targetDate,
+                    in: Date()...,
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.compact)
+
+                // Quick preset pills
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        PresetPill(text: "1 Month", isSelected: isPresetMatching(months: 1)) {
+                            setPresetDate(months: 1)
+                        }
+                        PresetPill(text: "3 Months", isSelected: isPresetMatching(months: 3)) {
+                            setPresetDate(months: 3)
+                        }
+                        PresetPill(text: "6 Months", isSelected: isPresetMatching(months: 6)) {
+                            setPresetDate(months: 6)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                if let pennies = parsedPennies, pennies > 0 {
+                    if let summary = GoalPacingCalculator.calculatePacing(
+                        targetAmountPennies: pennies,
+                        savedPennies: 0,
+                        createdAt: initialGoal?.createdAt ?? Date(),
+                        targetDate: targetDate
+                    ) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "speedometer")
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                            Text("Save \(CurrencyFormatter.string(summary.weeklyRequiredSavingsDollars))/week (\(summary.weeksRemaining) weeks)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        } header: {
+            Text("Target Date & Pacing (optional)")
+        } footer: {
+            if hasTargetDate {
+                Text("LootList will calculate how much to save each week to reach your goal on time.")
+                    .font(.caption2)
+            }
+        }
+    }
+
+    private func isPresetMatching(months: Int) -> Bool {
+        guard let candidate = Calendar.current.date(byAdding: .month, value: months, to: Date()) else { return false }
+        return Calendar.current.isDate(candidate, inSameDayAs: targetDate)
+    }
+
+    private func setPresetDate(months: Int) {
+        if let target = Calendar.current.date(byAdding: .month, value: months, to: Date()) {
+            targetDate = target
+        }
+    }
+
+    private func resolveURLMetadata(_ rawURL: String) {
+        guard let url = LinkMetadataService.normalizeURL(from: rawURL) else { return }
+        isResolvingLink = true
+        Task { @MainActor in
+            if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
+                if let title = metadata.title {
+                    resolvedTitle = title
+                    if nameText.isEmpty {
+                        nameText = title
+                    }
+                }
+            }
+            isResolvingLink = false
         }
     }
 
@@ -271,17 +434,22 @@ struct GoalEditorSheet: View {
         let trimmedName = nameText.trimmingCharacters(in: .whitespaces)
         let trimmedCategory = categoryText.trimmingCharacters(in: .whitespaces)
         let finalCategory = trimmedCategory.isEmpty ? nil : trimmedCategory
+        let trimmedLink = linkURLText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalLink = trimmedLink.isEmpty ? nil : trimmedLink
 
         let draft = GoalDraft(
             name: trimmedName,
             emojiIcon: selectedEmoji,
             category: finalCategory,
             targetAmountPennies: pennies,
-            bucketKind: bucketKind
+            bucketKind: bucketKind,
+            targetDate: hasTargetDate ? targetDate : nil,
+            linkURL: finalLink,
+            imageURL: nil
         )
 
         isSaving = true
-        Task {
+        Task { @MainActor in
             do {
                 try await onSave(draft)
                 dismiss()
@@ -297,7 +465,7 @@ struct GoalEditorSheet: View {
     private func deleteGoal() {
         guard let onDelete else { return }
         isDeleting = true
-        Task {
+        Task { @MainActor in
             do {
                 try await onDelete()
                 dismiss()
@@ -319,4 +487,7 @@ struct GoalDraft: Sendable {
     let category: String?
     let targetAmountPennies: Int64
     let bucketKind: BucketKind
+    var targetDate: Date?
+    var linkURL: String?
+    var imageURL: String?
 }

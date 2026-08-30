@@ -87,7 +87,7 @@ final class GemService {
         }
 
         let profileKey = profile.id.recordName
-        return await gemLock.withLock(key: profileKey) {
+        return try await gemLock.withLock(key: profileKey) {
             let activeFamily = profile.id.zoneID
 
             let ledgerID = GemLedger.deterministicRecordID(
@@ -233,12 +233,14 @@ final class GemService {
             }
 
             await cacheService?.applyGemDebit(profile: debit.profile, ledger: debit.ledger)
-            let isOwnerDebit = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "GemService.spendGems")
-            syncCoordinator?.enqueueGemDebit(
-                profileID: debit.profile.id,
-                ledgerID: debit.ledger.id,
-                isOwner: isOwnerDebit
-            )
+            if let syncCoordinator {
+                let isOwnerDebit = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "GemService.spendGems")
+                syncCoordinator.enqueueGemDebit(
+                    profileID: debit.profile.id,
+                    ledgerID: debit.ledger.id,
+                    isOwner: isOwnerDebit
+                )
+            }
 
             return true
         }

@@ -13,9 +13,7 @@ import Foundation
 /// counter so SwiftUI row identity stays stable and no contact data leaks to the
 /// rendered panel. Pure with respect to CloudKit fetches — callers supply the
 /// already-fetched `statuses`, `participants`, and role map.
-struct InvitationResolver {
-    /// Actor-isolated token cache that serializes SHA256 generation and survives
-    /// `@MainActor` re-entrancy during async refresh.
+actor InvitationResolver {
     private let identityTokenCache = IdentityTokenCache()
 
     /// Counter for sequential anonymous labels in the Invitations panel.
@@ -26,7 +24,7 @@ struct InvitationResolver {
     /// Recomputes the sequential anonymous label mapping from the authoritative
     /// status list. Must be called before `assembleInvitations` so redacted
     /// labels are consistent within a single refresh pass.
-    mutating func computeIdentityLabels(from statuses: [ShareParticipantStatus]) {
+    func computeIdentityLabels(from statuses: [ShareParticipantStatus]) {
         identityLabelCounter = [:]
         var labelIndex = 0
         for status in statuses.sorted(by: { ($0.identityKey ?? "") < ($1.identityKey ?? "") }) {

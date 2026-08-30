@@ -79,44 +79,11 @@ final class TreasuryViewModel {
         self.appState = appState
     }
 
-    // MARK: - DRY Helpers (single source for ledger→row & balance)
+    // MARK: - Helpers
 
     // WHY: Single source via AppState so WeekMath windows stay consistent across rebuild paths.
     private var resolvedPayoutDay: PayoutDay {
         appState.resolvedPayoutDay
-    }
-
-    // WHY: One ledger-total formula shared by Treasury + HeroLedger; CurrencyFormatter remains sole display formatter, this is pure Double sum.
-    static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
-        ledgers.filter { $0.profileRecordName == profileRecordName }.reduce(0.0) { $0 + $1.amount }
-    }
-
-    // WHY: Bucket balances are the single source via BucketService so transfers debit/credit correctly.
-    static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
-        var balances: [BucketKind: Double] = [:]
-        for entry in ledgers where entry.profileRecordName == profileRecordName {
-            BucketService.applyBucketAttribution(entry, to: &balances)
-        }
-        return balances
-    }
-
-    // WHY: Single cache→row path (profile filter + CalendarScope bucket filter + sorted) so Treasury/HeroLedger share one bucket logic instead of duplicating rebuildSpendingLog/rebuildLedger.
-    static func spendingRows(from ledgers: [LedgerEntryCache], profileRecordName: String, scope: CalendarScope, payoutDay: PayoutDay) -> [SpendingLogRow] {
-        ledgers
-            .filter { $0.profileRecordName == profileRecordName }
-            .filter { scope.contains($0.date, payoutDay: payoutDay) }
-            .map { ledger in
-                SpendingLogRow(
-                    id: ledger.recordName,
-                    amount: ledger.amount,
-                    description: ledger.entryDescription,
-                    location: ledger.location,
-                    date: ledger.date,
-                    source: ledger.source,
-                    rawCache: ledger
-                )
-            }
-            .sorted { $0.date > $1.date }
     }
 
     // MARK: - Weekly Breakdown (CloudKit-backed)
@@ -146,7 +113,7 @@ final class TreasuryViewModel {
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
         // WHY: Balance derives from ledger sum only; bucket splits render via BucketService balances, not duplicated availableBalance logic.
-        balance = Self.ledgerBalance(for: ledgers, profileRecordName: profileName)
+        balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: profileName)
 
         let payoutDay = resolvedPayoutDay
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
@@ -207,14 +174,14 @@ final class TreasuryViewModel {
             paidAmount: paidAmount
         )
 
-        spendingLog = Self.spendingRows(from: ledgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
+        spendingLog = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
     }
 
     func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], scope: CalendarScope) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
         let payoutDay = resolvedPayoutDay
-        spendingLog = Self.spendingRows(from: cachedLedgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
+        spendingLog = LedgerRowFactory.spendingRows(from: cachedLedgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
     }
 
     func previousLocations(from cachedLedgers: [LedgerEntryCache]) -> [String] {

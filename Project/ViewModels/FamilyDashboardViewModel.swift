@@ -10,6 +10,11 @@ import Foundation
 import Observation
 import os
 
+// ViewModels never hold `any CloudKitServiceProtocol` directly — they route
+// through `FamilyService`/`TreasuryService` and related coordinators. This is
+// a compile-time convention check: grep for `CloudKitServiceProtocol` in
+// `Project/ViewModels` must return no matches.
+
 @MainActor
 @Observable
 final class FamilyDashboardViewModel {
@@ -49,10 +54,9 @@ final class FamilyDashboardViewModel {
         treasury.toastManager
     }
 
-    /// Delegates invitation token generation, redaction, and classification to a
-    /// single-responsibility resolver. The resolver owns the SHA token cache and
-    /// sequential label counter so row identity remains stable across refreshes.
-    private var invitationResolver = InvitationResolver()
+    /// Invitation orchestration is owned by `FamilyInvitationCoordinator` behind
+    /// `FamilyInviting` so this ViewModel stays pure `rebuildLists` + bindings.
+    private let invitationCoordinator: any FamilyInviting
 
     private var syncSubscriptionID: UUID?
     private var syncTask: Task<Void, Never>?
@@ -64,23 +68,32 @@ final class FamilyDashboardViewModel {
          treasury: TreasuryService,
          achievementService: AchievementService,
          familyService: any FamilyProfileFetching,
-         appState: AppState)
+         appState: AppState,
+         invitationCoordinator: (any FamilyInviting)? = nil)
     {
         self.questService = questService
         self.treasury = treasury
         achievements = achievementService
         self.familyService = familyService
         self.appState = appState
+        self.invitationCoordinator = invitationCoordinator
+            ?? FamilyInvitationCoordinator(familyService: familyService, appState: appState)
     }
 
     /// Observes roster changes to refresh invitations when members join or leave.
     func startRosterObserver() {
         guard rosterObserverTask == nil else { return }
         rosterObserverTask = Task { @MainActor [weak self] in
+            #if DEBUG
+                assert(Thread.isMainThread, "startRosterObserver must hop to MainActor")
+            #endif
             await withTaskCancellationHandler {
                 for await _ in NotificationCenter.default.notifications(named: .familyRosterChanged) {
                     guard !Task.isCancelled else { break }
                     guard let self else { break }
+                    #if DEBUG
+                        assert(Thread.isMainThread)
+                    #endif
                     await self.refreshInvitations()
                 }
             } onCancel: {}
@@ -118,173 +131,26 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    /// Resolves role-specific CKShare via FamilyService (zone owner only).
+    /// Resolves role-specific CKShare via the invitation coordinator (zone owner only).
     func prepareInviteShare(for role: UserRole) async -> CKShare? {
-        guard appState.isZoneOwner,
-              appState.familyZoneID != nil,
-              let family = appState.family
-        else { return nil }
-        do {
-            return try await familyService.prepareInviteShare(for: family, role: role)
-        } catch {
-            logger.error("Failed to fetch or create invitation share: \(error, privacy: .private)")
-            return nil
-        }
+        await invitationCoordinator.prepareInviteShare(for: role)
     }
 
-    /// Reloads and classifies invitation statuses from the family's `CKShare`
-    /// participants. All CloudKit interaction is routed through `FamilyService`
-    /// so the ViewModel never holds a raw CloudKit reference.
+    /// Reloads and classifies invitation statuses via the coordinator.
     func refreshInvitations() async {
-        guard appState.isZoneOwner, let family = appState.family else {
-            invitations = []
-            return
-        }
-        var currentUserRecordName: String
-        do {
-            // Resolve signed-in user identity to prevent rendering self as revocable row.
-            currentUserRecordName = try await familyService.currentUserRecordName()
-        } catch {
-            logger.warning("Failed to resolve current user record ID for invitation refresh: \(error, privacy: .private)")
-            invitations = []
-            return
-        }
-
-        var activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
-        // Surfaces deactivated members retaining share access for owner revocation.
-        let inactiveIdentities = await departedMemberIdentities(for: family)
-
-        let participants: [CKShare.Participant]
-        do {
-            participants = try await familyService.fetchShareParticipants(for: family)
-        } catch {
-            logger.error("Failed to load share participants: \(error, privacy: .private)")
-            invitations = []
-            return
-        }
-        let participantByRecordName = Dictionary(
-            participants.compactMap { participant -> (String, CKShare.Participant)? in
-                guard let recordName = participant.userIdentity.userRecordID?.recordName else { return nil }
-                return (recordName, participant)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let statuses: [ShareParticipantStatus]
-        do {
-            statuses = try await familyService.fetchShareParticipantStatuses(for: family)
-        } catch {
-            logger.error("Failed to load share participant statuses: \(error, privacy: .private)")
-            invitations = []
-            return
-        }
-
-        let roleMap: [String: UserRole]
-        do {
-            roleMap = try await familyService.fetchShareParticipantRoles(for: family)
-        } catch {
-            logger.warning("Failed to fetch share participant roles: \(error, privacy: .private)")
-            roleMap = [:]
-        }
-
-        await reconcileMissingAcceptedMembers(
-            for: family,
-            statuses: statuses,
-            currentUserRecordName: currentUserRecordName,
-            activeRecordNames: &activeRecordNames
-        )
-
-        invitationResolver.computeIdentityLabels(from: statuses)
-
-        invitations = await invitationResolver.assembleInvitations(
-            statuses: statuses,
-            participants: participants,
-            currentUserRecordName: currentUserRecordName,
-            activeRecordNames: activeRecordNames,
-            inactiveIdentities: inactiveIdentities,
-            participantByRecordName: participantByRecordName,
-            roleMap: roleMap
+        invitations = await invitationCoordinator.refreshInvitations(
+            heroes: heroes,
+            parents: parents
         )
     }
 
-    private func reconcileMissingAcceptedMembers(
-        for family: Family,
-        statuses: [ShareParticipantStatus],
-        currentUserRecordName: String,
-        activeRecordNames: inout Set<String>
-    ) async {
-        let missingAcceptedMembers = statuses.contains { status in
-            guard let recordName = status.recordName,
-                  !status.isRemoved,
-                  recordName != currentUserRecordName else { return false }
-            return !activeRecordNames.contains(recordName)
-        }
-
-        guard missingAcceptedMembers else { return }
-
-        await familyService.refreshProfilesFromCloudKit(for: family)
-        do {
-            let fresh = try await familyService.fetchAllProfilesForFamily(family)
-            let freshActive = fresh.filter(\.isActive)
-            activeRecordNames.formUnion(Set(freshActive.map(\.iCloudUserID.recordName)))
-        } catch {
-            logger.warning("FamilyDashboard roster reconciliation skipped: \(error, privacy: .private)")
-        }
-    }
-
-    /// Maps deactivated member identity record names to display names (best-effort).
-    private func departedMemberIdentities(for family: Family) async -> [String: String] {
-        let profiles: [Profile]
-        do {
-            profiles = try await familyService.fetchAllProfilesForFamily(family)
-        } catch {
-            logger.warning("Failed to fetch all profiles for family: \(error, privacy: .private)")
-            return [:]
-        }
-        var identities: [String: String] = [:]
-        for profile in profiles where !profile.isActive && !profile.iCloudUserID.recordName.isEmpty {
-            identities[profile.iCloudUserID.recordName] = profile.displayName
-        }
-        return identities
-    }
-
-    /// Revokes a pending invitation or departed member's share access.
-    /// CloudKit interaction is routed through `FamilyService` so the ViewModel
-    /// never holds a raw CloudKit reference.
+    /// Revokes a pending invitation or departed member's share access via the coordinator.
     func revokeInvitation(_ invitation: FamilyInvitation) async {
-        guard appState.isZoneOwner, let family = appState.family else { return }
-        // Guard against revoking owner, self, or already-removed identities.
-        if invitation.kind == .removedIdentity {
-            return
-        }
-        if invitation.participant?.role == .owner {
-            return
-        }
-        if let identityRecordName = invitation.identityRecordName {
-            do {
-                let currentUserRecordName = try await familyService.currentUserRecordName()
-                if identityRecordName == currentUserRecordName {
-                    logger.error("Refusing to revoke the current user's own share access")
-                    return
-                }
-            } catch {
-                logger.warning("Failed to resolve current user record ID for revocation guard: \(error, privacy: .private)")
-                return
-            }
-        }
-
         do {
-            if let participant = invitation.participant {
-                try await familyService.revokeInvitation(participant: participant, from: family)
-            } else if let identityRecordName = invitation.identityRecordName {
-                try await familyService.revokeInvitation(identityRecordName: identityRecordName, from: family)
-            } else {
-                logger.error("Failed to revoke invitation: no participant identity to revoke")
-                return
-            }
+            try await invitationCoordinator.revokeInvitation(invitation)
             invitations.removeAll { $0.id == invitation.id }
         } catch {
             logger.error("Failed to revoke invitation: \(error, privacy: .private)")
-            // Revocation failures are surfaced to the UI.
             loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
@@ -294,6 +160,7 @@ final class FamilyDashboardViewModel {
     /// `DashboardMetricsCalculator` so each concern is independently testable.
     /// DashboardMetricsCalculator centralizes ledger attribution via `BucketService.applyBucketAttribution`
     /// and `BucketService.bucketBalances` so familyOutflow and childAccountCards never re-implement bucket math.
+    @MainActor
     func rebuildLists(
         profiles: [ProfileCache],
         quests: [QuestCache],
@@ -334,15 +201,6 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    // WHY: Single-source bucket attribution via BucketService for any direct balance aggregation outside DashboardMetricsCalculator.
-    private func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
-        var balances: [BucketKind: Double] = [:]
-        for entry in ledgers where entry.profileRecordName == profileRecordName {
-            BucketService.applyBucketAttribution(entry, to: &balances)
-        }
-        return balances
-    }
-
     var isGuildMaster: Bool {
         appState.currentProfile?.role == .guildMaster
     }
@@ -351,9 +209,15 @@ final class FamilyDashboardViewModel {
         guard syncSubscriptionID == nil else { return }
         let (stream, id) = coordinator.subscribe()
         syncSubscriptionID = id
-        syncTask = Task { [weak self] in
+        syncTask = Task { @MainActor [weak self] in
+            #if DEBUG
+                assert(Thread.isMainThread, "subscribeToSyncEvents must hop to MainActor")
+            #endif
             for await event in stream {
                 guard let self else { return }
+                #if DEBUG
+                    assert(Thread.isMainThread)
+                #endif
                 switch event {
                 case .recordChanged:
                     handleRecordChangedSync()
@@ -368,6 +232,7 @@ final class FamilyDashboardViewModel {
         startRosterObserver()
     }
 
+    @MainActor
     private func handleRecordChangedSync() {
         // CKSyncEngine (via `CKSyncEngineDelegateHandler`) handles writing
         // incoming push changes to SwiftData, which automatically re-fires

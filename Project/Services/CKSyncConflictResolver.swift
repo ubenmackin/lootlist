@@ -287,6 +287,9 @@ final class CKSyncConflictResolver {
 
     /// Idempotency-marker merge for `QuestCompletion.xpCredited`. Once either side has credited the
     /// completion, the non-nil marker is preserved so a re-delivered completion can never be re-minted for
+    /// rewards. WHY: Frozen per ARCHITECTURE.md §2 — conflict merge semantics are immutable; xpCredited
+    /// non-nil preserve prevents double-minting across concurrent devices and must not be changed without
+    /// architecture review.
     private func resolveQuestCompletionConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let clientCredited = originalRecord["xpCredited"] as? Int
 
