@@ -193,9 +193,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         coordinator?.noteChangesProcessed()
     }
 
-    /// Thin adapter so the CKSyncEngine delegate event path keeps its legacy
-    /// optional-parameter surface while all ingestion flows through the
-    /// shared pipeline below.
+    /// Thin adapter for CKSyncEngine delegate surface; all ingestion flows through shared pipeline.
+    /// WHY: Both private and shared scopes ride identical ingest pipeline; non-owner reconcileParticipantSet is the sole exception.
     func handleIncomingRecordsDirectly(
         _ records: [CKRecord],
         databaseScope: CKDatabase.Scope? = nil,
@@ -208,7 +207,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         await ingest(records: records, databaseScope: scope, zoneID: resolvedZoneID)
     }
 
-    /// Ingests server record batches, validating scope and committing via background actor.
+    /// Central inbound ingestion entry — all server→cache writes ride this method.
+    /// WHY: Fail-closed on missing session or zone mismatch; validates scope, preserves changeTag/encodedSystemFields, commits via single SerialMutationQueue-gated save.
     func ingest(
         records: [CKRecord],
         databaseScope: CKDatabase.Scope,
@@ -498,6 +498,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         }
     }
 
+    /// CKSyncEngine fetchedRecordZoneChanges entry point → handleIncomingRecordsDirectly → ingest.
+    /// WHY: Off-main guarantee — single SerialMutationQueue-gated save with fail-closed scope validation.
     private func handleIncomingZoneChanges(
         _ changes: CKSyncEngine.Event.FetchedRecordZoneChanges,
         databaseScope: CKDatabase.Scope? = nil

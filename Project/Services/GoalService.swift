@@ -389,7 +389,15 @@ final class GoalService {
             }
         }
 
-        await cacheService.invalidate(recordName: goal.id.recordName, family: family.id.recordName, type: .goal)
+        // WHY: Tombstone must survive local deletion — capture identity before invalidate so enqueueDelete can synthesize CKRecord or buffer even after cache row is gone.
+        let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let identity = ScopedRecordIdentity(
+            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
+            zoneID: goal.id.zoneID,
+            recordID: goal.id,
+            familyRecordName: family.id.recordName
+        )
+        await cacheService.invalidate(identity: identity, type: .goal, expectedActiveZone: appState.familyZoneID)
         ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: goal.id, appState: appState, logger: logger, context: "GoalService.deleteGoal")
 
         logger.info("Deleted goal \"\(goal.name, privacy: .private)\"")

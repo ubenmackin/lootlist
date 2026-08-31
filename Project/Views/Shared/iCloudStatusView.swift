@@ -6,11 +6,13 @@
 //
 
 import CloudKit
+import os
 import SwiftData
 import SwiftUI
 
 #if DEBUG
     struct iCloudStatusView: View {
+        private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "iCloudStatusView")
         @Environment(AppState.self) private var appState
         @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
         @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
@@ -47,6 +49,7 @@ import SwiftUI
             // When familyRecordName is nil, scope to "" so zero rows return rather than
             // leaking cross-family rows into a multifamily device.
             let targetFamily = familyRecordName ?? ""
+            FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "iCloudStatusView")
             let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
             let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
             let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
@@ -220,6 +223,7 @@ import SwiftUI
             .navigationTitle("iCloud Status")
             .navigationBarTitleDisplayMode(.large)
             .task {
+                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: Self.logger, viewName: "iCloudStatusView")
                 await refreshAccountStatus()
             }
             .onChange(of: syncCoordinator?.syncError) { _, newError in

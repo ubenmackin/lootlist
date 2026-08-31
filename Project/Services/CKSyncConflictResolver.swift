@@ -11,6 +11,15 @@ import os
 import SwiftData
 
 /// Handles asynchronous conflict resolution for record saves that fail within `CKSyncEngine`.
+///
+/// Frozen conflict merge semantics per ARCHITECTURE.md §2 — changes require architecture review.
+/// Quest banked XP: max(server,client) capped at xpReward. Profile XP: max(server+max(client-lastSynced,0),
+/// max(server,client)) with lastSyncedXP advance on isServerSync (see ProfileCache.update). QuestCompletion
+/// xpCredited: non-nil preserve (once credited never re-minted). AllowancePeriod: monotonic rank
+/// paid > payoutPending > active plus max(totalEarned/questsCompleted/paidAmount) and server-preferred paidDate
+/// with client fallback. Quest/Profile display fields use client-wins overlay; Hero Board claim races resolve
+/// via standard server-wins (loser's ingest reveals the other claimer). All merges carry post-merge
+/// changeTag/encodedSystemFields via a single background batch.
 @MainActor
 final class CKSyncConflictResolver {
     private let logger = Logger(
@@ -134,8 +143,9 @@ final class CKSyncConflictResolver {
         return nil
     }
 
-    /// Monotonic XP-credit merge for `Quest.xpBanked`. Concurrent completions across devices must never
-    /// undercount the banked total, so the merged value is `max(server, client)`.
+    /// FROZEN — Quest xpBanked monotonic merge per ARCHITECTURE.md §2. Concurrent completions across
+    /// devices must never undercount the banked total, so the merged value is `max(server, client)`
+    /// capped at `xpReward` to prevent exceeding the quest's budget.
     private func resolveQuestConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let serverBanked = serverRecord["xpBanked"] as? Int ?? 0
         let clientBanked = originalRecord["xpBanked"] as? Int ?? 0
@@ -170,8 +180,9 @@ final class CKSyncConflictResolver {
         return mergedRecord
     }
 
-    /// Additive XP merge for `Profile.xp`. Computes offline delta earned on this device (`clientXP -
-    /// lastSyncedXP`) and merges additively with server XP (`serverXP + delta`), ensuring concurrent
+    /// FROZEN — Profile XP additive merge per ARCHITECTURE.md §2. Computes offline delta earned on this
+    /// device (`clientXP - lastSyncedXP`) and merges as `max(serverXP + max(clientXP - lastSyncedXP, 0),
+    /// max(serverXP, clientXP))` with lastSyncedXP advance on isServerSync, ensuring concurrent
     private func resolveProfileConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let serverXP = serverRecord["xp"] as? Int ?? 0
         let clientXP = originalRecord["xp"] as? Int ?? 0
@@ -287,11 +298,10 @@ final class CKSyncConflictResolver {
         return result
     }
 
-    /// Idempotency-marker merge for `QuestCompletion.xpCredited`. Once either side has credited the
-    /// completion, the non-nil marker is preserved so a re-delivered completion can never be re-minted for
-    /// rewards. WHY: Frozen per ARCHITECTURE.md §2 — conflict merge semantics are immutable; xpCredited
-    /// non-nil preserve prevents double-minting across concurrent devices and must not be changed without
-    /// architecture review.
+    /// FROZEN — QuestCompletion xpCredited non-nil preserve per ARCHITECTURE.md §2. Once either side
+    /// has credited the completion, the non-nil marker is preserved so a re-delivered completion can
+    /// never be re-minted for rewards. Must not be changed without architecture review; prevents
+    /// double-minting across concurrent devices.
     private func resolveQuestCompletionConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let clientCredited = originalRecord["xpCredited"] as? Int
 
@@ -325,8 +335,10 @@ final class CKSyncConflictResolver {
         return mergedRecord
     }
 
-    /// Additive/monotonic merge for `AllowancePeriod`. Two devices settling the same period (deterministic
-    /// `period-{family}-{profile}-{week}` recordName) race through `getOrCreateAllowancePeriod →
+    /// FROZEN — AllowancePeriod monotonic merge per ARCHITECTURE.md §2. Two devices settling the same
+    /// period (deterministic `period-{family}-{profile}-{week}` recordName) race through
+    /// `getOrCreateAllowancePeriod →` monotonic rank paid(2) > payoutPending(1) > active(0), max amounts
+    /// (totalEarned/questsCompleted/paidAmount) plus server-preferred paidDate (server ?? client),
     private func resolveAllowancePeriodConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let serverPaidAmount = serverRecord["paidAmount"] as? Double
         let clientPaidAmount = originalRecord["paidAmount"] as? Double
@@ -395,7 +407,9 @@ final class CKSyncConflictResolver {
         }
     }
 
-    /// Client-wins display fields per record type during merge conflict resolution.
+    /// FROZEN — Client-wins display fields per ARCHITECTURE.md §2. Quest name/descriptionText and
+    /// Profile displayName/avatarClass/avatarPresetID/customAvatarImageData overlay from client onto
+    /// server record during merge; all other fields are server-wins. Changes require architecture review.
     private static let clientWinsFields: [String: Set<String>] = [
         Quest.recordType: ["name", "descriptionText"],
         Profile.recordType: ["displayName", "avatarClass", "avatarPresetID", "customAvatarImageData"]

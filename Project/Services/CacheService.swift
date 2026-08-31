@@ -11,6 +11,9 @@ import os
 import SwiftData
 import Synchronization
 
+/// Main-actor SwiftData cache — immediate UI source of truth.
+/// WHY: SerialMutationQueue serializes only background writes; MainActor CacheService writes interleave at logical layer — changeTag guard prevents stale regression.
+/// WHY: Deterministic IDs dedupe on recordName; deletes capture ScopedRecordIdentity before invalidation.
 @MainActor
 @Observable
 final class CacheService: CacheServicing {
@@ -344,6 +347,12 @@ enum CacheServiceError: Error {
 /// Shared gem-credit mutation — single transaction keeps ledger and profile
 /// in sync and guarantees idempotency via deterministic ledger recordName.
 /// Caller must be on BackgroundCacheActor; ModelContext is not MainActor-isolated.
+///
+/// WHY: Asserts off-main — BackgroundCacheActor owns this ModelContext. Running on MainActor would
+/// violate SwiftData concurrency (MainActor `ModelContext` vs isolated `DefaultSerialModelExecutor` context)
+/// and risk interleaving with CacheService's mainContext writes outside `SerialMutationQueue`.
+/// WHY: Deterministic ID `gem-{profile}-{objective}-{date}` (via GemLedger) ensures double-mint is
+/// impossible even if two devices race to credit the same objective — second insert finds existing row and returns false.
 func sharedGemCreditPrepare(
     context: ModelContext,
     ledger: GemLedger,

@@ -31,10 +31,17 @@ protocol CacheServicing: AnyObject {
     func upsertProfile(_ profile: Profile, family: String?, isServerSync: Bool) async
     func batchUpsertLedgerEntriesAndGoals(ledgerEntries: [LedgerEntry], goals: [Goal], familyRecordName: String?) async
     func invalidate(recordName: String, family: String, type: CachedRecordType) async
+    func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone: CKRecordZone.ID?) async
 }
 
 @MainActor
 extension CacheServicing {
+    // WHY: Tombstone identity must be captured before local deletion — default bridges to name-based invalidate so lightweight mocks remain valid without carrying zone validation.
+    func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone _: CKRecordZone.ID?) async {
+        guard let family = identity.familyRecordName else { return }
+        await invalidate(recordName: identity.recordName, family: family, type: type)
+    }
+
     func upsertLedgerEntry(_ entry: LedgerEntry) async {
         await upsertLedgerEntry(entry, family: nil, isServerSync: false)
     }

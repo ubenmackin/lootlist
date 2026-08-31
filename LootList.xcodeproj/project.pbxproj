@@ -375,6 +375,7 @@
 		FB30481299FA04BF629CAE22 /* FamilyServiceTests+IdentityDedupe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909FB1F2378D5841120AEE35 /* FamilyServiceTests+IdentityDedupe.swift */; };
 		FBD789CA3D89EA115EF4C53F /* FamilyServiceTests+Authorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831CA0373D9645FB1500A84B /* FamilyServiceTests+Authorization.swift */; };
 		FC1546A821F25B5E1E03684F /* DesignSystemConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39FD1534CF37B76842F11715 /* DesignSystemConstants.swift */; };
+		FF679B4E23E1A63596AD4F6A /* FamilyScopeValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4138CD884CDA4932C53310 /* FamilyScopeValidator.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -493,6 +494,7 @@
 		2C47FAAAF5A2001034107C67 /* FamilyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyService.swift; sourceTree = "<group>"; };
 		2D4F84AFC2DAC6F06A2ACB69 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
 		2E828C60E9ADE3B590E578B7 /* AppLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleCoordinator.swift; sourceTree = "<group>"; };
+		2F4138CD884CDA4932C53310 /* FamilyScopeValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyScopeValidator.swift; sourceTree = "<group>"; };
 		2F4D55A65A228EFD564F4BBC /* BatchQuestFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchQuestFetcher.swift; sourceTree = "<group>"; };
 		2F98296EAA473AB324F18004 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		3126E26209D8D54178D4E71A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -1279,6 +1281,7 @@
 				7D3BE16829C22EFEF849814C /* CloudSharingControllerWrapper.swift */,
 				465DD171C3B2E669A7EA9987 /* DecimalPadDismissModifier.swift */,
 				0787E35E82ABF461CAFEC9FF /* EmptyStateView.swift */,
+				2F4138CD884CDA4932C53310 /* FamilyScopeValidator.swift */,
 				3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */,
 				728481C95C3C2C620C57038C /* GoldBadge.swift */,
 				55D9B190E857B276A4369A5D /* iCloudStatusView.swift */,
@@ -1755,6 +1758,7 @@
 				061FE1E0B34B79D020E61575 /* FamilyDiscoveryService.swift in Sources */,
 				E9E073D550ECBC70491ABE89 /* FamilyInvitationCoordinator.swift in Sources */,
 				E36683A28880AEC5B372B88E /* FamilyJoinView.swift in Sources */,
+				FF679B4E23E1A63596AD4F6A /* FamilyScopeValidator.swift in Sources */,
 				D8A5B2891010FB02D4D54BDF /* FamilyScopedCache.swift in Sources */,
 				F242E769C99C52265D7B969F /* FamilyScopedFetchable.swift in Sources */,
 				1E3DD8985B7CA2268C1323B1 /* FamilyService+Invitations.swift in Sources */,

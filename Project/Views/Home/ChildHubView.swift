@@ -58,6 +58,7 @@ struct ChildHubView: View {
 
         // Scope queries to family at store layer; nil familyRecordName uses "" to return zero rows (no cross-family fetch).
         let targetFamily = familyRecordName ?? ""
+        FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "ChildHubView")
         let targetProfile = profileRecordName ?? ""
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
@@ -191,7 +192,10 @@ struct ChildHubView: View {
                     profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
                 )
             }
-            .task { ensureViewModels() }
+            .task {
+                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: Self.logger, viewName: "ChildHubView")
+                ensureViewModels()
+            }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedCompletions) { _, _ in rebuild() }
             .onChange(of: cachedTemplates) { _, _ in rebuild() }

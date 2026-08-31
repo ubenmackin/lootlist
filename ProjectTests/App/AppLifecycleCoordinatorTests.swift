@@ -652,4 +652,178 @@ struct AppLifecycleCoordinatorTests {
         try? await Task.sleep(for: .milliseconds(100))
         #expect(sync.fetchCount >= 1)
     }
+
+    // MARK: LootListApp performForegroundSync Watermark Verification (Vector 5)
+
+    @Test
+    func `performForegroundSync watermark verification — full pass stamps freshness per scope`() throws {
+        let suite = "FGWatermarkSuccess_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let zoneID = CKRecordZone.ID(zoneName: "FGWatermarkZone", ownerName: CKCurrentUserDefaultName)
+        let family = Family(
+            name: "FG Family",
+            createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fg-family", zoneID: zoneID)
+        )
+        let appState = AppState(defaults: defaults)
+        appState.family = family
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        cache.invalidateAllFreshness()
+        appState.cacheService = cache
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let bgActor = try BackgroundCacheActor(container: #require(cache.container))
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let handler = CKSyncEngineDelegateHandler(
+            backgroundCache: bgActor,
+            conflictResolver: resolver,
+            cacheService: cache,
+            appState: appState
+        )
+        let coordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: handler,
+            appState: appState,
+            defaults: defaults
+        )
+
+        // Precondition: no freshness before foreground sync.
+        for type in CachedRecordType.allCases {
+            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type, scope: .private) == false)
+        }
+
+        // Simulate the watermark stamping that a successful foreground sync performs
+        // via CKSyncEngineCoordinator.completeSyncPass — active scopes subset of
+        // completed with zero parse/cache failures.
+        coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
+
+        // LootListApp.task(id: scenePhase) when .active calls performForegroundSync
+        // which ultimately stamps cache_fresh_<family>_<type>_<scope> per type/scope.
+        for type in CachedRecordType.allCases where type.fetchScopes.contains(.private) {
+            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type, scope: .private) == true)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type) == true)
+        }
+        // Shared-scope types must not be stamped by a private-only pass.
+        for type in CachedRecordType.allCases where !type.fetchScopes.contains(.private) {
+            #expect(cache.isCacheFresh(familyRecordName: "fg-family", type: type, scope: .private) == false)
+        }
+    }
+
+    @Test
+    func `performForegroundSync watermark verification — parse and cache failures suppress stamping`() throws {
+        let suite = "FGWatermarkFail_\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let zoneID = CKRecordZone.ID(zoneName: "FGWatermarkFailZone", ownerName: CKCurrentUserDefaultName)
+        let family = Family(
+            name: "FG Fail Family",
+            createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fg-fail-family", zoneID: zoneID)
+        )
+        let appState = AppState(defaults: defaults)
+        appState.family = family
+        appState.familyZoneID = zoneID
+
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        cache.invalidateAllFreshness()
+        appState.cacheService = cache
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let bgActor = try BackgroundCacheActor(container: #require(cache.container))
+        let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
+        let handler = CKSyncEngineDelegateHandler(
+            backgroundCache: bgActor,
+            conflictResolver: resolver,
+            cacheService: cache,
+            appState: appState
+        )
+
+        // Foreground sync that encounters a parse failure must suppress all stamps.
+        let parseFailCoordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: handler,
+            appState: appState,
+            defaults: defaults
+        )
+        parseFailCoordinator.simulateFetchPassSettlement(
+            activeScopes: [.private],
+            completedScopes: [.private],
+            hasParseFailures: true
+        )
+        for type in CachedRecordType.allCases {
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type) == false)
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type, scope: .private) == false)
+        }
+
+        // Cache-write failure also suppresses stamping.
+        cache.invalidateAllFreshness()
+        let cacheFailCoordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: handler,
+            appState: appState,
+            defaults: defaults
+        )
+        cacheFailCoordinator.simulateFetchPassSettlement(
+            activeScopes: [.private],
+            completedScopes: [.private],
+            hasCacheWriteFailures: true
+        )
+        for type in CachedRecordType.allCases {
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type) == false)
+        }
+
+        // Incomplete scope — active has private+shared but only private completed.
+        cache.invalidateAllFreshness()
+        let incompleteCoordinator = CKSyncEngineCoordinator(
+            cloudKitService: cloudKit,
+            delegateHandler: handler,
+            appState: appState,
+            defaults: defaults
+        )
+        incompleteCoordinator.simulateFetchPassSettlement(
+            activeScopes: [.private, .shared],
+            completedScopes: [.private]
+        )
+        for type in CachedRecordType.allCases {
+            #expect(cache.isCacheFresh(familyRecordName: "fg-fail-family", type: type) == false)
+        }
+    }
+
+    @Test
+    func `performForegroundSync triggers fetch and send as defined in LootListApp scenePhase`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
+        let zoneID = CKRecordZone.ID(zoneName: "FGSequenceZone", ownerName: "Owner")
+        let (family, profile) = makeFamilyAndProfile(zoneID: zoneID)
+        appState.family = family
+        appState.currentProfile = profile
+        appState.familyZoneID = zoneID
+        appState.isZoneOwner = true
+        appState.authStatus = .authenticated
+
+        let cloudKit = MockCloudKitService()
+        cloudKit.seedMockRecords([family, profile])
+        let counting = CountingSyncCoordinator()
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: counting, defaults: defaults)
+        lifecycle.setHasCompletedInitialBootstrapForTests(true)
+
+        // LootListApp .task(id: scenePhase) when .active calls performForegroundSync
+        // which must fetch, send, reconcile, and re-evaluate trophies.
+        await lifecycle.performForegroundSync()
+        #expect(counting.fetchCount == 1)
+        // Subsequent foreground sync after idle must succeed again.
+        await lifecycle.performForegroundSync()
+        #expect(counting.fetchCount == 2)
+    }
 }

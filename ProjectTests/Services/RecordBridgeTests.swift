@@ -398,4 +398,170 @@ struct RecordBridgeTests {
         #expect(!recordWithoutBuckets.allKeys().contains("toBucket"), "CKRecord should not contain toBucket after LedgerEntry toBucket is cleared to nil")
         #expect(recordWithoutBuckets["toBucket"] == nil)
     }
+
+    // MARK: - Dangling pending save: confirmedLocalDeletion
+
+    @Test
+    func `confirmedLocalDeletion returns false while row exists and true after deletion`() async throws {
+        let cache = try CacheService(inMemory: true)
+        let questID = id("dangling-quest")
+        let identity = ScopedRecordIdentity(databaseScope: .private, zoneID: zoneID, recordID: questID, familyRecordName: "fam1")
+        // Insert a quest so a row exists.
+        let quest = Quest(
+            template: ref("tpl1"),
+            assignee: ref("hero1"),
+            goldReward: 5,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            weekOf: Date(),
+            createdBy: ref("parent1"),
+            family: ref("fam1"),
+            name: "Dangling",
+            id: questID
+        )
+        await cache.upsertQuest(quest)
+        #expect(RecordBridge.record(for: identity, cacheService: cache) != nil)
+        #expect(RecordBridge.confirmedLocalDeletion(for: identity, cacheService: cache) == false)
+        // Remove the row via direct cache delete.
+        cache.deleteByNameAndFamily(QuestCache.self, recordName: questID.recordName, familyRecordName: "fam1")
+        #expect(RecordBridge.record(for: identity, cacheService: cache) == nil)
+        #expect(RecordBridge.confirmedLocalDeletion(for: identity, cacheService: cache) == true)
+    }
+
+    @Test
+    func `dangling save with validation failure retains pending for retry`() async throws {
+        let cache = try CacheService(inMemory: true)
+        let questID = id("retry-quest")
+        let quest = Quest(
+            template: ref("tpl1"),
+            assignee: ref("hero1"),
+            goldReward: 5,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            weekOf: Date(),
+            createdBy: ref("parent1"),
+            family: ref("fam1"),
+            name: "Retry",
+            id: questID
+        )
+        await cache.upsertQuest(quest)
+        // Request with wrong family — validateScopedRecord fails, but row still exists globally.
+        let wrongFamilyIdentity = ScopedRecordIdentity(
+            databaseScope: .private,
+            zoneID: zoneID,
+            recordID: questID,
+            familyRecordName: "fam2"
+        )
+        #expect(RecordBridge.record(for: wrongFamilyIdentity, cacheService: cache) == nil)
+        #expect(RecordBridge.confirmedLocalDeletion(for: wrongFamilyIdentity, cacheService: cache) == false)
+    }
+
+    @Test
+    func `escape hatch allows private completion to bridge to shared when family and zone match`() async throws {
+        let cache = try CacheService(inMemory: true)
+        // QuestCompletion stored as private in a shared-expectation zone — the pending-review stall.
+        let completionID = id("stall-completion")
+        let completion = QuestCompletion(
+            quest: ref("quest1"),
+            completedBy: ref("hero1"),
+            approvalMode: .parentVerify,
+            completedDate: Date(),
+            weekOf: Date(),
+            family: ref("fam1"),
+            id: completionID
+        )
+        await cache.upsertQuestCompletion(completion)
+        // Private row should bridge to shared when family and zone strictly match.
+        let sharedIdentity = ScopedRecordIdentity(
+            databaseScope: .shared,
+            zoneID: zoneID,
+            recordID: completionID,
+            familyRecordName: "fam1"
+        )
+        #expect(RecordBridge.record(for: sharedIdentity, cacheService: cache) != nil)
+        // Cross-family must still be blocked even with the hatch.
+        let crossFamilyIdentity = ScopedRecordIdentity(
+            databaseScope: .shared,
+            zoneID: zoneID,
+            recordID: completionID,
+            familyRecordName: "otherFam"
+        )
+        #expect(RecordBridge.record(for: crossFamilyIdentity, cacheService: cache) == nil)
+        #expect(RecordBridge.confirmedLocalDeletion(for: crossFamilyIdentity, cacheService: cache) == false)
+        // Cross-zone must be blocked — escape requires sourceZoneName == expectedZoneID.zoneName.
+        let otherZone = CKRecordZone.ID(zoneName: "OtherZone", ownerName: CKCurrentUserDefaultName)
+        let crossZoneIdentity = ScopedRecordIdentity(
+            databaseScope: .shared,
+            zoneID: otherZone,
+            recordID: CKRecord.ID(recordName: completionID.recordName, zoneID: otherZone),
+            familyRecordName: "fam1"
+        )
+        #expect(RecordBridge.record(for: crossZoneIdentity, cacheService: cache) == nil)
+        #expect(RecordBridge.confirmedLocalDeletion(for: crossZoneIdentity, cacheService: cache) == false)
+    }
+
+    @Test
+    func `non-completion type does not use escape hatch for private to shared mismatch`() async throws {
+        let cache = try CacheService(inMemory: true)
+        let questID = id("quest-no-hatch")
+        let quest = Quest(
+            template: ref("tpl1"),
+            assignee: ref("hero1"),
+            goldReward: 5,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            weekOf: Date(),
+            createdBy: ref("parent1"),
+            family: ref("fam1"),
+            name: "No Hatch",
+            id: questID
+        )
+        await cache.upsertQuest(quest)
+        let sharedIdentity = ScopedRecordIdentity(
+            databaseScope: .shared,
+            zoneID: zoneID,
+            recordID: questID,
+            familyRecordName: "fam1"
+        )
+        // Quest with private scope must not bridge to shared — only completion may.
+        #expect(RecordBridge.record(for: sharedIdentity, cacheService: cache) == nil)
+        #expect(RecordBridge.confirmedLocalDeletion(for: sharedIdentity, cacheService: cache) == false)
+    }
+
+    @Test
+    func `optimistic locking system fields are rehydrated via CacheConversions`() async throws {
+        let cache = try CacheService(inMemory: true)
+        let questID = id("quest-system-fields")
+        var quest = Quest(
+            template: ref("tpl1"),
+            assignee: ref("hero1"),
+            goldReward: 7,
+            xpReward: 15,
+            scheduleType: .weeklyFlexible,
+            weekOf: Date(),
+            createdBy: ref("parent1"),
+            family: ref("fam1"),
+            name: "Optimistic",
+            id: questID
+        )
+        // Simulate server-provided system fields.
+        let serverRecord = CKRecord(recordType: Quest.recordType, recordID: questID)
+        serverRecord["template"] = quest.template as CKRecordValue
+        serverRecord["assignee"] = quest.assignee as CKRecordValue
+        // Use the encoded fields as the server would — decode must round-trip.
+        let encoded = serverRecord.encodedSystemFields
+        #expect(!encoded.isEmpty)
+        quest.encodedSystemFields = encoded
+        quest.changeTag = serverRecord.recordChangeTag
+        await cache.upsertQuest(quest, isServerSync: true)
+        let identity = ScopedRecordIdentity(databaseScope: .private, zoneID: zoneID, recordID: questID, familyRecordName: "fam1")
+        guard let bridged = RecordBridge.record(for: identity, cacheService: cache) else {
+            Issue.record("RecordBridge.record returned nil for optimistic locking quest")
+            return
+        }
+        // Bridged record must carry system fields so CKSyncEngine sends optimistic tag.
+        #expect(!bridged.encodedSystemFields.isEmpty)
+        #expect(bridged.recordID == questID)
+        #expect(bridged["name"] as? String == "Optimistic")
+    }
 }
