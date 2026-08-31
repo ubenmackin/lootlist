@@ -9,14 +9,6 @@ import CloudKit
 import Foundation
 import os
 
-// WHY: Swift 6 strict concurrency — `CloudKitServiceProtocol` is `@MainActor`-isolated and
-// `CKRecord` may not be `Sendable` in the current SDK. Boxing allows a `Sendable` value
-// to cross the `TaskGroup` `@Sendable` boundary safely; the wrapped value is only
-// unwrapped on `MainActor` where isolation is re-established.
-private struct UncheckedSendableBox<Value>: @unchecked Sendable {
-    let value: Value
-}
-
 // MARK: - Snapshot & Cache Reconciliation
 
 extension AppLifecycleCoordinator {
@@ -101,12 +93,7 @@ extension AppLifecycleCoordinator {
         let zoneName = zoneID.zoneName
         let ownerName = zoneID.ownerName
         let isOwnerCopy = isOwner
-        // WHY: `cloudKitService` is `@MainActor`-isolated — capturing it directly in the
-        // `@Sendable` `TaskGroup` closure breaches strict-concurrency actor isolation.
-        // Box it as `Sendable` and only unwrap inside `Task { @MainActor in }` where
-        // the `@MainActor` `fetchSnapshot` witness can be called safely. Only Sendable
-        // strings/bool and the boxed service cross the Sendable boundary.
-        let serviceBox = UncheckedSendableBox(value: cloudKitService)
+        let service = cloudKitService
         let snapshotLogger = logger
 
         var inboundRecords: [CKRecord] = []
@@ -124,22 +111,14 @@ extension AppLifecycleCoordinator {
             for type in recordTypes {
                 group.addTask {
                     do {
-                        // WHY: Hop to MainActor so the `@MainActor`-isolated service
-                        // and `fetchSnapshot` are never captured off-actor. The outer
-                        // `@Sendable` closure captures only Sendable values and the
-                        // boxed service handle; `Task { @MainActor in }` provides an
-                        // async-compatible isolation hop (MainActor.run requires a
-                        // synchronous closure).
-                        return try await Task { @MainActor in
-                            try await Self.fetchSnapshot(
-                                for: type,
-                                cloudKit: serviceBox.value,
-                                familyRecordName: familyRecordName,
-                                zoneName: zoneName,
-                                ownerName: ownerName,
-                                isOwner: isOwnerCopy
-                            )
-                        }.value
+                        return try await Self.fetchSnapshot(
+                            for: type,
+                            cloudKit: service,
+                            familyRecordName: familyRecordName,
+                            zoneName: zoneName,
+                            ownerName: ownerName,
+                            isOwner: isOwnerCopy
+                        )
                     } catch {
                         snapshotLogger.warning(
                             "Snapshot fetch failed for \(type.rawValue): \(error.localizedDescription)",
