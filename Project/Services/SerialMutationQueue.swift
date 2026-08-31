@@ -7,14 +7,9 @@
 
 import Foundation
 
-/// Linearizes background cache commits and reconciliation passes to prevent overlapping saves.
-///
-/// Process-wide serialization gate — intentionally a singleton. `BackgroundCacheActor`
-/// (via `mutationQueue`) and the `CKSyncEngineDelegateHandler` ingest path share a
-/// single `ModelContext` save boundary; overlapping batch commits would interleave
-/// `ModelContext` mutations and corrupt the store. `shared` guarantees that only
-/// one upsert/reconcile transaction holds the gate at a time across all actors.
-/// Do not replace with per-actor queues.
+/// Linearizes background cache commits — single gate for all server→cache batches.
+/// WHY: Singleton ensures only one batch holds the save boundary; serializes background writes only — MainActor writes interleave and rely on changeTag guard.
+/// WHY: Exactly one saveContext per pass so @Query observes atomic updates.
 actor SerialMutationQueue {
     /// Intentional process-wide singleton; see type-level docs for why this
     /// cannot be per-instance.

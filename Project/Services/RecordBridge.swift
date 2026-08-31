@@ -10,8 +10,10 @@ import Foundation
 import os
 import SwiftData
 
-/// Bridges local SwiftData cached models to CloudKit `CKRecord` objects
-/// when `CKSyncEngine` requests record batches to send to the server.
+/// Bridges local SwiftData cached models to CloudKit `CKRecord` objects for `CKSyncEngine` sends.
+/// WHY: Fail-closed scope validation with one gated escape hatch — QuestCompletion private→shared bridge when family and zone match; confirmedLocalDeletion uses tryFetch
+/// fail-closed so fetch errors retain pending saves.
+/// WHY: Deterministic IDs dedupe on recordName; no hard-delete without tombstone.
 @MainActor
 enum RecordBridge {
     private static let logger = Logger(
@@ -37,10 +39,13 @@ enum RecordBridge {
     }
 
     /// Confirms local deletion across all cache tables before enqueuing server delete.
+    /// WHY: fail-closed — `tryFetch` returns `nil` on context-unavailable *or* on throw; that is NOT confirmation
+    /// of deletion. Returning false keeps the pending save alive for retry, preventing a store-error from becoming a silent data loss.
     static func confirmedLocalDeletion(for identity: ScopedRecordIdentity, cacheService: CacheService) -> Bool {
         let name = identity.recordName
 
         /// Returns true only when the lookup itself succeeded AND found no row.
+        /// WHY: `tryFetch` fail-closed — `nil` means the fetch itself failed, so we cannot claim the row is absent.
         func confirmedAbsent<T: PersistentModel>(_ type: T.Type, predicate: Predicate<T>) -> Bool {
             guard let rows = cacheService.tryFetch(type, predicate: predicate) else { return false }
             return rows.first == nil

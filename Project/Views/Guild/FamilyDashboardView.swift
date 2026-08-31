@@ -5,10 +5,12 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 
 struct FamilyDashboardView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "FamilyDashboardView")
     @Environment(ToastManager.self) private var toastManager
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
@@ -42,10 +44,7 @@ struct FamilyDashboardView: View {
 
         // WHY: Fail closed — empty family yields zero rows, never an unscoped cross-family query.
         let targetFamily = familyRecordName ?? ""
-        #if DEBUG
-            // WHY: Empty predicate silently matches nothing and can mask stale-cache reads; assert in DEBUG unless running tests.
-            assert(!targetFamily.isEmpty || TestEnvironment.isRunningUnitOrUITests, "FamilyDashboardView: empty familyRecordName — predicate will match no rows (fail-closed)")
-        #endif
+        FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "FamilyDashboardView")
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
@@ -123,6 +122,7 @@ struct FamilyDashboardView: View {
                 await viewModel?.refresh()
             }
             .task {
+                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: Self.logger, viewName: "FamilyDashboardView")
                 ensureViewModel()
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 await lifecycleCoordinator?.performManualSync()

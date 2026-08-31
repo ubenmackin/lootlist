@@ -52,6 +52,7 @@ struct GuildSettingsView: View {
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
         let targetFamily = familyRecordName ?? ""
+        FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "GuildSettingsView")
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
@@ -99,6 +100,7 @@ struct GuildSettingsView: View {
                     await viewModel?.refreshInvitations()
                 }
                 .task {
+                    FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: logger, viewName: "GuildSettingsView")
                     ensureViewModel()
                     viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                     await lifecycleCoordinator?.performManualSync()

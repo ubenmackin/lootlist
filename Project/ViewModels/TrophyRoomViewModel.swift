@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import Foundation
 
 @MainActor
@@ -81,9 +80,8 @@ final class TrophyRoomViewModel {
 
         var achievementsToUse = allAchievements
         if achievementsToUse.isEmpty, let family = appState.family {
-            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-            let defaults = AchievementService.defaultAchievements(for: familyRef)
-            achievementsToUse = defaults.map { AchievementCache(from: $0) }
+            // WHY: ViewModel is cache-first and must not synthesize domain structs; service provides seeded caches.
+            achievementsToUse = achievementService.cachedOrSeededAchievementCaches(for: family)
         }
 
         // WHY: Trophy Room renders the 12 V1 achievements (legacy gold100/gold500/ledgerWeeks4 filtered out when immersive off).

@@ -33,6 +33,9 @@ extension CKSyncEngineCoordinator: SyncCoordinating {}
 
 // MARK: - AppLifecycleCoordinator
 
+/// Centralized sync/payout/migration trigger — single-flight state machine per ARCHITECTURE.md §4.
+/// WHY: Mutex-guarded phase ensures bootstrapping/syncing/zoneChanging never overlap; manual sync uses separate flag so foreground sync does not starve user sync; reconnect flaps
+/// debounced 45s.
 @MainActor
 @Observable
 final class AppLifecycleCoordinator {
@@ -55,6 +58,9 @@ final class AppLifecycleCoordinator {
 
     /// All mutable lifecycle flags are co-located in one `Mutex` so a single `withLock` can atomically test
     /// every guard that a caller cares about.
+    /// WHY: single-flight — `phase` gates bootstrap/sync/zoneChanging (mutually exclusive); `isManualSyncing`
+    /// is deliberately *outside* `phase` so manual sync is not starved when a foreground sync holds `.syncing`.
+    /// `hasCompletedInitialBootstrap` prevents re-bootstrap; `lastReconnectTriggeredSyncAt` debounces flaps.
     struct LifecycleFlags: Sendable {
         var phase: Phase = .idle
         var isManualSyncing = false

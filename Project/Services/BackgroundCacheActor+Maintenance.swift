@@ -13,6 +13,10 @@ import SwiftData
 extension BackgroundCacheActor {
     // MARK: - Purges (public API preserved as thin wrappers)
 
+    // Deferred purge helpers (purgeMissingWithoutSave / purgeMissingOfType) are called inside
+    // commitParticipantReconciliation's single-transaction gate so one saveContext() lands per
+    // reconciliation pass. Empty-snapshot abort lives in AppLifecycleCoordinator.fetchFamilySnapshot.
+
     private func validatedFamilyScope(_ familyRecordName: String?) -> String? {
         guard let familyRecordName, !familyRecordName.isEmpty else {
             logger.warning("Purge skipped: familyRecordName is required, got nil/empty scope")

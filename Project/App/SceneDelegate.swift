@@ -24,6 +24,15 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
         }
     }
 
+    func sceneWillEnterForeground(_: UIScene) {
+        // Foreground watermark catch-up: re-entering foreground re-validates freshness
+        // via AppLifecycleCoordinator.performForegroundSync; any missed silent pushes
+        // re-deliver through persisted CKSyncEngine change tokens.
+        Task { @MainActor in
+            await AppDependencies.shared?.lifecycleCoordinator.performForegroundSync()
+        }
+    }
+
     func windowScene(
         _: UIWindowScene,
         performActionFor shortcutItem: UIApplicationShortcutItem,

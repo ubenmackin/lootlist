@@ -346,8 +346,15 @@ class SpendingService {
 
         try ActiveFamilyScopeGuard.requireActiveFamily(familyRef: entry.family, appState: appState)
 
-        let name = entry.id.recordName
-        await cacheService.invalidate(recordName: name, family: entry.family.recordID.recordName, type: .ledgerEntry)
+        // WHY: Tombstone must survive local deletion — capture identity before invalidate so enqueueDelete can synthesize CKRecord or buffer even after cache row is gone.
+        let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let identity = ScopedRecordIdentity(
+            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
+            zoneID: entry.id.zoneID,
+            recordID: entry.id,
+            familyRecordName: entry.family.recordID.recordName
+        )
+        await cacheService.invalidate(identity: identity, type: .ledgerEntry, expectedActiveZone: appState.familyZoneID)
         ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "SpendingService.delete")
     }
 }

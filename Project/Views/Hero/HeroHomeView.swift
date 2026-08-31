@@ -37,6 +37,7 @@ struct HeroHomeView: View {
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
+        FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "HeroHomeView")
         let targetProfile = profileRecordName ?? ""
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
@@ -110,7 +111,10 @@ struct HeroHomeView: View {
             .fullScreenCover(isPresented: $showingJourneyMap) {
                 journeyMapCover
             }
-            .task { ensureViewModel() }
+            .task {
+                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: logger, viewName: "HeroHomeView")
+                ensureViewModel()
+            }
             .onChange(of: cachedQuests) { _, _ in
                 rebuildViewModel()
             }

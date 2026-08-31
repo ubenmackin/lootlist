@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import os
 import SwiftData
 import SwiftUI
@@ -134,10 +133,8 @@ struct TrophyRoomView: View {
                 achievements = cache.fetchAchievements(family: family.id.recordName)
             }
             if achievements.isEmpty {
-                // WHY: empty grid before first sync has no cache rows — View is cache-only and must not import CloudKit;
-                // service synthesizes defaults via ingest so hydration rides the single-ingest door.
-                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                achievements = AchievementService.defaultAchievements(for: familyRef).map { AchievementCache(from: $0) }
+                // WHY: View is cache-only and must not synthesize domain structs; service provides seeded caches and handles ingest.
+                achievements = achievementService.cachedOrSeededAchievementCaches(for: family)
                 let capturedEarned = earned
                 Task { @MainActor in
                     let seeded = await achievementService.ensureDefaultAchievements(for: family)

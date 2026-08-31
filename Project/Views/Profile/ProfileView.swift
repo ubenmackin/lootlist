@@ -194,6 +194,8 @@ struct ProfileView: View {
 
     private func recomputeCharacterFromCache() {
         appState.updateCurrentProfileFromCache()
+        // WHY: familyZoneID is the single source for zone targeting; default-zone fallback would leak cross-family scope — fail closed when no family zone is active.
+        guard let zoneID = appState.familyZoneID else { return }
         viewModel.recomputeCharacterFromCache(
             profile: appState.currentProfile,
             completions: cachedCompletions,
@@ -201,7 +203,7 @@ struct ProfileView: View {
             quests: cachedQuests,
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements,
-            zoneID: appState.currentProfile?.id.zoneID ?? appState.family?.id.zoneID ?? CKRecordZone.default().zoneID,
+            zoneID: zoneID,
             // Payout cycle anchoring: profile override → family → Sunday default.
             payoutDay: appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
         )

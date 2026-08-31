@@ -10,6 +10,9 @@ import Foundation
 import os
 import SwiftData
 
+/// Background cache writer — all server→cache writes off-main.
+/// WHY: Single SerialMutationQueue gate with exactly one saveContext per batch so @Query observes atomic updates; autosaveEnabled=false prevents double-save.
+/// WHY: ChangeTag guard prevents stale server snapshots from regressing locally merged fields; off-main guarantee via DefaultSerialModelExecutor.
 @ModelActor
 actor BackgroundCacheActor {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
@@ -323,7 +326,9 @@ actor BackgroundCacheActor {
         }
     }
 
-    // Atomic batch ingestion committing all parsed records in a single saveContext transaction.
+    // Atomic off-main batch ingestion — exactly one saveContext() per batch pass.
+    // WHY: Single save coalesces all type upserts into one SwiftData transaction so @Query views
+    // observe an atomic update; SerialMutationQueue gate prevents interleaved ModelContext mutations.
 
     @discardableResult
     func batchUpsertParsedRecords(_ records: [ParsedRecord]) async -> Bool {
@@ -351,7 +356,8 @@ actor BackgroundCacheActor {
         var commitSucceeded = false
     }
 
-    /// Participant reconciliation: upserts snapshot and prunes missing rows in one transaction.
+    /// Participant reconciliation — FROZEN per ARCHITECTURE.md §4.
+    /// WHY: Single SerialMutationQueue-gated commit with exactly one saveContext; empty-snapshot abort is caller responsibility.
     @discardableResult
     func reconcileParticipantSet(
         records: [CKRecord],
@@ -401,8 +407,10 @@ actor BackgroundCacheActor {
         )
     }
 
-    /// Single-transaction variant of the parsed-batch commit followed by a deferred purge per provided
-    /// type.
+    /// Single-transaction reconciliation commit — one atomic upsert+prune pass ending in exactly one
+    /// saveContext(). Deferred purge phase deletes cached rows absent from server-authoritative name sets.
+    /// WHY: Single save ensures @Query never observes half-reconciled cache; a failed upsert or save
+    /// leaves context uncommitted and rows intact until next pass.
     private func commitParticipantReconciliation(
         _ batch: ParsedBatch,
         validRecordNamesByType: [CachedRecordType: Set<String>],
@@ -426,7 +434,8 @@ actor BackgroundCacheActor {
         return true
     }
 
-    /// Accumulates all inserts/updates and saves the ModelContext exactly once.
+    /// Accumulates all inserts/updates and saves the ModelContext exactly once — the single
+    /// saveContext() that triggers SwiftData change notifications for @Query views.
     private func commitParsedBatch(_ batch: ParsedBatch) async -> Bool {
         #if DEBUG
             if !TestEnvironment.isRunningUnitOrUITests {
@@ -523,8 +532,10 @@ actor BackgroundCacheActor {
                         )
                         continue
                     }
-                    // Identical changeTags mean an identical server version; re-applying a stale snapshot can only regress
-                    // newer merged fields.
+                    // WHY: Race mitigation — SerialMutationQueue does not gate MainActor writes, so a local mutation
+                    // may have merged newer fields into `target` after this snapshot was fetched. Identical changeTags
+                    // mean an identical server version; re-applying it can only regress those merged fields. Skip
+                    // only for server sync (isServerSync==true); local optimistic rows with identical tags carry real deltas.
                     if isServerSync,
                        let itemTag = item.changeTag, !itemTag.isEmpty, itemTag == target.changeTag
                     {
@@ -563,8 +574,8 @@ actor BackgroundCacheActor {
             for item in items {
                 let name = item.id.recordName
                 if let target = byName[name] {
-                    // Same guard as the scoped branch: only server-sourced passes may
-                    // treat an identical changeTag as a no-op.
+                    // WHY: Same stale-snapshot guard as scoped branch — only server-sourced passes may
+                    // treat an identical changeTag as a no-op. Local writes (isServerSync==false) must always apply.
                     if isServerSync,
                        let itemTag = item.changeTag, !itemTag.isEmpty, itemTag == target.changeTag
                     {
