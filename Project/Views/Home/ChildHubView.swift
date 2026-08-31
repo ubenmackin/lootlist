@@ -145,7 +145,7 @@ struct ChildHubView: View {
                 .padding(.top, DesignSystemConstants.Padding.small)
                 .padding(.bottom, DesignSystemConstants.Padding.large)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
@@ -178,7 +178,7 @@ struct ChildHubView: View {
                 logPurchaseBar
                     .padding(.horizontal, DesignSystemConstants.Padding.standard)
                     .padding(.vertical, DesignSystemConstants.Padding.small)
-                    .background(Color(.systemGroupedBackground))
+                    .background(Color(DesignSystemConstants.Colors.background))
             }
             .sheet(isPresented: $isShowingLogSpending) {
                 if let treasuryViewModel {
@@ -306,7 +306,7 @@ struct ChildHubView: View {
         .padding(DesignSystemConstants.Padding.large)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
@@ -341,7 +341,7 @@ struct ChildHubView: View {
         .padding(DesignSystemConstants.Padding.large)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
@@ -376,27 +376,27 @@ struct ChildHubView: View {
     // MARK: - Rebuild
 
     private func ensureViewModels() {
-        ViewLifecycle.ensure(&viewModel, factory: {
+        let vm = ViewLifecycle.ensure(&viewModel, factory: {
             ChildHubViewModel(
                 appState: appState,
                 cacheService: cacheService ?? appState.cacheService
             )
         })
-        ViewLifecycle.ensure(&treasuryViewModel, factory: {
+        let tvm = ViewLifecycle.ensure(&treasuryViewModel, factory: {
             TreasuryViewModel(
                 treasury: treasury,
                 spending: spending,
                 appState: appState
             )
         })
-        rebuild()
+        rebuild(vm, tvm)
     }
 
-    private func rebuild() {
+    private func rebuild(_ vm: ChildHubViewModel? = nil, _ tvm: TreasuryViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
-        viewModel?.rebuild(
+        (vm ?? viewModel)?.rebuild(
             quests: cachedQuests,
             logs: cachedCompletions,
             templates: cachedTemplates,
@@ -404,8 +404,8 @@ struct ChildHubView: View {
         )
 
         // Keep spending-sheet view model synced for live balances on Log a Purchase (mirrors Money tab).
-        if let treasuryViewModel {
-            treasuryViewModel.rebuildLists(
+        if let treasury = tvm ?? treasuryViewModel {
+            treasury.rebuildLists(
                 logs: cachedCompletions.filter { $0.completerRecordName == profileName },
                 ledgers: cachedLedgers.filter { $0.profileRecordName == profileName },
                 quests: cachedQuests.filter { $0.assigneeRecordName == profileName },

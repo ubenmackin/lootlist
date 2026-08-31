@@ -192,12 +192,12 @@ struct FamilyDashboardView: View {
                 familyService: familyService,
                 appState: appState
             )
-        }, rebuild: { _ in rebuild() })
+        }, rebuild: { vm in rebuild(vm) })
     }
 
-    private func rebuild() {
+    private func rebuild(_ vm: FamilyDashboardViewModel? = nil) {
         maxChildCardHeight = nil
-        viewModel?.rebuildLists(
+        (vm ?? viewModel)?.rebuildLists(
             profiles: cachedProfiles,
             quests: cachedQuests,
             logs: cachedCompletions,
@@ -284,7 +284,7 @@ private extension FamilyDashboardView {
         NavigationLink {
             HeroDetailView(
                 hero: card.profile,
-                familyRecordName: familyRecordName,
+                familyRecordName: familyRecordName ?? appState.family?.id.recordName,
                 spending: spending
             )
             .environment(questService)

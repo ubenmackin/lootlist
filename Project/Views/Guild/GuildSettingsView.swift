@@ -204,12 +204,12 @@ struct GuildSettingsView: View {
                 familyService: familyService,
                 appState: appState
             )
-        }, rebuild: { _ in rebuildViewModel() })
+        }, rebuild: { vm in rebuildViewModel(vm) })
     }
 
-    private func rebuildViewModel() {
-        guard let vm = viewModel else { return }
-        vm.rebuildLists(
+    private func rebuildViewModel(_ vm: FamilyDashboardViewModel? = nil) {
+        guard let targetVM = vm ?? viewModel else { return }
+        targetVM.rebuildLists(
             profiles: cachedProfiles,
             quests: cachedQuests,
             logs: cachedCompletions,

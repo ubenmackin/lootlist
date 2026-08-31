@@ -27,7 +27,7 @@ final class CacheService: CacheServicing {
     }
 
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
-    private var isBatching = false
+    private var batchDepth = 0
 
     #if DEBUG
         @ObservationIgnored
@@ -75,23 +75,10 @@ final class CacheService: CacheServicing {
             }
         }
         // In-memory stores keep main-actor writes so test seeding and assertions stay synchronous.
-        if !inMemory, let container {
+        if !inMemory {
             Task(priority: .userInitiated) { [weak self] in
                 guard let self else { return }
-                // Early exit avoids wastefully constructing a second writer when bootstrap already won.
-                guard !self.hasBackgroundWriter else { return }
-                let shouldCreate = self.bootstrapLock.withLock { flag in
-                    if flag {
-                        return false
-                    }
-                    flag = true
-                    return true
-                }
-                guard shouldCreate else { return }
-                defer { self.bootstrapLock.withLock { $0 = false } }
-                guard !self.hasBackgroundWriter else { return }
-                let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
-                self.attachBackgroundWriter(writer)
+                _ = await self.createAndAttachWriterIfNeeded()
             }
         }
         installDidSaveObserver()
@@ -156,7 +143,13 @@ final class CacheService: CacheServicing {
 
     /// Async bootstrap for call sites that can await before publishing.
     func bootstrapBackgroundWriterIfNeeded() async {
-        guard !inMemory, !hasBackgroundWriter, let container else { return }
+        _ = await createAndAttachWriterIfNeeded()
+    }
+
+    /// Consolidated test-and-set bootstrap: guards, lock, writer creation and attach.
+    /// Returns true when a new writer was attached, false when bootstrap was skipped.
+    private func createAndAttachWriterIfNeeded() async -> Bool {
+        guard !inMemory, !hasBackgroundWriter, let container else { return false }
         let shouldCreate = bootstrapLock.withLock { flag in
             if flag {
                 return false
@@ -164,11 +157,12 @@ final class CacheService: CacheServicing {
             flag = true
             return true
         }
-        guard shouldCreate else { return }
+        guard shouldCreate else { return false }
         defer { bootstrapLock.withLock { $0 = false } }
-        guard !hasBackgroundWriter else { return }
+        guard !hasBackgroundWriter else { return false }
         let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
         attachBackgroundWriter(writer)
+        return true
     }
 
     private static func errorCategory(_ error: Error) -> String {
@@ -224,9 +218,9 @@ final class CacheService: CacheServicing {
     }
 
     func withBatch(_ work: () -> Void) {
-        isBatching = true
+        batchDepth += 1
         defer {
-            isBatching = false
+            batchDepth -= 1
             saveContext()
         }
         work()
@@ -239,7 +233,7 @@ final class CacheService: CacheServicing {
 
     @discardableResult
     func saveContext() -> Bool {
-        guard !isBatching else { return true }
+        guard batchDepth == 0 else { return true }
         do {
             try trySaveContext()
             return true
@@ -361,7 +355,10 @@ func sharedGemCreditPrepare(
             assert(!Thread.isMainThread, "sharedGemCreditPrepare must be called off the main thread (BackgroundCacheActor)")
         }
     #endif
-    precondition(!Thread.isMainThread || TestEnvironment.isRunningUnitOrUITests, "sharedGemCreditPrepare must not run on the main thread")
+    if Thread.isMainThread, !TestEnvironment.isRunningUnitOrUITests {
+        assertionFailure("sharedGemCreditPrepare must not run on the main thread")
+        return false
+    }
     let familyName = ledger.family.recordID.recordName
     let recordName = ledger.id.recordName
     let profileRecordName = ledger.profileRecordName

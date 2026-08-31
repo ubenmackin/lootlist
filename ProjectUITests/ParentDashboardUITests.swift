@@ -13,7 +13,7 @@ final class ParentDashboardUITests: XCTestCase {
     /// family, so identifier suffixes are stable across runs.
     private static let mayaRecordName = "hero_maya"
     private static let leoRecordName = "hero_leo"
-    private static let pendingCompletionRecordName = "completion_3"
+    private static let pendingCompletionRecordName = "completion_maya_3"
 
     var app: XCUIApplication!
 

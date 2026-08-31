@@ -107,18 +107,23 @@ enum SampleData {
     static func createTemplatesAndQuests(boardClaims: Int = 0) -> SampleQuestData {
         let currentWeek = WeekMath.startOfWeek(for: Date(), payoutDay: .sunday)
 
-        let templatesData: [TemplateSeed] = [
+        let mayaTemplatesData: [TemplateSeed] = [
             TemplateSeed(name: "Tidy Room", desc: "Tidy bedroom floor", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .autoApprove),
             TemplateSeed(name: "Do Homework", desc: "30 minutes of homework", gold: 7.50, xp: 75, sched: .weeklyFlexible, approval: .autoApprove),
             TemplateSeed(name: "Help with Dishes", desc: "Load and unload dishwasher", gold: 4.50, xp: 45, sched: .weeklyFlexible, approval: .parentVerify)
+        ]
+
+        let leoTemplatesData: [TemplateSeed] = [
+            TemplateSeed(name: "Feed the Cat", desc: "Give fresh food and water to the cat", gold: 3.00, xp: 30, sched: .weeklyFlexible, approval: .autoApprove),
+            TemplateSeed(name: "Practice Reading", desc: "Read for 20 minutes", gold: 5.00, xp: 50, sched: .weeklyFlexible, approval: .parentVerify)
         ]
 
         var templates: [QuestTemplate] = []
         var quests: [Quest] = []
         var completions: [QuestCompletion] = []
 
-        for (index, item) in templatesData.enumerated() {
-            let tID = CKRecord.ID(recordName: "template_\(index + 1)", zoneID: zoneID)
+        for (index, item) in mayaTemplatesData.enumerated() {
+            let tID = CKRecord.ID(recordName: "template_maya_\(index + 1)", zoneID: zoneID)
             let templateRef = CKRecord.Reference(recordID: tID, action: .none)
 
             let template = QuestTemplate(
@@ -143,7 +148,7 @@ enum SampleData {
             quests.append(quest)
 
             if index < 2 {
-                let cID = CKRecord.ID(recordName: "completion_\(index + 1)", zoneID: zoneID)
+                let cID = CKRecord.ID(recordName: "completion_maya_\(index + 1)", zoneID: zoneID)
                 let comp = QuestCompletion(
                     quest: questRef, completedBy: hero1Ref,
                     approvalMode: .autoApprove, weekOf: currentWeek,
@@ -151,10 +156,46 @@ enum SampleData {
                 )
                 completions.append(comp)
             } else if item.approval == .parentVerify {
-                let cID = CKRecord.ID(recordName: "completion_\(index + 1)", zoneID: zoneID)
+                let cID = CKRecord.ID(recordName: "completion_maya_\(index + 1)", zoneID: zoneID)
                 let comp = QuestCompletion(
                     quest: questRef, completedBy: hero1Ref,
                     approvalMode: .parentVerify, weekOf: currentWeek,
+                    family: familyRef, id: cID
+                )
+                completions.append(comp)
+            }
+        }
+
+        for (index, item) in leoTemplatesData.enumerated() {
+            let tID = CKRecord.ID(recordName: "template_leo_\(index + 1)", zoneID: zoneID)
+            let templateRef = CKRecord.Reference(recordID: tID, action: .none)
+
+            let template = QuestTemplate(
+                name: item.name, description: item.desc,
+                defaultGold: item.gold, xpReward: item.xp,
+                scheduleType: item.sched, specificDays: [],
+                isAllOrNothing: false, approvalMode: item.approval,
+                createdBy: parentRef, family: familyRef, id: tID
+            )
+            templates.append(template)
+
+            let qID = CKRecord.ID(recordName: "quest_hero2_\(index + 1)", zoneID: zoneID)
+            let questRef = CKRecord.Reference(recordID: qID, action: .none)
+            let quest = Quest(
+                template: templateRef, assignee: hero2Ref,
+                goldReward: item.gold, xpReward: item.xp,
+                scheduleType: item.sched, isAllOrNothing: false,
+                approvalMode: item.approval, weekOf: currentWeek,
+                createdBy: parentRef, family: familyRef,
+                name: item.name, descriptionText: item.desc, id: qID
+            )
+            quests.append(quest)
+
+            if index == 0 {
+                let cID = CKRecord.ID(recordName: "completion_leo_\(index + 1)", zoneID: zoneID)
+                let comp = QuestCompletion(
+                    quest: questRef, completedBy: hero2Ref,
+                    approvalMode: .autoApprove, weekOf: currentWeek,
                     family: familyRef, id: cID
                 )
                 completions.append(comp)

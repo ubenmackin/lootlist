@@ -84,7 +84,7 @@ struct PayoutHistoryView: View {
     var body: some View {
         NavigationStack {
             contentList
-                .background(Color(.systemGroupedBackground).ignoresSafeArea())
+                .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
                 .navigationTitle("Payout History")
                 .navigationBarTitleDisplayMode(.large)
                 .toolbar {
@@ -136,7 +136,7 @@ struct PayoutHistoryView: View {
                 .sheet(isPresented: $showImportSheet) {
                     LedgerImportView(
                         importService: ledgerImportService,
-                        familyRecordName: familyRecordName
+                        familyRecordName: familyRecordName ?? appState.family?.id.recordName
                     )
                 }
                 .task {
@@ -172,14 +172,14 @@ struct PayoutHistoryView: View {
                 familyService: familyService,
                 appState: appState
             )
-        }, rebuild: { _ in rebuildFromCache() })
+        }, rebuild: { vm in rebuildFromCache(vm) })
     }
 
-    private func rebuildFromCache() {
+    private func rebuildFromCache(_ vm: FamilyDashboardViewModel? = nil) {
         // The `@Query` declarations above already filter by
         // `familyRecordName` at the SwiftData/SQLite layer, so we no longer
         // post-filter the cached rows in Swift. Pass them straight through.
-        viewModel?.rebuildLists(
+        (vm ?? viewModel)?.rebuildLists(
             profiles: cachedProfiles,
             quests: [],
             logs: [],
@@ -204,11 +204,11 @@ struct PayoutHistoryView: View {
                         payoutRow(period)
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(Color(.secondarySystemGroupedBackground))
+                    .listRowBackground(Color(DesignSystemConstants.Colors.cardSurface))
                 }
             }
             .listStyle(.insetGrouped)
-            .background(Color(.systemGroupedBackground))
+            .background(Color(DesignSystemConstants.Colors.background))
             .scrollContentBackground(.hidden)
         }
     }
@@ -289,7 +289,7 @@ struct PayoutHistoryView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
     }
 
     // MARK: - Export

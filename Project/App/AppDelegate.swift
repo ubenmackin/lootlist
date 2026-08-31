@@ -33,9 +33,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         registerBackgroundTasks()
-        // Local banners are surfaced by UNUserNotificationCenter, separate from the silent-push path handled
-        // in `didReceiveRemoteNotification`.
-        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
+        // Delegate is owned by `AppDependencies.notificationRouter`. If the
+        // container already exists (e.g., SwiftUI previews/tests), use it;
+        // otherwise the container sets the delegate on init.
+        if let router = AppDependencies.shared?.notificationRouter {
+            UNUserNotificationCenter.current().delegate = router
+        }
         return true
     }
 

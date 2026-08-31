@@ -39,7 +39,10 @@ struct ProgressBar: View {
 
     private var track: some View {
         GeometryReader { proxy in
-            let trackWidth = max(0, proxy.size.width)
+            let rawWidth = proxy.size.width
+            let trackWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0) ? rawWidth : 0
+            let fillWidth: CGFloat = trackWidth * CGFloat(currentFraction)
+            let safeFillWidth: CGFloat = (fillWidth.isFinite && fillWidth > 0) ? fillWidth : 0
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(trackFill)
@@ -47,7 +50,7 @@ struct ProgressBar: View {
 
                 Capsule()
                     .fill(tint)
-                    .frame(width: max(0, trackWidth * currentFraction), height: height)
+                    .frame(width: safeFillWidth, height: height)
                     .shadow(color: tint.opacity(0.45), radius: 4, y: 1)
             }
             .clipShape(Capsule())
@@ -67,8 +70,10 @@ struct ProgressBar: View {
     }
 
     private var fraction: Double {
-        guard maximum > 0 else { return 0 }
-        return min(max(value / maximum, 0.0), 1.0)
+        guard maximum > 0, maximum.isFinite, value.isFinite else { return 0 }
+        let rawFraction = value / maximum
+        guard rawFraction.isFinite else { return 0 }
+        return min(max(rawFraction, 0.0), 1.0)
     }
 
     private var currentFraction: Double {

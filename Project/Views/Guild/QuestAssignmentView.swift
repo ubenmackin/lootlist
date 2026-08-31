@@ -319,6 +319,8 @@ struct QuestAssignmentView: View {
 
             // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
             if FeatureFlags.rpgImmersive {
+                // WHY: numberPad XP field is gated behind FeatureFlags.rpgImmersive (default false) so
+                // no keyboard dismissal toolbar is needed; if the flag is re-enabled, add FocusState + toolbar.
                 HStack {
                     Text("Bonus Reward")
                         .foregroundStyle(editHasLogs ? .secondary : .primary)

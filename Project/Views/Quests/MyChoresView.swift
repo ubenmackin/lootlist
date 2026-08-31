@@ -100,13 +100,12 @@ struct MyChoresView: View {
         return result
     }
 
-    /// Quests that are active but have no pending review and are not completed
-    /// (available for the hero to complete).
+    /// Quests that are active and not currently awaiting review (including
+    /// recurring/flexible quests whose earlier completions have already paid out).
     private var upcomingQuests: [QuestCache] {
         let pendingQuestNames = Set(pendingReviewQuests.map(\.quest.recordName))
-        let completedQuestNames = Set(completedQuests.map(\.quest.recordName))
         return profileQuests.filter { quest in
-            !pendingQuestNames.contains(quest.recordName) && !completedQuestNames.contains(quest.recordName)
+            !pendingQuestNames.contains(quest.recordName)
         }
     }
 
@@ -148,12 +147,15 @@ struct MyChoresView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        HeroBoardView(familyRecordName: familyRecordName)
-                    } label: {
+                    NavigationLink(value: "heroBoard") {
                         Label("Hero Board", systemImage: "square.grid.2x2.fill")
                     }
                     .accessibilityIdentifier("chores.heroBoardLink")
+                }
+            }
+            .navigationDestination(for: String.self) { destination in
+                if destination == "heroBoard" {
+                    HeroBoardView(familyRecordName: familyRecordName)
                 }
             }
             .refreshable {

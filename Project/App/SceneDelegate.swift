@@ -9,10 +9,6 @@ import UIKit
 
 @MainActor
 final class SceneDelegate: NSObject, UIWindowSceneDelegate {
-    private var appState: AppState? {
-        AppDependencies.shared?.appState
-    }
-
     func scene(
         _: UIScene,
         willConnectTo _: UISceneSession,
@@ -25,9 +21,6 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
                 name: .quickActionTriggered,
                 object: type
             )
-        }
-        Task { [appState] in
-            await appState?.authStateMachine.send(.accountChanged)
         }
     }
 
@@ -44,9 +37,6 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
             completionHandler(true)
         } else {
             completionHandler(false)
-        }
-        Task { [appState] in
-            await appState?.authStateMachine.transition(.accountChanged)
         }
     }
 }

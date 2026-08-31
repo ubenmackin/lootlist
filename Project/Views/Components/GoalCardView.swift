@@ -106,6 +106,8 @@ struct GoalCardView: View {
 
             // Progress bar
             GeometryReader { geometry in
+                let rawWidth = geometry.size.width
+                let fillWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0 && progress.isFinite) ? rawWidth * CGFloat(min(max(progress, 0), 1)) : 0
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15))
@@ -113,7 +115,7 @@ struct GoalCardView: View {
 
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(Color(DesignSystemConstants.Colors.primaryGreen))
-                        .frame(width: max(0, geometry.size.width * progress), height: 8)
+                        .frame(width: fillWidth, height: 8)
                 }
             }
             .frame(height: 8)

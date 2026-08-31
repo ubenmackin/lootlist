@@ -165,6 +165,12 @@ struct HeroHeaderCardView: View {
                 }
 
                 GeometryReader { geo in
+                    let rawWidth = geo.size.width
+                    let trackWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0) ? rawWidth : 0
+                    let rawProgress = CGFloat(levelProgress?.progress ?? 0)
+                    let safeProgress: CGFloat = (rawProgress.isFinite && rawProgress > 0) ? min(rawProgress, 1) : 0
+                    let fillWidth = trackWidth * safeProgress
+                    let safeFillWidth: CGFloat = (fillWidth.isFinite && fillWidth > 0) ? fillWidth : 0
                     ZStack(alignment: .leading) {
                         Capsule()
                             .fill(Color(.tertiarySystemFill))
@@ -175,7 +181,7 @@ struct HeroHeaderCardView: View {
                                 startPoint: .leading,
                                 endPoint: .trailing
                             ))
-                            .frame(width: max(0, geo.size.width * CGFloat(levelProgress?.progress ?? 0)))
+                            .frame(width: safeFillWidth)
                             .animation(.spring(response: 0.6, dampingFraction: 0.8), value: levelProgress?.progress)
                     }
                 }

@@ -35,7 +35,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
         }
         set {
             mockStore.clear()
-            let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
+            let scope: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: activeIsOwner)
             for (_, record) in newValue {
                 mockStore.setRecord(record, databaseScope: scope)
             }
@@ -73,7 +73,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func seedMockRecords(_ models: [any CloudKitRecord], creatorUserRecordName: String?) {
-        let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
+        let scope: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: activeIsOwner)
         for model in models {
             let record = model.toRecord()
             mockStore.setRecord(record, databaseScope: scope)
@@ -105,7 +105,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
         if let saveError {
             throw saveError
         }
-        let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+        let scope: CKDatabase.Scope = db?.databaseScope ?? (DatabaseScopeResolver.scope(isOwner: activeIsOwner))
         let source = entity.toRecord()
         let zone = zoneID ?? activeFamilyZoneID ?? CKRecordZone.default().zoneID
         let targetID: CKRecord.ID = (source.recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName) ? source.recordID : CKRecord.ID(
@@ -148,7 +148,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
         if let saveError {
             throw saveError
         }
-        let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+        let scope: CKDatabase.Scope = db?.databaseScope ?? (DatabaseScopeResolver.scope(isOwner: activeIsOwner))
         let source = event.toRecord()
         let zone = zoneID ?? activeFamilyZoneID ?? CKRecordZone.default().zoneID
         let targetID = source.recordID.zoneID.zoneName == CKRecordZone.default().zoneID.zoneName ? CKRecord.ID(recordName: source.recordID.recordName, zoneID: zone) : source
@@ -233,7 +233,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func delete(_ recordID: CKRecord.ID, in zoneID: CKRecordZone.ID? = nil, using db: CKDatabase? = nil) async throws {
-        let scope: CKDatabase.Scope = db?.databaseScope ?? (activeIsOwner ? .private : .shared)
+        let scope: CKDatabase.Scope = db?.databaseScope ?? (DatabaseScopeResolver.scope(isOwner: activeIsOwner))
         let targetID: CKRecord.ID = {
             if recordID.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName {
                 return recordID
@@ -253,7 +253,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
     func ensureZoneExists(_: CKRecordZone.ID) async throws {}
 
     func createShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
-        let scope: CKDatabase.Scope = activeIsOwner ? .private : .shared
+        let scope: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: activeIsOwner)
         let root = mockStore.getRecord(recordID: rootRecordID, databaseScope: scope) ?? CKRecord(recordType: Family.recordType, recordID: rootRecordID)
         let share = CKShare(rootRecord: root)
         share[CKShare.SystemFieldKey.title] = "\(root["name"] as? String ?? "Family Guild")\(role.shareTitleSuffix)"

@@ -27,6 +27,8 @@ struct LogSpendingIntent: AppIntent, Sendable {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        // Intent process boundary — resolve via `AppDependencies.shared` shim;
+        // fail closed when the app container is not running.
         guard let dep = AppDependencies.shared,
               let profile = dep.appState.currentProfile,
               let family = dep.appState.family

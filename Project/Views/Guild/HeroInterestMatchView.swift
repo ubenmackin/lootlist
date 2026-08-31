@@ -37,7 +37,6 @@ struct HeroInterestMatchView: View {
     @State private var matchCapDollars: String
 
     @State private var isSaving: Bool = false
-    @FocusState private var isRateFocused: Bool
     @FocusState private var isCapFocused: Bool
 
     init(hero: ProfileCache, familyRecordName: String? = nil) {

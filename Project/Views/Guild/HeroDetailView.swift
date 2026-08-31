@@ -73,17 +73,17 @@ struct HeroDetailView: View {
         .navigationDestination(item: $activeDestination) { destination in
             switch destination {
             case .quests:
-                QuestLogView(initialHero: hero, familyRecordName: familyRecordName)
+                QuestLogView(initialHero: hero, familyRecordName: familyRecordName ?? appState.family?.id.recordName)
                     .environment(questService)
                     .environment(familyService)
                     .environment(appState)
                     .environment(appSyncCoordinator)
             case .treasury:
-                HeroLedgerView(hero: hero, familyRecordName: familyRecordName, spending: spending)
+                HeroLedgerView(hero: hero, familyRecordName: familyRecordName ?? appState.family?.id.recordName, spending: spending)
                     .environment(appState)
             case .savingsGoals:
                 KidsSavingsGoalsView(
-                    familyRecordName: familyRecordName,
+                    familyRecordName: familyRecordName ?? appState.family?.id.recordName,
                     focusedProfileRecordName: hero.recordName
                 )
                 .environment(appState)

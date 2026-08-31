@@ -62,7 +62,7 @@ final class HeroDashboardUITests: XCTestCase {
 
         // The parentVerify quest is complete but unreviewed under the seed;
         // its completion drives the amber pending-review row.
-        let pendingRow = element(withIdentifier: "hub.choreRow-completion_3")
+        let pendingRow = element(withIdentifier: "hub.choreRow-completion_maya_3")
         XCTAssertTrue(pendingRow.waitForExistence(timeout: 5.0), "Chore awaiting parent review should render in the pending-review state")
     }
 

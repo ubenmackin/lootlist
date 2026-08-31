@@ -63,6 +63,13 @@ struct NotificationServiceTests {
         )
     }
 
+    private struct StubWeeklySummaryProvider: WeeklySummaryProviding, Sendable {
+        let text: String?
+        func summary(profile _: Profile, family _: Family, weekOf _: Date) async -> String? {
+            text
+        }
+    }
+
     @Test
     func `updatePreference writes through to cache and cloudkit`() async throws {
         guard await Self.iCloudAccountAvailable() else {
@@ -592,5 +599,164 @@ struct NotificationServiceTests {
 
         await service.updateAppBadgeCount(pendingCount: 3)
         #expect(service.currentAppBadgeCount == 0, "When clear on launch is enabled, badge count should be cleared to 0")
+    }
+
+    @Test
+    func `sendQuestNeedsReview coalesces identical deterministic identifiers and replaces pending request`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let hero = makeProfile(zoneID: zoneID)
+        let family = makeFamily(zoneID: zoneID)
+        app.currentProfile = hero
+        app.family = family
+
+        let parent = Profile(
+            displayName: "Parent User",
+            avatarClass: .mage,
+            avatarPresetID: "mage_01",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "u2", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+        )
+
+        let pref = NotificationPreference(
+            profile: CKRecord.Reference(recordID: parent.id, action: .none),
+            eventType: .questNeedsReview,
+            enabled: true,
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
+        )
+        await cache.upsertNotificationPreference(pref)
+        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
+
+        let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        let questRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "quest1", zoneID: zoneID), action: .none)
+        let heroRef = CKRecord.Reference(recordID: hero.id, action: .none)
+        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+        let log = QuestCompletion(
+            quest: questRef,
+            completedBy: heroRef,
+            approvalMode: .parentVerify,
+            weekOf: Date(),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "log-coalesce-1", zoneID: zoneID)
+        )
+
+        try await service.sendQuestNeedsReview(questLog: log, to: parent)
+        try await service.sendQuestNeedsReview(questLog: log, to: parent)
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let expectedIdentifier = "\(NotificationEventType.questNeedsReview.rawValue):\(parent.id.recordName):\(log.id.recordName)"
+        let matching = pending.filter { $0.identifier == expectedIdentifier }
+        #expect(matching.count == 1, "Two identical sendQuestNeedsReview calls must produce identical identifier and coalesce to one pending request")
+        #expect(pending.filter { $0.identifier.hasPrefix("questNeedsReview:") }.count == 1, "Second add should replace first so exactly one Needs Review request remains")
+
+        // Explicit dismissal hook removes the pending coalesced banner.
+        service.removePendingNotificationRequests(withIdentifier: expectedIdentifier)
+        let afterRemoval = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        #expect(afterRemoval.filter { $0.identifier == expectedIdentifier }.isEmpty, "removePendingNotificationRequests should dismiss the coalesced banner")
+    }
+
+    @Test
+    func `sendWeeklySummary uses injected weeklySummaryProvider`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let profile = makeProfile(zoneID: zoneID)
+        let family = makeFamily(zoneID: zoneID)
+        app.currentProfile = profile
+        app.family = family
+
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "weeklySummaryNotificationsEnabled")
+
+        let stubText = "Stub weekly summary — 5 quests completed"
+        let stubProvider = StubWeeklySummaryProvider(text: stubText)
+        let service = NotificationService(
+            cloudKit: ck,
+            appState: app,
+            cacheService: cache,
+            weeklySummaryProvider: stubProvider,
+            defaults: defaults
+        )
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        try await service.sendWeeklySummary(to: profile, family: family, weekOf: Date())
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let deliveredNotifications = await UNUserNotificationCenter.current().deliveredNotifications()
+        let request = pending.first(where: { $0.identifier.hasPrefix("\(NotificationEventType.goldEarned.rawValue):") })
+            ?? deliveredNotifications.first(where: { $0.request.identifier.hasPrefix("\(NotificationEventType.goldEarned.rawValue):") })?.request
+        let body = try #require(request?.content.body)
+        #expect(body == stubText)
+    }
+
+    @Test
+    func `sendWeeklySummary falls back to default when provider returns nil`() async throws {
+        guard await Self.iCloudAccountAvailable() else {
+            print("SKIPPED: no iCloud account on simulator (sync engine would hang)")
+            return
+        }
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true, defaults: defaults)
+        let app = AppState(defaults: defaults)
+        let profile = makeProfile(zoneID: zoneID)
+        let family = makeFamily(zoneID: zoneID)
+        app.currentProfile = profile
+        app.family = family
+
+        defaults.set(true, forKey: "masterNotificationsEnabled")
+        defaults.set(true, forKey: "weeklySummaryNotificationsEnabled")
+
+        let stubProvider = StubWeeklySummaryProvider(text: nil)
+        let service = NotificationService(
+            cloudKit: ck,
+            appState: app,
+            cacheService: cache,
+            weeklySummaryProvider: stubProvider,
+            defaults: defaults
+        )
+
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        defer { UNUserNotificationCenter.current().removeAllPendingNotificationRequests() }
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+
+        try await service.sendWeeklySummary(to: profile, family: family, weekOf: Date())
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let deliveredNotifications = await UNUserNotificationCenter.current().deliveredNotifications()
+        let request = pending.first(where: { $0.identifier.hasPrefix("\(NotificationEventType.goldEarned.rawValue):") })
+            ?? deliveredNotifications.first(where: { $0.request.identifier.hasPrefix("\(NotificationEventType.goldEarned.rawValue):") })?.request
+        let body = try #require(request?.content.body)
+        #expect(body == "Your weekly allowance is ready!")
     }
 }

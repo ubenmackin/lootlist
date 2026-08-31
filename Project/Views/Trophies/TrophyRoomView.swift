@@ -281,6 +281,12 @@ struct TrophyHeaderCardView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 GeometryReader { geo in
+                    let rawWidth = geo.size.width
+                    let trackWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0) ? rawWidth : 0
+                    let rawProgress = CGFloat(progressRatio)
+                    let safeProgress: CGFloat = (rawProgress.isFinite && rawProgress > 0) ? min(rawProgress, 1) : 0
+                    let fillWidth = trackWidth * safeProgress
+                    let safeFillWidth: CGFloat = (fillWidth.isFinite && fillWidth > 0) ? fillWidth : 0
                     ZStack(alignment: .leading) {
                         Capsule()
                             .fill(Color.secondary.opacity(0.15))
@@ -292,7 +298,7 @@ struct TrophyHeaderCardView: View {
                                 startPoint: .leading,
                                 endPoint: .trailing
                             ))
-                            .frame(width: geo.size.width * progressRatio, height: 8)
+                            .frame(width: safeFillWidth, height: 8)
                     }
                 }
                 .frame(height: 8)

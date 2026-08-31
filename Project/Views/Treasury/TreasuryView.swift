@@ -142,10 +142,10 @@ struct TreasuryView: View {
                 spending: spending,
                 appState: appState
             )
-        }, rebuild: { _ in rebuild() })
+        }, rebuild: { vm in rebuild(vm) })
     }
 
-    private func rebuild() {
+    private func rebuild(_ vm: TreasuryViewModel? = nil) {
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
         // Filter family-scoped cached records for the active hero profile.
@@ -154,7 +154,7 @@ struct TreasuryView: View {
         let quests = cachedQuests.filter { $0.assigneeRecordName == profileName }
         let allowancePeriods = cachedAllowancePeriods.filter { $0.profileRecordName == profileName }
 
-        viewModel?.rebuildLists(
+        (vm ?? viewModel)?.rebuildLists(
             logs: logs,
             ledgers: ledgers,
             quests: quests,

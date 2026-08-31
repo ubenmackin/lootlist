@@ -9,7 +9,8 @@ import CloudKit
 import Foundation
 import os
 
-/// V1 Trophy Spec (12) — canonical source for AchievementRequirement.
+/// V1 Trophy Spec (12) — canonical source for AchievementRequirement. Must stay in sync with ARCHITECTURE.md §1 (quest-count tiers + First Goal Created + Goal Getter);
+/// TrophyRoomViewModel builds its canonical lookup via `requirementTypeEnum?.rawValue ?? recordName`.
 enum AchievementRequirement: String, CaseIterable, Codable, Sendable {
     case firstQuest
     case questCount10
@@ -126,7 +127,7 @@ final class AchievementService {
         if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
             let cachedIDs = Set(cached.map(\.recordName))
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            let scope: CKDatabase.Scope = appState.activeDatabaseScope
             if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope, cachedCount: cached.count),
                defaults.allSatisfy({ cachedIDs.contains($0.id.recordName) })
             {
@@ -318,7 +319,7 @@ final class AchievementService {
         // WHY: optimistic seeds must ride the sanctioned ingest door (hydrateFromQuery) so
         // SerialMutationQueue serializes writes and encodedSystemFields are preserved; detached Tasks would race.
         if let handler = syncCoordinator?.delegateHandler {
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             await handler.hydrateFromQuery(models: defaults, databaseScope: scope, zoneID: family.id.zoneID)
             if appState?.currentProfile?.role.isParent == true {
                 ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
@@ -350,7 +351,7 @@ final class AchievementService {
         let familyName = family.id.recordName
         if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
             }
@@ -362,7 +363,7 @@ final class AchievementService {
             if !results.isEmpty {
                 await syncCoordinator?.delegateHandler.hydrateFromQuery(
                     models: results,
-                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
                     zoneID: family.id.zoneID
                 )
                 return results
@@ -418,7 +419,7 @@ final class AchievementService {
             )
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: results,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
                 zoneID: profile.id.zoneID
             )
             return results
@@ -643,7 +644,7 @@ private extension AchievementService {
             )
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: questLogs,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
                 zoneID: zoneID
             )
             return questLogs.filter {
@@ -697,7 +698,7 @@ private extension AchievementService {
             )
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: ledger,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
                 zoneID: zoneID
             )
             return ledger
@@ -744,7 +745,7 @@ private extension AchievementService {
             let results = try await cloudKit.query(Goal.self, predicate: predicate, in: zoneID)
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: results,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
                 zoneID: zoneID
             )
             return results
@@ -773,7 +774,7 @@ private extension AchievementService {
 
         if let cache = cacheService {
             let cachedQuests = cache.fetchQuests(family: familyName)
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: cachedQuests.count) {
                 for questCacheRow in cachedQuests {
                     let questObj = questCacheRow.toQuest(zoneID: zoneID)
@@ -797,7 +798,7 @@ private extension AchievementService {
             }
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: assignedQuests,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
                 zoneID: zoneID
             )
         } catch {
@@ -818,7 +819,7 @@ private extension AchievementService {
         if !fetchedMissing.isEmpty {
             await syncCoordinator?.delegateHandler.hydrateFromQuery(
                 models: fetchedMissing,
-                databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                databaseScope: appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false),
                 zoneID: zoneID
             )
         }

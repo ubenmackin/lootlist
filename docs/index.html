@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Loot List — Family Chore & Allowance RPG Tracker for iOS</title>
-  <meta name="description" content="Turn daily chores into heroic quests and allowance into real-time gold. Loot List is a family iOS app powered by CloudKit sync and RPG gamification.">
-  <meta name="keywords" content="chore tracker, allowance app, family sync, iOS app, CloudKit, gamified chores, kids allowance">
-  
+  <title>Loot List — Family Chore & Allowance Tracker for iOS | Buckets, Goals & Allowance</title>
+  <meta name="description" content="Family chore and allowance tracker for iOS. SwiftData cache + CloudKit private sync, 3 buckets (Spend / Short Term Save / Long Term Save), FIFO goals, and a weekly payout cycle.">
+  <meta name="keywords" content="chore tracker, allowance app, family allowance, buckets, goals, FIFO, weekly payout, iOS app, SwiftData, CloudKit, private sync">
+
   <!-- Open Graph / Social Media -->
-  <meta property="og:title" content="Loot List — Family Chore & Allowance RPG Tracker">
-  <meta property="og:description" content="Turn chores into quests. Allowance into gold. Real-time family iCloud sync.">
+  <meta property="og:title" content="Loot List — Family Chore & Allowance Tracker for iOS | Buckets, Goals & Allowance">
+  <meta property="og:description" content="Family chore and allowance tracker for iOS. SwiftData cache + CloudKit private sync, 3 buckets (Spend / Short Term Save / Long Term Save), FIFO goals, and a weekly payout cycle.">
   <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/appicon.png">
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -25,18 +26,18 @@
   <!-- Navigation Header -->
   <header class="site-header" id="site-header">
     <div class="container">
-      <nav class="nav-wrapper">
+      <nav class="nav-wrapper" aria-label="Primary navigation">
         <a href="#" class="brand-logo">
           <img src="assets/appicon.png" alt="Loot List Icon" class="brand-icon-img">
           <span>Loot List</span>
         </a>
 
-        <button class="mobile-toggle" aria-label="Toggle Navigation">☰</button>
+        <button class="mobile-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primary-nav">☰</button>
 
-        <ul class="nav-links">
+        <ul class="nav-links" id="primary-nav">
           <li><a href="#features">Features</a></li>
           <li><a href="#showcase">Screenshots</a></li>
-          <li><a href="#roles">Guild & Heroes</a></li>
+          <li><a href="#roles">Roles</a></li>
           <li><a href="#faq">FAQ</a></li>
           <li><a href="https://github.com/ubenmackin/lootlist/issues" target="_blank" rel="noopener">Contact</a></li>
         </ul>
@@ -52,11 +53,11 @@
         <!-- Hero Text -->
         <div class="hero-content">
           <div class="badge-tag">
-            <span>🛡️</span> Family RPG Chore & Allowance Tracker
+            <span>🛡️</span> Family Chore & Allowance Tracker — iCloud Private
           </div>
-          <h1>Turn Chores into <span class="text-gradient">Quests</span>. Allowance into <span class="text-gold">Gold</span>.</h1>
+          <h1>Chores into Progress. Allowance into Savings.</h1>
           <p class="hero-subtitle">
-            Empower your family with real-time iCloud sync, gamified chore tracking, and automatic allowance management. Parents become Guild Masters, kids become Heroes.
+            Guild Masters set the plan — Heroes complete Quests. Track momentum with progress rings, haptics and celebrations, and allocate every payout across buckets and FIFO goals.
           </p>
 
           <div class="hero-cta-group">
@@ -64,22 +65,22 @@
               Get Loot List for iOS
             </a>
             <a href="#showcase" class="btn btn-secondary">
-              Explore Gameplay
+              See How It Works
             </a>
           </div>
 
           <div class="hero-stats">
             <div class="stat-item">
               <div class="stat-num">CloudKit ☁️</div>
-              <div class="stat-label">Shared Family Sync</div>
+              <div class="stat-label">Shared Database Sync</div>
             </div>
             <div class="stat-item">
               <div class="stat-num">iOS 26+</div>
               <div class="stat-label">Native SwiftUI</div>
             </div>
             <div class="stat-item">
-              <div class="stat-num">Zero Server</div>
-              <div class="stat-label">100% iCloud Private</div>
+              <div class="stat-num">Private iCloud Zone</div>
+              <div class="stat-label">Zero Server · Encrypted</div>
             </div>
           </div>
         </div>
@@ -88,11 +89,11 @@
         <div class="hero-mockup-wrapper">
           <div class="phone-frame primary">
             <div class="phone-notch"></div>
-            <img src="assets/screenshots/hero_quests.png" alt="Loot List Hero Quests View" class="phone-screen">
+            <img src="assets/screenshots/hero_quests.png" alt="Child Hub — quest board, today's chores, progress ring" class="phone-screen">
           </div>
           <div class="phone-frame secondary">
             <div class="phone-notch"></div>
-            <img src="assets/screenshots/treasury.png" alt="Loot List Treasury View" class="phone-screen">
+            <img src="assets/screenshots/hero_treasury.png" alt="Child dashboard — buckets, goals, progress rings" class="phone-screen">
           </div>
         </div>
       </div>
@@ -103,38 +104,52 @@
   <section class="features-section" id="features">
     <div class="container">
       <div class="section-header">
-        <div class="badge-tag">Core Mechanics</div>
-        <h2>Designed for Real Families, Built Like an RPG</h2>
-        <p>Replace nagging with motivation. Every chore is an opportunity for kids to earn loot and build habits.</p>
+        <div class="badge-tag">How It Works</div>
+        <h2>Built for real allowance — not fantasy currency</h2>
+        <p>SwiftData is the instant UI source of truth and CloudKit is the cloud system of record. Every payout is real currency, allocated — never subtracted.</p>
       </div>
 
       <div class="features-grid">
-        <!-- Feature 1 -->
+        <!-- Feature 1: Chores & Approvals -->
         <div class="feature-card">
-          <div class="feature-icon">⚔️</div>
-          <h3>Daily Quests & Completed Chores</h3>
-          <p>Parents assign daily or recurring chores as quests. Kids mark chores as "Completed" to claim their earned Gold.</p>
+          <div class="feature-icon">✅</div>
+          <h3>Chores & Approvals</h3>
+          <p>Quests use <strong>Auto-Approve</strong> or <strong>Parent Verify</strong> per template or per Quest. Completions move through <strong>pending → verified / rejected / withdrawn</strong> and parents are notified on pending.</p>
         </div>
 
-        <!-- Feature 2 -->
+        <!-- Feature 2: Buckets -->
         <div class="feature-card">
-          <div class="feature-icon">📜</div>
-          <h3>Scroll of Spending & Ledger</h3>
-          <p>Track real-time balances, payout histories, and manual spending entries—with optional Apple Card FinanceKit integration.</p>
+          <div class="feature-icon">🪣</div>
+          <h3>Buckets</h3>
+          <p>Exactly three — <strong>Spend / Short Term Save / Long Term Save</strong>. Split percentages apply to <strong>future payouts and deposits only</strong>; existing balances never rebalance retroactively.</p>
         </div>
 
-        <!-- Feature 3 -->
+        <!-- Feature 3: Goals & FIFO -->
         <div class="feature-card">
-          <div class="feature-icon">☁️</div>
-          <h3>CloudKit Shared Sync</h3>
-          <p>Instant push notifications and real-time family database updates using Apple's native CloudKit technology. Zero extra accounts needed.</p>
+          <div class="feature-icon">🎯</div>
+          <h3>Goals & FIFO</h3>
+          <p>Goals fill FIFO inside their bucket: the <strong>oldest incomplete, non-archived goal fills first</strong>, overflow cascades to the next, and surplus past all goals stays unallocated. Progress and pacing at a glance.</p>
         </div>
 
-        <!-- Feature 4 -->
+        <!-- Feature 4: Allowance & Payouts -->
         <div class="feature-card">
-          <div class="feature-icon">🔥</div>
-          <h3>Combo Streaks & Loot Drops</h3>
-          <p>Keep the momentum going with daily combo multipliers, weekly Sunday Loot Day payouts, and custom trophy room unlocks.</p>
+          <div class="feature-icon">📅</div>
+          <h3>Allowance & Payouts</h3>
+          <p><strong>WeekMath</strong> owns every week as a payout-day-aware half-open <strong>[start, end)</strong>. <strong>AllowancePeriod .paid</strong> is the atomic skip-guard against double runs; <strong>realTime</strong> settling credits completions immediately, period closure happens only in runPayout.</p>
+        </div>
+
+        <!-- Feature 5: Trophy Room -->
+        <div class="feature-card">
+          <div class="feature-icon">🏆</div>
+          <h3>Trophy Room</h3>
+          <p>Achievements from <strong>quest-count tiers plus goal-based milestones</strong> — including First Goal Created and Goal Getter — plus streak badges. No XP or levels are shown; requirement text is computed at render time.</p>
+        </div>
+
+        <!-- Feature 6: Private iCloud Sync -->
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3>Private iCloud Sync</h3>
+          <p><strong>CloudKit Shared Database</strong> via <strong>CKSyncEngine</strong>. Server → cache writes ride <strong>BackgroundCacheActor ingest</strong> with single-save batches. Shares use <strong>.none publicPermission</strong> — families join only by explicit <strong>readWrite</strong> invite, roles decoded from the share title.</p>
         </div>
       </div>
     </div>
@@ -146,31 +161,33 @@
       <div class="section-header">
         <div class="badge-tag">Interface Preview</div>
         <h2>See Loot List in Action</h2>
-        <p>Designed natively for iPhone with rich animations, clear typography, and intuitive views for parents and kids.</p>
+        <p>Native iPhone views for every role — clear typography, progress rings, and haptics. Detailed tab content coming next.</p>
       </div>
 
-      <div class="showcase-tabs">
-        <button class="tab-btn active" data-tab="hero">Hero View</button>
-        <button class="tab-btn" data-tab="treasury">Treasury & Ledger</button>
-        <button class="tab-btn" data-tab="trophies">Hall of Heroes</button>
-        <button class="tab-btn" data-tab="guildmaster">Parent Guild Dashboard</button>
+      <div class="showcase-tabs" role="tablist" aria-label="App screenshots">
+        <button class="tab-btn active" data-tab="childHub" role="tab" aria-selected="true">Child Hub</button>
+        <button class="tab-btn" data-tab="goals" role="tab" aria-selected="false">Goals</button>
+        <button class="tab-btn" data-tab="treasury" role="tab" aria-selected="false">Treasury</button>
+        <button class="tab-btn" data-tab="trophies" role="tab" aria-selected="false">Trophy Room</button>
+        <button class="tab-btn" data-tab="guild" role="tab" aria-selected="false">Family Dashboard</button>
+        <button class="tab-btn" data-tab="payouts" role="tab" aria-selected="false">Payout History</button>
       </div>
 
       <div class="showcase-display">
         <div class="showcase-info">
-          <h3 id="showcase-title">Hero Quests & Completed Chores</h3>
-          <p id="showcase-desc">Kids earn Gold for every quest completed. Configurable approval modes allow auto-payouts or parent verification for high-reward quests.</p>
+          <h3 id="showcase-title">Child Hub — Balance, Buckets & Today's Chores</h3>
+          <p id="showcase-desc">The Hero's home base: balance card, three bucket tiles, weekly progress ring, today's chores, and the FIFO top goal with Log a Purchase always within reach. Earnings are allocated to buckets and goals — never shown as fantasy currency.</p>
           <ul class="showcase-bullets" id="showcase-bullets">
-            <li>Interactive daily quest board with progress bars</li>
-            <li>Mark quests as Completed with satisfying haptics</li>
-            <li>Combo streaks double gold rewards for consistency</li>
+            <li>Balance card and Spend / Short Term Save / Long Term Save tiles update instantly via SwiftData cache</li>
+            <li>Progress ring tracks weekly chore momentum; completions celebrate with haptics & celebration overlay</li>
+            <li>Today's chores plus the oldest incomplete FIFO goal surface the next action; Log a Purchase CTA stays visible</li>
           </ul>
         </div>
 
         <div class="showcase-phone-center">
           <div class="phone-frame">
             <div class="phone-notch"></div>
-            <img src="assets/screenshots/hero_quests.png" alt="Hero Quests" id="showcase-img" class="phone-screen">
+            <img src="assets/screenshots/child_dashboard.png" alt="Child Hub — balance card, bucket tiles, progress ring, today's chores, FIFO top goal, Log a Purchase" id="showcase-img" class="phone-screen">
           </div>
         </div>
       </div>
@@ -182,8 +199,8 @@
     <div class="container">
       <div class="section-header">
         <div class="badge-tag">Family Roles</div>
-        <h2>Tailored Experience for Guild Masters & Heroes</h2>
-        <p>Whether you're managing the household treasury or completing daily quests, Loot List offers a dedicated interface.</p>
+        <h2>Three roles. One shared zone.</h2>
+        <p>Role drives which database every operation targets — and which privileged mutations are allowed. Sensitive checks re-resolve the owner fresh every time.</p>
       </div>
 
       <div class="roles-grid">
@@ -192,16 +209,32 @@
           <div class="role-header">
             <div class="role-avatar-badge">👑</div>
             <div>
-              <h3>Guild Master & Rangers</h3>
-              <span>Parents / Family Admins</span>
+              <h3>Guild Master</h3>
+              <span>Owner · Private Database</span>
             </div>
           </div>
-          <p>Full control over family quests, allowance rules, and verification settings.</p>
+          <p>The family creator. Holds the private zone and the server-stamped <strong>Family.creatorUserRecordName</strong> owner anchor.</p>
           <ul>
-            <li>Create & schedule recurring quest templates</li>
-            <li>Set verification requirements (Auto-Approve or Parent Verify)</li>
-            <li>Manage weekly Sunday Loot Day automated payouts</li>
-            <li>Invite family members effortlessly via iCloud</li>
+            <li><strong>Owner-anchored (irreversible):</strong> deleteFamilyAndReset, updateMemberRole, kickMember — require isFamilyOwner, deny-by-default when unresolved</li>
+            <li><strong>Reversible owner OR parent:</strong> updateFamilyName, updatePayoutDay, updatePayoutPolicy</li>
+            <li>Mints role-targeted invites (Hero / Co-Parent) with .none publicPermission</li>
+          </ul>
+        </div>
+
+        <!-- Ranger Card -->
+        <div class="role-card" style="border-top: 4px solid var(--accent-emerald);">
+          <div class="role-header">
+            <div class="role-avatar-badge" style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3);">🛡️</div>
+            <div>
+              <h3>Ranger</h3>
+              <span>Co-Parent · Shared Database</span>
+            </div>
+          </div>
+          <p>Trusted co-parent with shared-database access. Can manage day-to-day policy without holding the owner anchor.</p>
+          <ul>
+            <li><strong>Allowed:</strong> updateFamilyName, updatePayoutDay, updatePayoutPolicy (owner OR parent)</li>
+            <li><strong>Allowed:</strong> Quest verification, payout finalization, interest/match configuration, ledger export/import (parent role)</li>
+            <li><strong>Not allowed:</strong> deleteFamilyAndReset, updateMemberRole, kickMember — owner anchor only</li>
           </ul>
         </div>
 
@@ -210,16 +243,15 @@
           <div class="role-header">
             <div class="role-avatar-badge">⚔️</div>
             <div>
-              <h3>Adventurer Heroes</h3>
-              <span>Kids / Family Members</span>
+              <h3>Hero</h3>
+              <span>Participant · Shared Database</span>
             </div>
           </div>
-          <p>Fun, motivating quest board focused on earning gold and achieving goals.</p>
+          <p>Participant view focused on progress — complete Quests, allocate to buckets, and fill FIFO goals. No privileged family mutations.</p>
           <ul>
-            <li>Mark quests as Completed to earn real-time Gold</li>
-            <li>Track personal savings and spending in the Treasury</li>
-            <li>Unlock badges and trophies in the Hall of Heroes</li>
-            <li>Build daily combo streaks for bonus multiplier drops</li>
+            <li>Complete Quests and track approval state (pending / verified / rejected / withdrawn)</li>
+            <li>Manage own buckets and goals; unallocated surplus stays in the bucket</li>
+            <li>Earn Trophy Room achievements and streak badges — no XP or level display</li>
           </ul>
         </div>
       </div>
@@ -237,42 +269,62 @@
 
       <div class="faq-list">
         <div class="faq-item">
-          <button class="faq-question">
+          <button class="faq-question" aria-expanded="false">
             <span>How does family synchronization work?</span>
             <span class="faq-icon">+</span>
           </button>
           <div class="faq-answer">
-            <p>Loot List uses Apple's native CloudKit Shared Database technology. The parent creates a family zone and invites family members via iCloud. All data syncs in real-time securely with zero third-party servers.</p>
+            <p>Loot List uses <strong>SwiftData as the local cache</strong> and <strong>CloudKit Shared Database + CKSyncEngine</strong> as the cloud system of record. The Guild Master creates a private custom zone and invites members via explicit readWrite shares (.none publicPermission). All writes go through CacheService + enqueueSave/enqueueDelete and inbound records ride BackgroundCacheActor ingest; freshness watermarks keep views authoritative.</p>
           </div>
         </div>
 
         <div class="faq-item">
-          <button class="faq-question">
+          <button class="faq-question" aria-expanded="false">
             <span>Do kids need their own Apple ID?</span>
             <span class="faq-icon">+</span>
           </button>
           <div class="faq-answer">
-            <p>Yes, kids sign in with their iCloud account (including Family Sharing child accounts). Once invited, they select their character avatar and join the family guild.</p>
+            <p>Yes, each member signs in with their own iCloud account (including Family Sharing child accounts). After accepting an explicit invite, they pick an avatar emoji and join the shared zone as a Hero or Ranger.</p>
           </div>
         </div>
 
         <div class="faq-item">
-          <button class="faq-question">
-            <span>Can parents approve chores before gold is paid out?</span>
+          <button class="faq-question" aria-expanded="false">
+            <span>Can parents approve chores before allowance is credited?</span>
             <span class="faq-icon">+</span>
           </button>
           <div class="faq-answer">
-            <p>Absolutely. Each quest template can be set to either <strong>Auto-Approve</strong> (gold paid immediately when completed) or <strong>Parent Verify</strong> (pending parent review in the Guild Master dashboard).</p>
+            <p>Absolutely. Each Quest template — and each individual Quest — can be set to <strong>Auto-Approve</strong> (credited on completion) or <strong>Parent Verify</strong> (stays pending until a parent verifies, rejects, or the child withdraws). Parents are notified when a completion enters pending.</p>
           </div>
         </div>
 
         <div class="faq-item">
-          <button class="faq-question">
+          <button class="faq-question" aria-expanded="false">
             <span>Is my family's financial data private?</span>
             <span class="faq-icon">+</span>
           </button>
           <div class="faq-answer">
-            <p>100% private. Your family data never leaves Apple's iCloud ecosystem. There are no tracking scripts, external databases, or third-party analytics servers.</p>
+            <p>100% private. Data lives only in your <strong>private CloudKit zone and Shared Database</strong> — there is no public link, no bearer URL, and no third-party server. Every share is minted with <strong>.none publicPermission</strong> and members join only via direct Messages invite.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>How do buckets and goals work?</span>
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>Each Hero splits future payouts across three buckets: <strong>Spend / Short Term Save / Long Term Save</strong>. Splits apply to <strong>future payouts and deposits only</strong> and never rebalance existing balances. Inside each save bucket, goals fill <strong>FIFO: the oldest incomplete, non-archived goal fills first, overflow cascades to the next</strong>, and any surplus past all goals stays unallocated in the bucket. Progress rings and pacing make it tangible.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-question" aria-expanded="false">
+            <span>What payout day controls the allowance week?</span>
+            <span class="faq-icon">+</span>
+          </button>
+          <div class="faq-answer">
+            <p>All week boundaries are owned exclusively by <strong>WeekMath</strong> as payout-day-aware half-open ranges <strong>[start, end)</strong>. Effective payout day resolves as <strong>profile override → family → Sunday</strong> (Sunday is the default). The <strong>AllowancePeriod .paid</strong> status is the atomic skip-guard so a week never pays twice, and real-time policy settles completions immediately.</p>
           </div>
         </div>
       </div>
@@ -283,8 +335,8 @@
   <section class="cta-banner" id="download">
     <div class="container">
       <div class="cta-box">
-        <h2>Ready to Quest with Your Family?</h2>
-        <p>Turn chores into adventure today. Download Loot List for iPhone and iPad.</p>
+        <h2>Ready to turn chores into progress?</h2>
+        <p>Give every Hero a clear path — Quests, buckets, FIFO goals, and a weekly payout cycle that just works. Private to your iCloud, ready in seconds.</p>
         <a href="#" class="btn btn-primary" style="padding: 1rem 2.25rem; font-size: 1.1rem;">
           <span></span> Download on the App Store
         </a>
@@ -304,7 +356,7 @@
         <ul class="footer-links">
           <li><a href="#features">Features</a></li>
           <li><a href="#showcase">Screenshots</a></li>
-          <li><a href="#roles">Guild & Heroes</a></li>
+          <li><a href="#roles">Roles</a></li>
           <li><a href="#faq">FAQ</a></li>
           <li><a href="https://github.com/ubenmackin/lootlist/issues" target="_blank" rel="noopener">Contact</a></li>
         </ul>

@@ -38,7 +38,7 @@ enum CacheFirst {
     ) async throws -> [T] {
         let familyName = family.id.recordName
         let cached = fetchCache(familyName)
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         if cacheService.isCacheAuthoritative(
             familyRecordName: familyName,
             type: type,

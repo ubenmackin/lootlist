@@ -211,4 +211,74 @@ struct ProfileViewModelTests {
         let deselected = staleServer.mergingCacheValues(from: makeProfile(emoji: nil))
         #expect(deselected.avatarEmoji == nil)
     }
+
+    // MARK: - TrophyRoomViewModel canonical key
+
+    @Test
+    func `trophyRoomViewModel latestEarnedTrophyName resolves via canonical key for both legacy and current record shapes`() {
+        let zoneID = CKRecordZone.ID(zoneName: "TestZone", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let appState = AppState()
+        let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        let family = Family(name: "Test Guild", createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID), id: familyID)
+        let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
+        let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        let hero = Profile(
+            displayName: "Test Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "u1", zoneID: zoneID),
+            family: familyRef,
+            id: heroID
+        )
+        appState.currentProfile = hero
+        appState.family = family
+
+        let achievementService = AchievementService(cloudKit: cloudKit, appState: appState)
+        let xpService = XPService(cloudKit: cloudKit, appState: appState)
+        let viewModel = TrophyRoomViewModel(
+            achievementService: achievementService,
+            xpService: xpService,
+            appState: appState
+        )
+
+        let achievement = Achievement(
+            id: CKRecord.ID(recordName: "fam1-\(AchievementRequirement.firstQuest.rawValue)", zoneID: zoneID),
+            name: "First Steps",
+            description: "Complete your first quest",
+            iconSystemName: "shoeprints.fill",
+            category: .quest,
+            requirementType: .firstQuest,
+            requirementValue: 1,
+            family: familyRef
+        )
+        let cache = AchievementCache(from: achievement)
+
+        // Legacy shape stores bare requirement rawValue.
+        let legacyPA = ProfileAchievementCache(
+            recordName: "pa-legacy",
+            achievementRecordName: AchievementRequirement.firstQuest.rawValue,
+            profileRecordName: hero.id.recordName,
+            familyRecordName: family.id.recordName,
+            earnedDate: Date(timeIntervalSince1970: 1000)
+        )
+        viewModel.rebuildLists(earned: [legacyPA], allAchievements: [cache])
+        #expect(viewModel.latestEarnedTrophyName == "First Steps")
+        #expect(viewModel.earnedAchievementRecordNames.contains(AchievementRequirement.firstQuest.rawValue))
+
+        // Current shape stores full deterministic recordName (family-prefixed).
+        let currentPA = ProfileAchievementCache(
+            recordName: "pa-current",
+            achievementRecordName: "fam1-\(AchievementRequirement.firstQuest.rawValue)",
+            profileRecordName: hero.id.recordName,
+            familyRecordName: family.id.recordName,
+            earnedDate: Date(timeIntervalSince1970: 2000)
+        )
+        viewModel.rebuildLists(earned: [currentPA], allAchievements: [cache])
+        #expect(viewModel.latestEarnedTrophyName == "First Steps")
+
+        // Both present — newest earnedDate wins, canonical lookup still resolves.
+        viewModel.rebuildLists(earned: [legacyPA, currentPA], allAchievements: [cache])
+        #expect(viewModel.latestEarnedTrophyName == "First Steps")
+    }
 }

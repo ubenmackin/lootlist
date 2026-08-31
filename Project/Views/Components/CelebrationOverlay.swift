@@ -17,21 +17,19 @@ struct CelebrationOverlay: View {
 
     var lifetime: TimeInterval = DesignSystemConstants.Celebration.confettiLifetime
 
-    /// A per-particle state record that the Canvas redraw loop animates.
-    private struct Particle: Identifiable {
-        let id: Int
-        var positionX: CGFloat
-        var positionY: CGFloat
-        var rotation: Angle
-        var color: Color
-        var size: CGFloat
-        var speed: CGFloat
-        var drift: CGFloat
+    /// Deterministic particle specification derived from seed and index.
+    private struct ParticleSpec: Sendable {
+        let xFraction: Double
+        let yOffset: Double
+        let rotationDegrees: Double
+        let colorIndex: Int
+        let size: CGFloat
+        let speed: CGFloat
+        let drift: CGFloat
+        let isVertical: Bool
     }
 
-    @State private var particles: [Particle] = []
-
-    @State private var startTime: Date?
+    @State private var startTime: Date = .now
 
     private static let confettiColors: [Color] = [
         Color(DesignSystemConstants.Colors.primaryGreen),
@@ -41,68 +39,80 @@ struct CelebrationOverlay: View {
         .gold
     ]
 
+    private static let precomputedSpecs: [ParticleSpec] = (0 ..< 100).map { particleIndex in
+        func pseudoRandom(_ seed: Int) -> Double {
+            let rawRandom = sin(Double(seed) * 127.1 + 311.7) * 43758.5453
+            return rawRandom - floor(rawRandom)
+        }
+        let randomX = pseudoRandom(particleIndex * 7 + 1)
+        let randomY = pseudoRandom(particleIndex * 7 + 2)
+        let randomRot = pseudoRandom(particleIndex * 7 + 3)
+        let randomColor = pseudoRandom(particleIndex * 7 + 4)
+        let randomSize = pseudoRandom(particleIndex * 7 + 5)
+        let randomSpeed = pseudoRandom(particleIndex * 7 + 6)
+
+        return ParticleSpec(
+            xFraction: randomX,
+            yOffset: -10.0 - randomY * 50.0,
+            rotationDegrees: randomRot * 360.0,
+            colorIndex: Int(randomColor * 100),
+            size: 6.0 + CGFloat(randomSize * 8.0),
+            speed: 1.0 + CGFloat(randomSpeed * 2.5),
+            drift: CGFloat(randomY * 2.0 - 1.0),
+            isVertical: particleIndex % 3 == 0
+        )
+    }
+
     var body: some View {
         if isPresented {
             TimelineView(.animation) { timeline in
                 Canvas { context, size in
-                    // Initialise particles on the first frame.
-                    if startTime == nil {
-                        startTime = timeline.date
-                        particles = (0 ..< particleCount).map { particleIndex in
-                            Particle(
-                                id: particleIndex,
-                                positionX: CGFloat.random(in: 0 ... size.width),
-                                positionY: -CGFloat.random(in: 10 ... 60),
-                                rotation: .degrees(Double.random(in: 0 ... 360)),
-                                color: Self.confettiColors.randomElement() ?? .gold,
-                                size: CGFloat.random(in: 6 ... 14),
-                                speed: CGFloat.random(in: 1.0 ... 3.5),
-                                drift: CGFloat.random(in: -1.0 ... 1.0)
-                            )
-                        }
-                    }
+                    guard size.width > 0, size.height > 0 else { return }
+                    let elapsed = max(0, timeline.date.timeIntervalSince(startTime))
+                    let count = min(particleCount, Self.precomputedSpecs.count)
+                    let totalHeight = Double(size.height + 60.0)
 
-                    let elapsed = timeline.date.timeIntervalSince(startTime ?? timeline.date)
+                    for particleIndex in 0 ..< count {
+                        let spec = Self.precomputedSpecs[particleIndex]
 
-                    for particleIndex in particles.indices {
-                        var particle = particles[particleIndex]
-                        particle.positionY += particle.speed * 1.5
-                        particle.positionX += particle.drift * 0.8
-                        particle.rotation += .degrees(particle.speed * 2.0)
+                        let fallSpeedPointsPerSec = Double(spec.speed) * 90.0
+                        let totalFall = spec.yOffset + fallSpeedPointsPerSec * elapsed
+                        let wrappedY = totalFall.truncatingRemainder(dividingBy: totalHeight)
+                        let posY = CGFloat(wrappedY < 0 ? wrappedY + totalHeight - 40.0 : wrappedY - 40.0)
 
-                        // Wrap back to top so the stream looks continuous
-                        // for the configured lifetime.
-                        if particle.positionY > size.height + 20 {
-                            particle.positionY = -CGFloat.random(in: 10 ... 40)
-                            particle.positionX = CGFloat.random(in: 0 ... size.width)
-                            particle.color = Self.confettiColors.randomElement() ?? .gold
-                        }
-                        particles[particleIndex] = particle
+                        let totalDrift = Double(spec.drift * 48.0) * elapsed
+                        let wobble = sin(elapsed * 2.5 + Double(spec.colorIndex)) * 8.0
+                        let rawX = (spec.xFraction * Double(size.width)) + totalDrift + wobble
+                        let wrappedX = rawX.truncatingRemainder(dividingBy: Double(size.width))
+                        let posX = CGFloat(wrappedX < 0 ? wrappedX + Double(size.width) : wrappedX)
+
+                        let rotation = Angle.degrees(spec.rotationDegrees + Double(spec.speed * 120.0) * elapsed)
+                        let color = Self.confettiColors[spec.colorIndex % Self.confettiColors.count]
 
                         let rect = CGRect(
-                            x: particle.positionX - particle.size / 2,
-                            y: particle.positionY - particle.size / 2,
-                            width: particle.size,
-                            height: particle.size
+                            x: posX - spec.size / 2,
+                            y: posY - spec.size / 2,
+                            width: spec.size,
+                            height: spec.size
                         )
 
                         var rotationContext = context
-                        rotationContext.rotate(by: particle.rotation)
+                        rotationContext.rotate(by: rotation)
 
-                        let isVertical = particleIndex % 3 == 0
-                        let drawRect: CGRect = if isVertical {
-                            CGRect(x: rect.midX - particle.size * 0.3,
-                                   y: rect.minY,
-                                   width: particle.size * 0.6,
-                                   height: particle.size)
+                        let drawRect: CGRect = if spec.isVertical {
+                            CGRect(
+                                x: rect.midX - spec.size * 0.3,
+                                y: rect.minY,
+                                width: spec.size * 0.6,
+                                height: spec.size
+                            )
                         } else {
                             rect
                         }
 
                         rotationContext.fill(
-                            Path(roundedRect: drawRect,
-                                 cornerRadius: particle.size * 0.2),
-                            with: .color(particle.color.opacity(smoothFade(elapsed)))
+                            Path(roundedRect: drawRect, cornerRadius: spec.size * 0.2),
+                            with: .color(color.opacity(smoothFade(elapsed)))
                         )
                     }
                 }
@@ -112,7 +122,12 @@ struct CelebrationOverlay: View {
             // UI tests assert the overlay's presence through this identifier;
             // hit-testing stays disabled so it never intercepts taps.
             .accessibilityIdentifier("celebration.overlay")
-            .onAppear { startTime = nil }
+            .onAppear { startTime = .now }
+            .onChange(of: isPresented) { _, presented in
+                if presented {
+                    startTime = .now
+                }
+            }
         }
     }
 

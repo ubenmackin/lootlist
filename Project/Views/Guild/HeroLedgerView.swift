@@ -95,6 +95,7 @@ struct HeroLedgerView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Treasury")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { ensureViewModel() }
         .task { ensureViewModel() }
         .onChange(of: cachedLedgers) { _, _ in rebuild() }
         .onChange(of: cachedQuests) { _, _ in rebuild() }
@@ -137,11 +138,11 @@ struct HeroLedgerView: View {
     private func ensureViewModel() {
         ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
             HeroLedgerViewModel(heroProfile: hero, spending: spending, appState: appState)
-        }, rebuild: { _ in rebuild() })
+        }, rebuild: { vm in rebuild(vm) })
     }
 
-    private func rebuild() {
-        viewModel?.rebuildLedger(
+    private func rebuild(_ vm: HeroLedgerViewModel? = nil) {
+        (vm ?? viewModel)?.rebuildLedger(
             ledgers: cachedLedgers,
             quests: cachedQuests,
             completions: cachedCompletions,

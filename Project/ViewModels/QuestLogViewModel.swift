@@ -11,7 +11,7 @@ import Observation
 @MainActor
 @Observable
 final class QuestLogViewModel {
-    var displayedQuests: [QuestLogRow] = []
+    private(set) var displayedQuests: [QuestLogRow] = []
     var selectedHero: ProfileCache? { // nil = all heroes
         didSet { applyFilters() }
     }
@@ -24,7 +24,7 @@ final class QuestLogViewModel {
         didSet { applyFilters() }
     }
 
-    var isLoading: Bool = false
+    private(set) var isLoading: Bool = false
 
     private let questService: QuestService
     private let familyService: FamilyService

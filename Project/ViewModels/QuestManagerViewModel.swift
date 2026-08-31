@@ -30,7 +30,7 @@ final class QuestManagerViewModel {
 
     private(set) var isLoading: Bool = false
 
-    var loadError: String?
+    private(set) var loadError: String?
 
     private let questService: QuestService
     private let familyService: FamilyService

@@ -12,13 +12,22 @@ struct FocusDecimalPadDismissModifier: ViewModifier {
     var isFocused: FocusState<Bool>.Binding
 
     func body(content: Content) -> some View {
-        content.toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { isFocused.wrappedValue = false }
-                    .font(.body.weight(.semibold))
+        content
+            .safeAreaInset(edge: .bottom) {
+                if isFocused.wrappedValue {
+                    HStack {
+                        Spacer()
+                        Button("Done") {
+                            isFocused.wrappedValue = false
+                        }
+                        .font(.body.weight(.semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                    }
+                    .background(.bar)
+                }
             }
-        }
+            .scrollDismissesKeyboard(.interactively)
     }
 }
 
