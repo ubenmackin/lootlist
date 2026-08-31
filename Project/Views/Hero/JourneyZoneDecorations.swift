@@ -40,11 +40,11 @@ enum JourneyZoneDecorations {
                 .fill(
                     LinearGradient(
                         stops: [
-                            .init(color: Color(red: 0.30, green: 0.58, blue: 0.25).opacity(0.7), location: 0.0),
-                            .init(color: Color(red: 0.12, green: 0.30, blue: 0.18).opacity(0.7), location: 0.30),
-                            .init(color: Color(red: 0.38, green: 0.40, blue: 0.45).opacity(0.7), location: 0.50),
-                            .init(color: Color(red: 0.22, green: 0.08, blue: 0.06).opacity(0.7), location: 0.70),
-                            .init(color: Color(red: 0.12, green: 0.05, blue: 0.22).opacity(0.7), location: 0.90)
+                            .init(color: Color(DesignSystemConstants.Colors.journeyStartingMeadowTerrain).opacity(0.7), location: 0.0),
+                            .init(color: Color(DesignSystemConstants.Colors.journeyDenseForestTerrain).opacity(0.7), location: 0.30),
+                            .init(color: Color(DesignSystemConstants.Colors.journeyMountainPassTerrain).opacity(0.7), location: 0.50),
+                            .init(color: Color(DesignSystemConstants.Colors.journeyDragonsReachTerrain).opacity(0.7), location: 0.70),
+                            .init(color: Color(DesignSystemConstants.Colors.journeyEternalRealmTerrain).opacity(0.7), location: 0.90)
                         ],
                         startPoint: .leading,
                         endPoint: .trailing
@@ -219,7 +219,7 @@ enum JourneyZoneDecorations {
 
         // Wildflower clusters in the lower meadow
         flowerCluster(count: 8, seed: 101, width: width, height: height, color: Color.gold)
-        flowerCluster(count: 6, seed: 202, width: width, height: height, color: Color(red: 1.0, green: 0.6, blue: 0.7))
+        flowerCluster(count: 6, seed: 202, width: width, height: height, color: Color(DesignSystemConstants.Colors.journeyStartingMeadowFlowerPink))
         flowerCluster(count: 5, seed: 303, width: width, height: height, color: .white)
     }
 
@@ -232,7 +232,7 @@ enum JourneyZoneDecorations {
             let xPos = width * (0.08 + Double(index) * 0.13)
             let treeHeight = height * (0.09 + Double(index % 3) * 0.02)
             pineTree(height: treeHeight)
-                .fill(Color(red: 0.08, green: 0.24, blue: 0.12).opacity(0.75))
+                .fill(Color(DesignSystemConstants.Colors.journeyDenseForestTree).opacity(0.75))
                 .frame(width: 26, height: treeHeight)
                 .position(x: xPos, y: height * 0.44 + (index.isMultiple(of: 2) ? 6 : 0))
         }
@@ -243,7 +243,7 @@ enum JourneyZoneDecorations {
                 LinearGradient(
                     colors: [
                         Color.clear,
-                        Color(red: 0.4, green: 0.8, blue: 0.6).opacity(0.10),
+                        Color(DesignSystemConstants.Colors.journeyDenseForestMist).opacity(0.10),
                         Color.clear
                     ],
                     startPoint: .top,
@@ -262,7 +262,7 @@ enum JourneyZoneDecorations {
             let xPos = width * (0.12 + Double(index) * 0.26)
             let peakH = height * (0.13 + Double(index % 2) * 0.04)
             mountainCrag(width: 70, height: peakH)
-                .fill(Color(red: 0.38, green: 0.42, blue: 0.48).opacity(0.85))
+                .fill(Color(DesignSystemConstants.Colors.journeyMountainPassRock).opacity(0.85))
                 .frame(width: 70, height: peakH)
                 .position(x: xPos, y: height * 0.40)
 
@@ -283,7 +283,7 @@ enum JourneyZoneDecorations {
             let xPos = width * (0.2 + Double(index) * 0.3)
             let spireH = height * (0.14 + Double(index % 2) * 0.03)
             volcanicSpire(width: 65, height: spireH)
-                .fill(Color(red: 0.18, green: 0.06, blue: 0.04).opacity(0.9))
+                .fill(Color(DesignSystemConstants.Colors.journeyDragonsReachSpire).opacity(0.9))
                 .frame(width: 65, height: spireH)
                 .position(x: xPos, y: height * 0.42)
         }
@@ -295,8 +295,8 @@ enum JourneyZoneDecorations {
                 .fill(
                     RadialGradient(
                         colors: [
-                            Color(red: 1.0, green: 0.6, blue: 0.1).opacity(0.85),
-                            Color(red: 0.9, green: 0.2, blue: 0.1).opacity(0.35),
+                            Color(DesignSystemConstants.Colors.journeyDragonsReachEmberCore).opacity(0.85),
+                            Color(DesignSystemConstants.Colors.journeyDragonsReachEmberOuter).opacity(0.35),
                             Color.clear
                         ],
                         center: .center,
@@ -331,8 +331,8 @@ enum JourneyZoneDecorations {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.35, green: 0.22, blue: 0.55).opacity(0.8),
-                            Color(red: 0.18, green: 0.08, blue: 0.35).opacity(0.8)
+                            Color(DesignSystemConstants.Colors.journeyEternalRealmIslandTop).opacity(0.8),
+                            Color(DesignSystemConstants.Colors.journeyEternalRealmIslandBottom).opacity(0.8)
                         ],
                         startPoint: .top,
                         endPoint: .bottom

@@ -38,11 +38,14 @@ struct HeroLedgerView: View {
         self.familyRecordName = familyRecordName
         self.spending = spending
 
+        // WHY: Predicate pushdown fetches only this hero's rows; avoids loading entire
+        // family ledger set and reduces main-thread filtering for heroes with 1k+ rows.
         let targetFamily = familyRecordName ?? ""
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-        let allowancePeriodFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let targetProfile = hero.recordName
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
+        let allowancePeriodFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
 
         _cachedLedgers = Query(
             filter: ledgerFilter,
@@ -156,9 +159,9 @@ struct HeroLedgerView: View {
     private enum ExportFormat { case csv, json }
 
     private func exportEntries(as format: ExportFormat) {
-        let heroLedgers = cachedLedgers.filter { $0.profileRecordName == hero.recordName }
+        // cachedLedgers is already profile-scoped via predicate pushdown.
         let payoutDay = hero.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
-        let filtered = heroLedgers.filter { scope.contains($0.date, payoutDay: payoutDay) }
+        let filtered = cachedLedgers.filter { scope.contains($0.date, payoutDay: payoutDay) }
 
         let data: Data
         switch format {

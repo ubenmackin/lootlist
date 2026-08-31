@@ -9,6 +9,7 @@ import CloudKit
 import Foundation
 import os
 import Synchronization
+import UIKit
 
 enum FamilyServiceError: Error, LocalizedError, Equatable, Sendable {
     case invalidInviteCode
@@ -54,11 +55,32 @@ protocol FamilyProfileFetching: Sendable {
     func refreshProfilesFromCloudKit(for family: Family) async
     func currentUserRecordName() async throws -> String
     func prepareInviteShare(for family: Family, role: UserRole) async throws -> CKShare
+    func prepareInvitePresentation(for family: Family, role: UserRole) async throws -> CloudSharePresentation
     func fetchShareParticipants(for family: Family) async throws -> [CKShare.Participant]
     func fetchShareParticipantStatuses(for family: Family) async throws -> [ShareParticipantStatus]
     func fetchShareParticipantRoles(for family: Family) async throws -> [String: UserRole]
     func revokeInvitation(participant: CKShare.Participant, from family: Family) async throws
     func revokeInvitation(identityRecordName: String, from family: Family) async throws
+}
+
+extension FamilyProfileFetching {
+    func prepareInvitePresentation(for family: Family, role: UserRole) async throws -> CloudSharePresentation {
+        let share = try await prepareInviteShare(for: family, role: role)
+        if let service = self as? FamilyService {
+            return service.invitePresentation(for: share)
+        }
+        let container = CKContainer.default()
+        let shareURL = share.url
+        return CloudSharePresentation(shareURL: shareURL) {
+            let allowedOptions = CKAllowedSharingOptions(
+                allowedParticipantPermissionOptions: [.readWrite],
+                allowedParticipantAccessOptions: [.specifiedRecipientsOnly]
+            )
+            let provider = NSItemProvider()
+            provider.registerCKShare(share, container: container, allowedSharingOptions: allowedOptions)
+            return provider
+        }
+    }
 }
 
 /// The owner-family session result consumed by the onboarding flow: the
@@ -428,81 +450,108 @@ final class FamilyService: FamilyProfileFetching {
 
     // MARK: - Role & Membership Management
 
-    /// Cache-first read serving fresh cache or falling back to CloudKit query.
+    /// Cache-first read via the centralized ``CacheFirst`` scaffold.
     func fetchHeroes(for family: Family) async throws -> [Profile] {
-        if let cache = cacheService {
-            let familyName = family.id.recordName
-            let allProfiles = cache.fetchProfiles(family: familyName)
-            // WHY: stale cache must re-validate via CloudKit — profiles are roster-critical and must not serve stale partial data.
-            if cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
-                return allProfiles
-                    .filter { $0.role == UserRole.hero.rawValue && $0.isActive }
-                    .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-                    .map { $0.toProfile(zoneID: family.id.zoneID) }
+        guard let cache = cacheService else {
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let predicate = NSPredicate(format: "family == %@", familyRef)
+            let isOwner = resolvedIsOwner(for: family)
+            let db = cloudKit.database(isOwner: isOwner)
+            let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
+            if let syncCoordinator {
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: all,
+                    databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
+                    zoneID: family.id.zoneID
+                )
             }
+            return all
+                .filter { $0.role == .hero && $0.isActive }
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         }
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        // WHY: per-family owner uses anchor when family == active family, else shared (false) — never zoneOwner heuristic.
         let isOwner = resolvedIsOwner(for: family)
-        let db = cloudKit.database(isOwner: isOwner)
-        let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-        // Scope mirrors the database the query ran against, which this method
-        // resolves per-family rather than from the active session alone.
-        if let syncCoordinator {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: all,
-                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
-                zoneID: family.id.zoneID
-            )
-        } else {
-            await cacheService?.upsertProfiles(all, family: family.id.recordName)
-        }
+        let scope = DatabaseScopeResolver.scope(isOwner: isOwner)
+        let all = try await CacheFirst.cacheFirst(
+            type: .profile,
+            family: family,
+            cacheService: cache,
+            appState: appState,
+            fetchCache: { cache.fetchProfiles(family: $0) },
+            map: { $0.toProfile(zoneID: family.id.zoneID) },
+            query: { [cloudKit, family, isOwner] in
+                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                let predicate = NSPredicate(format: "family == %@", familyRef)
+                let db = cloudKit.database(isOwner: isOwner)
+                return try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
+            },
+            hydrate: { [syncCoordinator, cache, family, scope] models in
+                if let syncCoordinator {
+                    await syncCoordinator.delegateHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
+                } else {
+                    await cache.upsertProfiles(models, family: family.id.recordName)
+                }
+            }
+        )
         return all
             .filter { $0.role == .hero && $0.isActive }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
-    /// Cache-first read serving fresh cache or falling back to CloudKit query.
+    /// Cache-first read via the centralized ``CacheFirst`` scaffold.
     func fetchAllProfilesForFamily(_ family: Family) async throws -> [Profile] {
-        if let cache = cacheService {
-            let familyName = family.id.recordName
-            let cached = cache.fetchProfiles(family: familyName)
-            // WHY: stale cache must re-validate via CloudKit — profiles are roster-critical and must not serve stale partial data.
-            if cache.isCacheFresh(familyRecordName: familyName, type: .profile) {
-                return cached.map { $0.toProfile(zoneID: family.id.zoneID) }
-                    .sorted { lhs, rhs in
-                        if lhs.isActive != rhs.isActive {
-                            return lhs.isActive && !rhs.isActive
-                        }
-                        return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-                    }
-            }
-        }
-
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        // WHY: per-family owner uses anchor when family == active family, else shared (false) — never zoneOwner heuristic.
-        let isOwner = resolvedIsOwner(for: family)
-        let db = cloudKit.database(isOwner: isOwner)
-        let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
-        // Scope mirrors the database the query ran against, which this method
-        // resolves per-family rather than from the active session alone.
-        if let syncCoordinator {
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: all,
-                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
-                zoneID: family.id.zoneID
-            )
-        } else {
-            await cacheService?.upsertProfiles(all, family: family.id.recordName)
-        }
-        return all.sorted { lhs, rhs in
+        let profileSort: (Profile, Profile) -> Bool = { lhs, rhs in
             if lhs.isActive != rhs.isActive {
                 return lhs.isActive && !rhs.isActive
             }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
+        guard let cache = cacheService else {
+            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+            let predicate = NSPredicate(format: "family == %@", familyRef)
+            let isOwner = resolvedIsOwner(for: family)
+            let db = cloudKit.database(isOwner: isOwner)
+            let all = try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
+            if let syncCoordinator {
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: all,
+                    databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
+                    zoneID: family.id.zoneID
+                )
+            }
+            return all.sorted(by: profileSort)
+        }
+        let isOwner = resolvedIsOwner(for: family)
+        let scope = DatabaseScopeResolver.scope(isOwner: isOwner)
+        return try await CacheFirst.cacheFirst(
+            type: .profile,
+            family: family,
+            cacheService: cache,
+            appState: appState,
+            fetchCache: { cache.fetchProfiles(family: $0) },
+            map: { $0.toProfile(zoneID: family.id.zoneID) },
+            query: { [cloudKit, family, isOwner] in
+                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                let predicate = NSPredicate(format: "family == %@", familyRef)
+                let db = cloudKit.database(isOwner: isOwner)
+                return try await cloudKit.query(Profile.self, predicate: predicate, in: family.id.zoneID, using: db)
+            },
+            hydrate: { [syncCoordinator, cache, family, scope] models in
+                if let syncCoordinator {
+                    await syncCoordinator.delegateHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: scope,
+                        zoneID: family.id.zoneID
+                    )
+                } else {
+                    await cache.upsertProfiles(models, family: family.id.recordName)
+                }
+            },
+            sortedBy: profileSort
+        )
     }
 
     func requireParentOrOwner(for profile: Profile) async throws -> Family {

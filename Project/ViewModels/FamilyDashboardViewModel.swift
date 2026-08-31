@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import Foundation
 import Observation
 import os
@@ -131,8 +130,8 @@ final class FamilyDashboardViewModel {
         }
     }
 
-    /// Resolves role-specific CKShare via the invitation coordinator (zone owner only).
-    func prepareInviteShare(for role: UserRole) async -> CKShare? {
+    /// Resolves role-specific share presentation via the invitation coordinator (zone owner only).
+    func prepareInviteShare(for role: UserRole) async -> CloudSharePresentation? {
         await invitationCoordinator.prepareInviteShare(for: role)
     }
 
@@ -331,31 +330,32 @@ struct HeroSummary: Equatable, Identifiable {
 }
 
 /// Redacted share participant shown in the Invitations panel for status and revocation.
+/// CKShare stays in the Service layer; this is a presentation-only model.
 struct FamilyInvitation: Identifiable {
     let id: String
     let identity: String
     let statusText: String
-    let participant: CKShare.Participant?
     let identityRecordName: String?
     let kind: FamilyInvitationKind
     let targetRole: UserRole?
+    let isOwner: Bool
 
     init(
         id: String,
         identity: String,
         statusText: String,
-        participant: CKShare.Participant?,
         identityRecordName: String?,
         kind: FamilyInvitationKind,
-        targetRole: UserRole? = nil
+        targetRole: UserRole? = nil,
+        isOwner: Bool = false
     ) {
         self.id = id
         self.identity = identity
         self.statusText = statusText
-        self.participant = participant
         self.identityRecordName = identityRecordName
         self.kind = kind
         self.targetRole = targetRole
+        self.isOwner = isOwner
     }
 }
 

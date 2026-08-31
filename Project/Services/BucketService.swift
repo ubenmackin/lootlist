@@ -15,6 +15,7 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     case insufficientFunds(available: Double, requested: Double)
     case sameBucket
     case invalidAmount
+    /// Deterministic-ID contract: transferID must be "\(dayBucket)-\(from)-\(to)" where dayBucket is UTC via WeekMath; recordName is "transfer-{profile}-{transferID}".
     case invalidTransferID
     case unauthorized
     case persistenceFailed
@@ -194,14 +195,20 @@ final class BucketService {
 
     // MARK: - Transfers
 
-    /// Moves money between two buckets for the given profile. Creates exactly ONE ledger entry (source =
-    /// "transfer", fromBucket → toBucket).
+    /// Deterministic-ID contract for money-movement transfers.
+    /// Mandated path: `transferID == "\(WeekMath.dayBucket(for: Date()))-\(from.rawValue)-\(to.rawValue)"`
+    /// (UTC day bucket via `WeekMath`, as used in `BucketTransferView` at call site) → `recordName`
+    /// `"transfer-{profileRecordName}-{transferID}"`. This guarantees idempotency: CKSyncEngine dedupes
+    /// double-runs across devices and the service-owned per-day/per-pair guard rejects same-day repeats.
+    /// No fallback is permitted — every write must supply a deterministic WeekMath.dayBucket-keyed ID so
+    /// cross-device dedupe via recordName is guaranteed. Per-day/per-pair guard remains service-owned
+    /// via `hasTransferredToday`.
     func transfer(from: BucketKind,
                   to: BucketKind,
                   amount: Double,
                   profile: Profile,
                   family: Family,
-                  transferID: String? = nil) async throws -> LedgerEntry
+                  transferID: String) async throws -> LedgerEntry
     {
         guard from != to else {
             throw BucketServiceError.sameBucket
@@ -235,19 +242,14 @@ final class BucketService {
         }
 
         let now = Date()
+        // WHY: UTC via WeekMath avoids midnight split.
         let todayBucket = WeekMath.dayBucket(for: now)
         logger
             .debug(
-                "BucketService.transfer local dayBucket \(todayBucket, privacy: .public) transferID \(transferID ?? "nil", privacy: .private) timestamp \(now.timeIntervalSince1970, privacy: .public)"
+                "BucketService.transfer local dayBucket \(todayBucket, privacy: .public) transferID \(transferID, privacy: .private) timestamp \(now.timeIntervalSince1970, privacy: .public)"
             )
-        // WHY: Deterministic-ID contract — transferID must be dayBucket-from-to when supplied.
-        if let transferID, !transferID.isEmpty {
-            let expectedID = "\(todayBucket)-\(from.rawValue)-\(to.rawValue)"
-            guard transferID == expectedID else {
-                throw BucketServiceError.invalidTransferID
-            }
-        }
-        // WHY: Per-day/per-pair guard — hoisted from view so the service is the mutation boundary.
+        try validateTransferID(transferID, dayBucket: todayBucket, from: from, to: to)
+        // WHY: Per-day/per-pair guard is service-owned; view mirrors for UI only.
         guard !hasTransferredToday(
             profileRecordName: profile.id.recordName,
             familyRecordName: family.id.recordName,
@@ -258,16 +260,9 @@ final class BucketService {
             throw BucketServiceError.duplicateTodayTransfer
         }
 
-        let recordName: String
-        if let transferID, !transferID.isEmpty {
-            recordName = "transfer-\(profile.id.recordName)-\(transferID)"
-        } else {
-            // WHY: nonce keeps unkeyed calls append-only; user-initiated transfers
-            // always arrive day-keyed so the deterministic dedupe contract holds.
-            let ms = Int(now.timeIntervalSince1970 * 1000)
-            let nonce = UUID().uuidString.prefix(6)
-            recordName = "transfer-\(profile.id.recordName)-\(ms)-\(from.rawValue)-\(to.rawValue)-\(nonce)"
-        }
+        // WHY: Deterministic recordName "transfer-{profile}-{transferID}" guarantees
+        // idempotency via CKSyncEngine dedupe; timestamp+nonce fallback removed.
+        let recordName = DeterministicRecordID.transfer(profileRecordName: profile.id.recordName, transferID: transferID)
 
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
@@ -287,10 +282,24 @@ final class BucketService {
         return entry
     }
 
+    // MARK: - Deterministic-ID Helpers
+
+    /// Canonical deterministic transferID for a given UTC day bucket and pair.
+    /// Callers (e.g., `BucketTransferView`) must supply `"\(WeekMath.dayBucket(for: Date()))-\(from.rawValue)-\(to.rawValue)"`
+    /// so `recordName` becomes `transfer-{profile}-{transferID}` and dedupes via CKSyncEngine.
+    nonisolated static func deterministicTransferID(dayBucket: Int, from: BucketKind, to: BucketKind) -> String {
+        "\(dayBucket)-\(from.rawValue)-\(to.rawValue)"
+    }
+
     // MARK: - Per-Day/Per-Pair Guard
 
-    /// Returns true when a transfer between `from` → `to` already exists for
-    /// `profile` in `family` on the given UTC `dayBucket`.
+    private func validateTransferID(_ transferID: String, dayBucket: Int, from: BucketKind, to: BucketKind) throws {
+        guard !transferID.isEmpty else { throw BucketServiceError.invalidTransferID }
+        let expected = Self.deterministicTransferID(dayBucket: dayBucket, from: from, to: to)
+        guard transferID == expected else { throw BucketServiceError.invalidTransferID }
+    }
+
+    /// Returns true when a transfer between `from` → `to` already exists for `profile` in `family` on UTC `dayBucket`.
     private func hasTransferredToday(
         profileRecordName: String,
         familyRecordName: String,
@@ -298,27 +307,32 @@ final class BucketService {
         from: BucketKind,
         to: BucketKind
     ) -> Bool {
-        // WHY: Same predicate as BucketTransferView.hasTransferredToday — fetchLedgerEntries scoped fetch + WeekMath.dayBucket filter.
+        // WHY: Same predicate as view; guard is service-owned.
         let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
             family: familyRecordName
         )
-        #if DEBUG
-            // WHY: Clock skew across UTC midnight can bypass the per-day guard or mismatch transferID; transfers within 2h of midnight hint at this window.
-            for entry in entries where entry.sourceEnum == .transfer && entry.fromBucket == from.rawValue && entry.toBucket == to.rawValue {
-                let entryBucket = WeekMath.dayBucket(for: entry.date)
-                guard entryBucket != dayBucket, abs(entryBucket - dayBucket) == 1 else { continue }
-                if WeekMath.isNearUTCMidnight(entry.date) {
-                    let eb = entryBucket
-                    let tb = dayBucket
-                    let ed = entry.date
-                    logger
-                        .warning(
-                            "Transfer near-midnight skew hint: existing dayBucket \(eb, privacy: .public) vs today \(tb, privacy: .public) date \(ed, privacy: .private) within 2h of UTC midnight"
-                        )
-                }
+        // WHY: Clock skew near UTC midnight can bypass per-day guard.
+        for entry in entries where entry.sourceEnum == .transfer && entry.fromBucket == from.rawValue && entry.toBucket == to.rawValue {
+            let entryBucket = WeekMath.dayBucket(for: entry.date)
+            guard entryBucket != dayBucket else { continue }
+            // WHY: Centralized skew helper covers both sides of mismatch.
+            WeekMath.logTransferSkewIfNeeded(localDate: entry.date, serverDate: Date())
+            WeekMath.logTransferSkewIfNeeded(localDate: Date(), serverDate: entry.date)
+            guard abs(entryBucket - dayBucket) == 1 else { continue }
+            if WeekMath.isNearUTCMidnight(entry.date) || WeekMath.isNearUTCMidnight(Date()) {
+                let eb = entryBucket
+                let tb = dayBucket
+                let ed = entry.date
+                logger
+                    .warning(
+                        "Transfer near-midnight skew hint: existing dayBucket \(eb, privacy: .public) vs today \(tb, privacy: .public) date \(ed, privacy: .private) within 2h of UTC midnight"
+                    )
+                #if DEBUG
+                    logger.debug("DEBUG near-midnight skew context: entryBucket \(eb, privacy: .public) todayBucket \(tb, privacy: .public) date \(ed, privacy: .private)")
+                #endif
             }
-        #endif
+        }
         return entries.contains { entry in
             entry.sourceEnum == .transfer
                 && entry.fromBucket == from.rawValue

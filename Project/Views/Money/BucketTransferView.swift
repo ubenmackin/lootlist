@@ -66,6 +66,9 @@ struct BucketTransferView: View {
 
     // WHY: Transfer IDs are deterministic per (profile, UTC day, from→to pair), so a second move
     // between the same pair today would upsert over — and silently destroy — the first transfer's ledger row.
+    // Contract: dayBucket is UTC via WeekMath.dayBucket (not Calendar.current); deterministic recordName is transfer-{profile}-{dayBucket} in UTC.
+    // WHY UTC: device-local calendar splits the same instant into different days near midnight, breaking per-day dedupe across devices.
+    // View mirrors service predicate for button disable only; authoritative per-day/per-pair guard is service-owned in BucketService.hasTransferredToday.
     private var hasTransferredToday: Bool {
         guard let profile else { return false }
         let targetProfile = profile.id.recordName
@@ -204,6 +207,7 @@ struct BucketTransferView: View {
             HStack {
                 Image(systemName: "arrow.left.arrow.right")
                     .foregroundStyle(.secondary)
+                // WHY: decimalPad has no return key; focused binding + keyboard toolbar provides dismissal.
                 TextField("0.00", text: $amountText)
                     .keyboardType(.decimalPad)
                     .focused($isAmountFocused)
@@ -272,8 +276,10 @@ struct BucketTransferView: View {
             isSaving = true
             defer { isSaving = false }
             do {
-                // WHY: day-keyed transferID makes the record name deterministic
-                // per (profile, UTC day, pair) so CloudKit dedupes cross-device double-runs.
+                // WHY: day-keyed transferID makes the record name deterministic per
+                // (profile, UTC day, pair) so CloudKit dedupes cross-device
+                // double-runs. UTC via WeekMath, not Calendar.current, avoids
+                // midnight-boundary splits.
                 let dayKeyedID = "\(WeekMath.dayBucket(for: Date()))-\(fromBucket.rawValue)-\(toBucket.rawValue)"
                 _ = try await bucketService.transfer(
                     from: fromBucket,

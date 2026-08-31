@@ -5,18 +5,18 @@
 //  Created by Ben Mackin on 8/29/26.
 //
 
-import CloudKit
 import Foundation
 import os
 
-/// Orchestrates CloudKit share invitation flows for the family dashboard.
+/// Orchestrates share invitation flows for the family dashboard.
 /// ViewModels never hold `any CloudKitServiceProtocol` directly — they route
 /// through `FamilyService`/`TreasuryService`. This coordinator is the sole
 /// invitation seam behind `FamilyInviting` so `FamilyDashboardViewModel` stays
-/// pure `rebuildLists` + bindings.
+/// pure `rebuildLists` + bindings. CKShare stays in the Service layer; the
+/// coordinator vends only presentation objects.
 @MainActor
 protocol FamilyInviting: Sendable {
-    func prepareInviteShare(for role: UserRole) async -> CKShare?
+    func prepareInviteShare(for role: UserRole) async -> CloudSharePresentation?
     func refreshInvitations(
         heroes: [ProfileCache],
         parents: [ProfileCache]
@@ -41,21 +41,21 @@ final class FamilyInvitationCoordinator: FamilyInviting {
         self.invitationResolver = invitationResolver
     }
 
-    /// Resolves role-specific CKShare via FamilyService (zone owner only).
-    func prepareInviteShare(for role: UserRole) async -> CKShare? {
+    /// Resolves role-specific share presentation via FamilyService (zone owner only).
+    func prepareInviteShare(for role: UserRole) async -> CloudSharePresentation? {
         guard appState.isZoneOwner,
               appState.familyZoneID != nil,
               let family = appState.family
         else { return nil }
         do {
-            return try await familyService.prepareInviteShare(for: family, role: role)
+            return try await familyService.prepareInvitePresentation(for: family, role: role)
         } catch {
             logger.error("Failed to fetch or create invitation share: \(error, privacy: .private)")
             return nil
         }
     }
 
-    /// Reloads and classifies invitation statuses from the family's `CKShare`
+    /// Reloads and classifies invitation statuses from the family's share
     /// participants. All CloudKit interaction is routed through `FamilyService`
     /// so the caller never holds a raw CloudKit reference.
     func refreshInvitations(
@@ -76,20 +76,6 @@ final class FamilyInvitationCoordinator: FamilyInviting {
         var activeRecordNames = Set((heroes + parents).map(\.iCloudUserRecordName))
         let inactiveIdentities = await departedMemberIdentities(for: family)
 
-        let participants: [CKShare.Participant]
-        do {
-            participants = try await familyService.fetchShareParticipants(for: family)
-        } catch {
-            logger.error("Failed to load share participants: \(error, privacy: .private)")
-            return []
-        }
-        let participantByRecordName = Dictionary(
-            participants.compactMap { participant -> (String, CKShare.Participant)? in
-                guard let recordName = participant.userIdentity.userRecordID?.recordName else { return nil }
-                return (recordName, participant)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
         let statuses: [ShareParticipantStatus]
         do {
             statuses = try await familyService.fetchShareParticipantStatuses(for: family)
@@ -117,11 +103,9 @@ final class FamilyInvitationCoordinator: FamilyInviting {
 
         return await invitationResolver.assembleInvitations(
             statuses: statuses,
-            participants: participants,
             currentUserRecordName: currentUserRecordName,
             activeRecordNames: activeRecordNames,
             inactiveIdentities: inactiveIdentities,
-            participantByRecordName: participantByRecordName,
             roleMap: roleMap
         )
     }
@@ -132,7 +116,7 @@ final class FamilyInvitationCoordinator: FamilyInviting {
         if invitation.kind == .removedIdentity {
             return
         }
-        if invitation.participant?.role == .owner {
+        if invitation.isOwner {
             return
         }
         if let identityRecordName = invitation.identityRecordName {
@@ -148,9 +132,7 @@ final class FamilyInvitationCoordinator: FamilyInviting {
             }
         }
 
-        if let participant = invitation.participant {
-            try await familyService.revokeInvitation(participant: participant, from: family)
-        } else if let identityRecordName = invitation.identityRecordName {
+        if let identityRecordName = invitation.identityRecordName {
             try await familyService.revokeInvitation(identityRecordName: identityRecordName, from: family)
         } else {
             logger.error("Failed to revoke invitation: no participant identity to revoke")

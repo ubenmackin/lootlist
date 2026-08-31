@@ -396,21 +396,30 @@ final class QuestService {
             appState: appState
         )
 
-        // Generate ad-hoc inactive template so it doesn't clutter routine template list
-        let adhocTemplate = try await createTemplate(
+        let adhocTemplate = QuestTemplate(
             name: name,
             description: description,
             defaultGold: goldReward,
             xpReward: xpReward,
-            schedule: scheduleType,
-            specificDays: specificDays,
-            targetCount: targetCount,
+            scheduleType: scheduleType,
+            specificDays: scheduleType.requiresSpecificDays ? specificDays : [],
+            targetCount: max(1, targetCount),
             isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
-            createdBy: createdBy,
-            family: family
+            createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            isActive: false,
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
-        _ = try await deactivateTemplate(adhocTemplate)
+
+        await cacheService.upsertQuestTemplate(adhocTemplate)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: adhocTemplate.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.assignQuickQuest.template"
+        )
 
         let payoutDay = PayoutDayResolver.resolved(for: assignee, family: family)
         let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
@@ -605,7 +614,8 @@ final class QuestService {
                 allowancePeriods = try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: family.id.zoneID)
             } catch {
                 logger.warning("Failed to fetch allowance periods from CloudKit", family: familyName, zone: family.id.zoneID.zoneName)
-                allowancePeriods = cachedAllowance.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
+                // Defer sweep when cache is stale and CloudKit is unavailable — incomplete paid-week set would leave expired quests active an extra cycle.
+                return []
             }
         }
 

@@ -69,16 +69,14 @@ final class InterestService {
 
     // MARK: - Deterministic Identity
 
-    /// UTC calendar keeps the month key identical on every device — a shared-
-    /// family participant in another timezone must derive the same
-    /// deterministic ID for the same month or dedup breaks.
+    /// Single-source UTC month key — delegates to `WeekMath.monthKey` so
+    /// interest and match flows cannot diverge on timezone handling.
     static func monthKey(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
-        let components = calendar.dateComponents([.year, .month], from: date)
-        return String(format: "%04d-%02d", components.year ?? 0, components.month ?? 0)
+        WeekMath.monthKey(for: date, calendar: calendar)
     }
 
     static func recordName(profileRecordName: String, monthKey: String) -> String {
-        "interest-\(profileRecordName)-\(monthKey)"
+        DeterministicRecordID.interest(profileRecordName: profileRecordName, monthKey: monthKey)
     }
 
     // MARK: - Config
@@ -165,7 +163,7 @@ final class InterestService {
             profileRecordName: profile.id.recordName,
             monthKey: Self.monthKey(for: date)
         )
-        guard !cachedEntries.contains(where: { $0.recordName == recordNameStr }) else {
+        guard !IdempotencyGuard.containsDeterministicID(recordNameStr, in: cachedEntries) else {
             return nil
         }
 

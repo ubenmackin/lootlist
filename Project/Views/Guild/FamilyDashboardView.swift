@@ -95,12 +95,27 @@ struct FamilyDashboardView: View {
     @State private var transactionVM: HeroLedgerViewModel?
     @State private var maxChildCardHeight: CGFloat?
     @State private var isProcessingPayout = false
+    @State private var rebuildTask: Task<Void, Never>?
+
+    private var targetFamilyForStale: String {
+        familyRecordName ?? appState.family?.id.recordName ?? ""
+    }
 
     var body: some View {
         NavigationStack {
             ScrollViewReader { scrollProxy in
                 ScrollView {
                     VStack(spacing: 18) {
+                        // WHY: Scope-aware banner observes freshnessVersion so it hides after markCacheFresh without Query change.
+                        if !targetFamilyForStale.isEmpty {
+                            StaleDataBanner(
+                                family: targetFamilyForStale,
+                                type: .quest,
+                                count: cachedQuests.count,
+                                isSyncing: lifecycleCoordinator?.isSyncing == true
+                            )
+                            .padding(.horizontal)
+                        }
                         if let vm = viewModel {
                             statCardsRow(vm: vm, scrollProxy: scrollProxy)
                             childAccountsSection(vm: vm)
@@ -114,7 +129,7 @@ struct FamilyDashboardView: View {
                     .padding(.vertical, 14)
                 }
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .navigationTitle(appState.family?.name ?? "Guild")
             .navigationBarTitleDisplayMode(.large)
             .refreshable {
@@ -122,7 +137,6 @@ struct FamilyDashboardView: View {
                 await viewModel?.refresh()
             }
             .task {
-                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: Self.logger, viewName: "FamilyDashboardView")
                 ensureViewModel()
                 viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                 await lifecycleCoordinator?.performManualSync()
@@ -130,18 +144,17 @@ struct FamilyDashboardView: View {
                 await viewModel?.refreshInvitations()
             }
             .onChange(of: cachedProfiles) { _, _ in
-                Task {
-                    rebuild()
-                    await viewModel?.refreshInvitations()
-                }
+                scheduleRebuild(includingInvitations: true)
             }
-            .onChange(of: cachedQuests) { _, _ in rebuild() }
-            .onChange(of: cachedCompletions) { _, _ in rebuild() }
-            .onChange(of: cachedLedgers) { _, _ in rebuild() }
-            .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
-            .onChange(of: cachedAchievements) { _, _ in rebuild() }
-            .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
+            .onChange(of: cachedQuests) { _, _ in scheduleRebuild() }
+            .onChange(of: cachedCompletions) { _, _ in scheduleRebuild() }
+            .onChange(of: cachedLedgers) { _, _ in scheduleRebuild() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in scheduleRebuild() }
+            .onChange(of: cachedAchievements) { _, _ in scheduleRebuild() }
+            .onChange(of: cachedProfileAchievements) { _, _ in scheduleRebuild() }
             .onDisappear {
+                rebuildTask?.cancel()
+                rebuildTask = nil
                 viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
             }
             .sheet(isPresented: $showRolePicker) {
@@ -150,7 +163,7 @@ struct FamilyDashboardView: View {
                 }
             }
             .sheet(item: $sharePresentation) { presentation in
-                CloudSharingControllerWrapper(share: presentation.share, container: presentation.container)
+                CloudSharingControllerWrapper(presentation: presentation)
             }
             .onChange(of: viewModel?.loadError) { _, newError in
                 if let error = newError {
@@ -195,6 +208,7 @@ struct FamilyDashboardView: View {
         }, rebuild: { vm in rebuild(vm) })
     }
 
+    @MainActor
     private func rebuild(_ vm: FamilyDashboardViewModel? = nil) {
         maxChildCardHeight = nil
         (vm ?? viewModel)?.rebuildLists(
@@ -206,6 +220,41 @@ struct FamilyDashboardView: View {
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements
         )
+    }
+
+    @MainActor
+    private func scheduleRebuild(includingInvitations: Bool = false) {
+        // WHY: Six @Query arrays fire independently; without serialization rebuildLists
+        // (mutating @Observable on MainActor) races refreshInvitations (actor-isolated
+        // InvitationResolver) and allows torn WeekendSummary. Snapshot synchronously
+        // then coalesce via a single cancellable MainActor task so only the latest
+        // cache snapshot rebuilds and rebuild + invitation refresh never interleave.
+        let profiles = cachedProfiles
+        let quests = cachedQuests
+        let logs = cachedCompletions
+        let ledgers = cachedLedgers
+        let periods = cachedAllowancePeriods
+        let profileAchievements = cachedProfileAchievements
+        let achievements = cachedAchievements
+        let targetVM = viewModel
+        maxChildCardHeight = nil
+        rebuildTask?.cancel()
+        rebuildTask = Task { @MainActor [targetVM, profiles, quests, logs, ledgers, periods, profileAchievements, achievements] in
+            guard !Task.isCancelled else { return }
+            targetVM?.rebuildLists(
+                profiles: profiles,
+                quests: quests,
+                logs: logs,
+                ledgers: ledgers,
+                allowancePeriods: periods,
+                profileAchievements: profileAchievements,
+                achievements: achievements
+            )
+            if includingInvitations {
+                guard !Task.isCancelled else { return }
+                await targetVM?.refreshInvitations()
+            }
+        }
     }
 }
 
@@ -300,7 +349,7 @@ private extension FamilyDashboardView {
                         .frame(width: 48, height: 48)
                         .background(
                             Circle()
-                                .fill(Color(.tertiarySystemGroupedBackground))
+                                .fill(Color(DesignSystemConstants.Colors.cardSurface))
                         )
                 } else {
                     ProfileAvatarView(profileCache: card.profile)
@@ -352,7 +401,7 @@ private extension FamilyDashboardView {
             .padding(DesignSystemConstants.Padding.medium)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
@@ -392,7 +441,7 @@ private extension FamilyDashboardView {
         .padding(.horizontal, 16)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -452,7 +501,7 @@ private extension FamilyDashboardView {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .foregroundStyle(color)
             .overlay(
@@ -492,7 +541,7 @@ private extension FamilyDashboardView {
             .padding(DesignSystemConstants.Padding.standard)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
@@ -542,7 +591,7 @@ private extension FamilyDashboardView {
                         .padding(.vertical, 3)
                         .background(
                             Capsule()
-                                .fill(Color(.tertiarySystemGroupedBackground))
+                                .fill(Color(DesignSystemConstants.Colors.cardSurface))
                         )
                         .overlay(
                             Capsule()
@@ -600,7 +649,7 @@ private extension FamilyDashboardView {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small)
-                .fill(Color(.tertiarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
     }
 
@@ -682,7 +731,7 @@ private extension FamilyDashboardView {
             .padding(DesignSystemConstants.Padding.standard)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
@@ -776,7 +825,7 @@ private extension FamilyDashboardView {
             .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
                     .overlay(
                         Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.45), lineWidth: 1)
                     )
@@ -788,13 +837,10 @@ private extension FamilyDashboardView {
 
     @MainActor
     private func presentInviteShare(for role: UserRole) async {
-        guard let share = await viewModel?.prepareInviteShare(for: role) else {
+        guard let presentation = await viewModel?.prepareInviteShare(for: role) else {
             toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
             return
         }
-        // WHY: the container pairing is assembled by the service so this view
-        // never reaches through to the raw CloudKit container.
-        let presentation = familyService.invitePresentation(for: share)
         guard presentation.shareURL != nil else {
             toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
             return

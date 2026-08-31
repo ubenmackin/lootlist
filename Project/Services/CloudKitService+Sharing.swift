@@ -310,6 +310,7 @@ extension CloudKitService {
         var participants: [CKShare.Participant] = []
         for share in shares {
             for participant in share.participants {
+                guard participant.role != .owner else { continue }
                 // Participants with no stable identity key (no record name, email, phone, or participant ID) cannot be
                 // matched across fetches and can never be revoked; exclude them rather than surfacing an unrevocable
                 guard let key = ShareParticipantKey.key(for: participant) else { continue }
@@ -351,7 +352,7 @@ extension CloudKitService {
         for share in shares {
             guard let title = share[CKShare.SystemFieldKey.title] as? String,
                   let role = UserRole.fromShareTitle(title) else { continue }
-            for participant in share.participants {
+            for participant in share.participants where participant.role != .owner {
                 if let key = ShareParticipantKey.key(for: participant) {
                     rolesByIdentity[key] = role
                 }

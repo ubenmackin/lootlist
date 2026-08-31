@@ -112,7 +112,6 @@ struct HeroHomeView: View {
                 journeyMapCover
             }
             .task {
-                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: logger, viewName: "HeroHomeView")
                 ensureViewModel()
             }
             .onChange(of: cachedQuests) { _, _ in

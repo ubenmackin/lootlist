@@ -245,6 +245,18 @@ extension CacheService {
         )
     }
 
+    func fetchLedgerEntries(profileRecordName: String, family: String, recordNamePrefix: String) -> [LedgerEntryCache] {
+        guard !family.isEmpty else {
+            Self.fetchLogger.warning("fetchLedgerEntries(profileRecordName:family:recordNamePrefix:) called without family scope — returning empty (fail-closed)")
+            return []
+        }
+        let prefix = recordNamePrefix
+        return fetch(
+            LedgerEntryCache.self,
+            predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family && $0.recordName.starts(with: prefix) }
+        )
+    }
+
     // WHY: unscoped family fetch would return rows across ALL families — fail closed instead of leaking cross-family data.
     func fetchLedgerEntries(family: String?) -> [LedgerEntryCache] {
         guard let family, !family.isEmpty else {

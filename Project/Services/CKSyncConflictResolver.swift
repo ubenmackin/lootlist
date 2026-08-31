@@ -146,6 +146,9 @@ final class CKSyncConflictResolver {
     /// FROZEN — Quest xpBanked monotonic merge per ARCHITECTURE.md §2. Concurrent completions across
     /// devices must never undercount the banked total, so the merged value is `max(server, client)`
     /// capped at `xpReward` to prevent exceeding the quest's budget.
+    /// Hero Board claim fields (`claimedByProfileRecordName`, `claimedAt`) are intentionally server-wins
+    /// (not in `clientWinsFields`): the loser's ingest adopts the winner's claim and ViewModel
+    /// surfaces "Another hero claimed this quest" via settlePendingClaims.
     private func resolveQuestConflict(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
         let serverBanked = serverRecord["xpBanked"] as? Int ?? 0
         let clientBanked = originalRecord["xpBanked"] as? Int ?? 0

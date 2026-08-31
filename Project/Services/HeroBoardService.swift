@@ -18,6 +18,20 @@ enum HeroBoardClaimOutcome: Equatable, Sendable {
     case lostToAnotherHero
 }
 
+/// Domain error for Hero Board claim failures. Services map `CKError`/
+/// `CloudKitServiceError.serverRecordChanged` to this type so ViewModels never
+/// observe the CloudKit error taxonomy.
+enum BoardClaimError: Error, Equatable, Sendable, LocalizedError {
+    case lostToAnotherHero
+
+    var errorDescription: String? {
+        switch self {
+        case .lostToAnotherHero:
+            "Another hero claimed this quest"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class HeroBoardService {
@@ -106,44 +120,55 @@ final class HeroBoardService {
     /// WHY: Hero Board claim races resolve via standard server-wins conflict
     /// resolution; the loser's ingest reveals the other claimer. The ViewModel
     /// observes the cache pulse and rolls back optimistic UI on
-    /// CKError.serverRecordChanged rather than assuming this local write won.
+    /// BoardClaimError.lostToAnotherHero rather than assuming this local write won.
     @discardableResult
     func claim(_ quest: Quest, by hero: Profile) async throws -> HeroBoardClaimOutcome {
-        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
-            familyRef: quest.family,
-            zoneID: quest.id.zoneID,
-            appState: appState,
-            cloudKit: cloudKit
-        )
+        do {
+            try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+                familyRef: quest.family,
+                zoneID: quest.id.zoneID,
+                appState: appState,
+                cloudKit: cloudKit
+            )
 
-        let key = quest.id.recordName
-        let inserted = inFlightClaims.withLock { $0.insert(key).inserted }
-        defer { _ = inFlightClaims.withLock { $0.remove(key) } }
-        guard inserted else {
-            // Same-device double-tap while the first save is pending: the
-            // optimistic row is already ours.
-            return .claimed
-        }
-
-        var current = quest
-        if let cached = cacheService.fetchQuest(recordName: key, family: quest.family.recordID.recordName) {
-            current = cached.toQuest(zoneID: quest.id.zoneID)
-        }
-
-        if let claimer = current.claimedByProfileRecordName, !claimer.isEmpty {
-            if claimer == hero.id.recordName {
+            let key = quest.id.recordName
+            let inserted = inFlightClaims.withLock { $0.insert(key).inserted }
+            defer { _ = inFlightClaims.withLock { $0.remove(key) } }
+            guard inserted else {
+                // Same-device double-tap while the first save is pending: the
+                // optimistic row is already ours.
                 return .claimed
             }
-            logger.info("Claim race lost for \(key, privacy: .private)")
-            return .lostToAnotherHero
+
+            var current = quest
+            if let cached = cacheService.fetchQuest(recordName: key, family: quest.family.recordID.recordName) {
+                current = cached.toQuest(zoneID: quest.id.zoneID)
+            }
+
+            if let claimer = current.claimedByProfileRecordName, !claimer.isEmpty {
+                if claimer == hero.id.recordName {
+                    return .claimed
+                }
+                logger.info("Claim race lost for \(key, privacy: .private)")
+                return .lostToAnotherHero
+            }
+
+            current.claimedByProfileRecordName = hero.id.recordName
+            current.claimedAt = Date()
+
+            await cacheService.upsertQuest(current)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: current.id, appState: appState, logger: logger, context: "HeroBoardService.claim")
+            return .claimed
+        } catch let ckError as CKError where ckError.code == .serverRecordChanged {
+            throw BoardClaimError.lostToAnotherHero
+        } catch let serviceError as CloudKitServiceError where serviceError == .serverRecordChanged {
+            throw BoardClaimError.lostToAnotherHero
+        } catch {
+            if let ckError = error as? CKError, ckError.code == .serverRecordChanged {
+                throw BoardClaimError.lostToAnotherHero
+            }
+            throw error
         }
-
-        current.claimedByProfileRecordName = hero.id.recordName
-        current.claimedAt = Date()
-
-        await cacheService.upsertQuest(current)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: current.id, appState: appState, logger: logger, context: "HeroBoardService.claim")
-        return .claimed
     }
 
     /// Parent-only: releases a claimed quest back to the board by clearing its
@@ -209,20 +234,30 @@ final class HeroBoardService {
             throw QuestServiceError.staleData("Board quest name must not be empty")
         }
 
-        let adhocTemplate = try await questService.createTemplate(
+        let adhocTemplate = QuestTemplate(
             name: trimmedName,
             description: description,
             defaultGold: goldReward,
             xpReward: xpReward,
-            schedule: .weeklyFlexible,
+            scheduleType: .weeklyFlexible,
             specificDays: [],
             targetCount: 1,
             isAllOrNothing: false,
             approvalMode: approvalMode,
-            createdBy: createdBy,
-            family: family
+            createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            isActive: false,
+            id: CKRecord.ID(recordName: UUID().uuidString, zoneID: family.id.zoneID)
         )
-        _ = try await questService.deactivateTemplate(adhocTemplate)
+
+        await cacheService.upsertQuestTemplate(adhocTemplate)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: adhocTemplate.id,
+            appState: appState,
+            logger: logger,
+            context: "HeroBoardService.postToBoard.template"
+        )
 
         let quest = Quest(
             template: CKRecord.Reference(recordID: adhocTemplate.id, action: .none),

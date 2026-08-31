@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
-import CloudKit
 import Foundation
 import Observation
 import Synchronization
@@ -25,6 +24,7 @@ final class HeroBoardViewModel {
 
     private(set) var availableRows: [BoardRow] = []
     private(set) var claimedRows: [BoardRow] = []
+    private(set) var errorMessage: String?
 
     /// Record names of quests this device has optimistically claimed but whose
     /// save has not yet been acknowledged. If ingest later reveals another
@@ -99,10 +99,16 @@ final class HeroBoardViewModel {
         for recordName in pending {
             if let row = claimedRows.first(where: { $0.id == recordName }) {
                 if let claimer = row.quest.claimedByProfileRecordName, claimer != currentUser {
+                    let message = "Another hero claimed this quest"
+                    errorMessage = message
                     boardService.toastManager?.show(
-                        message: "Someone grabbed it first!",
-                        type: .warning
+                        message: message,
+                        type: .info
                     )
+                    // Fallback when no ToastManager is wired (e.g. previews/tests without environment).
+                    if boardService.toastManager == nil {
+                        errorMessage = message
+                    }
                 }
                 settled.insert(recordName)
             } else if availableRows.contains(where: { $0.id == recordName }) {
@@ -153,18 +159,33 @@ final class HeroBoardViewModel {
                 }
             case .lostToAnotherHero:
                 pendingClaims.withLock { _ = $0.remove(id) }
-                boardService.toastManager?.show(message: "Someone grabbed it first!", type: .warning)
+                let message = "Another hero claimed this quest"
+                errorMessage = message
+                boardService.toastManager?.show(message: message, type: .info)
+                // Ensure stale pending state does not linger when toast is unavailable.
+                if boardService.toastManager == nil {
+                    errorMessage = message
+                }
             }
-        } catch let ckError as CKError where ckError.code == .serverRecordChanged {
-            // WHY: Optimistic UI rollback on serverRecordChanged — the
+        } catch BoardClaimError.lostToAnotherHero {
+            // WHY: Optimistic UI rollback on lost claim race — the
             // resolver merges via ingest and the cache pulse reveals the
             // winner; do not keep an optimistic row that the server rejected.
+            // inFlightClaims is cleared by the defer; pending must be dropped
+            // so rebuildLists does not re-toast the stale optimistic entry.
             pendingClaims.withLock { _ = $0.remove(id) }
-            boardService.toastManager?.show(message: "Someone grabbed it first!", type: .warning)
+            let message = "Another hero claimed this quest"
+            errorMessage = message
+            boardService.toastManager?.show(message: message, type: .info)
+            if boardService.toastManager == nil {
+                errorMessage = message
+            }
         } catch {
             pendingClaims.withLock { _ = $0.remove(id) }
+            let fallback = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            errorMessage = fallback
             boardService.toastManager?.show(
-                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription,
+                message: fallback,
                 type: .error
             )
         }

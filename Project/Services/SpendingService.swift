@@ -148,7 +148,8 @@ class SpendingService {
 
     // MARK: - Helpers
 
-    /// Single deterministic scheme — do not duplicate
+    // WHY: Single deterministic scheme — do not duplicate
+    // WHY: descHash is 4-digit (10k domain) — intentionally compact so collisions are possible but rare; ms+cents provide most entropy and the residual is handled in makeLedgerID.
     private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> String {
         let ms = Int(date.timeIntervalSince1970 * 1000)
         let cents = Int((abs(amount) * 100).rounded())
@@ -168,7 +169,8 @@ class SpendingService {
         }
     }
 
-    /// Handles manual spending replay idempotently using deterministic transaction IDs.
+    // WHY: Handles manual spending replay idempotently using deterministic transaction IDs.
+    // WHY: On hash collision with differing fields, we create a second record (append-only, not deduped) — acceptable rare residual; deletes must handle both records if the retry succeeded.
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, location: String?, date: Date) -> CKRecord.ID {
         let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
         var recordName = base

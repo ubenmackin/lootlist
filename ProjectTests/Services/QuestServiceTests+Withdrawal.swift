@@ -116,6 +116,11 @@ extension QuestServiceTests {
         )
         let buckets = BucketService(cacheService: cache, syncCoordinator: syncCoordinator, appState: scaffold.appState)
         let family = try #require(scaffold.appState.family)
+        let transferID = BucketService.deterministicTransferID(
+            dayBucket: WeekMath.dayBucket(for: Date()),
+            from: .spend,
+            to: .shortTermSave
+        )
 
         await #expect(throws: BucketServiceError.insufficientFunds(available: 5.00, requested: 7.00)) {
             try await buckets.transfer(
@@ -123,7 +128,8 @@ extension QuestServiceTests {
                 to: .shortTermSave,
                 amount: 7.00,
                 profile: scaffold.hero,
-                family: family
+                family: family,
+                transferID: transferID
             )
         }
 

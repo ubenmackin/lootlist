@@ -636,13 +636,10 @@ private extension AchievementService {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
         if let cache = cacheService {
-            var cachedLogs = cache.fetchQuestCompletions(family: primaryFamilyName)
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+            let cachedLogs = cache.fetchQuestCompletions(family: primaryFamilyName)
                 .filter { $0.completerRecordName == profileName }
-            if cachedLogs.isEmpty, fallbackFamilyName != primaryFamilyName {
-                cachedLogs = cache.fetchQuestCompletions(family: fallbackFamilyName)
-                    .filter { $0.completerRecordName == profileName }
-            }
-            if !cachedLogs.isEmpty {
+            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .questCompletion, scope: scope, cachedCount: cachedLogs.count) {
                 return cachedLogs
                     .map { $0.toQuestCompletion(zoneID: zoneID) }
                     .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
@@ -688,17 +685,12 @@ private extension AchievementService {
         let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
 
         if let cache = cacheService {
-            var cachedLedger = cache.fetchLedgerEntries(
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+            let cachedLedger = cache.fetchLedgerEntries(
                 profileRecordName: profileName,
                 family: primaryFamilyName
             )
-            if cachedLedger.isEmpty, fallbackFamilyName != primaryFamilyName {
-                cachedLedger = cache.fetchLedgerEntries(
-                    profileRecordName: profileName,
-                    family: fallbackFamilyName
-                )
-            }
-            if !cachedLedger.isEmpty {
+            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .ledgerEntry, scope: scope, cachedCount: cachedLedger.count) {
                 return cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
             }
         }
@@ -741,13 +733,10 @@ private extension AchievementService {
         let fallbackFamilyName = profile.family.recordID.recordName
 
         if let cache = cacheService {
-            var cached = cache.fetchGoals(family: primaryFamilyName)
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
+            let cached = cache.fetchGoals(family: primaryFamilyName)
                 .filter { $0.profileRecordName == profileName }
-            if cached.isEmpty, fallbackFamilyName != primaryFamilyName {
-                cached = cache.fetchGoals(family: fallbackFamilyName)
-                    .filter { $0.profileRecordName == profileName }
-            }
-            if !cached.isEmpty {
+            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .goal, scope: scope, cachedCount: cached.count) {
                 return cached.map { $0.toGoal(zoneID: zoneID) }
             }
         }

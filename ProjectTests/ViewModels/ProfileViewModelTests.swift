@@ -117,7 +117,6 @@ struct ProfileViewModelTests {
             quests: [quest],
             profileAchievements: [],
             achievements: [],
-            zoneID: test.zoneID,
             payoutDay: .sunday
         )
 
@@ -160,7 +159,6 @@ struct ProfileViewModelTests {
             quests: [],
             profileAchievements: [],
             achievements: [],
-            zoneID: test.zoneID,
             payoutDay: .sunday
         )
 

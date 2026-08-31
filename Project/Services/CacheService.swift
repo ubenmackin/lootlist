@@ -12,8 +12,7 @@ import SwiftData
 import Synchronization
 
 /// Main-actor SwiftData cache — immediate UI source of truth.
-/// WHY: SerialMutationQueue serializes only background writes; MainActor CacheService writes interleave at logical layer — changeTag guard prevents stale regression.
-/// WHY: Deterministic IDs dedupe on recordName; deletes capture ScopedRecordIdentity before invalidation.
+/// WHY: SerialMutationQueue serializes background writes; changeTag guards interleaving.
 @MainActor
 @Observable
 final class CacheService: CacheServicing {
@@ -39,6 +38,9 @@ final class CacheService: CacheServicing {
 
     @ObservationIgnored private var didSaveTask: Task<Void, Never>?
 
+    /// WHY: Bumped on every watermark mutation so SwiftUI observing isCacheFresh recomputes after markCacheFresh.
+    var freshnessVersion: Int = 0
+
     var context: ModelContext? {
         container?.mainContext
     }
@@ -49,7 +51,7 @@ final class CacheService: CacheServicing {
     init(inMemory: Bool = false, defaults: UserDefaults = .standard) throws {
         self.defaults = defaults
         self.inMemory = inMemory
-        let schema = Schema(LootListSchemaV8.models)
+        let schema = Schema(LootListSchemaV9.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
             container = try ModelContainer(for: schema, configurations: config)
@@ -186,14 +188,8 @@ final class CacheService: CacheServicing {
                     guard !Task.isCancelled else { break }
                     guard let self else { break }
                     guard let container = self.container else { break }
-                    // WHY: `notification.object` is a background ModelContext when the save originates off-main.
-                    // Casting to `AnyObject` and comparing identity (`!==`) is load-bearing: it avoids
-                    // touching any typed property getter on the background context from @MainActor, which
-                    // would trigger SwiftData concurrency assertions. Only `processPendingChanges()` on
-                    // the main context is safe here.
-                    guard let savedObject = notification.object as AnyObject?,
-                          savedObject !== (container.mainContext as AnyObject)
-                    else {
+                    // WHY: AnyObject identity avoids touching background context getters from MainActor.
+                    guard self.isBackgroundSave(notification, container: container) else {
                         continue
                     }
                     #if DEBUG
@@ -218,6 +214,13 @@ final class CacheService: CacheServicing {
     private func refreshMainContextAfterBackgroundSave() {
         guard let container else { return }
         container.mainContext.processPendingChanges()
+    }
+
+    // WHY: AnyObject identity avoids touching background context getters from MainActor.
+    private func isBackgroundSave(_ notification: Notification, container: ModelContainer) -> Bool {
+        guard let saved = notification.object as AnyObject?,
+              saved !== (container.mainContext as AnyObject) else { return false }
+        return true
     }
 
     func withBatch(_ work: () -> Void) {
@@ -257,15 +260,18 @@ final class CacheService: CacheServicing {
         for scope in [CKDatabase.Scope.private, .shared] {
             defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
         }
+        freshnessVersion &+= 1
     }
 
     /// Stamps freshness for record type in the specified database scope.
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        freshnessVersion &+= 1
     }
 
     /// Returns true if a freshness watermark exists for any database scope.
     func isCacheFresh(familyRecordName: String, type: CachedRecordType) -> Bool {
+        _ = freshnessVersion
         let legacyKey = freshnessKey(familyRecordName: familyRecordName, type: type)
         if defaults.object(forKey: legacyKey) != nil {
             return true
@@ -280,21 +286,15 @@ final class CacheService: CacheServicing {
 
     /// Returns true if freshness watermark was stamped for the given family, type, and scope.
     func isCacheFresh(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
-        defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
+        _ = freshnessVersion
+        return defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
     }
 
     /// Authoritative freshness check: cached data is served only when a freshness watermark exists.
     func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, cachedCount: Int) -> Bool {
+        _ = freshnessVersion
         _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored, stale non-empty must still refetch.
         return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
-    }
-
-    /// Legacy forwarding overload — preserves compatibility while the scope-aware variant is the sole authority.
-    /// WHY: Scope-isolated freshness is the only correct check; this forwarding exists only to avoid breaking existing call sites during migration.
-    @available(*, deprecated, message: "Use scope-aware isCacheAuthoritative(familyRecordName:type:scope:cachedCount:) — scope-isolated per §2")
-    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, cachedCount: Int) -> Bool {
-        _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored.
-        return isCacheFresh(familyRecordName: familyRecordName, type: type)
     }
 
     /// Clears freshness watermarks across all scopes for this family and record type.
@@ -303,17 +303,22 @@ final class CacheService: CacheServicing {
         for scope in [CKDatabase.Scope.private, .shared] {
             defaults.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
         }
+        freshnessVersion &+= 1
     }
 
     /// Clears freshness watermark for this record type in the specified scope.
     func invalidateFreshness(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) {
         defaults.removeObject(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        freshnessVersion &+= 1
     }
 
     func invalidateAllFreshness() {
         let staleKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(Self.freshnessKeyPrefix) }
         for key in staleKeys {
             defaults.removeObject(forKey: key)
+        }
+        if !staleKeys.isEmpty {
+            freshnessVersion &+= 1
         }
     }
 
@@ -322,6 +327,9 @@ final class CacheService: CacheServicing {
         let staleKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
         for key in staleKeys {
             defaults.removeObject(forKey: key)
+        }
+        if !staleKeys.isEmpty {
+            freshnessVersion &+= 1
         }
     }
 

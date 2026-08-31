@@ -197,7 +197,7 @@ struct HeroBoardViewModelTests {
 
         await ctx.viewModel.claim(staleRow)
 
-        #expect(ctx.toastManager.toasts.contains { $0.message == "Someone grabbed it first!" && $0.type == .warning })
+        #expect(ctx.toastManager.toasts.contains { $0.message == "Another hero claimed this quest" && $0.type == .info })
         #expect(ctx.cachedQuest(recordName: "q-a")?.claimedByProfileRecordName == "hero2")
         #expect(ctx.cachedQuest(recordName: "q-a")?.claimedAt == rivalWinDate)
     }
@@ -217,7 +217,7 @@ struct HeroBoardViewModelTests {
 
         ctx.viewModel.rebuildLists(quests: [rivalWin], profiles: [ctx.heroProfileCache, ctx.rivalProfileCache])
 
-        #expect(ctx.toastManager.toasts.contains { $0.message == "Someone grabbed it first!" && $0.type == .warning })
+        #expect(ctx.toastManager.toasts.contains { $0.message == "Another hero claimed this quest" && $0.type == .info })
     }
 
     // MARK: - Parent reset

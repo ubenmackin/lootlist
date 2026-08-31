@@ -180,6 +180,10 @@ extension FamilyService {
         await appState.acceptDetectedFamily(family: family, profile: profile, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
     }
 
+    func acceptDetectedFamily(family: Family, profile: Profile, isOwner: Bool) async {
+        await acceptDetectedFamily(family: family, profile: profile, zoneID: family.id.zoneID, isOwner: isOwner)
+    }
+
     func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool) async {
         await appState.rejectDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneIDString: zoneIDString, isOwner: isOwner, cloudKit: cloudKit)
     }

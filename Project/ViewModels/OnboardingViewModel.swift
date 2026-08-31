@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import Foundation
 import os
 
@@ -32,10 +31,10 @@ enum UserIntent: String, Hashable, Sendable {
 }
 
 /// Active Profile matching current iCloud user in a shared zone, for reconnecting without duplicates.
+/// CKShare and zone details stay in the Service layer; the ViewModel holds only presentation data.
 struct DetectedHero {
     let family: Family
     let profile: Profile
-    let zoneID: CKRecordZone.ID
 }
 
 @MainActor
@@ -72,7 +71,7 @@ final class OnboardingViewModel {
 
     var joinProgressFraction: Double?
 
-    var pendingShareMetadata: CKShare.Metadata?
+    var pendingShareMetadata: InvitationLinkResolution?
 
     /// Populated when hero discovery identifies an existing active profile in shared zones.
     var detectedHero: DetectedHero?
@@ -121,54 +120,12 @@ final class OnboardingViewModel {
 
     private func performExistingHeroCheck() async {
         guard userIntent == .joinFamily else { return }
-
-        let userID: CKRecord.ID
-        do {
-            userID = try await familyService.cloudKitReference.currentUserRecordID()
-        } catch {
-            logger.warning("Failed to resolve current user record ID for hero check: \(error, privacy: .private)")
+        // All CloudKit zone and identity resolution stays in the Service layer.
+        if let hero = await familyService.detectExistingHeroForJoin() {
+            detectedHero = DetectedHero(family: hero.family, profile: hero.profile)
+        } else {
             detectedHero = nil
-            return
         }
-
-        let sharedZones: [CKRecordZone]
-        do {
-            sharedZones = try await familyService.cloudKitReference.fetchSharedZones()
-        } catch {
-            logger.warning("Failed to fetch shared zones for hero check: \(error, privacy: .private)")
-            sharedZones = []
-        }
-
-        var matches: [(zoneID: CKRecordZone.ID, profile: Profile)] = []
-        for zone in sharedZones {
-            let zoneID = zone.zoneID
-            let activeProfiles = await AppState.activeSharedHeroProfiles(
-                cloudKit: familyService.cloudKitReference,
-                userRecordID: userID,
-                zoneID: zoneID
-            )
-            for profile in activeProfiles {
-                matches.append((zoneID, profile))
-            }
-        }
-
-        // Only a single discoverable active hero warrants the reconnect prompt.
-        guard matches.count == 1, let match = matches.first else {
-            detectedHero = nil
-            return
-        }
-
-        // Resolve the Family record in the matching shared zone (point lookup
-        // first, query fallback second — shared with AppState discovery).
-        guard let family = await AppState.sharedZoneFamily(
-            cloudKit: familyService.cloudKitReference,
-            zoneID: match.zoneID
-        ) else {
-            detectedHero = nil
-            return
-        }
-
-        detectedHero = DetectedHero(family: family, profile: match.profile, zoneID: match.zoneID)
     }
 
     func backToRoleSelection() {
@@ -221,31 +178,14 @@ final class OnboardingViewModel {
 
         error = nil
 
-        // Resolve iCloud user ID up front to prevent duplicate Profile creation on retry.
-        let owneriCloudID: CKRecord.ID
         do {
-            owneriCloudID = try await iCloudUserID()
-        } catch {
-            self.error = "Could not reach iCloud to identify your account. Check your network and tap Found the Guild to retry."
-            return
-        }
-
-        let ownerProfile = Profile(
-            displayName: trimmedName,
-            avatarClass: avatarClass,
-            avatarPresetID: avatarPresetID,
-            customAvatarImageData: customAvatarImageData,
-            role: .guildMaster,
-            iCloudUserID: owneriCloudID,
-            family: CKRecord.Reference(recordID: CKRecord.ID(recordName: "pending"),
-                                       action: .none),
-            avatarEmoji: avatarEmoji
-        )
-
-        do {
-            let result = try await familyService.createFamily(
+            let result = try await familyService.createFamilyWithOnboarding(
                 name: trimmed,
-                ownerProfile: ownerProfile
+                displayName: trimmedName,
+                avatarClass: avatarClass,
+                avatarPresetID: avatarPresetID,
+                customAvatarImageData: customAvatarImageData,
+                avatarEmoji: avatarEmoji
             )
 
             builtFamily = result.family
@@ -269,7 +209,7 @@ final class OnboardingViewModel {
             "Joining family via accepted share called. userIntent=\(intent), hasMetadata=\(hasMetadata), isLoading=\(self.isLoading)"
         )
         guard userIntent == .joinFamily,
-              let metadata = pendingShareMetadata,
+              let resolution = pendingShareMetadata,
               !isLoading
         else {
             logger.info(
@@ -289,7 +229,7 @@ final class OnboardingViewModel {
         logger.info("Calling familyService.joinFamilyViaAcceptedShare...")
         do {
             let result = try await familyService.joinFamilyViaAcceptedShare(
-                metadata: metadata,
+                metadata: resolution.metadata,
                 displayName: displayName,
                 avatarClass: avatarClass,
                 progressHandler: { [weak self] status, fraction in
@@ -326,7 +266,7 @@ final class OnboardingViewModel {
                 logger.info("Resolved share metadata: zone='\(resolved.zoneName, privacy: .private)' title='\(resolved.title, privacy: .private)'")
                 joinProgressStatus = "Invitation verified! Connecting to family..."
                 joinProgressFraction = 0.3
-                pendingShareMetadata = resolved.metadata
+                pendingShareMetadata = resolved
             } catch {
                 joinProgressStatus = nil
                 joinProgressFraction = nil
@@ -416,9 +356,5 @@ final class OnboardingViewModel {
         didReuseActiveProfile = false
         pendingShareMetadata = nil
         detectedHero = nil
-    }
-
-    private func iCloudUserID() async throws -> CKRecord.ID {
-        try await familyService.cloudKitReference.currentUserRecordID()
     }
 }

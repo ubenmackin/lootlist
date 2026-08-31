@@ -18,7 +18,7 @@ struct CharacterSheetView: View {
 
     let goldBalance: Double?
 
-    let earnedAchievements: [Achievement]
+    let earnedAchievements: [AchievementCache]
 
     let onSaveDisplayName: ((String) -> Void)?
 
@@ -31,7 +31,7 @@ struct CharacterSheetView: View {
          xpService: XPService,
          streak: Int?,
          goldBalance: Double?,
-         earnedAchievements: [Achievement],
+         earnedAchievements: [AchievementCache],
          onSaveDisplayName: ((String) -> Void)?)
     {
         self.profileCache = profileCache
@@ -191,7 +191,7 @@ struct CharacterSheetView: View {
                         .padding(.vertical, 8)
                 } else {
                     LazyVGrid(columns: trophyColumns, spacing: 12) {
-                        ForEach(recentTrophies, id: \.id) { trophy in
+                        ForEach(recentTrophies, id: \.recordName) { trophy in
                             miniTrophy(trophy)
                         }
                     }
@@ -211,11 +211,11 @@ struct CharacterSheetView: View {
          GridItem(.flexible(), spacing: 12)]
     }
 
-    private var recentTrophies: [Achievement] {
+    private var recentTrophies: [AchievementCache] {
         Array(earnedAchievements.prefix(6))
     }
 
-    private func miniTrophy(_ trophy: Achievement) -> some View {
+    private func miniTrophy(_ trophy: AchievementCache) -> some View {
         VStack(spacing: 6) {
             ZStack {
                 Circle()

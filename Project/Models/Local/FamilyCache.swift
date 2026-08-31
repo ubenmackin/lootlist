@@ -9,10 +9,13 @@ import CloudKit
 import Foundation
 import SwiftData
 
+/// Root partition record — never family-scoped. WHY: family IS the partition, so familyRecordName would be circular; WHY no migration: composite index would force
+/// backfill/destructive reset for zero isolation gain.
 @Model
 final class FamilyCache: CacheMergeable {
     typealias DomainModel = Family
 
+    // WHY single-column index: root has no familyRecordName to composite with.
     #Index<FamilyCache>([\.recordName])
 
     var recordName: String
@@ -33,7 +36,7 @@ final class FamilyCache: CacheMergeable {
     var sourceZoneOwnerName: String?
     var sourceDatabaseScope: String?
 
-    /// `FamilyCache` is the root record and is never family-scoped.
+    /// `FamilyCache` is the root record and is never family-scoped — WHY circular: recordName IS the partition key.
     var familyRecordName: String {
         ""
     }
@@ -109,7 +112,7 @@ final class FamilyCache: CacheMergeable {
     }
 
     static func fetchDescriptor(familyRecordName _: String?) -> FetchDescriptor<FamilyCache> {
-        // FamilyCache is the root record — never family-scoped.
+        // WHY ignored: FamilyCache is the root record — never family-scoped, so predicate is unscoped.
         FetchDescriptor<FamilyCache>()
     }
 

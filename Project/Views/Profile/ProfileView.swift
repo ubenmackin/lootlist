@@ -5,7 +5,6 @@
 //  Created by Ben Mackin on 8/16/26.
 //
 
-import CloudKit
 import os
 import PhotosUI
 import SwiftData
@@ -22,10 +21,6 @@ struct ProfileView: View {
     @Environment(ToastManager.self) private var toastManager
 
     @Environment(AppState.self) private var appState
-
-    @Environment(CloudKitService.self) private var cloudKitService
-
-    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
 
     @Environment(FamilyService.self) private var familyService
 
@@ -146,7 +141,7 @@ struct ProfileView: View {
                 Button("Sign Out", role: .destructive) {
                     isSigningOut = true
                     Task {
-                        await appState.signOutAndDiscover(cloudKit: cloudKitService, syncCoordinator: syncCoordinator)
+                        await familyService.signOutAndDiscover()
                         isSigningOut = false
                     }
                 }
@@ -194,8 +189,6 @@ struct ProfileView: View {
 
     private func recomputeCharacterFromCache() {
         appState.updateCurrentProfileFromCache()
-        // WHY: familyZoneID is the single source for zone targeting; default-zone fallback would leak cross-family scope — fail closed when no family zone is active.
-        guard let zoneID = appState.familyZoneID else { return }
         viewModel.recomputeCharacterFromCache(
             profile: appState.currentProfile,
             completions: cachedCompletions,
@@ -203,7 +196,6 @@ struct ProfileView: View {
             quests: cachedQuests,
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements,
-            zoneID: zoneID,
             // Payout cycle anchoring: profile override → family → Sunday default.
             payoutDay: appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
         )
@@ -677,7 +669,7 @@ final class ProfileViewModel {
     var streak: Int?
     var savingsStreak: Int?
     var goldBalance: Double?
-    var earnedAchievements: [Achievement] = []
+    var earnedAchievements: [AchievementCache] = []
 
     func reset() {
         streak = nil
@@ -693,7 +685,6 @@ final class ProfileViewModel {
         quests _: [QuestCache],
         profileAchievements: [ProfileAchievementCache],
         achievements: [AchievementCache],
-        zoneID: CKRecordZone.ID,
         payoutDay: PayoutDay
     ) {
         guard let profile else {
@@ -732,7 +723,6 @@ final class ProfileViewModel {
         )
         earnedAchievements = achievements
             .filter { earnedNames.contains($0.recordName) }
-            .map { $0.toAchievement(zoneID: zoneID) }
     }
 
     func refreshFreshness(
@@ -744,8 +734,8 @@ final class ProfileViewModel {
         guard let profile else { return }
         if let cache = achievementService.cacheService {
             let familyName = profile.family.recordID.recordName
-            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback handled at call site (FamilyService-style).
+            let scope = (appState ?? achievementService.appState)?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             let profileCount = cache.fetchProfileAchievements(profileRecordName: profile.id.recordName, family: familyName).count
             let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, scope: scope, cachedCount: profileCount)
             let achievementAuthoritative = family.map { fam in

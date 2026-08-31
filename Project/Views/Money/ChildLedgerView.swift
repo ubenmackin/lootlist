@@ -14,18 +14,23 @@ struct ChildLedgerView: View {
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
     @State private var isShowingTransfer: Bool = false
     @State private var isShowingSplit: Bool = false
 
     @Query private var allLedgers: [LedgerEntryCache]
 
-    init(familyRecordName: String? = nil) {
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
+        // WHY: Predicate pushdown fetches only this hero's ledgers; avoids loading entire
+        // family ledger set and reduces main-thread filtering for heroes with 1k+ rows.
         let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
         let ledgerFilter = #Predicate<LedgerEntryCache> {
-            $0.familyRecordName == targetFamily
+            $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
         }
         _allLedgers = Query(
             filter: ledgerFilter,
@@ -36,10 +41,9 @@ struct ChildLedgerView: View {
 
     // MARK: - Filtered Entries
 
-    /// Entries that belong to the current child profile.
+    /// Entries already profile-scoped via predicate pushdown.
     private var childEntries: [LedgerEntryCache] {
-        guard let profileName = appState.currentProfile?.id.recordName else { return [] }
-        return allLedgers.filter { $0.profileRecordName == profileName }
+        allLedgers
     }
 
     /// Ledger entries grouped by date bucket, preserving reverse-chronological

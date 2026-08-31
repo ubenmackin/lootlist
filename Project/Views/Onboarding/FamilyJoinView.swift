@@ -282,7 +282,6 @@ struct FamilyJoinView: View {
                     await familyService.acceptDetectedFamily(
                         family: hero.family,
                         profile: hero.profile,
-                        zoneID: hero.zoneID,
                         isOwner: false
                     )
                 }

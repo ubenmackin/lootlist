@@ -221,8 +221,8 @@ struct TabBarView: View {
             }
             .tag(RootTab.quests)
 
-        ChildLedgerView(familyRecordName: familyName)
-            .id("hero-ledger-\(familyName ?? "")")
+        ChildLedgerView(familyRecordName: familyName, profileRecordName: appState.currentProfile?.id.recordName)
+            .id("hero-ledger-\(familyName ?? "")-\(appState.currentProfile?.id.recordName ?? "")")
             .tabItem {
                 Label("Money", systemImage: "dollarsign.circle.fill")
             }

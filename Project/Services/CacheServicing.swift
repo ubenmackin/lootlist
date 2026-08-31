@@ -16,6 +16,7 @@ protocol CacheServicing: AnyObject {
     // MARK: - Reads
 
     func fetchLedgerEntries(profileRecordName: String, family: String?) -> [LedgerEntryCache]
+    func fetchLedgerEntries(profileRecordName: String, family: String, recordNamePrefix: String) -> [LedgerEntryCache]
     func fetchLedgerEntry(recordName: String, family: String) -> LedgerEntryCache?
     func fetchProfiles(family: String?) -> [ProfileCache]
     func fetchProfile(recordName: String, family: String) -> ProfileCache?
