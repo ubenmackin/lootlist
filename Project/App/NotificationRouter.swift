@@ -30,29 +30,19 @@ extension Notification.Name {
     static let notificationRouteTriggered = Notification.Name("notificationRouteTriggered")
 }
 
-/// Notification center delegate routing notification taps and actionable category responses.
-///
-/// Instance is owned by `AppDependencies` (`AppDependencies.notificationRouter`)
-/// and set as `UNUserNotificationCenter.delegate` from that container. The
-/// previous `NotificationRouter.shared` static singleton is replaced — do not
-/// reintroduce it. A process-bound `AppDependencies.shared` shim remains only
-/// for Intents/BGTask entry points that run outside the SwiftUI lifecycle
-/// (see `AppDependencies.shared` docs); this router is not accessed via a
-/// static singleton in app code.
+/// Routes notification taps and actionable category responses.
+/// WHY: UNUserNotificationCenterDelegate is not Sendable; @MainActor isolates delegate callbacks.
 @MainActor
 final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "NotificationRouter")
 
-    /// Cold-start tap retention. Uses `Mutex` so the delegate callback (which
-    /// may fire on a non-main queue) and the main-actor consumer never race.
+    /// Cold-start tap retention. WHY: Mutex guards delegate queue vs MainActor consumer races.
     private let pendingRoute = Mutex<NotificationRoute?>(nil)
 
-    /// Fallback shared for cold-start before `AppDependencies` exists.
-    /// Prefer `AppDependencies.shared?.notificationRouter` in app code.
+    /// Fallback for cold-start before AppDependencies is initialized.
     private static let _coldStartFallback = NotificationRouter()
 
-    /// Compatibility shim — forwards to the owned instance when available.
-    /// New code should use `AppDependencies.shared?.notificationRouter`.
+    /// Process-wide accessor forwarding to owned container instance when present.
     static var shared: NotificationRouter {
         if Thread.isMainThread {
             if let owned = MainActor.assumeIsolated({ AppDependencies.shared?.notificationRouter }) {
