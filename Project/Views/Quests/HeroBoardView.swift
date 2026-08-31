@@ -81,6 +81,18 @@ struct HeroBoardView: View {
 
     private func boardContent(vm: HeroBoardViewModel) -> some View {
         List {
+            // Claim-loss feedback: when a pending optimistic claim is resolved
+            // server-wins for another hero, ViewModel surfaces a toast and
+            // local errorMessage; this hidden banner exposes the state for
+            // accessibility/UI tests via heroBoard.claimLostToast.
+            if let message = vm.errorMessage, message == "Another hero claimed this quest" {
+                Text(message)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                    .accessibilityIdentifier("heroBoard.claimLostToast")
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
             if vm.availableRows.isEmpty, vm.isParent ? vm.claimedRows.isEmpty : true {
                 emptyState
                     .listRowBackground(Color.clear)
@@ -108,6 +120,16 @@ struct HeroBoardView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // Dedicated accessibility node for claim-loss toast so XCUITest can
+        // assert the server-wins feedback without parsing global toast overlay.
+        .overlay(alignment: .top) {
+            if vm.errorMessage == "Another hero claimed this quest" {
+                Color.clear
+                    .frame(height: 1)
+                    .accessibilityIdentifier("heroBoard.claimLostToast")
+                    .accessibilityHidden(false)
+            }
+        }
     }
 
     private func questDetail(_ row: HeroBoardViewModel.BoardRow) -> some View {

@@ -63,14 +63,12 @@ enum CacheFirst {
             // WHY: stale cache must re-validate via CloudKit; offline fallback renders stale cache explicitly at call site, not via authoritative predicate.
             cacheFirstLogger.warning("cacheFirst \(type.rawValue, privacy: .public) CloudKit query failed, falling back to stale cache: \(error, privacy: .private)")
             let fallback = fetchCache(familyName)
-            if !fallback.isEmpty {
-                let mapped = fallback.map(map)
-                if let sort {
-                    return mapped.sorted(by: sort)
-                }
-                return mapped
+            // Brand-new hero may not be marked fresh yet — return cached rows (even empty) on CloudKit failure rather than throwing.
+            let mapped = fallback.map(map)
+            if let sort {
+                return mapped.sorted(by: sort)
             }
-            throw error
+            return mapped
         }
     }
 }

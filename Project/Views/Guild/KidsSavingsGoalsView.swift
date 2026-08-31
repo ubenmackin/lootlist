@@ -132,7 +132,7 @@ struct KidsSavingsGoalsView: View {
             .padding(.vertical, 14)
             .padding(.horizontal, 16)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
         .navigationTitle("Savings Goals")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $goalToEdit) { goal in
@@ -192,7 +192,7 @@ struct KidsSavingsGoalsView: View {
         .padding(.vertical, 32)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
     }
 
@@ -221,7 +221,7 @@ struct KidsSavingsGoalsView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -284,7 +284,7 @@ struct KidsSavingsGoalsView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(.tertiarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .contextMenu {
             goalCardContextMenu(goal: goal)
@@ -375,7 +375,7 @@ struct KidsSavingsGoalsView: View {
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Capsule().fill(Color(.tertiarySystemFill)))
+                    .background(Capsule().fill(Color(DesignSystemConstants.Colors.cardSurface)))
                     .foregroundStyle(.secondary)
             }
         }

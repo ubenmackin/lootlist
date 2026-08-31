@@ -624,7 +624,12 @@ struct TreasuryServiceTests {
             to: .shortTermSave,
             amount: 8.00,
             profile: fixture.hero,
-            family: fixture.family
+            family: fixture.family,
+            transferID: BucketService.deterministicTransferID(
+                dayBucket: WeekMath.dayBucket(for: Date()),
+                from: .spend,
+                to: .shortTermSave
+            )
         )
         #expect(entry.amount == 8.00)
         #expect(entry.source == "transfer")

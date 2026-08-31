@@ -444,6 +444,37 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         }
     }
 
+    /// Per-type freshness stamping for partial snapshot reconciliation.
+    /// Only the succeeded record types are marked fresh; failed types keep
+    /// their existing staleness so the next pass re-fetches them.
+    func stampFreshness(for types: Set<CachedRecordType>, scopes: Set<CKDatabase.Scope>) {
+        guard let appState,
+              let familyRecordName = appState.family?.id.recordName,
+              let cacheService = appState.cacheService
+        else { return }
+        let effectiveScopes = scopes.isEmpty ? completedFetchPassScopes : scopes
+        guard !effectiveScopes.isEmpty else {
+            logger.warning("Cache freshness stamping skipped: effectiveScopes is empty")
+            return
+        }
+        for type in types where !type.fetchScopes.isDisjoint(with: effectiveScopes) {
+            for scope in effectiveScopes where type.fetchScopes.contains(scope) {
+                cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
+            }
+            cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
+        }
+    }
+
+    /// Convenience overload accepting an ordered collection of types.
+    func stampFreshness(for types: [CachedRecordType], scopes: Set<CKDatabase.Scope>) {
+        stampFreshness(for: Set(types), scopes: scopes)
+    }
+
+    /// Compatibility wrapper for call sites that reference the historic name.
+    func stampCacheFreshness(for types: Set<CachedRecordType>, scopes: Set<CKDatabase.Scope>) {
+        stampFreshness(for: types, scopes: scopes)
+    }
+
     private func postSyncDidComplete(outcome: SyncOutcome) {
         NotificationCenter.default.post(
             name: .syncDidComplete,

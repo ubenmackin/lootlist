@@ -22,6 +22,10 @@ import SwiftUI
 
         private let familyRecordName: String?
 
+        // WHY: Unscoped @Query over all families would leak cross-family rows;
+        // this DEBUG-only overlay is the intentional exception — keep the
+        // fail-closed targetFamily ("" → zero rows) pattern as the exemplar,
+        // do not copy unscoped fetches.
         @Query private var allProfiles: [ProfileCache]
         @Query private var allQuests: [QuestCache]
         @Query private var allTemplates: [QuestTemplateCache]
@@ -223,7 +227,6 @@ import SwiftUI
             .navigationTitle("iCloud Status")
             .navigationBarTitleDisplayMode(.large)
             .task {
-                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: Self.logger, viewName: "iCloudStatusView")
                 await refreshAccountStatus()
             }
             .onChange(of: syncCoordinator?.syncError) { _, newError in

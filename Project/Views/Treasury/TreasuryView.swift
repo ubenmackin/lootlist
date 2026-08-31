@@ -34,18 +34,22 @@ struct TreasuryView: View {
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
-    init(spending: SpendingService, familyRecordName: String? = nil) {
+    init(spending: SpendingService, familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.spending = spending
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
-        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
-        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        // WHY: Predicate pushdown fetches only this hero's rows at the store layer;
+        // avoids loading entire family ledger set and reduces main-thread filtering
+        // for heroes with 1k+ rows — FamilyScopedCache scoping remains primary isolation layer.
         let targetFamily = familyRecordName ?? ""
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let targetProfile = profileRecordName ?? ""
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
+        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         _cachedCompletions = Query(
             filter: completionFilter,
             sort: \QuestCompletionCache.completedDate,
@@ -82,7 +86,7 @@ struct TreasuryView: View {
                 }
                 .padding(.vertical)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink(value: "spendingLog") {
@@ -98,6 +102,7 @@ struct TreasuryView: View {
                         SpendingLogView(
                             viewModel: viewModel,
                             familyRecordName: familyRecordName,
+                            profileRecordName: profileRecordName,
                             scope: $scope
                         )
                     }
@@ -146,21 +151,21 @@ struct TreasuryView: View {
     }
 
     private func rebuild(_ vm: TreasuryViewModel? = nil) {
-        guard let profileName = appState.currentProfile?.id.recordName else { return }
+        guard appState.currentProfile?.id.recordName != nil else { return }
 
-        // Filter family-scoped cached records for the active hero profile.
-        let logs = cachedCompletions.filter { $0.completerRecordName == profileName }
-        let ledgers = cachedLedgers.filter { $0.profileRecordName == profileName }
-        let quests = cachedQuests.filter { $0.assigneeRecordName == profileName }
-        let allowancePeriods = cachedAllowancePeriods.filter { $0.profileRecordName == profileName }
-
+        // Cached arrays are already profile-scoped via predicate pushdown; ViewModel keeps
+        // defensive filtering internally but no main-thread filtering is needed here.
         (vm ?? viewModel)?.rebuildLists(
-            logs: logs,
-            ledgers: ledgers,
-            quests: quests,
-            allowancePeriods: allowancePeriods,
+            logs: cachedCompletions,
+            ledgers: cachedLedgers,
+            quests: cachedQuests,
+            allowancePeriods: cachedAllowancePeriods,
             scope: scope
         )
+    }
+
+    private var targetFamilyForStale: String {
+        familyRecordName ?? appState.family?.id.recordName ?? ""
     }
 
     private func checkPendingQuickAction(_ action: QuickActionType?) {
@@ -173,6 +178,17 @@ struct TreasuryView: View {
 
     @ViewBuilder
     private func loadedContent(_ viewModel: TreasuryViewModel) -> some View {
+        // WHY: Scope-aware banner observes freshnessVersion so it hides after markCacheFresh without Query change.
+        if !targetFamilyForStale.isEmpty {
+            StaleDataBanner(
+                family: targetFamilyForStale,
+                type: .ledgerEntry,
+                count: cachedLedgers.count + cachedCompletions.count,
+                isSyncing: lifecycleCoordinator?.isSyncing == true
+            )
+            .padding(.horizontal)
+        }
+
         BalanceCardView(balance: viewModel.balance,
                         weekOf: viewModel.allowancePeriod?.weekOf ?? Date(),
                         status: viewModel.allowancePeriod?.status,
@@ -260,7 +276,7 @@ struct WeeklyBreakdownCard: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .padding(.horizontal)
     }

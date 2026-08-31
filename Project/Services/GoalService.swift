@@ -137,6 +137,7 @@ final class GoalService {
 
         for goal in sorted {
             guard remaining > 0 else { break }
+            // WHY: Archived goals are skipped before completed subtraction so an archived+completed goal cannot double-subtract.
             if goal.isArchived {
                 continue
             }
@@ -590,11 +591,11 @@ final class GoalService {
         let prefix = "contrib-\(goalRecordName)-"
         let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
-            family: familyRecordName
+            family: familyRecordName,
+            recordNamePrefix: prefix
         )
 
         return entries
-            .filter { $0.recordName.hasPrefix(prefix) }
             .reduce(into: Int64(0)) { acc, entry in
                 acc += Int64((entry.amount * 100).rounded())
             }

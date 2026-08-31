@@ -329,7 +329,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func fetchShareParticipants(for rootRecordID: CKRecord.ID) async throws -> [CKShare.Participant] {
-        mockShares.filter { $0.recordID.zoneID == rootRecordID.zoneID }.flatMap(\.participants)
+        mockShares.filter { $0.recordID.zoneID == rootRecordID.zoneID }.flatMap(\.participants).filter { $0.role != .owner }
     }
 
     func fetchShareParticipantStatuses(for rootRecordID: CKRecord.ID) async throws -> [ShareParticipantStatus] {
@@ -349,19 +349,29 @@ class MockCloudKitService: CloudKitServiceProtocol {
                 statuses.append(ShareParticipantStatus(identityKey: key, recordName: recordName, isRemoved: true))
             }
             // Include any real participants not covered by mock keys
-            let real = mockShares.filter { $0.recordID.zoneID == rootRecordID.zoneID }.flatMap(\.participants).compactMap { participant -> ShareParticipantStatus? in
-                guard let key = ShareParticipantKey.key(for: participant) else { return nil }
-                if seen.contains(key) {
-                    return nil
+            let real = mockShares.filter { $0.recordID.zoneID == rootRecordID.zoneID }
+                .flatMap(\.participants)
+                .filter { $0.role != .owner }
+                .compactMap { participant -> ShareParticipantStatus? in
+                    guard let key = ShareParticipantKey.key(for: participant) else { return nil }
+                    if seen.contains(key) {
+                        return nil
+                    }
+                    return ShareParticipantStatus(
+                        identityKey: key,
+                        recordName: participant.userIdentity.userRecordID?.recordName,
+                        isRemoved: participant.acceptanceStatus == .removed
+                    )
                 }
-                return ShareParticipantStatus(identityKey: key, recordName: participant.userIdentity.userRecordID?.recordName, isRemoved: participant.acceptanceStatus == .removed)
-            }
             return statuses + real
         }
-        return mockShares.filter { $0.recordID.zoneID == rootRecordID.zoneID }.flatMap(\.participants).compactMap { participant in
-            guard let key = ShareParticipantKey.key(for: participant) else { return nil }
-            return ShareParticipantStatus(identityKey: key, recordName: participant.userIdentity.userRecordID?.recordName, isRemoved: participant.acceptanceStatus == .removed)
-        }
+        return mockShares.filter { $0.recordID.zoneID == rootRecordID.zoneID }
+            .flatMap(\.participants)
+            .filter { $0.role != .owner }
+            .compactMap { participant in
+                guard let key = ShareParticipantKey.key(for: participant) else { return nil }
+                return ShareParticipantStatus(identityKey: key, recordName: participant.userIdentity.userRecordID?.recordName, isRemoved: participant.acceptanceStatus == .removed)
+            }
     }
 
     func removeParticipant(_ participant: CKShare.Participant, from rootRecordID: CKRecord.ID) async throws {
@@ -403,7 +413,7 @@ class MockCloudKitService: CloudKitServiceProtocol {
                     }
                 }
             }
-            for participant in share.participants {
+            for participant in share.participants where participant.role != .owner {
                 if let key = ShareParticipantKey.key(for: participant) {
                     rolesByIdentity[key] = role
                 }

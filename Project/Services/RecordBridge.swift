@@ -10,10 +10,11 @@ import Foundation
 import os
 import SwiftData
 
-/// Bridges local SwiftData cached models to CloudKit `CKRecord` objects for `CKSyncEngine` sends.
-/// WHY: Fail-closed scope validation with one gated escape hatch — QuestCompletion private→shared bridge when family and zone match; confirmedLocalDeletion uses tryFetch
-/// fail-closed so fetch errors retain pending saves.
-/// WHY: Deterministic IDs dedupe on recordName; no hard-delete without tombstone.
+// WHY: Bridges SwiftData cache to CKRecord for CKSyncEngine sends — fail-closed scope validation.
+// WHY: Fail-closed scope validation with one gated escape hatch — QuestCompletion private→shared bridge when family and zone match.
+// WHY: confirmedLocalDeletion uses tryFetch fail-closed so fetch errors retain pending saves.
+// WHY: Deterministic IDs dedupe on recordName.
+// WHY: No hard-delete without tombstone.
 @MainActor
 enum RecordBridge {
     private static let logger = Logger(

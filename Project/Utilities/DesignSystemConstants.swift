@@ -65,6 +65,25 @@ enum DesignSystemConstants {
         static let journeyEternalRealmAccent = "journeyEternalRealmAccent"
         static let journeyEternalRealmSkyTop = "journeyEternalRealmSkyTop"
         static let journeyEternalRealmSkyBottom = "journeyEternalRealmSkyBottom"
+
+        // Journey zone decoration semantic tokens — light/dark via asset catalog.
+        static let journeyStartingMeadowTerrain = "journeyStartingMeadowTerrain"
+        static let journeyDenseForestTerrain = "journeyDenseForestTerrain"
+        static let journeyMountainPassTerrain = "journeyMountainPassTerrain"
+        static let journeyDragonsReachTerrain = "journeyDragonsReachTerrain"
+        static let journeyEternalRealmTerrain = "journeyEternalRealmTerrain"
+        static let journeyStartingMeadowFlowerPink = "journeyStartingMeadowFlowerPink"
+        static let journeyDenseForestTree = "journeyDenseForestTree"
+        static let journeyDenseForestMist = "journeyDenseForestMist"
+        static let journeyMountainPassRock = "journeyMountainPassRock"
+        static let journeyDragonsReachSpire = "journeyDragonsReachSpire"
+        static let journeyDragonsReachEmberCore = "journeyDragonsReachEmberCore"
+        static let journeyDragonsReachEmberOuter = "journeyDragonsReachEmberOuter"
+        static let journeyEternalRealmIslandTop = "journeyEternalRealmIslandTop"
+        static let journeyEternalRealmIslandBottom = "journeyEternalRealmIslandBottom"
+        static let journeyFrostedScrim = "journeyFrostedScrim"
+        static let journeyGoldEmboss = "journeyGoldEmboss"
+        static let journeyStoneNode = "journeyStoneNode"
     }
 
     enum CornerRadius {

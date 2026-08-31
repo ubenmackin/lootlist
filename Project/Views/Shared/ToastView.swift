@@ -73,6 +73,7 @@ struct ToastView: View {
         .accessibilityLabel("\(toast.type.localizedDescription) toast")
         .accessibilityValue(toast.message)
         .accessibilityHint(toast.dismissAction != nil ? "Double tap to activate" : "Use the dismiss button to close")
+        .accessibilityIdentifier(toast.message == "Another hero claimed this quest" ? "heroBoard.claimLostToast" : "toast.\(toast.id.uuidString)")
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 }

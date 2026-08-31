@@ -13,165 +13,154 @@ import os
 
 extension TreasuryService {
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
-        let familyName = profile.family.recordID.recordName
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        let cache = cacheService
-        let cached = cache.fetchLedgerEntries(
-            profileRecordName: profile.id.recordName,
-            family: familyName
+        let family = Family(
+            name: "",
+            createdBy: profile.family.recordID,
+            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
-            return cached.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
-        }
-        // Brand-new hero may not be marked fresh yet — fall back to cached
-        // rows on CloudKit failure rather than throwing.
-        if !cached.isEmpty {
-            do {
+        return try await CacheFirst.cacheFirst(
+            type: .ledgerEntry,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService, profile] familyName in
+                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
+            },
+            map: { [profile] cache in
+                cache.toLedgerEntry(zoneID: profile.id.zoneID)
+            },
+            query: { [cloudKit, profile] in
                 let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                 let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
-                let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
+                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
+            },
+            hydrate: { [syncCoordinator, appState, profile] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: entries,
-                    databaseScope: scope,
+                    models: models,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
                 )
-                return entries
-            } catch {
-                logger.warning("fetchAllLedgerEntries fallback to cache: \(error, privacy: .private)")
-                return cached.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
-            }
-        }
-        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(format: "profile == %@",
-                                    profileRef as CVarArg)
-        do {
-            let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: entries,
-                databaseScope: scope,
-                zoneID: profile.id.zoneID
-            )
-            return entries
-        } catch {
-            logger.warning("fetchAllLedgerEntries CloudKit failure with no cache: \(error, privacy: .private)")
-            let fallback = cache.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
-            if !fallback.isEmpty {
-                return fallback.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
-            }
-            return []
-        }
+            },
+            sortedBy: { $0.date > $1.date }
+        )
     }
 
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
-        let familyName = family.id.recordName
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        let cache = cacheService
-        let cached = cache.fetchAllowancePeriods(family: familyName)
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope, cachedCount: cached.count) {
-            return cached.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
-        }
-
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        let all: [AllowancePeriod]
         do {
-            all = try await cloudKit.query(
-                AllowancePeriod.self,
-                predicate: predicate,
-                in: family.id.zoneID,
-                sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
+            return try await CacheFirst.cacheFirst(
+                type: .allowancePeriod,
+                family: family,
+                cacheService: cacheService,
+                appState: appState,
+                fetchCache: { [cacheService] familyName in
+                    cacheService.fetchAllowancePeriods(family: familyName)
+                },
+                map: { [family] cache in
+                    cache.toAllowancePeriod(zoneID: family.id.zoneID)
+                },
+                query: { [cloudKit, family] in
+                    let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                    let predicate = NSPredicate(format: "family == %@", familyRef)
+                    return try await cloudKit.query(
+                        AllowancePeriod.self,
+                        predicate: predicate,
+                        in: family.id.zoneID,
+                        sortDescriptors: [NSSortDescriptor(key: "weekOf", ascending: false)]
+                    )
+                },
+                hydrate: { [syncCoordinator, appState, family] models in
+                    await syncCoordinator.delegateHandler.hydrateFromQuery(
+                        models: models,
+                        databaseScope: appState.activeDatabaseScope,
+                        zoneID: family.id.zoneID
+                    )
+                },
+                sortedBy: { $0.weekOf > $1.weekOf }
             )
         } catch {
-            logger.warning("Failed to fetch allowance periods: \(error, privacy: .private)")
-            all = []
+            logger.warning("fetchAllowancePeriods fallback to cache: \(error, privacy: .private)")
+            // Brand-new hero may not be marked fresh yet — return cached rows (even empty) on CloudKit failure rather than throwing.
+            return cacheService.fetchAllowancePeriods(family: family.id.recordName)
+                .map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
+                .sorted { $0.weekOf > $1.weekOf }
         }
-        await syncCoordinator.delegateHandler.hydrateFromQuery(
-            models: all,
-            databaseScope: scope,
-            zoneID: family.id.zoneID
-        )
-        return all
     }
 
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
-        let profileName = profile.id.recordName
-        let familyName = profile.family.recordID.recordName
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        let cache = cacheService
-        let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
-        let filtered = cached.filter { dateRange.contains($0.date) }
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
-            return filtered.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
-        }
-        // Allow zero-history hero to use cache even when not stamped fresh.
-        // CloudKit may be unreachable offline; return filtered cache on failure.
-        do {
-            let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-            let predicate = NSPredicate(
-                format: "profile == %@ AND date >= %@ AND date < %@",
-                profileRef as CVarArg,
-                dateRange.lowerBound as CVarArg,
-                dateRange.upperBound as CVarArg
-            )
-            let entries = try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: entries,
-                databaseScope: scope,
-                zoneID: profile.id.zoneID
-            )
-            return entries
-        } catch {
-            logger.warning("fetchLedgerEntries fallback to cache: \(error, privacy: .private)")
-            return filtered.map { $0.toLedgerEntry(zoneID: profile.id.zoneID) }
-        }
+        let family = Family(
+            name: "",
+            createdBy: profile.family.recordID,
+            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
+        )
+        return try await CacheFirst.cacheFirst(
+            type: .ledgerEntry,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService, profile, dateRange] familyName in
+                cacheService.fetchLedgerEntries(profileRecordName: profile.id.recordName, family: familyName)
+                    .filter { dateRange.contains($0.date) }
+            },
+            map: { [profile] cache in
+                cache.toLedgerEntry(zoneID: profile.id.zoneID)
+            },
+            query: { [cloudKit, profile, dateRange] in
+                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                let predicate = NSPredicate(
+                    format: "profile == %@ AND date >= %@ AND date < %@",
+                    profileRef as CVarArg,
+                    dateRange.lowerBound as CVarArg,
+                    dateRange.upperBound as CVarArg
+                )
+                return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
+            },
+            hydrate: { [syncCoordinator, appState, profile] models in
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: models,
+                    databaseScope: appState.activeDatabaseScope,
+                    zoneID: profile.id.zoneID
+                )
+            },
+            sortedBy: { $0.date > $1.date }
+        )
     }
 
     func fetchQuestLogs(profile: Profile,
                         weekStarting: Date,
                         weekEnding: Date) async throws -> [QuestCompletion]
     {
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        let cache = cacheService
-        let profileName = profile.id.recordName
-        let familyName = profile.family.recordID.recordName
-        let cached = cache.fetchQuestCompletions(family: familyName)
-            .filter { $0.completerRecordName == profileName && $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
-        // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; empty-cache-offline rendering handled explicitly at call site (FamilyService-style).
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
-            return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
-        }
-        // Brand-new hero has zero logs; a missing freshness stamp must not
-        // force a CloudKit throw that breaks weekly breakdown for seeding.
-        if cached.isEmpty {
-            do {
+        let family = Family(
+            name: "",
+            createdBy: profile.family.recordID,
+            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
+        )
+        let all = try await CacheFirst.cacheFirst(
+            type: .questCompletion,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService] familyName in
+                cacheService.fetchQuestCompletions(family: familyName)
+            },
+            map: { [profile] cache in
+                cache.toQuestCompletion(zoneID: profile.id.zoneID)
+            },
+            query: { [cloudKit, profile] in
                 let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                 let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
-                let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
+                return try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
+            },
+            hydrate: { [syncCoordinator, appState, profile] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: all,
-                    databaseScope: scope,
+                    models: models,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
                 )
-                return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
-            } catch {
-                logger.warning("fetchQuestLogs fallback to empty cache: \(error, privacy: .private)")
-                return []
             }
-        }
-        do {
-            let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-            let predicate = NSPredicate(format: "completedBy == %@", profileRef as CVarArg)
-            let all = try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: all,
-                databaseScope: scope,
-                zoneID: profile.id.zoneID
-            )
-            return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
-        } catch {
-            logger.warning("fetchQuestLogs fallback to cached: \(error, privacy: .private)")
-            return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
-        }
+        )
+        // WeekMath filtering after mapping — half-open [weekStarting, weekEnding).
+        return all.filter { $0.weekOf >= weekStarting && $0.weekOf < weekEnding }
+            .filter { $0.completedBy.recordID.recordName == profile.id.recordName }
     }
 
     func fetchAssignedQuests(profile: Profile,
@@ -180,49 +169,35 @@ extension TreasuryService {
     {
         let payoutDay = profile.payoutDay ?? family.payoutDay
         let range = TreasuryService.weekRange(starting: WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay))
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        let cache = cacheService
-        let familyName = family.id.recordName
-        let cachedAll = cache.fetchQuests(family: familyName)
-        let filtered = cachedAll.filter {
-            $0.assigneeRecordName == profile.id.recordName &&
-                $0.isActive &&
-                range.contains($0.weekOf)
-        }
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: cachedAll.count) {
-            return filtered.map { $0.toQuest(zoneID: family.id.zoneID) }
-        }
-        // New hero has no assigned quests this week; do not require a fresh
-        // cache or a successful CloudKit query to return an empty set.
-        if filtered.isEmpty, cachedAll.isEmpty {
-            do {
+        let all = try await CacheFirst.cacheFirst(
+            type: .quest,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService] familyName in
+                cacheService.fetchQuests(family: familyName)
+            },
+            map: { [family] cache in
+                cache.toQuest(zoneID: family.id.zoneID)
+            },
+            query: { [cloudKit, family] in
                 let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-                let predicate = NSPredicate(format: "family == %@ AND isActive == 1", familyRef as CVarArg)
-                let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
+                let predicate = NSPredicate(format: "family == %@ AND active == 1", familyRef as CVarArg)
+                return try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
+            },
+            hydrate: { [syncCoordinator, appState, family] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
-                    models: all,
-                    databaseScope: scope,
+                    models: models,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: family.id.zoneID
                 )
-                return all.filter { range.contains($0.weekOf) && $0.assignee.recordID == profile.id }
-            } catch {
-                logger.warning("fetchAssignedQuests fallback to empty: \(error, privacy: .private)")
-                return []
             }
-        }
-        do {
-            let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-            let predicate = NSPredicate(format: "family == %@ AND isActive == 1", familyRef as CVarArg)
-            let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: all,
-                databaseScope: scope,
-                zoneID: family.id.zoneID
-            )
-            return all.filter { range.contains($0.weekOf) && $0.assignee.recordID == profile.id }
-        } catch {
-            logger.warning("fetchAssignedQuests fallback to cached: \(error, privacy: .private)")
-            return filtered.map { $0.toQuest(zoneID: family.id.zoneID) }
+        )
+        // WeekMath filtering after mapping — half-open range derived from payout-day-aware week start.
+        return all.filter {
+            $0.assignee.recordID.recordName == profile.id.recordName &&
+                $0.active &&
+                range.contains($0.weekOf)
         }
     }
 

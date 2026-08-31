@@ -369,6 +369,10 @@ final class AppLifecycleCoordinator {
         state.withLock { $0.hasCompletedInitialBootstrap }
     }
 
+    var isSyncing: Bool {
+        state.withLock { $0.phase == .syncing || $0.phase == .bootstrapping || $0.isManualSyncing }
+    }
+
     @discardableResult
     func transitionPhaseForTests(to target: Phase) -> Bool {
         state.withLock { flags in

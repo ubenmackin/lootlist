@@ -100,7 +100,6 @@ struct GuildSettingsView: View {
                     await viewModel?.refreshInvitations()
                 }
                 .task {
-                    FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: logger, viewName: "GuildSettingsView")
                     ensureViewModel()
                     viewModel?.subscribeToSyncEvents(appSyncCoordinator)
                     await lifecycleCoordinator?.performManualSync()
@@ -135,7 +134,7 @@ struct GuildSettingsView: View {
                     }
                 }
                 .sheet(item: $sharePresentation) { presentation in
-                    CloudSharingControllerWrapper(share: presentation.share, container: presentation.container)
+                    CloudSharingControllerWrapper(presentation: presentation)
                 }
                 .sheet(item: $heroToEdit) { hero in
                     HeroSettingsView(hero: hero)
@@ -391,13 +390,10 @@ struct GuildSettingsView: View {
 
     @MainActor
     private func presentInviteShare(for role: UserRole) async {
-        guard let share = await viewModel?.prepareInviteShare(for: role) else {
+        guard let presentation = await viewModel?.prepareInviteShare(for: role) else {
             toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
             return
         }
-        // WHY: the container pairing is assembled by the service so this view
-        // never reaches through to the raw CloudKit container.
-        let presentation = familyService.invitePresentation(for: share)
         guard presentation.shareURL != nil else {
             toastManager.show(message: "Could not generate a share link for this invitation. Please try again.", type: .error)
             return

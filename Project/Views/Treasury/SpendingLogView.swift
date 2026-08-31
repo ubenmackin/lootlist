@@ -11,20 +11,23 @@ import SwiftUI
 struct SpendingLogView: View {
     @Bindable var viewModel: TreasuryViewModel
     let familyRecordName: String?
+    private let profileRecordName: String?
 
     @Binding var scope: CalendarScope
 
     @Query private var cachedLedgers: [LedgerEntryCache]
 
-    init(viewModel: TreasuryViewModel, familyRecordName: String? = nil, scope: Binding<CalendarScope>) {
+    init(viewModel: TreasuryViewModel, familyRecordName: String? = nil, profileRecordName: String? = nil, scope: Binding<CalendarScope>) {
         self.viewModel = viewModel
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         _scope = scope
 
-        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
-        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
+        // WHY: Predicate pushdown fetches only this hero's ledgers; avoids loading entire
+        // family ledger set and reduces main-thread filtering for heroes with 1k+ rows.
         let targetFamily = familyRecordName ?? ""
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        let targetProfile = profileRecordName ?? ""
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         _cachedLedgers = Query(
             filter: ledgerFilter,
             sort: \LedgerEntryCache.date,

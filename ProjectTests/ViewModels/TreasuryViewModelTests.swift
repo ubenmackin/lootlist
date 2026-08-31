@@ -643,7 +643,12 @@ struct TreasuryViewModelTests {
         do {
             _ = try await scaffold.buckets.transfer(
                 from: .spend, to: .spend, amount: 1.0,
-                profile: scaffold.hero, family: scaffold.family
+                profile: scaffold.hero, family: scaffold.family,
+                transferID: BucketService.deterministicTransferID(
+                    dayBucket: WeekMath.dayBucket(for: Date()),
+                    from: .spend,
+                    to: .spend
+                )
             )
             Issue.record("Same-bucket transfer must throw")
         } catch {
@@ -658,7 +663,12 @@ struct TreasuryViewModelTests {
             do {
                 _ = try await scaffold.buckets.transfer(
                     from: .spend, to: .shortTermSave, amount: amount,
-                    profile: scaffold.hero, family: scaffold.family
+                    profile: scaffold.hero, family: scaffold.family,
+                    transferID: BucketService.deterministicTransferID(
+                        dayBucket: WeekMath.dayBucket(for: Date()),
+                        from: .spend,
+                        to: .shortTermSave
+                    )
                 )
                 Issue.record("Amount \(amount) must throw")
             } catch {
@@ -674,7 +684,12 @@ struct TreasuryViewModelTests {
         do {
             _ = try await scaffold.buckets.transfer(
                 from: .spend, to: .shortTermSave, amount: 1.0,
-                profile: scaffold.hero, family: scaffold.family
+                profile: scaffold.hero, family: scaffold.family,
+                transferID: BucketService.deterministicTransferID(
+                    dayBucket: WeekMath.dayBucket(for: Date()),
+                    from: .spend,
+                    to: .shortTermSave
+                )
             )
             Issue.record("Cross-profile transfer must throw")
         } catch {
@@ -691,7 +706,12 @@ struct TreasuryViewModelTests {
         do {
             _ = try await scaffold.buckets.transfer(
                 from: .spend, to: .shortTermSave, amount: 5.00,
-                profile: scaffold.hero, family: scaffold.family
+                profile: scaffold.hero, family: scaffold.family,
+                transferID: BucketService.deterministicTransferID(
+                    dayBucket: WeekMath.dayBucket(for: Date()),
+                    from: .spend,
+                    to: .shortTermSave
+                )
             )
             Issue.record("Overdrafting transfer must throw")
         } catch {
@@ -752,12 +772,22 @@ struct TreasuryViewModelTests {
 
         let entry1 = try await scaffold.buckets.transfer(
             from: .spend, to: .shortTermSave, amount: 2.00,
-            profile: scaffold.hero, family: scaffold.family
+            profile: scaffold.hero, family: scaffold.family,
+            transferID: BucketService.deterministicTransferID(
+                dayBucket: WeekMath.dayBucket(for: Date()),
+                from: .spend,
+                to: .shortTermSave
+            )
         )
         // WHY: Second transfer uses a different pair so the per-day/per-pair guard does not fire — nonce path stays append-only.
         let entry2 = try await scaffold.buckets.transfer(
             from: .spend, to: .longTermSave, amount: 3.00,
-            profile: scaffold.hero, family: scaffold.family
+            profile: scaffold.hero, family: scaffold.family,
+            transferID: BucketService.deterministicTransferID(
+                dayBucket: WeekMath.dayBucket(for: Date()),
+                from: .spend,
+                to: .longTermSave
+            )
         )
 
         #expect(entry1.id.recordName != entry2.id.recordName)

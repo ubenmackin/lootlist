@@ -98,7 +98,7 @@ struct QuestLogView: View {
             }
             .listStyle(.insetGrouped)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
         .toolbar {
             if appState.currentProfile?.role != .hero, showsHeroPicker {
                 ToolbarItem(placement: .topBarLeading) {

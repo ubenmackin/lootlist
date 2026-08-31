@@ -81,7 +81,20 @@ enum WeekMath {
         return found
     }
 
+    /// UTC `yyyy-MM` month key shared by interest and match deterministic IDs.
+    /// Single source so timezone handling cannot diverge between flows — UTC via
+    /// `iso8601UTC` keeps the same instant resolving to the same month on every
+    /// device, or CloudKit dedupe breaks.
+    static func monthKey(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", components.year ?? 0, components.month ?? 0)
+    }
+
     /// Single-source UTC day bucket so bucket transfers and week cycles share one timezone.
+    /// Contract: `dayBucket` is UTC day via `Calendar.iso8601UTC` — not `Calendar.current`.
+    /// Transfer ID ` "\(dayBucket)-\(fromRaw)-\(toRaw)"` and recordName `transfer-{profile}-{dayBucket}` are UTC-deterministic;
+    /// device-local date pickers earlier in the flow must convert via `WeekMath.dayBucket`.
+    /// WHY UTC: a device-local calendar splits the same instant into different days near midnight, breaking cross-device per-day dedupe.
     static func dayBucket(for date: Date) -> Int {
         Int(Calendar.iso8601UTC.startOfDay(for: date).timeIntervalSince1970 / 86400)
     }

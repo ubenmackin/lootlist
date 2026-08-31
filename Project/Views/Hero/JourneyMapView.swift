@@ -21,6 +21,7 @@ struct JourneyMapView: View {
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @State private var selectedMilestone: JourneyMilestone?
     @State private var animatedHeroLevel: Int = 1
+    @State private var progressionTask: Task<Void, Never>?
 
     // MARK: - Layout Constants
 
@@ -102,11 +103,23 @@ struct JourneyMapView: View {
             .onAppear {
                 handleInitialLoad(proxy: proxy)
             }
+            .onChange(of: animatedHeroLevel) { _, newLevel in
+                // WHY: Scroll driven by state change so the async progression
+                // task never captures ScrollViewProxy across suspension points.
+                withAnimation(.easeInOut(duration: 0.85)) {
+                    proxy.scrollTo(newLevel, anchor: .center)
+                }
+            }
+            .onDisappear {
+                progressionTask?.cancel()
+                progressionTask = nil
+            }
         }
     }
 
     // MARK: - Progression Animation & Centering
 
+    @MainActor
     private func handleInitialLoad(proxy: ScrollViewProxy) {
         let targetLevel = journeyState.currentLevel
         let stored = profileCache.journeyMapLastSeenLevel
@@ -116,14 +129,21 @@ struct JourneyMapView: View {
             animatedHeroLevel = stored
             proxy.scrollTo(stored, anchor: .center)
 
-            Task {
+            // Capture Sendable state so ScrollViewProxy is never escaped across suspension.
+            let capturedTarget = targetLevel
+            let capturedStored = stored
+            let capturedProfileCache = profileCache
+            let capturedAppState = appState
+            let capturedSyncCoordinator = syncCoordinator
+
+            progressionTask?.cancel()
+            progressionTask = Task { @MainActor in
                 do {
                     try await Task.sleep(nanoseconds: 500_000_000)
-                    for stepLevel in (stored + 1) ... targetLevel {
+                    for stepLevel in (capturedStored + 1) ... capturedTarget {
                         guard !Task.isCancelled else { return }
                         withAnimation(.easeInOut(duration: 0.85)) {
                             animatedHeroLevel = stepLevel
-                            proxy.scrollTo(stepLevel, anchor: .center)
                         }
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         try await Task.sleep(nanoseconds: 900_000_000)
@@ -133,11 +153,11 @@ struct JourneyMapView: View {
                     // Monotonically acknowledge that the hero reached this level on the map,
                     // syncing across all devices via CloudKit/SwiftData.
                     await JourneyService.acknowledgeJourneyLevel(
-                        targetLevel,
-                        profileCache: profileCache,
-                        appState: appState,
-                        cacheService: appState?.cacheService,
-                        syncCoordinator: syncCoordinator
+                        capturedTarget,
+                        profileCache: capturedProfileCache,
+                        appState: capturedAppState,
+                        cacheService: capturedAppState?.cacheService,
+                        syncCoordinator: capturedSyncCoordinator
                     )
                 } catch {
                     Self.logger.debug("Journey level animation interrupted: \(error, privacy: .private)")
@@ -202,7 +222,7 @@ struct JourneyMapView: View {
         .padding(.vertical, 8)
         .background(
             Capsule()
-                .fill(Color(red: 0.08, green: 0.10, blue: 0.16).opacity(0.88))
+                .fill(Color(DesignSystemConstants.Colors.journeyFrostedScrim).opacity(0.88))
         )
         .overlay(
             Capsule()
@@ -334,7 +354,7 @@ struct JourneyMapView: View {
 
             let innerRadius = radius * 0.70
             let innerRect = CGRect(x: point.x - innerRadius, y: point.y - innerRadius, width: innerRadius * 2, height: innerRadius * 2)
-            context.fill(Circle().path(in: innerRect), with: .color(Color(red: 0.95, green: 0.75, blue: 0.15)))
+            context.fill(Circle().path(in: innerRect), with: .color(Color(DesignSystemConstants.Colors.journeyGoldEmboss)))
 
             let shineRadius = radius * 0.35
             let shineRect = CGRect(x: point.x - innerRadius * 0.6, y: point.y - innerRadius * 0.6, width: shineRadius, height: shineRadius)
@@ -359,7 +379,7 @@ struct JourneyMapView: View {
             let outerRect = CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)
             context.fill(
                 Circle().path(in: outerRect),
-                with: .color(Color(red: 0.12, green: 0.14, blue: 0.20).opacity(0.75))
+                with: .color(Color(DesignSystemConstants.Colors.journeyStoneNode).opacity(0.75))
             )
             context.stroke(
                 Circle().path(in: outerRect),
@@ -526,7 +546,7 @@ struct JourneyMapView: View {
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(red: 0.06, green: 0.08, blue: 0.12).opacity(0.88))
+                .fill(Color(DesignSystemConstants.Colors.journeyFrostedScrim).opacity(0.88))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -609,7 +629,7 @@ struct JourneyMapView: View {
         .padding(DesignSystemConstants.Padding.standard)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .fill(Color(red: 0.08, green: 0.10, blue: 0.16))
+                .fill(Color(DesignSystemConstants.Colors.journeyFrostedScrim))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)

@@ -256,19 +256,24 @@ struct LootListApp: App {
             do {
                 let metadata = try await container.shareMetadata(for: url)
                 let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
+                let zoneName = metadata.hierarchicalRootRecordID?.zoneID.zoneName ?? "nil"
                 logger.info("Resolved share metadata for incoming share URL (title '\(title, privacy: .private)')")
-                pendingShareMetadata = metadata
+                pendingShareMetadata = InvitationLinkResolution(
+                    metadata: metadata,
+                    title: title,
+                    zoneName: zoneName
+                )
             } catch {
                 logger.error("Share metadata fetch failed for incoming URL: \(error, privacy: .private)")
             }
         }
     }
 
-    @State private var pendingShareMetadata: CKShare.Metadata?
+    @State private var pendingShareMetadata: InvitationLinkResolution?
 }
 
 private struct RootView: View {
-    let pendingShareMetadata: CKShare.Metadata?
+    let pendingShareMetadata: InvitationLinkResolution?
 
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService

@@ -430,5 +430,27 @@ extension QuestServiceTests {
             log.verificationStatus = status
             return log
         }
+
+        func deterministicTransferID(
+            from: BucketKind,
+            to: BucketKind
+        ) -> String {
+            BucketService.deterministicTransferID(
+                dayBucket: WeekMath.dayBucket(for: Date()),
+                from: from,
+                to: to
+            )
+        }
+    }
+
+    func deterministicTransferID(
+        from: BucketKind,
+        to: BucketKind
+    ) -> String {
+        BucketService.deterministicTransferID(
+            dayBucket: WeekMath.dayBucket(for: Date()),
+            from: from,
+            to: to
+        )
     }
 }

@@ -120,6 +120,16 @@ struct ChildHubView: View {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
                     header
 
+                    // WHY: Scope-aware banner observes freshnessVersion so it hides after markCacheFresh without Query change.
+                    if !targetFamilyForFreshness.isEmpty {
+                        StaleDataBanner(
+                            family: targetFamilyForFreshness,
+                            type: .profile,
+                            count: cachedProfiles.count + cachedQuests.count + cachedGoals.count + cachedLedgers.count,
+                            isSyncing: lifecycleCoordinator?.isSyncing == true
+                        )
+                    }
+
                     if isSyncingPlaceholder {
                         syncingBalanceCard
                     } else if isProfileNotFoundPlaceholder {
@@ -193,7 +203,6 @@ struct ChildHubView: View {
                 )
             }
             .task {
-                FamilyScopeValidator.warnIfNilFamily(familyRecordName: familyRecordName, appState: appState, logger: Self.logger, viewName: "ChildHubView")
                 ensureViewModels()
             }
             .onChange(of: cachedQuests) { _, _ in rebuild() }

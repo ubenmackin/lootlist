@@ -10,9 +10,11 @@ import Foundation
 import os
 import SwiftData
 
-/// Background cache writer — all server→cache writes off-main.
-/// WHY: Single SerialMutationQueue gate with exactly one saveContext per batch so @Query observes atomic updates; autosaveEnabled=false prevents double-save.
-/// WHY: ChangeTag guard prevents stale server snapshots from regressing locally merged fields; off-main guarantee via DefaultSerialModelExecutor.
+// WHY: Background cache writer — all server→cache writes off-main.
+// WHY: Single SerialMutationQueue gate with exactly one saveContext per batch so @Query observes atomic updates.
+// WHY: autosaveEnabled=false prevents double-save.
+// WHY: ChangeTag guard prevents stale server snapshots from regressing locally merged fields.
+// WHY: Off-main guarantee via DefaultSerialModelExecutor.
 @ModelActor
 actor BackgroundCacheActor {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
@@ -72,7 +74,11 @@ actor BackgroundCacheActor {
         let recordNames = Set(nameless.map(\.template.recordID))
         var templatesByID: [CKRecord.ID: QuestTemplate] = [:]
         for recordID in recordNames {
-            do { templatesByID[recordID] = try await cloudKit.fetch(QuestTemplate.self, id: recordID) } catch {
+            do {
+                // WHY: CloudKitServiceProtocol is @MainActor-isolated; hop from BackgroundCacheActor to MainActor for fetch.
+                let template = try await Task { @MainActor in try await cloudKit.fetch(QuestTemplate.self, id: recordID) }.value
+                templatesByID[recordID] = template
+            } catch {
                 logger.debug("Failed to fetch template for backfill \(recordID.recordName, privacy: .private): \(error, privacy: .private)")
             }
         }
