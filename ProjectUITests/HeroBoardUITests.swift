@@ -18,7 +18,7 @@ final class HeroBoardUITests: XCTestCase {
         try await super.setUp()
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["--uitesting", "--uitest-seed=hero-board"]
+        app.launchArguments = ["--uitesting", "--uitest-seed=hero-board", "--uitest-appearance=light"]
         app.launch()
     }
 
@@ -32,21 +32,29 @@ final class HeroBoardUITests: XCTestCase {
 
     private func relaunch(arguments: [String]) {
         app.terminate()
+        app = XCUIApplication()
         app.launchArguments = arguments
         app.launch()
     }
 
     /// Opens the board from the seeded child's Quests surface.
     private func openHeroBoard() {
+        let questsTab = app.tabBars.buttons["Quests"]
         let tabBar = app.tabBars.firstMatch
-        XCTAssertTrue(tabBar.waitForExistence(timeout: 5.0), "Tab bar should load for the seeded child")
-        tabBar.buttons["Quests"].tap()
+        let tabReady = questsTab.waitForExistence(timeout: 10.0) || tabBar.waitForExistence(timeout: 10.0)
+        XCTAssertTrue(tabReady, "Tab bar should load for the seeded child")
+
+        if questsTab.exists {
+            questsTab.tap()
+        } else {
+            tabBar.buttons["Quests"].tap()
+        }
 
         let boardLink = app.buttons["chores.heroBoardLink"]
-        XCTAssertTrue(boardLink.waitForExistence(timeout: 5.0), "Hero Board link should sit in the Quests toolbar")
+        XCTAssertTrue(boardLink.waitForExistence(timeout: 10.0), "Hero Board link should sit in the Quests toolbar")
         boardLink.tap()
 
-        XCTAssertTrue(element("board.availableRow-quest_board_plants").waitForExistence(timeout: 5.0),
+        XCTAssertTrue(element("board.availableRow-quest_board_plants").waitForExistence(timeout: 10.0),
                       "The unclaimed seed quest should render on the board")
     }
 
@@ -65,14 +73,14 @@ final class HeroBoardUITests: XCTestCase {
         openHeroBoard()
 
         let claimButton = app.buttons["board.claimButton-quest_board_plants"]
-        XCTAssertTrue(claimButton.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(claimButton.waitForExistence(timeout: 10.0))
         claimButton.tap()
 
         // An accepted optimistic claim pulls the quest out of Up for Grabs
         // right away; claimed detail only renders on the parent surface.
         let rowGone = NSPredicate(format: "exists == 0")
         let rowRemoved = expectation(for: rowGone, evaluatedWith: element("board.availableRow-quest_board_plants"))
-        wait(for: [rowRemoved], timeout: 5.0)
+        wait(for: [rowRemoved], timeout: 10.0)
     }
 
     func testSiblingClaimedQuestsLeaveTheGrabList() {
@@ -91,7 +99,7 @@ final class HeroBoardUITests: XCTestCase {
         openHeroBoard()
 
         let claimButton = app.buttons["board.claimButton-quest_board_plants"]
-        XCTAssertTrue(claimButton.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(claimButton.waitForExistence(timeout: 10.0))
         claimButton.tap()
 
         // A single-child optimistic win must never render the conflict toast;

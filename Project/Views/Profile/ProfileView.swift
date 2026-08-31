@@ -742,7 +742,7 @@ final class ProfileViewModel {
         guard let profile else { return }
         if let cache = achievementService.cacheService {
             let familyName = profile.family.recordID.recordName
-            let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+            let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback handled at call site (FamilyService-style).
             let profileCount = cache.fetchProfileAchievements(profileRecordName: profile.id.recordName, family: familyName).count
             let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, scope: scope, cachedCount: profileCount)

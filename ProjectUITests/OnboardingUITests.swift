@@ -82,6 +82,11 @@ final class OnboardingUITests: XCTestCase {
     func testJoinIntentHandsOffToInviteWaitingScreen() {
         chooseIntent("role.joinFamily")
 
+        let differentButton = app.buttons["detectedHero.differentButton"]
+        if differentButton.waitForExistence(timeout: 2.0) {
+            differentButton.tap()
+        }
+
         // A fresh launch holds no share metadata, so the join path parks on
         // the invitation-waiting surface rather than advancing to setup.
         XCTAssertTrue(element("joinFamily.waitingScreen").waitForExistence(timeout: 5.0),

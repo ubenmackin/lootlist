@@ -92,7 +92,7 @@ class SpendingService {
         let familyName = profile.family.recordID.recordName
         let cached = cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
         let filtered = cached.filter { dateRange.contains($0.date) }
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         if cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
             return filtered.map { cacheRow in
                 LedgerEntry(
@@ -124,7 +124,7 @@ class SpendingService {
             // this method resolves per-zone rather than from the active session.
             await syncCoordinator.delegateHandler.hydrateFromQuery(
                 models: all,
-                databaseScope: isOwner ? .private : .shared,
+                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
                 zoneID: targetZoneID
             )
             return all.filter { dateRange.contains($0.date) }

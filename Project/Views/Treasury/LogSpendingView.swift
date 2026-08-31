@@ -74,6 +74,7 @@ struct LogSpendingView: View {
                             }
                             .padding(.vertical, 4)
                         }
+                        .frame(height: 36)
                     }
                 } header: {
                     Text("Location / Store")

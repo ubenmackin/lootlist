@@ -52,7 +52,10 @@ struct QuestEntityQuery: EntityStringQuery {
 
     private func fetchActiveQuests() async throws -> [QuestEntity] {
         await MainActor.run {
-            // The app must be running so intents dispatch through its services.
+            // Intents run outside SwiftUI scene lifecycle (separate process
+            // extension); they locate the app's container via the process-bound
+            // `AppDependencies.shared` shim. Fail closed when the app is not
+            // running so no stale/completion is fabricated.
             guard let dep = AppDependencies.shared else { return [] }
             let cacheService = dep.cacheService
             let familyName = dep.appState.family?.id.recordName

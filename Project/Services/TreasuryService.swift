@@ -157,7 +157,7 @@ final class TreasuryService {
             hydrate: { [syncCoordinator, appState, profile] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
                     models: models,
-                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
                 )
             }
@@ -237,7 +237,7 @@ final class TreasuryService {
                 hydrate: { [syncCoordinator, appState, profile] models in
                     await syncCoordinator.delegateHandler.hydrateFromQuery(
                         models: models,
-                        databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                        databaseScope: appState.activeDatabaseScope,
                         zoneID: profile.id.zoneID
                     )
                 }

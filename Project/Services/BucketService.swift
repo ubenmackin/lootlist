@@ -40,6 +40,13 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
+@MainActor
+private final class NoopSync: SyncEnqueuing {
+    func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
+    func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
+    func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
+}
+
 /// Computes bucket balances and payout splits across the three `BucketKind` buckets.
 @MainActor
 @Observable
@@ -62,11 +69,6 @@ final class BucketService {
     /// Convenience for read-only callers that only need balance attribution.
     /// Uses the same container-backed cache instance but a no-op coordinator.
     convenience init(cacheService: any CacheServicing) {
-        final class NoopSync: SyncEnqueuing {
-            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
-        }
         self.init(cacheService: cacheService, syncCoordinator: NoopSync(), appState: AppState())
     }
 
@@ -82,12 +84,7 @@ final class BucketService {
     }
 
     convenience init(cacheService: any CacheServicing, syncCoordinator: (any SyncEnqueuing)?, appState: AppState) {
-        final class NoopSync2: SyncEnqueuing {
-            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
-        }
-        self.init(cacheService: cacheService, syncCoordinator: syncCoordinator ?? NoopSync2(), appState: appState)
+        self.init(cacheService: cacheService, syncCoordinator: syncCoordinator ?? NoopSync(), appState: appState)
     }
 
     /// Optional-cache shim that also forwards an optional sync coordinator.

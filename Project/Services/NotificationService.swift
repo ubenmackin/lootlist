@@ -24,6 +24,16 @@ enum NotificationServiceError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
+protocol WeeklySummaryProviding: Sendable {
+    func summary(profile: Profile, family: Family, weekOf: Date) async -> String?
+}
+
+struct ProductionWeeklySummaryProvider: WeeklySummaryProviding, Sendable {
+    func summary(profile _: Profile, family _: Family, weekOf _: Date) async -> String? {
+        nil
+    }
+}
+
 @MainActor
 @Observable
 final class NotificationService {
@@ -36,24 +46,24 @@ final class NotificationService {
     private let cloudKit: any CloudKitServiceProtocol
     private let appState: AppState
 
-    var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
-
-    var toastManager: ToastManager?
+    let cacheService: CacheService
+    let syncCoordinator: CKSyncEngineCoordinator?
+    let toastManager: ToastManager?
 
     private(set) var deviceToken: Data?
     private(set) var verificationCategoryRegistered = false
     private(set) var currentAppBadgeCount: Int = 0
 
-    var weeklySummaryProvider: (@Sendable (Profile, Family, Date) async -> String?)?
+    let weeklySummaryProvider: (any WeeklySummaryProviding)?
 
     private let defaults: UserDefaults
 
     init(cloudKit: any CloudKitServiceProtocol,
          appState: AppState,
-         cacheService: CacheService? = nil,
-         toastManager: ToastManager? = nil,
+         cacheService: CacheService,
          syncCoordinator: CKSyncEngineCoordinator? = nil,
+         toastManager: ToastManager? = nil,
+         weeklySummaryProvider: (any WeeklySummaryProviding)? = nil,
          defaults: UserDefaults = .standard)
     {
         self.cloudKit = cloudKit
@@ -61,6 +71,7 @@ final class NotificationService {
         self.cacheService = cacheService
         self.toastManager = toastManager
         self.syncCoordinator = syncCoordinator
+        self.weeklySummaryProvider = weeklySummaryProvider
         self.defaults = defaults
     }
 
@@ -92,7 +103,6 @@ final class NotificationService {
         let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cached = cachedPreference(for: eventType),
            let familyName = appState.family?.id.recordName,
-           let cacheService,
            cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .notificationPreference, scope: scope, cachedCount: 1)
         {
             return cached.enabled
@@ -101,7 +111,7 @@ final class NotificationService {
     }
 
     func isNotificationEnabled(for eventType: NotificationEventType, profileRecordName: String?, familyRecordName: String?) -> Bool {
-        guard let profileRecordName, let familyRecordName, let cacheService else {
+        guard let profileRecordName, let familyRecordName else {
             return isNotificationEnabled(for: eventType)
         }
         if let cached = cacheService.fetchNotificationPreference(
@@ -120,8 +130,7 @@ final class NotificationService {
     }
 
     private func cachedPreference(for eventType: NotificationEventType) -> NotificationPreferenceCache? {
-        guard let cacheService,
-              let profile = appState.currentProfile,
+        guard let profile = appState.currentProfile,
               let family = appState.family
         else { return nil }
         return cacheService.fetchNotificationPreference(
@@ -172,7 +181,7 @@ final class NotificationService {
             id: recordID
         )
 
-        await cacheService?.upsertNotificationPreference(preference)
+        await cacheService.upsertNotificationPreference(preference)
         mirrorToUserDefaults(event: event, enabled: enabled)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: preference.id, appState: appState, logger: logger, context: "NotificationService.updatePreference")
         return preference
@@ -186,7 +195,8 @@ final class NotificationService {
     func send(_ eventType: NotificationEventType,
               to profile: Profile,
               title: String,
-              body: String) async throws
+              body: String,
+              distinct: Bool = false) async throws
     {
         let familyRecordName = profile.family.recordID.recordName
         guard isNotificationEnabled(for: eventType, profileRecordName: profile.id.recordName, familyRecordName: familyRecordName) else { return }
@@ -201,8 +211,10 @@ final class NotificationService {
         ]
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: DesignSystemConstants.AnimationDuration.notificationTriggerInterval, repeats: false)
+        let baseIdentifier = "\(eventType.rawValue):\(profile.id.recordName)"
+        let identifier = distinct ? "\(baseIdentifier):\(UUID().uuidString)" : baseIdentifier
         let request = UNNotificationRequest(
-            identifier: "\(eventType.rawValue):\(UUID().uuidString)",
+            identifier: identifier,
             content: content,
             trigger: trigger
         )
@@ -218,7 +230,8 @@ final class NotificationService {
     func deliverSyncNotification(eventType: NotificationEventType,
                                  title: String,
                                  body: String,
-                                 profileID: String) async throws
+                                 profileID: String,
+                                 distinct: Bool = false) async throws
     {
         guard let currentProfile = appState.currentProfile,
               currentProfile.id.recordName != profileID
@@ -241,8 +254,10 @@ final class NotificationService {
         ]
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: DesignSystemConstants.AnimationDuration.notificationTriggerInterval, repeats: false)
+        let baseIdentifier = "\(eventType.rawValue):\(profileID)"
+        let identifier = distinct ? "\(baseIdentifier):\(UUID().uuidString)" : baseIdentifier
         let request = UNNotificationRequest(
-            identifier: "\(eventType.rawValue):\(UUID().uuidString)",
+            identifier: identifier,
             content: content,
             trigger: trigger
         )
@@ -263,7 +278,7 @@ final class NotificationService {
 
         let title = "🎁 Allowance Day"
         let body: String = if let provider = weeklySummaryProvider {
-            await (provider(profile, family, weekOf)) ?? "Your weekly allowance is ready!"
+            await provider.summary(profile: profile, family: family, weekOf: weekOf) ?? "Your weekly allowance is ready!"
         } else {
             "Your weekly allowance is ready!"
         }
@@ -272,7 +287,8 @@ final class NotificationService {
     }
 
     func sendQuestNeedsReview(questLog: QuestCompletion,
-                              to parent: Profile) async throws
+                              to parent: Profile,
+                              distinct: Bool = false) async throws
     {
         // WHY: questNeedsReview is parent-only per isRelevantForHero == false — defaults disable for heroes and isNotificationEnabled prevents re-enable bypass.
         guard isNotificationEnabled(
@@ -298,8 +314,10 @@ final class NotificationService {
         ]
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: DesignSystemConstants.AnimationDuration.notificationTriggerInterval, repeats: false)
+        let baseIdentifier = "\(NotificationEventType.questNeedsReview.rawValue):\(parent.id.recordName):\(questLog.id.recordName)"
+        let identifier = distinct ? "\(baseIdentifier):\(UUID().uuidString)" : baseIdentifier
         let request = UNNotificationRequest(
-            identifier: "questNeedsReview:\(questLog.id.recordName):\(UUID().uuidString)",
+            identifier: identifier,
             content: content,
             trigger: trigger
         )
@@ -323,6 +341,10 @@ final class NotificationService {
         let body = "Your quest submission was not approved — check feedback and try again."
 
         try await send(.questRejected, to: hero, title: title, body: body)
+    }
+
+    func removePendingNotificationRequests(withIdentifier identifier: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
     func handleVerificationAction(_ action: String,

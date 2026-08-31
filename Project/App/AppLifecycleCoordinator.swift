@@ -115,7 +115,6 @@ final class AppLifecycleCoordinator {
     let payoutScheduler: (PayoutDay) -> Bool
 
     @ObservationIgnored private var sessionClearTask: Task<Void, Never>?
-    @ObservationIgnored private var zoneChangeTask: Task<Void, Never>?
     @ObservationIgnored private var networkReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var accountChangeTask: Task<Void, Never>?
 
@@ -155,20 +154,13 @@ final class AppLifecycleCoordinator {
             }
         }
 
-        // Observe zone identity changes that occur without an engine reset so a
-        // stale `lastSynchronizedScopeKey` does not make a new zone appear
-        // already synchronized.
-        zoneChangeTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "zoneChangeTask must hop to MainActor")
-            #endif
-            for await _ in NotificationCenter.default.notifications(named: .didChangeFamilyZoneID) {
-                guard !Task.isCancelled, let self else { break }
-                #if DEBUG
-                    assert(Thread.isMainThread)
-                #endif
-                self.invalidateScopeForZoneChange()
-            }
+        // Typed zone-change observation replaces the former `didChangeFamilyZoneID`
+        // NotificationCenter channel. `AppState` bumps `familyZoneIDChangeSignal`
+        // and invokes `onFamilyZoneIDChange` directly, so no stringly-typed
+        // notification is needed and ordering is tied to the `@Observable` state
+        // model (§4).
+        appState.onFamilyZoneIDChange = { [weak self] in
+            Task { @MainActor in self?.invalidateScopeForZoneChange() }
         }
 
         // Trigger automatic catch-up sync when network connectivity returns.
@@ -217,7 +209,6 @@ final class AppLifecycleCoordinator {
 
     deinit {
         sessionClearTask?.cancel()
-        zoneChangeTask?.cancel()
         networkReconnectTask?.cancel()
         accountChangeTask?.cancel()
     }

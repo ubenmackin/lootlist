@@ -21,12 +21,8 @@ final class AuthStateMachine {
 
     private weak var appState: AppState?
 
-    init(defaults: UserDefaults = .standard, appState: AppState? = nil) {
+    init(defaults: UserDefaults = .standard, appState: AppState) {
         self.defaults = defaults
-        self.appState = appState
-    }
-
-    func attach(to appState: AppState) {
         self.appState = appState
     }
 

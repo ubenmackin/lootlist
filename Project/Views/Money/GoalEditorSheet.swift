@@ -69,21 +69,28 @@ struct GoalEditorSheet: View {
         ["💰", "💎", "🎁", "🎪", "✈️", "🏰", "🎡", "🛍️"]
     ]
 
+    private static let flatEmojis: [String] = emojiGrid.flatMap(\.self)
+
     var body: some View {
         NavigationStack {
-            Form {
-                emojiPickerSection
-                nameSection
-                wishlistLinkSection
-                categorySection
-                targetAmountSection
-                targetDateSection
-                bucketPickerSection
+            ScrollView {
+                VStack(spacing: DesignSystemConstants.Padding.large) {
+                    emojiPickerSection
+                    nameSection
+                    targetAmountSection
+                    bucketPickerSection
+                    categorySection
+                    targetDateSection
+                    wishlistLinkSection
 
-                if onDelete != nil {
-                    deleteSection
+                    if onDelete != nil {
+                        deleteSection
+                    }
                 }
+                .padding(.horizontal, DesignSystemConstants.Padding.standard)
+                .padding(.vertical, DesignSystemConstants.Padding.standard)
             }
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle(initialGoal != nil ? "Edit Goal" : "New Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -110,107 +117,128 @@ struct GoalEditorSheet: View {
         }
     }
 
+    // MARK: - Card Background Helper
+
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
+            .fill(Color(.secondarySystemGroupedBackground))
+    }
+
     // MARK: - Emoji Picker
 
     private var emojiPickerSection: some View {
-        Section("Icon") {
-            VStack(spacing: 10) {
-                ForEach(Self.emojiGrid.indices, id: \.self) { rowIndex in
-                    HStack(spacing: 0) {
-                        ForEach(Self.emojiGrid[rowIndex], id: \.self) { emoji in
-                            Button {
-                                selectedEmoji = emoji
-                            } label: {
-                                Text(emoji)
-                                    .font(.title)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        selectedEmoji == emoji
-                                            ? RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.2))
-                                            : nil
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("ICON")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 8) {
+                ForEach(Self.flatEmojis, id: \.self) { emoji in
+                    Button {
+                        selectedEmoji = emoji
+                    } label: {
+                        Text(emoji)
+                            .font(.title)
+                            .padding(.vertical, 4)
+                            .background(
+                                selectedEmoji == emoji
+                                    ? RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.2))
+                                    : nil
+                            )
                     }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
         }
     }
 
     // MARK: - Name
 
     private var nameSection: some View {
-        Section("Goal Name") {
-            TextField("e.g. New Bike", text: $nameText)
-                .submitLabel(.done)
-                .accessibilityIdentifier("goalEditor.nameField")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("GOAL NAME")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
 
-            if let title = resolvedTitle, !title.isEmpty, nameText.isEmpty {
-                Button {
-                    nameText = title
-                } label: {
-                    Label("Use “\(title)” from link", systemImage: "arrow.up.left")
-                        .font(.caption)
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("e.g. New Bike", text: $nameText)
+                    .submitLabel(.done)
+                    .accessibilityIdentifier("goalEditor.nameField")
+
+                if let title = resolvedTitle, !title.isEmpty, nameText.isEmpty {
+                    Button {
+                        nameText = title
+                    } label: {
+                        Label("Use “\(title)” from link", systemImage: "arrow.up.left")
+                            .font(.caption)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    }
                 }
             }
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
         }
     }
 
-    // MARK: - Wishlist Link
+    // MARK: - Target Amount
 
-    private var wishlistLinkSection: some View {
-        Section {
-            HStack {
-                Image(systemName: "link")
-                    .foregroundStyle(.secondary)
-                TextField("https://amazon.com/... or product link", text: $linkURLText)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .onChange(of: linkURLText) { _, newURL in
-                        resolveURLMetadata(newURL)
-                    }
+    private var targetAmountSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("TARGET AMOUNT")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
 
-                if !linkURLText.isEmpty {
-                    Button {
-                        linkURLText = ""
-                        resolvedTitle = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            if isResolvingLink {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Fetching product details...")
-                        .font(.caption)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text(CurrencyFormatter.currencySymbol)
+                        .font(.headline)
                         .foregroundStyle(.secondary)
+
+                    TextField("0.00", text: $targetAmountText)
+                        .font(.headline.monospacedDigit())
+                        .keyboardType(.decimalPad)
+                        .focused($isAmountFocused)
+                        .accessibilityIdentifier("goalEditor.amountField")
+                        .onChange(of: targetAmountText) { _, newValue in
+                            validateAmount(newValue)
+                        }
                 }
-            } else if let url = LinkMetadataService.normalizeURL(from: linkURLText) {
-                HStack {
-                    Text("Store: \(url.host?.replacingOccurrences(of: "www.", with: "") ?? "Web Link")")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                    Spacer()
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+
+                if let error = parsingError {
+                    Text(error)
                         .font(.caption)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                 }
             }
-        } header: {
-            Text("Wishlist Web Link (optional)")
-        } footer: {
-            Text("Paste a link to an online item (Amazon, Target, LEGO) to add a 1-tap store shortcut.")
-                .font(.caption2)
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
+        }
+    }
+
+    // MARK: - Bucket Picker
+
+    private var bucketPickerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("SAVINGS BUCKET")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+
+            Picker("Bucket", selection: $bucketKind) {
+                Text("Short Save")
+                    .tag(BucketKind.shortTermSave)
+                Text("Long Save")
+                    .tag(BucketKind.longTermSave)
+            }
+            .pickerStyle(.segmented)
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
         }
     }
 
@@ -221,183 +249,177 @@ struct GoalEditorSheet: View {
     ]
 
     private var categorySection: some View {
-        Section {
-            // Category chips row.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Self.categoryChips, id: \.self) { chip in
-                        PresetPill(
-                            text: chip,
-                            isSelected: categoryText == chip,
-                            action: {
-                                // Toggle: if already selected, clear; otherwise select.
-                                if categoryText == chip {
-                                    categoryText = ""
-                                } else {
-                                    categoryText = chip
+        VStack(alignment: .leading, spacing: 8) {
+            Text("CATEGORY (OPTIONAL)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
+
+            VStack(alignment: .leading, spacing: 10) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Self.categoryChips, id: \.self) { chip in
+                            PresetPill(
+                                text: chip,
+                                isSelected: categoryText == chip,
+                                action: {
+                                    if categoryText == chip {
+                                        categoryText = ""
+                                    } else {
+                                        categoryText = chip
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
-                .padding(.vertical, 4)
+                .frame(height: 36)
+
+                TextField("Or type a custom category", text: $categoryText)
             }
-            // Custom category input.
-            TextField("Or type a custom category", text: $categoryText)
-        } header: {
-            Text("Category (optional)")
-        }
-    }
-
-    // MARK: - Target Amount
-
-    private var targetAmountSection: some View {
-        Section {
-            HStack(spacing: 4) {
-                // WHY: Use CurrencyFormatter symbol so no "$" literal is hard-coded.
-                Text(CurrencyFormatter.currencySymbol)
-                    .foregroundStyle(.secondary)
-
-                TextField("0.00", text: $targetAmountText)
-                    .keyboardType(.decimalPad)
-                    .focused($isAmountFocused)
-                    .accessibilityIdentifier("goalEditor.amountField")
-                    .onChange(of: targetAmountText) { _, newValue in
-                        validateAmount(newValue)
-                    }
-            }
-
-            if let error = parsingError {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
-            }
-        } header: {
-            Text("Target Amount")
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
         }
     }
 
     // MARK: - Target Date & Pacing
 
     private var targetDateSection: some View {
-        Section {
-            Toggle("Set Target Date", isOn: $hasTargetDate)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("TARGET DATE & PACING (OPTIONAL)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
 
-            if hasTargetDate {
-                DatePicker(
-                    "Target Date",
-                    selection: $targetDate,
-                    in: Date()...,
-                    displayedComponents: .date
-                )
-                .datePickerStyle(.compact)
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("Set Target Date", isOn: $hasTargetDate)
 
-                // Quick preset pills
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        PresetPill(text: "1 Month", isSelected: isPresetMatching(months: 1)) {
-                            setPresetDate(months: 1)
-                        }
-                        PresetPill(text: "3 Months", isSelected: isPresetMatching(months: 3)) {
-                            setPresetDate(months: 3)
-                        }
-                        PresetPill(text: "6 Months", isSelected: isPresetMatching(months: 6)) {
-                            setPresetDate(months: 6)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
+                if hasTargetDate {
+                    DatePicker(
+                        "Target Date",
+                        selection: $targetDate,
+                        in: Date()...,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.compact)
 
-                if let pennies = parsedPennies, pennies > 0 {
-                    if let summary = GoalPacingCalculator.calculatePacing(
-                        targetAmountPennies: pennies,
-                        savedPennies: 0,
-                        createdAt: initialGoal?.createdAt ?? Date(),
-                        targetDate: targetDate
-                    ) {
+                    ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            Image(systemName: "speedometer")
-                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                            Text("Save \(CurrencyFormatter.string(summary.weeklyRequiredSavingsDollars))/week (\(summary.weeksRemaining) weeks)")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                            PresetPill(text: "1 Month", isSelected: isPresetMatching(months: 1)) {
+                                setPresetDate(months: 1)
+                            }
+                            PresetPill(text: "3 Months", isSelected: isPresetMatching(months: 3)) {
+                                setPresetDate(months: 3)
+                            }
+                            PresetPill(text: "6 Months", isSelected: isPresetMatching(months: 6)) {
+                                setPresetDate(months: 6)
+                            }
                         }
-                        .padding(.vertical, 2)
+                    }
+                    .frame(height: 36)
+
+                    if let pennies = parsedPennies, pennies > 0 {
+                        if let summary = GoalPacingCalculator.calculatePacing(
+                            targetAmountPennies: pennies,
+                            savedPennies: 0,
+                            createdAt: initialGoal?.createdAt ?? Date(),
+                            targetDate: targetDate
+                        ) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "speedometer")
+                                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                                Text("Save \(CurrencyFormatter.string(summary.weeklyRequiredSavingsDollars))/week (\(summary.weeksRemaining) weeks)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
             }
-        } header: {
-            Text("Target Date & Pacing (optional)")
-        } footer: {
-            if hasTargetDate {
-                Text("LootList will calculate how much to save each week to reach your goal on time.")
-                    .font(.caption2)
-            }
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
         }
     }
 
-    private func isPresetMatching(months: Int) -> Bool {
-        guard let candidate = Calendar.current.date(byAdding: .month, value: months, to: Date()) else { return false }
-        return Calendar.current.isDate(candidate, inSameDayAs: targetDate)
-    }
+    // MARK: - Wishlist Link
 
-    private func setPresetDate(months: Int) {
-        if let target = Calendar.current.date(byAdding: .month, value: months, to: Date()) {
-            targetDate = target
-        }
-    }
+    private var wishlistLinkSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("WISHLIST WEB LINK (OPTIONAL)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 4)
 
-    private func resolveURLMetadata(_ rawURL: String) {
-        guard let url = LinkMetadataService.normalizeURL(from: rawURL) else { return }
-        isResolvingLink = true
-        Task { @MainActor in
-            if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
-                if let title = metadata.title {
-                    resolvedTitle = title
-                    if nameText.isEmpty {
-                        nameText = title
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "link")
+                        .foregroundStyle(.secondary)
+                    TextField("https://amazon.com/... or product link", text: $linkURLText)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .onChange(of: linkURLText) { _, newURL in
+                            resolveURLMetadata(newURL)
+                        }
+
+                    if !linkURLText.isEmpty {
+                        Button {
+                            linkURLText = ""
+                            resolvedTitle = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                if isResolvingLink {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Fetching product details...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let url = LinkMetadataService.normalizeURL(from: linkURLText) {
+                    HStack {
+                        Text("Store: \(url.host?.replacingOccurrences(of: "www.", with: "") ?? "Web Link")")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                        Spacer()
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                            .font(.caption)
                     }
                 }
             }
-            isResolvingLink = false
-        }
-    }
-
-    // MARK: - Bucket Picker
-
-    private var bucketPickerSection: some View {
-        Section("Savings Bucket") {
-            Picker("Bucket", selection: $bucketKind) {
-                Text("Short Save")
-                    .tag(BucketKind.shortTermSave)
-                Text("Long Save")
-                    .tag(BucketKind.longTermSave)
-            }
-            .pickerStyle(.segmented)
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
         }
     }
 
     // MARK: - Delete Section
 
     private var deleteSection: some View {
-        Section {
-            Button(role: .destructive) {
-                showDeleteConfirmation = true
-            } label: {
-                HStack {
-                    Spacer()
-                    if isDeleting {
-                        ProgressView()
-                    } else {
-                        Label("Delete Goal", systemImage: "trash")
-                            .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
-                    }
-                    Spacer()
+        Button(role: .destructive) {
+            showDeleteConfirmation = true
+        } label: {
+            HStack {
+                Spacer()
+                if isDeleting {
+                    ProgressView()
+                } else {
+                    Label("Delete Goal", systemImage: "trash")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
                 }
+                Spacer()
             }
-            .disabled(isSaving || isDeleting)
-            .accessibilityIdentifier("goalEditor.deleteButton")
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
         }
+        .disabled(isSaving || isDeleting)
+        .accessibilityIdentifier("goalEditor.deleteButton")
     }
 
     // MARK: - Validation & Save
@@ -426,6 +448,38 @@ struct GoalEditorSheet: View {
             parsingError = "Enter a valid dollar amount (e.g. 49.99)."
         } else {
             parsingError = nil
+        }
+    }
+
+    private func isPresetMatching(months: Int) -> Bool {
+        guard let candidate = Calendar.current.date(byAdding: .month, value: months, to: Date()) else { return false }
+        return Calendar.current.isDate(candidate, inSameDayAs: targetDate)
+    }
+
+    private func setPresetDate(months: Int) {
+        if let target = Calendar.current.date(byAdding: .month, value: months, to: Date()) {
+            targetDate = target
+        }
+    }
+
+    private func resolveURLMetadata(_ rawURL: String) {
+        let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = LinkMetadataService.normalizeURL(from: trimmed) else {
+            resolvedTitle = nil
+            return
+        }
+
+        isResolvingLink = true
+        Task { @MainActor in
+            if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
+                if let title = metadata.title, !title.isEmpty {
+                    resolvedTitle = title
+                    if nameText.isEmpty {
+                        nameText = title
+                    }
+                }
+            }
+            isResolvingLink = false
         }
     }
 

@@ -39,31 +39,50 @@ final class LootListScreenshotTests: XCTestCase {
             ]
             app.launch()
 
+            // 1. Child Hub View (Home tab is selected by default on launch)
             sleep(2)
-            snapshot("01HeroQuestsView-\(appearance.suffix)")
+            snapshot("01ChildHubView-\(appearance.suffix)")
 
             let tabBar = app.tabBars.firstMatch
             if tabBar.waitForExistence(timeout: 5) {
+                // 2. Quests / Chores View
+                let questsTab = tabBar.buttons["Quests"]
+                if questsTab.exists {
+                    questsTab.tap()
+                    sleep(2)
+                    snapshot("02HeroQuestsView-\(appearance.suffix)")
+                }
+
+                // 3. Treasury / Money View
                 let moneyTab = tabBar.buttons["Money"]
                 if moneyTab.exists {
                     moneyTab.tap()
                     sleep(2)
-                    snapshot("02TreasuryView-\(appearance.suffix)")
+                    snapshot("03TreasuryView-\(appearance.suffix)")
                 }
 
+                // 4. Goals View
+                let goalsTab = tabBar.buttons["Goals"]
+                if goalsTab.exists {
+                    goalsTab.tap()
+                    sleep(2)
+                    snapshot("04GoalsView-\(appearance.suffix)")
+                }
+
+                // 5. Profile View & Trophy Room
                 let profileTab = tabBar.buttons["Profile"]
                 if profileTab.exists {
                     profileTab.tap()
                     sleep(2)
-                    snapshot("04ProfileView-\(appearance.suffix)")
+                    snapshot("05ProfileView-\(appearance.suffix)")
 
                     // Trophies now lives under Profile — drill in for the
-                    // Hall of Heroes screenshot, then return to Profile.
+                    // Hall of Heroes screenshot.
                     let trophiesLink = app.buttons["profile.trophies"]
                     if trophiesLink.waitForExistence(timeout: 3) {
                         trophiesLink.tap()
                         sleep(2)
-                        snapshot("03TrophyRoomView-\(appearance.suffix)")
+                        snapshot("06TrophyRoomView-\(appearance.suffix)")
                     }
                 }
             }
@@ -83,7 +102,7 @@ final class LootListScreenshotTests: XCTestCase {
             app.launch()
 
             sleep(2)
-            snapshot("05ParentFamilyDashboard-\(appearance.suffix)")
+            snapshot("07ParentFamilyDashboard-\(appearance.suffix)")
 
             let tabBar = app.tabBars.firstMatch
             if tabBar.waitForExistence(timeout: 5) {
@@ -91,21 +110,21 @@ final class LootListScreenshotTests: XCTestCase {
                 if manageTab.exists {
                     manageTab.tap()
                     sleep(2)
-                    snapshot("06QuestManagerView-\(appearance.suffix)")
+                    snapshot("08QuestManagerView-\(appearance.suffix)")
                 }
 
                 let payoutsTab = tabBar.buttons["Payouts"]
                 if payoutsTab.exists {
                     payoutsTab.tap()
                     sleep(2)
-                    snapshot("07PayoutHistoryView-\(appearance.suffix)")
+                    snapshot("09PayoutHistoryView-\(appearance.suffix)")
                 }
 
                 let settingsTab = tabBar.buttons["Settings"]
                 if settingsTab.exists {
                     settingsTab.tap()
                     sleep(2)
-                    snapshot("08GuildSettingsView-\(appearance.suffix)")
+                    snapshot("10GuildSettingsView-\(appearance.suffix)")
                 }
             }
         }

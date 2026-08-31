@@ -13,7 +13,7 @@ import SwiftData
 @ModelActor
 actor BackgroundCacheActor {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
-    let mutationQueue = SerialMutationQueue()
+    let mutationQueue = SerialMutationQueue.shared
 
     /// Creates the background cache actor off-main to avoid main-thread affinity.
     static func makeBackgroundWriter(for container: ModelContainer) async -> BackgroundCacheActor {
@@ -591,16 +591,8 @@ actor BackgroundCacheActor {
     private func batchUpsertWithoutSave<T: CacheMergeable & CacheSystemFields>(
         _: T.Type,
         _ items: [T.DomainModel],
-        familyRecordName: String?
-    ) async -> Bool where T.DomainModel: DomainSystemFields {
-        await performUpsert(T.self, items, familyRecordName: familyRecordName, logLabel: "batchUpsertWithoutSave")
-    }
-
-    private func batchUpsertWithoutSave<T: CacheMergeable & CacheSystemFields>(
-        _: T.Type,
-        _ items: [T.DomainModel],
         familyRecordName: String?,
-        isServerSync: Bool
+        isServerSync: Bool = true
     ) async -> Bool where T.DomainModel: DomainSystemFields {
         await performUpsert(T.self, items, familyRecordName: familyRecordName, isServerSync: isServerSync, logLabel: "batchUpsertWithoutSave")
     }

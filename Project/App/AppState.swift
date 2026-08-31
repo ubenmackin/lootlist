@@ -12,8 +12,6 @@ import Synchronization
 
 extension Notification.Name {
     static let didClearSession = Notification.Name("didClearSession")
-    static let didChangeFamilyZoneID = Notification.Name("didChangeFamilyZoneID")
-    static let familyAccessRevoked = Notification.Name("familyAccessRevoked")
     static let familyRosterChanged = Notification.Name("familyRosterChanged")
 }
 
@@ -54,8 +52,10 @@ final class AppState {
     var authStatus: AuthStatus
 
     /// Explicit state machine serializing auth transitions and owning the persisted-session check.
-    var authStateMachine: AuthStateMachine
+    @ObservationIgnored
+    private(set) lazy var authStateMachine: AuthStateMachine = .init(defaults: defaults, appState: self)
 
+    /// Safe on @MainActor — this didSet runs on the main actor where QuickActionManager touches UIApplication shortcutItems.
     var currentProfile: Profile? {
         didSet {
             QuickActionManager.updateQuickActions(for: currentProfile?.role)
@@ -104,14 +104,28 @@ final class AppState {
 
     var family: Family?
 
+    /// Typed replacement for the former `didChangeFamilyZoneID` NotificationCenter channel.
+    /// Incremented as a UUID signal so SwiftUI `.onChange` and the lifecycle coordinator
+    /// can observe zone identity changes without a stringly-typed notification.
+    var familyZoneIDChangeSignal: UUID = .init()
+
+    /// Typed replacement for the former `familyAccessRevoked` NotificationCenter channel.
+    /// Bumped when the shared zone becomes unreachable (revoked hero) so UI can surface
+    /// a toast via `.onChange(of: familyAccessRevokedSignal)` instead of observing a notification.
+    var familyAccessRevokedSignal: UUID = .init()
+
+    /// Direct callback for the lifecycle coordinator to invalidate scope without
+    /// going through NotificationCenter. Set by `AppLifecycleCoordinator` after init.
+    @ObservationIgnored
+    var onFamilyZoneIDChange: (() -> Void)?
+
     // MARK: - Active Family Zone
 
     var familyZoneID: CKRecordZone.ID? {
         didSet {
-            // Broadcast on any zone identity change so cached scope state is invalidated even before the family is
-            // resolved.
             guard oldValue != familyZoneID else { return }
-            NotificationCenter.default.post(name: .didChangeFamilyZoneID, object: nil)
+            familyZoneIDChangeSignal = UUID()
+            onFamilyZoneIDChange?()
         }
     }
 
@@ -129,6 +143,14 @@ final class AppState {
     }
 
     var isZoneOwner: Bool = false
+
+    /// Single source of truth for the owner-derived database scope. Every
+    /// service route that previously inlined the ternary now derives scope
+    /// from this property.
+    var activeDatabaseScope: CKDatabase.Scope {
+        DatabaseScopeResolver.scope(isOwner: ActiveFamilyScopeGuard.resolvedIsOwner(appState: self))
+    }
+
     var cacheService: CacheService?
     var backgroundCacheActor: BackgroundCacheActor?
     var cacheInitError: AppStateError?
@@ -231,10 +253,8 @@ final class AppState {
         // A completed onboarding that lacks a session means we should probe for a recoverable family (restore
         // / reconnect); a brand-new install goes straight to the discovery state so RootView renders the
         authStatus = hasSession ? .restoringSession : .checkingCloudData
-        authStateMachine = AuthStateMachine(defaults: defaults)
-        authStateMachine.attach(to: self)
 
-        quickActionTask = Task { [weak self] in
+        quickActionTask = Task { @MainActor [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .quickActionTriggered) {
                 if let action = notification.object as? QuickActionType {
                     self?.pendingQuickAction = action
@@ -242,11 +262,15 @@ final class AppState {
             }
         }
 
-        notificationRouteTask = Task { [weak self] in
-            // Adopt a notification route retained by the router for taps that
-            // arrived before this observer was subscribed (cold start), then
-            // follow live posts.
-            self?.pendingNotificationRoute = NotificationRouter.shared.takePendingRoute()
+        notificationRouteTask = Task { @MainActor [weak self] in
+            // Cold-start route is now transferred by `AppDependencies` after it
+            // creates the owned `NotificationRouter`; we still adopt any
+            // fallback that slipped through before that hand-off.
+            if let router = AppDependencies.shared?.notificationRouter,
+               let pending = router.takePendingRoute()
+            {
+                self?.pendingNotificationRoute = pending
+            }
             for await notification in NotificationCenter.default.notifications(named: .notificationRouteTriggered) {
                 if let route = notification.object as? NotificationRoute {
                     self?.pendingNotificationRoute = route
@@ -456,7 +480,7 @@ final class AppState {
                     // A revoked shared zone must not fall back to its cached
                     // session; that would leave a removed hero looking active.
                     logger.info("Shared family zone is unavailable — clearing revoked hero session")
-                    NotificationCenter.default.post(name: .familyAccessRevoked, object: nil)
+                    familyAccessRevokedSignal = UUID()
                     clearSessionAndCloudKitScope(cloudKit: cloudKit)
                     await authStateMachine.transition(.restoreFailed)
                     await discoverExistingCloudState(cloudKit: cloudKit)

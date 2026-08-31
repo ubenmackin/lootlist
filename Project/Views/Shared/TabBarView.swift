@@ -54,9 +54,14 @@ struct TabBarView: View {
         }
         .onAppear {
             reconcileDefaultSelection()
-            // Cold-start notification route retained by router; adopt here once session is authenticated.
-            if let route = NotificationRouter.shared.takePendingRoute() {
+            // Cold-start notification route retained by the owned router; adopt
+            // here once session is authenticated.
+            if let router = AppDependencies.shared?.notificationRouter,
+               let route = router.takePendingRoute()
+            {
                 appState.pendingNotificationRoute = route
+            } else if let fallback = NotificationRouter.shared.takePendingRoute() {
+                appState.pendingNotificationRoute = fallback
             }
             checkPendingNotificationRoute(appState.pendingNotificationRoute)
             Task {

@@ -21,8 +21,8 @@ final class GemService {
     var syncCoordinator: CKSyncEngineCoordinator?
     var soundManager: SoundManager?
 
-    /// Serializes concurrent gem mutations for the same hero via `GemLock`.
-    private let gemLock = GemLock()
+    /// Serializes concurrent gem mutations for the same hero via `KeyedAsyncLock` (RPG-gated behind `FeatureFlags.rpgImmersive`).
+    private let gemLock = KeyedAsyncLock()
 
     init(cloudKitService: any CloudKitServiceProtocol,
          cacheService: CacheService? = nil,

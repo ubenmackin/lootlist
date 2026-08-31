@@ -186,13 +186,13 @@ struct QuestManagerView: View {
                 familyService: familyService,
                 appState: appState
             )
-        }, rebuild: { _ in rebuildViewModel() })
+        }, rebuild: { vm in rebuildViewModel(vm) })
     }
 
-    private func rebuildViewModel() {
-        guard let vm = viewModel else { return }
-        vm.rebuildLists(templates: cachedTemplates, assignments: cachedAssignments)
-        vm.rebuildHeroes(profiles: cachedProfiles)
+    private func rebuildViewModel(_ vm: QuestManagerViewModel? = nil) {
+        guard let targetVM = vm ?? viewModel else { return }
+        targetVM.rebuildLists(templates: cachedTemplates, assignments: cachedAssignments)
+        targetVM.rebuildHeroes(profiles: cachedProfiles)
     }
 
     private var tabPicker: some View {

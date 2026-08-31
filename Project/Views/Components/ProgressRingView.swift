@@ -20,7 +20,8 @@ struct ProgressRingView: View {
     var identifier: String?
 
     private var clampedProgress: Double {
-        min(max(progress, 0), 1)
+        guard progress.isFinite else { return 0 }
+        return min(max(progress, 0), 1)
     }
 
     private var percentText: String {

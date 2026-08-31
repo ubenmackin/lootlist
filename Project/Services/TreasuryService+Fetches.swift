@@ -14,7 +14,7 @@ import os
 extension TreasuryService {
     func fetchAllLedgerEntries(profile: Profile) async throws -> [LedgerEntry] {
         let familyName = profile.family.recordID.recordName
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let cached = cache.fetchLedgerEntries(
             profileRecordName: profile.id.recordName,
@@ -64,7 +64,7 @@ extension TreasuryService {
 
     func fetchAllowancePeriods(family: Family) async -> [AllowancePeriod] {
         let familyName = family.id.recordName
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let cached = cache.fetchAllowancePeriods(family: familyName)
         if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope, cachedCount: cached.count) {
@@ -96,7 +96,7 @@ extension TreasuryService {
     func fetchLedgerEntries(profile: Profile, in dateRange: Range<Date>) async throws -> [LedgerEntry] {
         let profileName = profile.id.recordName
         let familyName = profile.family.recordID.recordName
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let cached = cache.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
         let filtered = cached.filter { dateRange.contains($0.date) }
@@ -130,7 +130,7 @@ extension TreasuryService {
                         weekStarting: Date,
                         weekEnding: Date) async throws -> [QuestCompletion]
     {
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let profileName = profile.id.recordName
         let familyName = profile.family.recordID.recordName
@@ -180,7 +180,7 @@ extension TreasuryService {
     {
         let payoutDay = profile.payoutDay ?? family.payoutDay
         let range = TreasuryService.weekRange(starting: WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay))
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let familyName = family.id.recordName
         let cachedAll = cache.fetchQuests(family: familyName)
@@ -232,7 +232,7 @@ extension TreasuryService {
         let familyName = profile.family.recordID.recordName
         // Strict equality on normalized UTC week start matches stored AllowancePeriod.weekOf exactly.
         let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: weekOf)
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let profileName = profile.id.recordName
         let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
@@ -291,7 +291,7 @@ extension TreasuryService {
         if let scanned = cacheService.fetchProfiles(family: familyRecordName).first(where: { $0.recordName == recordID.recordName }) {
             return scanned.toProfile(zoneID: recordID.zoneID)
         }
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let fetched = try await cloudKit.fetch(Profile.self, id: recordID)
         guard fetched.family.recordID.recordName == familyRecordName else {
             throw FamilyServiceError.unauthorized
@@ -317,7 +317,7 @@ extension TreasuryService {
         guard !logs.isEmpty else { return [] }
         let needed = Set(logs.map(\.quest.recordID.recordName))
         let familyName = family.id.recordName
-        let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let scope: CKDatabase.Scope = appState.activeDatabaseScope
         // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback at call site (FamilyService-style).
         let count = cacheService.fetchQuests(family: familyName).count
         let isAuthoritative = cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: count)

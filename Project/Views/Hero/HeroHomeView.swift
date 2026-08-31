@@ -278,6 +278,12 @@ struct HeroHomeView: View {
 
     private func xpProgressBar(progress: Double) -> some View {
         GeometryReader { geo in
+            let rawWidth = geo.size.width
+            let trackWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0) ? rawWidth : 0
+            let rawProgress = CGFloat(progress)
+            let safeProgress: CGFloat = (rawProgress.isFinite && rawProgress > 0) ? min(rawProgress, 1) : 0
+            let fillWidth = trackWidth * safeProgress
+            let safeFillWidth: CGFloat = (fillWidth.isFinite && fillWidth > 0) ? fillWidth : 0
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Color(.tertiarySystemFill))
@@ -288,7 +294,7 @@ struct HeroHomeView: View {
                         startPoint: .leading,
                         endPoint: .trailing
                     ))
-                    .frame(width: max(0, geo.size.width * CGFloat(progress)))
+                    .frame(width: safeFillWidth)
                     .animation(.spring(response: 0.6, dampingFraction: 0.8), value: progress)
             }
         }
@@ -398,12 +404,12 @@ struct HeroHomeView: View {
     private func ensureViewModel() {
         ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
             HeroDashboardViewModel(appState: appState)
-        }, rebuild: { _ in rebuildViewModel() })
+        }, rebuild: { vm in rebuildViewModel(vm) })
     }
 
-    private func rebuildViewModel() {
+    private func rebuildViewModel(_ vm: HeroDashboardViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
-        guard let vm = viewModel else { return }
+        guard let targetVM = vm ?? viewModel else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
         // Filter family-scoped cached records for the active hero profile.
@@ -413,6 +419,6 @@ struct HeroHomeView: View {
         let logs = cachedCompletions
             .filter { $0.completerRecordName == profileName }
 
-        vm.rebuildLists(quests: quests, logs: logs, templates: cachedTemplates, allowancePeriods: cachedAllowancePeriods)
+        targetVM.rebuildLists(quests: quests, logs: logs, templates: cachedTemplates, allowancePeriods: cachedAllowancePeriods)
     }
 }

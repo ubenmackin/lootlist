@@ -452,7 +452,7 @@ final class FamilyService: FamilyProfileFetching {
         if let syncCoordinator {
             await syncCoordinator.delegateHandler.hydrateFromQuery(
                 models: all,
-                databaseScope: isOwner ? .private : .shared,
+                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
                 zoneID: family.id.zoneID
             )
         } else {
@@ -491,7 +491,7 @@ final class FamilyService: FamilyProfileFetching {
         if let syncCoordinator {
             await syncCoordinator.delegateHandler.hydrateFromQuery(
                 models: all,
-                databaseScope: isOwner ? .private : .shared,
+                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
                 zoneID: family.id.zoneID
             )
         } else {
@@ -675,7 +675,7 @@ final class FamilyService: FamilyProfileFetching {
             if let syncCoordinator {
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
                     models: fresh,
-                    databaseScope: isOwner ? .private : .shared,
+                    databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
                     zoneID: family.id.zoneID
                 )
             } else {

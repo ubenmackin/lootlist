@@ -205,7 +205,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     func enqueueSave(recordID: CKRecord.ID, isOwner: Bool) {
         guard let engine = activeEngine(isOwner: isOwner) else {
             let identity = ScopedRecordIdentity(
-                databaseScope: isOwner ? .private : .shared,
+                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
                 zoneID: recordID.zoneID,
                 recordID: recordID,
                 familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName
@@ -250,7 +250,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         }
         guard let engine = activeEngine(isOwner: isOwner) else {
             let identity = ScopedRecordIdentity(
-                databaseScope: isOwner ? .private : .shared,
+                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
                 zoneID: recordID.zoneID,
                 recordID: recordID,
                 familyRecordName: stableFamilyRecordName() ?? appState?.family?.id.recordName ?? recordID.zoneID.zoneName

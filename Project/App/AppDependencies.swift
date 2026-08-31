@@ -9,11 +9,23 @@ import CloudKit
 import Observation
 import os
 import SwiftData
+import UserNotifications
 
 @MainActor
 @Observable
 final class AppDependencies {
-    /// Cold-start singleton — set once in init; read is MainActor-isolated. Prefer injecting AppDependencies via Environment rather than reaching for shared.
+    /// Process-bound seam for code that executes outside the SwiftUI environment.
+    /// App Intents (Siri / Shortcuts) and `BGTaskScheduler` handlers run in
+    /// extension / background-process contexts where `@Environment` injection is
+    /// unavailable and the SwiftUI scene may not be running. Those entry points
+    /// resolve dependencies through this fail-closed global:
+    /// `guard let dep = AppDependencies.shared else { return [] }`.
+    /// All in-app views and services must prefer the owned container held by
+    /// `LootListApp` (`@State private var dependencies`) and injected via
+    /// `.environment(...)`; do not reach for `shared` from UI code. The container
+    /// is the single source of truth — `shared` is a process-boundary shim, not a
+    /// general service locator. Kept unconditional (not `#if DEBUG`-only) because
+    /// Intents/BGTasks need it in release builds.
     private(set) static var shared: AppDependencies?
 
     let appState: AppState
@@ -56,6 +68,7 @@ final class AppDependencies {
     let lifecycleCoordinator: AppLifecycleCoordinator
     let heroBoardService: HeroBoardService
     let familyDiscoveryService: FamilyDiscoveryService
+    let notificationRouter: NotificationRouter
 
     init() {
         let foundations = Self.makeFoundations()
@@ -146,8 +159,16 @@ final class AppDependencies {
         bonusObjectiveService = gamification.bonusObjective
         equipmentService = gamification.equipment
         familyDiscoveryService = discoveryService
+        notificationRouter = NotificationRouter()
 
         Self.shared = self
+        UNUserNotificationCenter.current().delegate = notificationRouter
+        // Adopt any cold-start tap that arrived before `AppState` subscribed.
+        // The router retains the route via its Mutex; hand it to AppState so
+        // `TabBarView` can navigate on first appearance.
+        if let pending = notificationRouter.takePendingRoute() {
+            foundations.app.pendingNotificationRoute = pending
+        }
     }
 
     private struct Foundations {
@@ -367,8 +388,12 @@ final class AppDependencies {
             cloudKitService: ck, delegateHandler: delegate, appState: app
         )
         let notification = NotificationService(
-            cloudKit: ck, appState: app, cacheService: cache,
-            toastManager: toast, syncCoordinator: syncCoord
+            cloudKit: ck,
+            appState: app,
+            cacheService: cache,
+            syncCoordinator: syncCoord,
+            toastManager: toast,
+            weeklySummaryProvider: ProductionWeeklySummaryProvider()
         )
         delegate.setNotificationService(notification)
         return SyncStack(

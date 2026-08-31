@@ -202,8 +202,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         zoneID: CKRecordZone.ID? = nil
     ) async {
         guard !records.isEmpty else { return }
-        // Dual-scope is derived via databaseScope ?? (isZoneOwner ? .private : .shared).
-        let scope: CKDatabase.Scope = databaseScope ?? (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared)
+        // Dual-scope is derived via databaseScope ?? activeDatabaseScope.
+        let scope: CKDatabase.Scope = databaseScope ?? (appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false))
         guard let resolvedZoneID = zoneID ?? records.first?.recordID.zoneID else { return }
         await ingest(records: records, databaseScope: scope, zoneID: resolvedZoneID)
     }
@@ -238,7 +238,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             return
         }
 
-        let expectedDbScope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let expectedDbScope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
         let (accepted, parseFailures) = processIngestRecords(
             records,
             databaseScope: databaseScope,
@@ -513,7 +513,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         if let activeFamily = appState?.family?.id.recordName,
            let activeZone = appState?.familyZoneID
         {
-            let dbScope = databaseScope ?? (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared)
+            let dbScope = databaseScope ?? (appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false))
             for deletion in changes.deletions {
                 await conflictResolver.handleDeletedRecord(
                     recordID: deletion.recordID,

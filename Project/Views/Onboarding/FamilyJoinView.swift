@@ -130,6 +130,7 @@ struct FamilyJoinView: View {
                 Text("Waiting for your invite…")
                     .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("joinFamily.waitingScreen")
 
                 Text(
                     "Ask your family's parent to invite you through their LootList app. When they send the invitation, you'll get a message invitation — tap it to join the family."
@@ -162,7 +163,6 @@ struct FamilyJoinView: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
-        .accessibilityIdentifier("joinFamily.waitingScreen")
     }
 
     #if DEBUG
@@ -270,6 +270,7 @@ struct FamilyJoinView: View {
             RoundedRectangle(cornerRadius: 20)
                 .strokeBorder(.white.opacity(0.2), lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("detectedHero.card")
     }
 

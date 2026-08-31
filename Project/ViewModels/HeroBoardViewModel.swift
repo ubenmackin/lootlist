@@ -138,10 +138,19 @@ final class HeroBoardViewModel {
         do {
             switch try await boardService.claim(row.quest, by: hero) {
             case .claimed:
-                // Server-wins resolver owns the race: local cache was already
-                // updated optimistically and enqueued; the VM observes the
-                // cache pulse via rebuildLists rather than assuming success.
-                break
+                if let index = availableRows.firstIndex(where: { $0.id == row.id }) {
+                    var claimedQuest = row.quest
+                    claimedQuest.claimedByProfileRecordName = hero.id.recordName
+                    claimedQuest.claimedAt = Date()
+                    let updatedRow = BoardRow(
+                        quest: claimedQuest,
+                        claimantName: hero.displayName,
+                        isClaimedByCurrentUser: true
+                    )
+                    availableRows.remove(at: index)
+                    claimedRows.append(updatedRow)
+                    claimedRows.sort { $0.quest.displayName.localizedCaseInsensitiveCompare($1.quest.displayName) == .orderedAscending }
+                }
             case .lostToAnotherHero:
                 pendingClaims.withLock { _ = $0.remove(id) }
                 boardService.toastManager?.show(message: "Someone grabbed it first!", type: .warning)

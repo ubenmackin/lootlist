@@ -183,7 +183,7 @@ struct QuestsView: View {
     private func ensureViewModel() {
         ViewLifecycle.ensureAndRebuild(&viewModel, factory: {
             HeroDashboardViewModel(appState: appState)
-        }, rebuild: { _ in rebuildViewModel() })
+        }, rebuild: { vm in rebuildViewModel(vm) })
     }
 
     private func handleRefresh() async {
@@ -212,9 +212,9 @@ struct QuestsView: View {
         }
     }
 
-    private func rebuildViewModel() {
+    private func rebuildViewModel(_ vm: HeroDashboardViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
-        guard let vm = viewModel else { return }
+        guard let targetVM = vm ?? viewModel else { return }
         guard let profileName = appState.currentProfile?.id.recordName else { return }
 
         // Filter family-scoped cached records for the active hero profile.
@@ -226,7 +226,7 @@ struct QuestsView: View {
 
         let templates = cachedTemplates
 
-        vm.rebuildLists(quests: quests, logs: logs, templates: templates, allowancePeriods: cachedAllowancePeriods)
+        targetVM.rebuildLists(quests: quests, logs: logs, templates: templates, allowancePeriods: cachedAllowancePeriods)
     }
 
     // MARK: - Quest Board

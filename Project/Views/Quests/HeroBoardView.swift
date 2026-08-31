@@ -41,26 +41,27 @@ struct HeroBoardView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let vm = viewModel {
-                    boardContent(vm: vm)
-                }
+        Group {
+            if let vm = viewModel {
+                boardContent(vm: vm)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Hero Board")
-            .navigationBarTitleDisplayMode(.large)
-            .task { ensureViewModel() }
-            .refreshable {
-                rebuildViewModel()
-            }
-            .onChange(of: cachedQuests) { _, _ in
-                rebuildViewModel()
-            }
-            .onChange(of: cachedProfiles) { _, _ in
-                rebuildViewModel()
-            }
-            .toastOverlay()
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Hero Board")
+        .navigationBarTitleDisplayMode(.large)
+        .onAppear { ensureViewModel() }
+        .task { ensureViewModel() }
+        .refreshable {
+            rebuildViewModel()
+        }
+        .onChange(of: cachedQuests) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: cachedProfiles) { _, _ in
+            rebuildViewModel()
         }
     }
 
@@ -70,12 +71,12 @@ struct HeroBoardView: View {
                 boardService: HeroBoardService(questService: questService),
                 appState: appState
             )
-        }, rebuild: { _ in rebuildViewModel() })
+        }, rebuild: { vm in rebuildViewModel(vm) })
     }
 
-    private func rebuildViewModel() {
-        guard let vm = viewModel else { return }
-        vm.rebuildLists(quests: cachedQuests, profiles: cachedProfiles)
+    private func rebuildViewModel(_ vm: HeroBoardViewModel? = nil) {
+        guard let targetVM = vm ?? viewModel else { return }
+        targetVM.rebuildLists(quests: cachedQuests, profiles: cachedProfiles)
     }
 
     private func boardContent(vm: HeroBoardViewModel) -> some View {

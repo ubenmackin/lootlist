@@ -8,6 +8,7 @@
 import CloudKit
 import Foundation
 import os
+import Synchronization
 import UserNotifications
 
 /// Destination target for navigating from a tapped local notification.
@@ -30,20 +31,52 @@ extension Notification.Name {
 }
 
 /// Notification center delegate routing notification taps and actionable category responses.
+///
+/// Instance is owned by `AppDependencies` (`AppDependencies.notificationRouter`)
+/// and set as `UNUserNotificationCenter.delegate` from that container. The
+/// previous `NotificationRouter.shared` static singleton is replaced — do not
+/// reintroduce it. A process-bound `AppDependencies.shared` shim remains only
+/// for Intents/BGTask entry points that run outside the SwiftUI lifecycle
+/// (see `AppDependencies.shared` docs); this router is not accessed via a
+/// static singleton in app code.
 @MainActor
 final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
-    static let shared = NotificationRouter()
-
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "NotificationRouter")
 
-    /// Retained route for taps received before `AppDependencies` is ready,
-    /// when posting to NotificationCenter would have no subscriber.
-    private var pendingRoute: NotificationRoute?
+    /// Cold-start tap retention. Uses `Mutex` so the delegate callback (which
+    /// may fire on a non-main queue) and the main-actor consumer never race.
+    private let pendingRoute = Mutex<NotificationRoute?>(nil)
+
+    /// Fallback shared for cold-start before `AppDependencies` exists.
+    /// Prefer `AppDependencies.shared?.notificationRouter` in app code.
+    private static let _coldStartFallback = NotificationRouter()
+
+    /// Compatibility shim — forwards to the owned instance when available.
+    /// New code should use `AppDependencies.shared?.notificationRouter`.
+    static var shared: NotificationRouter {
+        if Thread.isMainThread {
+            if let owned = MainActor.assumeIsolated({ AppDependencies.shared?.notificationRouter }) {
+                return owned
+            }
+        }
+        return _coldStartFallback
+    }
 
     /// Hands the retained cold-start route to the first consumer and clears it.
     func takePendingRoute() -> NotificationRoute? {
-        defer { pendingRoute = nil }
-        return pendingRoute
+        pendingRoute.withLock { route in
+            defer { route = nil }
+            return route
+        }
+    }
+
+    /// Nonisolated entry for `AppDependencies` cold-start hand-off that may be
+    /// called during container init coordination.
+    nonisolated func takePendingRouteNonisolated() -> NotificationRoute? {
+        pendingRoute.withLock { route in
+            defer { route = nil }
+            return route
+        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate
@@ -88,7 +121,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
     /// Posts a resolved route to subscribers and retains it as a fallback for
     /// consumers that mount after the notification (cold start).
     private func deliver(_ route: NotificationRoute) {
-        pendingRoute = route
+        pendingRoute.withLock { $0 = route }
         guard AppDependencies.shared != nil else { return }
         NotificationCenter.default.post(name: .notificationRouteTriggered, object: route)
     }
@@ -130,7 +163,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
         guard let deps = AppDependencies.shared else {
             // Dependencies are not built yet — the mutation cannot run, but the
             // tap should still land on the pending-review list after launch.
-            pendingRoute = .pendingVerifications(heroRecordName: nil)
+            pendingRoute.withLock { $0 = .pendingVerifications(heroRecordName: nil) }
             return
         }
 

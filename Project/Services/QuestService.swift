@@ -249,7 +249,7 @@ final class QuestService {
             hydrate: { [syncCoordinator, appState, family] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
                     models: models,
-                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: family.id.zoneID
                 )
             },
@@ -271,7 +271,7 @@ final class QuestService {
         let template = try await cloudKit.fetch(QuestTemplate.self, id: id)
         await syncCoordinator.delegateHandler.hydrateFromQuery(
             models: [template],
-            databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+            databaseScope: appState.activeDatabaseScope,
             zoneID: id.zoneID
         )
         return template
@@ -462,7 +462,7 @@ final class QuestService {
 
         let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let identity = ScopedRecordIdentity(
-            databaseScope: isOwnerForIdentity ? .private : .shared,
+            databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),
             zoneID: quest.id.zoneID,
             recordID: quest.id,
             familyRecordName: quest.family.recordID.recordName
@@ -520,7 +520,7 @@ final class QuestService {
             hydrate: { [syncCoordinator, appState, profile] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
                     models: models,
-                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
                 )
             },
@@ -569,7 +569,7 @@ final class QuestService {
             hydrate: { [syncCoordinator, appState, family] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
                     models: models,
-                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: family.id.zoneID
                 )
             },
@@ -594,7 +594,7 @@ final class QuestService {
 
         // Query allowance periods to identify weeks whose payouts have been completed (.paid)
         let cachedAllowance = cache.fetchAllowancePeriods(family: familyName)
-        let allowanceScope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
+        let allowanceScope: CKDatabase.Scope = appState.activeDatabaseScope
         let allowancePeriods: [AllowancePeriod]
         if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: allowanceScope, cachedCount: cachedAllowance.count) {
             allowancePeriods = cachedAllowance.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
@@ -631,7 +631,7 @@ final class QuestService {
             hydrate: { [syncCoordinator, appState, family] models in
                 await syncCoordinator.delegateHandler.hydrateFromQuery(
                     models: models,
-                    databaseScope: ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared,
+                    databaseScope: appState.activeDatabaseScope,
                     zoneID: family.id.zoneID
                 )
             }
