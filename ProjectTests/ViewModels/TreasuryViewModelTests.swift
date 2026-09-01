@@ -779,7 +779,6 @@ struct TreasuryViewModelTests {
                 to: .shortTermSave
             )
         )
-        // WHY: Second transfer uses a different pair so the per-day/per-pair guard does not fire — nonce path stays append-only.
         let entry2 = try await scaffold.buckets.transfer(
             from: .spend, to: .longTermSave, amount: 3.00,
             profile: scaffold.hero, family: scaffold.family,

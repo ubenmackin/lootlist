@@ -18,6 +18,7 @@ struct ChildHubView: View {
     @Environment(AppState.self) private var appState
     @Environment(TreasuryService.self) private var treasury
     @Environment(QuestService.self) private var questService
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(CacheService.self) private var cacheService: CacheService?
 
@@ -120,7 +121,6 @@ struct ChildHubView: View {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
                     header
 
-                    // WHY: Scope-aware banner observes freshnessVersion so it hides after markCacheFresh without Query change.
                     if !targetFamilyForFreshness.isEmpty {
                         StaleDataBanner(
                             family: targetFamilyForFreshness,
@@ -459,23 +459,20 @@ struct ChildHubView: View {
             let zoneID = appState.resolvedFamilyZoneID()
             let domain = quest.toQuest(zoneID: zoneID)
 
+            let priorApproved = cachedCompletions.filter { $0.questRecordName == qID && $0.isApproved }.count
+
             do {
                 let completion = try await questService.markComplete(
                     quest: domain,
                     by: profile
                 )
-                if completion.verificationStatus == .autoApproved {
-                    HapticsService.success()
-                    showCelebration = true
-                    Task {
-                        do {
-                            try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
-                        } catch {
-                            Self.logger.debug("Celebration dismiss sleep interrupted: \(error, privacy: .private)")
-                        }
-                        showCelebration = false
-                    }
-                }
+                QuestCompletionHelper.handleCompletionResult(
+                    completion,
+                    quest: quest,
+                    priorApproved: priorApproved,
+                    toastManager: toastManager,
+                    showCelebration: $showCelebration
+                )
             } catch {
                 Self.logger.error("Failed to mark quest complete: \(error, privacy: .private)")
             }

@@ -117,10 +117,6 @@ final class HeroBoardService {
     // MARK: - Claims
 
     /// Optimistically stamps quest claim in local cache and enqueues CloudKit save.
-    /// WHY: Hero Board claim races resolve via standard server-wins conflict
-    /// resolution; the loser's ingest reveals the other claimer. The ViewModel
-    /// observes the cache pulse and rolls back optimistic UI on
-    /// BoardClaimError.lostToAnotherHero rather than assuming this local write won.
     @discardableResult
     func claim(_ quest: Quest, by hero: Profile) async throws -> HeroBoardClaimOutcome {
         do {

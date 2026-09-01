@@ -41,9 +41,6 @@ struct TreasuryView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
 
-        // WHY: Predicate pushdown fetches only this hero's rows at the store layer;
-        // avoids loading entire family ledger set and reduces main-thread filtering
-        // for heroes with 1k+ rows — FamilyScopedCache scoping remains primary isolation layer.
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
@@ -178,7 +175,6 @@ struct TreasuryView: View {
 
     @ViewBuilder
     private func loadedContent(_ viewModel: TreasuryViewModel) -> some View {
-        // WHY: Scope-aware banner observes freshnessVersion so it hides after markCacheFresh without Query change.
         if !targetFamilyForStale.isEmpty {
             StaleDataBanner(
                 family: targetFamilyForStale,

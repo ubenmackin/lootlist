@@ -160,7 +160,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 RecordBridge.record(for: identity, cacheService: cacheService)
             }
             if record == nil {
-                // WHY: CKSyncEngine retains nil pending saves forever — convert to delete only when confirmedLocalDeletion proves absence.
+                // If confirmed locally deleted, convert pending save to a delete.
                 let locallyDeleted = await MainActor.run {
                     RecordBridge.confirmedLocalDeletion(for: identity, cacheService: cacheService)
                 }
@@ -171,7 +171,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     }
                     self.logger.warning("nextRecordZoneChangeBatch removed dangling pending save for \(recordID.recordName, privacy: .private) — enqueued delete")
                 } else {
-                    // WHY: A pending QuestCompletion whose row is still present must not be dropped — the nil came from validation, not deletion.
                     self.logger
                         .warning(
                             "nextRecordZoneChangeBatch suppressed dangling delete for \(recordID.recordName, privacy: .private) — local row still present, pending save retained for retry"
@@ -187,14 +186,12 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     func handleDatabaseZoneDeletion(zoneID: CKRecordZone.ID) async {
         let zoneName = zoneID.zoneName
         logger.info("Zone deleted from server: \(zoneName, privacy: .private)")
-        // WHY: Zone deletion is family-scoped — purge via single background writer; watermarks remain local.
         await backgroundCache?.purgeFamily(recordName: zoneName)
         cacheService?.invalidateFreshness(forFamilyRecordName: zoneName)
         coordinator?.noteChangesProcessed()
     }
 
     /// Thin adapter for CKSyncEngine delegate surface; all ingestion flows through shared pipeline.
-    /// WHY: Both private and shared scopes ride identical ingest pipeline; non-owner reconcileParticipantSet is the sole exception.
     func handleIncomingRecordsDirectly(
         _ records: [CKRecord],
         databaseScope: CKDatabase.Scope? = nil,
@@ -208,7 +205,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     }
 
     /// Central inbound ingestion entry — all server→cache writes ride this method.
-    /// WHY: Fail-closed on missing session or zone mismatch; validates scope, preserves changeTag/encodedSystemFields, commits via single SerialMutationQueue-gated save.
     func ingest(
         records: [CKRecord],
         databaseScope: CKDatabase.Scope,
@@ -223,7 +219,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             return
         }
 
-        // WHY: Caller zone must match active session zone — mismatch would poison active scope.
         guard zoneID == activeZone else {
             let callerZone = zoneID.zoneName
             let callerOwner = zoneID.ownerName
@@ -260,16 +255,17 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
 
         guard !accepted.isEmpty else { return }
 
-        guard let backgroundCache else {
+        let writer = backgroundCache ?? appState?.backgroundCacheActor ?? cacheService?.backgroundWriter
+        guard let writer else {
             coordinator?.noteCacheWriteFailure()
-            logger.error("Cache write failure during incoming zone changes")
+            logger.error("Cache write failure during incoming zone changes: no BackgroundCacheActor available")
             return
         }
 
-        let writeSucceeded = await backgroundCache.batchUpsertParsedRecords(accepted)
+        let writeSucceeded = await writer.batchUpsertParsedRecords(accepted)
         guard writeSucceeded else {
             coordinator?.noteCacheWriteFailure()
-            logger.error("Cache write failure during incoming zone changes")
+            logger.error("Cache write failure during incoming zone changes: batch upsert failed")
             return
         }
 
@@ -289,7 +285,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         var accepted: [ParsedRecord] = []
         var parseFailures = 0
         for record in records {
-            // WHY: Identity anchored on record's own zone so cross-zone records cannot self-validate and bypass the gate.
             let identity = ScopedRecordIdentity(
                 databaseScope: databaseScope,
                 zoneID: record.recordID.zoneID,
@@ -298,7 +293,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             )
 
             // Fail-closed scope gate.
-            // WHY: For shared participants a hero's pending completion must arrive in shared zone.
             if !identity.matchesActiveScope(
                 expectedFamily: activeFamily,
                 expectedZone: activeZone,
@@ -342,7 +336,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             }
         }()
         guard let serverDate else { return }
-        // WHY: Centralized skew check so ingest and send paths share one warning string.
         WeekMath.logTransferSkewIfNeeded(localDate: entry.date, serverDate: serverDate)
     }
 
@@ -435,7 +428,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
 
     private func handleQuestCompletionNotification(_ completion: QuestCompletion, currentProfile: Profile, notificationService: NotificationService) async {
         let completerName = completion.completedBy.recordID.recordName
-        // WHY: questNeedsReview is parent-only per NotificationEventType.isRelevantForHero == false — never deliver to heroes even if UserDefaults was toggled.
         if completion.verificationStatus == .pending, currentProfile.role.isParent {
             await deliverQuestNeedsReview(completerName: completerName, notificationService: notificationService)
         } else if completion.verificationStatus == .verified, completerName == currentProfile.id.recordName {
@@ -499,7 +491,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     }
 
     /// CKSyncEngine fetchedRecordZoneChanges entry point → handleIncomingRecordsDirectly → ingest.
-    /// WHY: Off-main guarantee — single SerialMutationQueue-gated save with fail-closed scope validation.
     private func handleIncomingZoneChanges(
         _ changes: CKSyncEngine.Event.FetchedRecordZoneChanges,
         databaseScope: CKDatabase.Scope? = nil
@@ -507,11 +498,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         let records = changes.modifications.map(\.record)
         let eventZoneID = records.first?.recordID.zoneID ?? changes.deletions.first?.recordID.zoneID
         await handleIncomingRecordsDirectly(records, databaseScope: databaseScope, zoneID: eventZoneID)
-        // Track push age for debug overlay — records the wall-clock time of
-        // the last fetchedRecordZoneChanges delivery.
         coordinator?.notePushReceived()
 
-        // WHY: Deletion invalidation is fail-closed like ingestion — signed-out window would purge against stale scope.
         if let activeFamily = appState?.family?.id.recordName,
            let activeZone = appState?.familyZoneID
         {
@@ -523,7 +511,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     databaseScope: dbScope,
                     familyRecordName: activeFamily
                 )
-                // WHY: Unmapped deletion types would strand stale rows — sweep all cache types (low-frequency, negligible cost).
                 guard CachedRecordType.recordType(for: deletion.recordType) == nil else { continue }
                 let identity = ScopedRecordIdentity(
                     databaseScope: dbScope,
@@ -573,7 +560,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 }
             }()
             guard let serverDate else { continue }
-            // WHY: Centralized skew check so ingest and send paths share one warning string.
             WeekMath.logTransferSkewIfNeeded(localDate: localDate, serverDate: serverDate)
         }
     }
@@ -582,7 +568,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         _ sentEvent: CKSyncEngine.Event.SentRecordZoneChanges,
         activeFamily: String
     ) async {
-        // WHY: Refresh only server-stamped system fields — preserve local optimistic edits from merge path.
         let refreshes = sentEvent.savedRecords.compactMap { savedRecord -> SystemFieldRefresh? in
             guard let type = CachedRecordType.recordType(for: savedRecord.recordType) else {
                 logger.debug("Skipping sent saved record with unmappable type: \(savedRecord.recordType, privacy: .public)")
@@ -595,7 +580,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                 encodedSystemFields: savedRecord.encodedSystemFields
             )
         }
-        // WHY: Accounting reflects actual cache writes only — save failure must surface, not collapse to no-op.
         switch await backgroundCache?.updateSystemFields(refreshes, familyRecordName: activeFamily) ?? .noMatches {
         case .updated:
             coordinator?.noteChangesProcessed()
@@ -629,7 +613,6 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         guard let activeFamily = appState?.family?.id.recordName else { return }
         let scope = syncEngine.database.databaseScope
         let activeZone = appState?.familyZoneID
-        // WHY: Sweep all cache types for confirmed deletes — deletions are low-frequency so full sweep has negligible cost.
         for deletedRecordID in sentEvent.deletedRecordIDs {
             logger.info("Sent delete confirmed: \(deletedRecordID.recordName, privacy: .private)")
             let identity = ScopedRecordIdentity(

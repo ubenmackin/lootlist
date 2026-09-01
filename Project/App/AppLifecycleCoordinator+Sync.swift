@@ -11,6 +11,7 @@ import os
 
 // MARK: - Foreground, Manual & Push Sync
 
+@MainActor
 extension AppLifecycleCoordinator {
     /// Lightweight re-sync for scene activation.
     func performForegroundSync() async {
@@ -91,7 +92,8 @@ extension AppLifecycleCoordinator {
 
         await reconcileCacheFromCloudKit()
 
-        let db = cloudKitService.database(isOwner: appState.isZoneOwner)
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let db = cloudKitService.database(isOwner: isOwner)
         await appSyncCoordinator?.registerSubscriptions(for: zoneID, in: db)
 
         if let accountID = appState.currentProfile?.id.recordName ?? appState.family?.id.recordName,

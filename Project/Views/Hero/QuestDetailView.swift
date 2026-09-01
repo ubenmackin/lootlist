@@ -120,11 +120,11 @@ struct QuestDetailView: View {
             rewardPill(icon: "banknote",
                        label: CurrencyFormatter.string(quest.goldReward),
                        tint: Color(DesignSystemConstants.Colors.pendingAmber))
-            // Rarity renders as a plain effort label while the immersive
-            // layer is off; the XP figure stays hidden.
-            rewardPill(icon: "sparkles",
-                       label: FlavorTextProvider.rewardTierName(for: quest.rarityEnum ?? .common),
-                       tint: (quest.rarityEnum ?? .common).color)
+            if FeatureFlags.rpgImmersive {
+                rewardPill(icon: "sparkles",
+                           label: FlavorTextProvider.rewardTierName(for: quest.rarityEnum ?? .common),
+                           tint: (quest.rarityEnum ?? .common).color)
+            }
             Spacer()
         }
         .padding(16)

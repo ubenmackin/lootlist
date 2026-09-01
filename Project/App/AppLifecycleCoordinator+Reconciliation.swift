@@ -11,6 +11,7 @@ import os
 
 // MARK: - Snapshot & Cache Reconciliation
 
+@MainActor
 extension AppLifecycleCoordinator {
     struct FamilySnapshot: Sendable {
         let inboundRecords: [CKRecord]
@@ -33,8 +34,6 @@ extension AppLifecycleCoordinator {
         ownerName: String,
         isOwner: Bool
     ) async throws -> SnapshotPartition {
-        // WHY: Reconstruct non-Sendable CloudKit values on MainActor so the
-        // concurrent TaskGroup only captures Sendable strings/bool.
         let zid = CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
         let db = cloudKit.database(isOwner: isOwner)
         switch recordType {
@@ -67,14 +66,12 @@ extension AppLifecycleCoordinator {
         }
     }
 
-    // WHY: Single generic query path prevents drift across the 13 family-scoped types.
     private static func fetchAndBridge<T: CloudKitRecord>(_: T.Type, familyRecordName: String, zid: CKRecordZone.ID, db: CKDatabase?,
                                                           cloudKit: any CloudKitServiceProtocol) async throws -> SnapshotPartition
     {
         let familyID = CKRecord.ID(recordName: familyRecordName, zoneID: zid)
         let predicate: NSPredicate
         if T.recordType == Family.recordType {
-            // WHY: Family is the zone root — filter by recordID, not family reference.
             predicate = NSPredicate(format: "recordID == %@", familyID)
         } else {
             let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
@@ -154,7 +151,8 @@ extension AppLifecycleCoordinator {
             return
         }
 
-        let isOwner = appState.isZoneOwner
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let targetScope: CKDatabase.Scope = isOwner ? .private : .shared
         let snapshot = await fetchFamilySnapshot(family: family, zoneID: zoneID, isOwner: isOwner)
 
         guard !snapshot.isEmpty else {
@@ -205,16 +203,16 @@ extension AppLifecycleCoordinator {
         } else if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
             await concrete.delegateHandler.handleIncomingRecordsDirectly(
                 snapshot.inboundRecords,
-                databaseScope: .private,
+                databaseScope: targetScope,
                 zoneID: zoneID
             )
-            concrete.stampFreshness(for: succeededTypes, scopes: [.private])
+            concrete.stampFreshness(for: succeededTypes, scopes: [targetScope])
         } else if let backgroundCache = appState.backgroundCacheActor {
             let parsed = snapshot.inboundRecords.map { ParsedRecord.parse(record: $0) }
             await backgroundCache.batchUpsertParsedRecords(parsed)
             if let cacheService = appState.cacheService {
                 for type in succeededTypes {
-                    cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type, scope: .private)
+                    cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type, scope: targetScope)
                     cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type)
                 }
             }
@@ -223,6 +221,84 @@ extension AppLifecycleCoordinator {
         // reconciliation pass represents a successful push-driven refresh.
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
             concrete.notePushReceived()
+        }
+
+        await enqueueUnsyncedLocalRecords(family: family, zoneID: zoneID)
+    }
+
+    /// Client→server re-enqueue for locally-created rows that missed their
+    /// initial CloudKit upload. Sanctioned exception to the ingest() contract:
+    /// ARCHITECTURE §4 requires every server→cache write to ride
+    /// `ingest()` (except the participant reconciliation door and pre-session
+    /// FamilyService mirrors). This path never writes server payloads into
+    /// cache — it synthesizes CKRecord.IDs for local→server enqueues only, so
+    /// the single-ingest invariant for inbound records is preserved.
+    ///
+    /// Fetch runs off-MainActor on BackgroundCacheActor under
+    /// SerialMutationQueue so the scan cannot interleave with reconciliation
+    /// commits or payout transactions. Enqueue is linearized through the same
+    /// queue and uses deterministic recordName ordering with a 50-item paging
+    /// cap; overflow is truncated deterministically from the sorted tail and
+    /// picked up on the next debounce window. Deterministic IDs (contrib-*,
+    /// interest-*, match-*, transfer-*, import-*, plus stable quest/template
+    /// recordNames) ensure CloudKit dedupes re-enqueued saves across devices.
+    func enqueueUnsyncedLocalRecords(family: Family, zoneID: CKRecordZone.ID) async {
+        let now = Date()
+        let shouldProceed: Bool = state.withLock { flags in
+            if let last = flags.lastUnsyncedEnqueueAt,
+               now.timeIntervalSince(last) < Self.unsyncedEnqueueDebounceInterval
+            {
+                return false
+            }
+            flags.lastUnsyncedEnqueueAt = now
+            return true
+        }
+        guard shouldProceed else {
+            logger.debug("Unsynced re-enqueue throttled: within debounce window")
+            return
+        }
+
+        guard let backgroundCache = appState?.backgroundCacheActor,
+              let coordinator = syncCoordinator as? CKSyncEngineCoordinator
+        else { return }
+
+        let familyName = family.id.recordName
+        var unsyncedIDs = await backgroundCache.fetchUnsyncedRecordIDs(familyRecordName: familyName, zoneID: zoneID)
+
+        guard !unsyncedIDs.isEmpty else { return }
+
+        // Deterministic ordering so the paging cap slices a stable prefix.
+        unsyncedIDs.sort { $0.recordName < $1.recordName }
+
+        let enqueueLimit = 50
+        if unsyncedIDs.count > enqueueLimit {
+            logger.warning(
+                "Unsynced re-enqueue capped to \(enqueueLimit) (found \(unsyncedIDs.count)) — remainder will retry next window",
+                family: familyName,
+                zone: zoneID.zoneName
+            )
+            unsyncedIDs = Array(unsyncedIDs.prefix(enqueueLimit))
+        }
+
+        // Batch enqueue resolves the owner anchor once and enqueues atomically
+        // on the correct database scope. SerialMutationQueue linearization is
+        // provided by the preceding BackgroundCacheActor.fetchUnsyncedRecordIDs
+        // scan (mutationQueue.write), so this batch cannot interleave with an
+        // in-flight reconciliation commit or payout transaction.
+        let idsToEnqueue = unsyncedIDs
+        ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
+            coordinator,
+            ids: idsToEnqueue,
+            appState: appState,
+            logger: logger,
+            context: "AppLifecycleCoordinator.enqueueUnsyncedLocalRecords"
+        )
+
+        for id in idsToEnqueue {
+            logger.log(
+                level: .info,
+                "Re-enqueuing unsynced local record '\(id.recordName, privacy: .private)' for CloudKit upload family=\(familyName, privacy: .private) zone=\(zoneID.zoneName, privacy: .private)"
+            )
         }
     }
 }

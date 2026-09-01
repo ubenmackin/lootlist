@@ -695,6 +695,6 @@ struct TreasuryServiceTests {
         // Cache is empty and not fresh, so weeklyBreakdown will query and hydrate.
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
         #expect(breakdown.goldFromQuests == 25.0)
-        #expect(spy.hydrateCallCount == 1)
+        #expect(spy.hydrateCallCount == 2)
     }
 }

@@ -224,7 +224,6 @@ struct GuildSettingsView: View {
     @ViewBuilder
     private func loadedContent(vm: FamilyDashboardViewModel) -> some View {
         familyHeaderSection
-        savingsOverviewSection
         GuildRosterSectionView(
             viewModel: vm,
             onRebuild: { rebuildViewModel() },
@@ -236,74 +235,6 @@ struct GuildSettingsView: View {
             GuildPayoutDefaultsSectionView(isPayoutPolicyExpanded: $isPayoutPolicyExpanded)
         }
         GuildDangerZoneSectionView(isSigningOut: $isSigningOut)
-    }
-
-    private var savingsOverviewSection: some View {
-        let heroes = cachedProfiles.filter { $0.roleEnum == .hero }
-        return Group {
-            if !heroes.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Savings Overview")
-                            .font(.headline)
-                        Spacer()
-                        Text("\(cachedGoals.count) goals · \(cachedGemLedgers.count) gems")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    .padding(.horizontal, 16)
-
-                    VStack(spacing: 0) {
-                        ForEach(heroes, id: \.recordName) { hero in
-                            HStack(spacing: 10) {
-                                if let emoji = hero.avatarEmoji, !emoji.isEmpty {
-                                    Text(emoji).font(.body)
-                                } else {
-                                    Image(systemName: "person.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(hero.displayName)
-                                        .font(.subheadline.weight(.semibold))
-                                    Text("\(hero.splitPercentSpend)% spend · \(hero.splitPercentShort)% short · \(hero.splitPercentLong)% long")
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                    if hero.interestEnabled || hero.matchEnabled {
-                                        HStack(spacing: 6) {
-                                            if hero.interestEnabled {
-                                                Label("\(Double(hero.interestRateBps) / 100.0, specifier: "%g")% interest", systemImage: "chart.line.uptrend.xyaxis")
-                                                    .font(.caption2)
-                                                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                                            }
-                                            if hero.matchEnabled {
-                                                Label("\(Double(hero.matchRateBps) / 100.0, specifier: "%g")% match", systemImage: "arrow.trianglehead.branch")
-                                                    .font(.caption2)
-                                                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-                                            }
-                                        }
-                                    }
-                                    Text("Gems: \(hero.gemsTotal) · Rewards: \(cachedRewardEvents.filter { $0.profileRecordName == hero.recordName }.count)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            if hero.recordName != heroes.last?.recordName {
-                                Divider().padding(.leading, 44)
-                            }
-                        }
-                    }
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(.secondarySystemGroupedBackground))
-                    )
-                    .padding(.horizontal)
-                }
-            }
-        }
     }
 
     private var familyHeaderSection: some View {

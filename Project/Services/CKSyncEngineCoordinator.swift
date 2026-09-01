@@ -12,8 +12,6 @@ import os
 import Synchronization
 
 /// Manages CKSyncEngine instances across private and shared database scopes.
-/// WHY: Pending save/delete buffers are Mutex-guarded so enqueue can race setup/drain without losing mutations; nil engine buffers until authenticated scope resolves.
-/// WHY: Deterministic IDs dedupe on recordName; deletes capture ScopedRecordIdentity before invalidation and rely on fail-closed tryFetch.
 @MainActor
 @Observable
 final class CKSyncEngineCoordinator: SyncEnqueuing {
@@ -57,10 +55,7 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     @ObservationIgnored private var completedFetchPassScopes: Set<CKDatabase.Scope> = []
     @ObservationIgnored private var currentPassHadParseFailures = false
     @ObservationIgnored private var currentPassHadCacheWriteFailures = false
-    // WHY: Mutex guards pending buffers — enqueue vs drain could interleave and lose identities when engine is nil.
     @ObservationIgnored private let pendingEnqueueBuffer = Mutex<[ScopedRecordIdentity]>([])
-    // WHY: Separate delete buffer so a save→delete conversion (dangling pending fix in enqueueDelete) atomically
-    // removes from save buffer and appends to delete buffer without losing cross-buffer ordering.
     @ObservationIgnored private let pendingDeleteBuffer = Mutex<[ScopedRecordIdentity]>([])
 
     var isSyncing: Bool = false
@@ -134,17 +129,18 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             return
         }
 
-        // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
         let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let storedOwner = appState.isZoneOwner
         if isOwner != storedOwner {
             logger.warning("CKSyncEngineCoordinator.setupEngines isOwner corrected via creator anchor: stored=\(storedOwner) resolved=\(isOwner)")
         }
         if isOwner {
+            sharedSyncEngine = nil
             if privateSyncEngine == nil {
                 privateSyncEngine = makeEngine(for: .private, container: ckConcrete.container)
             }
         } else {
+            privateSyncEngine = nil
             if sharedSyncEngine == nil {
                 sharedSyncEngine = makeEngine(for: .shared, container: ckConcrete.container)
             }

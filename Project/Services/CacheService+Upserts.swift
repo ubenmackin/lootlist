@@ -470,8 +470,7 @@ extension CacheService {
         )
     }
 
-    /// Batch upserts ledger entries and goals in one transaction. WHY: canonical grouped-family batch lives
-    /// on BackgroundCacheActor via batchUpsertWithoutSave with isServerSync=false and single saveContext();
+    /// Batch upserts ledger entries and goals in one transaction.
     func batchUpsertLedgerEntriesAndGoals(
         ledgerEntries: [LedgerEntry],
         goals: [Goal],
@@ -486,8 +485,6 @@ extension CacheService {
             )
             return
         }
-        // WHY: in-memory fallback keeps the same single-save, isServerSync=false
-        // contract via withBatch tight-loop; no grouped fan-out duplication.
         withBatch {
             for entry in ledgerEntries {
                 let fam = familyRecordName ?? entry.family.recordID.recordName

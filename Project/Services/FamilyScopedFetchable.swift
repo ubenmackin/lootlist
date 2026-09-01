@@ -10,9 +10,6 @@ import SwiftData
 
 /// Marker refinement of ``FamilyScopedCache`` for types that support the
 /// generic family-scoped fetch helper ``CacheService/fetchAll(_:family:)-6aggr``.
-/// WHY: Conforming a `*Cache` model to this protocol opts it into `fetchAll`
-/// without any per-type predicate boilerplate; future cached types get the
-/// helper for free by adding a one-line conformance.
 protocol FamilyScopedFetchable: FamilyScopedCache {}
 
 // MARK: - Conformances

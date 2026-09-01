@@ -31,10 +31,6 @@ final class TrophyRoomViewModel {
 
     private(set) var lastError: String?
 
-    // WHY: single canonical lookup replaces the prior 4-way stringly-typed
-    // fallback (recordName, rawValue, hasSuffix recordName, hasSuffix rawValue)
-    // per ARCHITECTURE.md §1; trophy requirement text is computed at render
-    // time so stored description may be stale.
     private var achievementByCanonicalKey: [String: AchievementCache] = [:]
 
     var earnedAchievementRecordNames: Set<String> {
@@ -73,18 +69,13 @@ final class TrophyRoomViewModel {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
 
-        // WHY: keep earned scoped to the active hero and achievements sorted
-        // so ForEach has stable IDs and the grid never appears empty due to
-        // ordering churn; earnedAchievementRecordNames derives from this filtered set.
         self.earned = earned.filter { $0.profileRecordName == profileName }
 
         var achievementsToUse = allAchievements
         if achievementsToUse.isEmpty, let family = appState.family {
-            // WHY: ViewModel is cache-first and must not synthesize domain structs; service provides seeded caches.
             achievementsToUse = achievementService.cachedOrSeededAchievementCaches(for: family)
         }
 
-        // WHY: Trophy Room renders the 12 V1 achievements (legacy gold100/gold500/ledgerWeeks4 filtered out when immersive off).
         let filteredAchievements: [AchievementCache] = if FeatureFlags.rpgImmersive {
             achievementsToUse
         } else {
@@ -100,16 +91,11 @@ final class TrophyRoomViewModel {
             }
         }
         self.allAchievements = filteredAchievements.sorted(by: { $0.name < $1.name })
-        // WHY: build canonical lookup once so latestEarnedTrophyName is a single
-        // exact-match dictionary lookup instead of a nested closure with four
-        // stringly-typed fallbacks; keyed by requirementTypeEnum rawValue when
-        // available (V1 spec) falling back to recordName for any untyped record.
+        // Index by both requirement type and recordName for fast lookup.
         var lookup: [String: AchievementCache] = [:]
         for achievement in self.allAchievements {
             let canonicalKey = achievement.requirementTypeEnum?.rawValue ?? achievement.recordName
             lookup[canonicalKey] = achievement
-            // Current deterministic IDs are family-prefixed (e.g., "fam1-firstQuest"); index the full recordName as well so exact match works for both legacy rawValue and current
-            // prefixed shapes without hasSuffix fallbacks.
             if canonicalKey != achievement.recordName {
                 lookup[achievement.recordName] = achievement
             }

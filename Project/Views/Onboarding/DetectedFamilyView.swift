@@ -5,12 +5,13 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import CloudKit
 import SwiftUI
 
 struct DetectedFamilyView: View {
     let familyCache: FamilyCache
     let profileCache: ProfileCache
-    let zoneIDString: String
+    let zoneID: CKRecordZone.ID
     let isOwner: Bool
 
     @Environment(FamilyService.self) private var familyService
@@ -55,7 +56,7 @@ struct DetectedFamilyView: View {
                     await familyService.rejectDetectedFamily(
                         familyCache: familyCache,
                         profileCache: profileCache,
-                        zoneIDString: zoneIDString,
+                        zoneID: zoneID,
                         isOwner: isOwner
                     )
                     isProcessing = false
@@ -158,7 +159,7 @@ struct DetectedFamilyView: View {
                     await familyService.acceptDetectedFamily(
                         familyCache: familyCache,
                         profileCache: profileCache,
-                        zoneIDString: zoneIDString,
+                        zoneID: zoneID,
                         isOwner: isOwner
                     )
                 }

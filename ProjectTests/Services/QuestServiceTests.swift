@@ -662,4 +662,50 @@ struct QuestServiceTests {
         #expect(!cached.isEmpty)
         #expect(spy.hydrateCallCount == before + 1, "Cache-hit must not trigger additional hydrate")
     }
+
+    @Test
+    func `markComplete for multiPart parentVerify records intermediate subparts then pending on final`() async throws {
+        let scaffold = try MarkCompleteScaffold(
+            approvalMode: .parentVerify,
+            goldReward: 15.0,
+            xpReward: 30,
+            targetCount: 3,
+            isAllOrNothing: false
+        )
+
+        await scaffold.cache.upsertProfile(scaffold.hero)
+        await scaffold.cache.upsertQuest(scaffold.quest)
+
+        // 1st sub-part
+        let part1 = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+        #expect(part1.verificationStatus == .pending, "Sub-part 1 must be pending parent verification")
+
+        // Cannot start next sub-part while previous is pending
+        await #expect(throws: QuestServiceError.self) {
+            try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+        }
+
+        // Parent verifies 1st sub-part
+        scaffold.appState.currentProfile = scaffold.parent
+        _ = try await scaffold.questService.verify(questLog: part1, by: scaffold.parent)
+
+        // 2nd sub-part
+        scaffold.appState.currentProfile = scaffold.hero
+        let part2 = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+        #expect(part2.verificationStatus == .pending, "Sub-part 2 must be pending parent verification")
+
+        // Parent verifies 2nd sub-part
+        scaffold.appState.currentProfile = scaffold.parent
+        _ = try await scaffold.questService.verify(questLog: part2, by: scaffold.parent)
+
+        // 3rd (final) sub-part
+        scaffold.appState.currentProfile = scaffold.hero
+        let part3 = try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+        #expect(part3.verificationStatus == .pending, "Final sub-part must be pending parent verification")
+
+        // Subsequent attempt should fail with alreadyInFlight
+        await #expect(throws: QuestServiceError.self) {
+            try await scaffold.questService.markComplete(quest: scaffold.quest, by: scaffold.hero)
+        }
+    }
 }

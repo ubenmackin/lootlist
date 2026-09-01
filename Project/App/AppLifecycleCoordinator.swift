@@ -33,9 +33,7 @@ extension CKSyncEngineCoordinator: SyncCoordinating {}
 
 // MARK: - AppLifecycleCoordinator
 
-/// Centralized sync/payout/migration trigger — single-flight state machine per ARCHITECTURE.md §4.
-/// WHY: Mutex-guarded phase ensures bootstrapping/syncing/zoneChanging never overlap; manual sync uses separate flag so foreground sync does not starve user sync; reconnect flaps
-/// debounced 45s.
+/// Centralized sync/payout/migration trigger — single-flight state machine.
 @MainActor
 @Observable
 final class AppLifecycleCoordinator {
@@ -56,11 +54,7 @@ final class AppLifecycleCoordinator {
         case zoneChanging
     }
 
-    /// All mutable lifecycle flags are co-located in one `Mutex` so a single `withLock` can atomically test
-    /// every guard that a caller cares about.
-    /// WHY: single-flight — `phase` gates bootstrap/sync/zoneChanging (mutually exclusive); `isManualSyncing`
-    /// is deliberately *outside* `phase` so manual sync is not starved when a foreground sync holds `.syncing`.
-    /// `hasCompletedInitialBootstrap` prevents re-bootstrap; `lastReconnectTriggeredSyncAt` debounces flaps.
+    /// All mutable lifecycle flags are co-located in one `Mutex` for atomic state checks.
     struct LifecycleFlags: Sendable {
         var phase: Phase = .idle
         var isManualSyncing = false
@@ -68,13 +62,13 @@ final class AppLifecycleCoordinator {
         var lastSynchronizedScopeKey: String?
         var lastObservedZoneID: (zoneName: String, ownerName: String)?
         var lastReconnectTriggeredSyncAt: Date?
+        var lastUnsyncedEnqueueAt: Date?
     }
 
     let state = Mutex<LifecycleFlags>(LifecycleFlags())
 
-    /// WHY: each reconnect-triggered sync runs a full multi-query CloudKit
-    /// snapshot pass — connectivity flaps within this window coalesce into one.
     static let reconnectSyncMinimumInterval: TimeInterval = 45
+    static let unsyncedEnqueueDebounceInterval: TimeInterval = 30
 
     // MARK: - Debug Overlay Exposure
 

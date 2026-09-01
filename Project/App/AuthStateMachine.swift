@@ -62,7 +62,6 @@ final class AuthStateMachine {
         }
     }
 
-    // WHY: Centralized persisted-session completeness check owned by the machine; eliminates duplicate logic in AppState.
     private func hasCompletePersistedSession() -> Bool {
         defaults.bool(forKey: "session_hasActiveSession")
             && defaults.string(forKey: "session_profileRecordName") != nil

@@ -530,7 +530,6 @@ final class TreasuryService {
         )
         await cacheService.upsertLedgerEntry(entry)
         syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
-        // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
         let formatted = CurrencyFormatter.string(amount)
         logger.info("Minted real-time earnings \(formatted, privacy: .public) for period \(periodRecordName, privacy: .private)")
     }

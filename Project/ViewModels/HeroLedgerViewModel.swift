@@ -37,7 +37,6 @@ final class HeroLedgerViewModel {
         allowancePeriods: [AllowancePeriodCache] = [],
         scope: CalendarScope
     ) {
-        // WHY: Balance derives from shared ledger-total formula; keeps Treasury + HeroLedger on one Double-sum path.
         balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: heroProfile.recordName)
 
         let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
@@ -46,7 +45,6 @@ final class HeroLedgerViewModel {
 
         let effectivePolicy = heroProfile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
         let hasPaidQuestThisWeek = ledgers.filter { $0.profileRecordName == heroProfile.recordName }.contains { $0.sourceEnum == .quest && weekRange.contains($0.date) }
-        // WHY: AllowancePeriod.status == .paid is the atomic double-run skip-guard; replicate Treasury's payoutStatus == .paid check so pending zeros after payout.
         let currentAllowance = allowancePeriods.first {
             $0.profileRecordName == heroProfile.recordName &&
                 WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
@@ -64,7 +62,6 @@ final class HeroLedgerViewModel {
             )
         }
 
-        // WHY: Single cache→row path via LedgerRowFactory; avoids duplicating profile/scope filter + sorted mapping.
         ledgerRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: heroProfile.recordName, scope: scope, payoutDay: payoutDay)
     }
 

@@ -240,7 +240,6 @@ final class NotificationService {
             return
         }
         let familyRecordName = appState.family?.id.recordName ?? currentProfile.family.recordID.recordName
-        // WHY: questNeedsReview is parent-only per isRelevantForHero == false — delegate gates pending to parents; preference check prevents hero re-enable bypass.
         guard isNotificationEnabled(for: eventType, profileRecordName: currentProfile.id.recordName, familyRecordName: familyRecordName) else { return }
 
         // Deep-link payload carries authoring profileID for routing to relevant review/event screens.
@@ -290,7 +289,6 @@ final class NotificationService {
                               to parent: Profile,
                               distinct: Bool = false) async throws
     {
-        // WHY: questNeedsReview is parent-only per isRelevantForHero == false — defaults disable for heroes and isNotificationEnabled prevents re-enable bypass.
         guard isNotificationEnabled(
             for: .questNeedsReview,
             profileRecordName: parent.id.recordName,

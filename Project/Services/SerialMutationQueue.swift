@@ -7,12 +7,8 @@
 
 import Foundation
 
-/// Linearizes background cache commits — single gate for all server→cache batches.
-/// WHY: Singleton ensures only one batch holds the save boundary; serializes background writes only — MainActor writes interleave and rely on changeTag guard.
-/// WHY: Exactly one saveContext per pass so @Query observes atomic updates.
+/// Linearizes background cache commits to ensure atomic batch updates across background workers.
 actor SerialMutationQueue {
-    /// Intentional process-wide singleton; see type-level docs for why this
-    /// cannot be per-instance.
     static let shared = SerialMutationQueue()
     private var isGateHeld = false
     private struct Waiter: Sendable {

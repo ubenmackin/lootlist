@@ -141,7 +141,6 @@ extension FamilyService {
 
         let isOwner = await isFamilyOwner(family)
         let actingRoleIsParent = appState.currentProfile?.role.isParent ?? false
-        // WHY: owner check uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
         let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let storedOwnerFallback = appState.isZoneOwner
         if resolvedOwner != storedOwnerFallback {
@@ -171,7 +170,10 @@ extension FamilyService {
 
     // MARK: - Session & Detected Family Facades (CloudKit isolation)
 
-    // WHY: Views must not hold CloudKitService or CKSyncEngineCoordinator; this facade keeps CloudKit scope and session transitions inside the service layer.
+    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool) async {
+        await appState.acceptDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
+    }
+
     func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool) async {
         await appState.acceptDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneIDString: zoneIDString, isOwner: isOwner, cloudKit: cloudKit)
     }
@@ -182,6 +184,10 @@ extension FamilyService {
 
     func acceptDetectedFamily(family: Family, profile: Profile, isOwner: Bool) async {
         await acceptDetectedFamily(family: family, profile: profile, zoneID: family.id.zoneID, isOwner: isOwner)
+    }
+
+    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool) async {
+        await appState.rejectDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
     }
 
     func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool) async {

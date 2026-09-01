@@ -43,9 +43,6 @@ struct HeroDetailView: View {
 
         let targetFamily = familyRecordName ?? ""
         let targetProfile = hero.recordName
-        // WHY: Predicate pushdown fetches only this hero's ledgers; avoids
-        // loading entire family ledger set and prevents cross-profile leakage
-        // — FamilyScopedCache scoping remains primary isolation layer.
         let ledgerFilter = #Predicate<LedgerEntryCache> { item in
             item.familyRecordName == targetFamily
                 && item.profileRecordName == targetProfile

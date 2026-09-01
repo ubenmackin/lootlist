@@ -90,16 +90,12 @@ enum WeekMath {
         return String(format: "%04d-%02d", components.year ?? 0, components.month ?? 0)
     }
 
-    /// Single-source UTC day bucket so bucket transfers and week cycles share one timezone.
-    /// Contract: `dayBucket` is UTC day via `Calendar.iso8601UTC` — not `Calendar.current`.
-    /// Transfer ID ` "\(dayBucket)-\(fromRaw)-\(toRaw)"` and recordName `transfer-{profile}-{dayBucket}` are UTC-deterministic;
-    /// device-local date pickers earlier in the flow must convert via `WeekMath.dayBucket`.
-    /// WHY UTC: a device-local calendar splits the same instant into different days near midnight, breaking cross-device per-day dedupe.
+    // WHY: UTC bucket avoids midnight dedupe collisions across devices/timezones (transfer edge).
     static func dayBucket(for date: Date) -> Int {
         Int(Calendar.iso8601UTC.startOfDay(for: date).timeIntervalSince1970 / 86400)
     }
 
-    // WHY: Clock skew across UTC midnight can make local dayBucket differ from server dayBucket; compare server creationDate to local entry date for observability.
+    /// Warns if local and server creation timestamps fall into different UTC day buckets.
     static func logTransferSkewIfNeeded(localDate: Date, serverDate: Date) {
         let localBucket = dayBucket(for: localDate)
         let serverBucket = dayBucket(for: serverDate)
@@ -108,7 +104,7 @@ enum WeekMath {
         }
     }
 
-    // WHY: Clock skew across UTC midnight can bypass the per-day guard or mismatch transferID; transfers within 2h of midnight hint at this window.
+    /// Checks if a date falls within the threshold window around UTC midnight.
     static func isNearUTCMidnight(_ date: Date, threshold: TimeInterval = AppConstants.Sync.nearMidnightThreshold) -> Bool {
         let start = Calendar.iso8601UTC.startOfDay(for: date)
         let seconds = date.timeIntervalSince(start)
@@ -125,7 +121,6 @@ enum WeekMath {
         dayBucket(for: date) == dayBucket(for: Date()) - 1
     }
 
-    /// WHY: Short display name owned by WeekMath so weekday rendering stays on the same UTC source as week boundaries.
     static func shortName(for weekdayCode: String) -> String {
         let codes = AppConstants.weekdayCodes
         let short = AppConstants.weekdayShort
@@ -133,10 +128,21 @@ enum WeekMath {
         return short[idx]
     }
 
-    /// WHY: Next weekday helper keeps due-text ordering inside WeekMath instead of duplicating code→index math in views.
     static func nextWeekdayCode(after todayCode: String, candidates: [String]) -> String? {
         let codes = AppConstants.weekdayCodes
         let todayIndex = codes.firstIndex(of: todayCode) ?? -1
         return codes.first(where: { candidates.contains($0) && (codes.firstIndex(of: $0) ?? -1) > todayIndex })
+    }
+
+    /// Pure half-open range containment — the single source of truth for week membership.
+    /// WHY fail-closed: Quest.weekOf must be a normalized startOfWeek (UTC midnight).
+    /// A fallback (e.g. Calendar granularity check) would silently mask a storage bug
+    /// where weekOf was saved non-normalized; keep this pure and assert/normalize on write
+    /// (QuestService assign paths via WeekMath.startOfWeek).
+    static func isQuestInCurrentWeek(_ questWeekOf: Date, range: Range<Date>) -> Bool {
+        // Fail-closed: surface non-normalized storage bugs in DEBUG instead of masking with fallback.
+        assert(Calendar.iso8601UTC.startOfDay(for: questWeekOf) == questWeekOf, "Quest.weekOf must be normalized to WeekMath.startOfWeek (UTC midnight)")
+        assert(Calendar.iso8601UTC.startOfDay(for: range.lowerBound) == range.lowerBound, "WeekMath range lowerBound must be normalized startOfWeek")
+        return range.contains(questWeekOf)
     }
 }

@@ -133,13 +133,10 @@ struct HeroBoardView: View {
     }
 
     private func questDetail(_ row: HeroBoardViewModel.BoardRow) -> some View {
-        let rarity = row.quest.rarity
-        return VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(row.quest.displayName)
                 .font(.subheadline.bold())
-            // Rarity renders as a plain effort label while the immersive
-            // layer is off; the XP figure stays hidden.
-            Text("\(CurrencyFormatter.string(row.quest.goldReward)) · \(FlavorTextProvider.rewardTierName(for: rarity))")
+            Text(CurrencyFormatter.string(row.quest.goldReward))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

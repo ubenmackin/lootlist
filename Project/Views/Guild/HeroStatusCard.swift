@@ -187,7 +187,6 @@ struct HeroStatusCard: View {
     }
 
     private static func fallbackSpec(for profileCache: ProfileCache) -> AvatarRenderSpec {
-        // WHY: Views must not hold CloudKit types — derive AvatarRenderSpec from cache directly instead of converting via CKRecordZone.
         let preset: AvatarPreset? = if let id = profileCache.avatarName {
             AvatarPreset(rawValue: id) ?? AvatarPreset.resolve(profileCache.avatarClassEnum, id: id)
         } else if let cls = profileCache.avatarClassEnum {

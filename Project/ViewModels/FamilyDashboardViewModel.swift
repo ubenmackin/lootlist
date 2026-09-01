@@ -225,9 +225,6 @@ final class FamilyDashboardViewModel {
                 }
             }
         }
-        // WHY: the roster observer must start post-init on the MainActor —
-        // started during init, its task could escape before every stored
-        // property is initialized.
         startRosterObserver()
     }
 

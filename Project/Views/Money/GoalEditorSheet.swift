@@ -430,7 +430,6 @@ struct GoalEditorSheet: View {
     }
 
     private var parsedPennies: Int64? {
-        // WHY: Locale-aware parsing via CurrencyFormatter so comma decimals work and both sheets share one parser.
         guard let dollars = CurrencyFormatter.decimalDouble(from: targetAmountText),
               dollars > 0
         else { return nil }
@@ -443,7 +442,6 @@ struct GoalEditorSheet: View {
             parsingError = nil
             return
         }
-        // WHY: Single-source decimal parsing via CurrencyFormatter — matches BucketTransferView.parsedAmount.
         if CurrencyFormatter.decimalDouble(from: value) == nil {
             parsingError = "Enter a valid dollar amount (e.g. 49.99)."
         } else {

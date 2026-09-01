@@ -262,14 +262,12 @@ final class HeroDashboardViewModel {
     // MARK: - Date Helpers
 
     static func todayWeekdayCode(calendar: Calendar = .iso8601UTC) -> String {
-        // WHY: single source for weekday codes — delegates to WeekMath to stay payout-anchored and UTC-consistent.
         WeekMath.todayWeekdayCode(calendar: calendar)
     }
 
     // MARK: - Week Strip
 
     static func currentWeekDays(for date: Date = Date(), payoutDay: PayoutDay = .sunday, calendar: Calendar = .iso8601UTC) -> [DayInfo] {
-        // WHY: week boundaries owned exclusively by WeekMath so the strip and stored weekOf anchor on same weekday.
         let startDate = WeekMath.startOfWeek(for: date, payoutDay: payoutDay)
 
         let todayStart = calendar.startOfDay(for: date)
@@ -277,12 +275,10 @@ final class HeroDashboardViewModel {
         return (0 ..< 7).compactMap { offset in
             guard let dayDate = calendar.date(byAdding: .day, value: offset, to: startDate) else { return nil }
             let dayStart = calendar.startOfDay(for: dayDate)
-            // WHY: Today/past/future bucket via UTC day math so strip matches WeekMath's single timezone.
             let isToday = WeekMath.dayBucket(for: dayStart) == WeekMath.dayBucket(for: todayStart)
             let isPast = WeekMath.dayBucket(for: dayStart) < WeekMath.dayBucket(for: todayStart)
             let isFuture = WeekMath.dayBucket(for: dayStart) > WeekMath.dayBucket(for: todayStart)
             let dayNum = calendar.component(.day, from: dayDate)
-            // WHY: weekday mapping via WeekMath keeps hub/dashboard due-text and strip on same UTC source.
             let weekdayCode = WeekMath.weekdayCode(for: dayDate, calendar: calendar)
 
             return DayInfo(

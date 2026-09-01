@@ -196,7 +196,6 @@ final class InterestService {
         )
         await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "InterestService.applyInterest")
-        // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
         let formattedAmount = CurrencyFormatter.string(Double(creditPennies) / 100.0)
         logger
             .info(

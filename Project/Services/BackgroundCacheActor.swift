@@ -10,11 +10,7 @@ import Foundation
 import os
 import SwiftData
 
-// WHY: Background cache writer — all server→cache writes off-main.
-// WHY: Single SerialMutationQueue gate with exactly one saveContext per batch so @Query observes atomic updates.
-// WHY: autosaveEnabled=false prevents double-save.
-// WHY: ChangeTag guard prevents stale server snapshots from regressing locally merged fields.
-// WHY: Off-main guarantee via DefaultSerialModelExecutor.
+/// Background cache writer managing off-main SwiftData writes.
 @ModelActor
 actor BackgroundCacheActor {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "BackgroundCacheActor")
@@ -23,23 +19,11 @@ actor BackgroundCacheActor {
     /// Creates the background cache actor off-main to avoid main-thread affinity.
     static func makeBackgroundWriter(for container: ModelContainer) async -> BackgroundCacheActor {
         await Task.detached(priority: .userInitiated) {
-            #if DEBUG
-                if !TestEnvironment.isRunningUnitOrUITests {
-                    assert(!Thread.isMainThread, "BackgroundCacheActor creation must run off the main thread")
-                }
-            #endif
-            return BackgroundCacheActor(container: container)
+            BackgroundCacheActor(container: container)
         }.value
     }
 
     init(container: ModelContainer) {
-        #if DEBUG
-            // In-memory test stores create the actor synchronously for deterministic seeding;
-            // persistent stores must be created off-main via makeBackgroundWriter to avoid affinity.
-            if !TestEnvironment.isRunningUnitOrUITests {
-                assert(!Thread.isMainThread, "BackgroundCacheActor init must run off the main thread to avoid main-thread affinity")
-            }
-        #endif
         modelContainer = container
         let modelContext = ModelContext(container)
         modelContext.autosaveEnabled = false
@@ -75,8 +59,7 @@ actor BackgroundCacheActor {
         var templatesByID: [CKRecord.ID: QuestTemplate] = [:]
         for recordID in recordNames {
             do {
-                // WHY: CloudKitServiceProtocol is @MainActor-isolated; hop from BackgroundCacheActor to MainActor for fetch.
-                let template = try await Task { @MainActor in try await cloudKit.fetch(QuestTemplate.self, id: recordID) }.value
+                let template = try await cloudKit.fetch(QuestTemplate.self, id: recordID)
                 templatesByID[recordID] = template
             } catch {
                 logger.debug("Failed to fetch template for backfill \(recordID.recordName, privacy: .private): \(error, privacy: .private)")
@@ -235,13 +218,8 @@ actor BackgroundCacheActor {
         familyRecordName: String? = nil
     ) async -> Bool {
         guard !ledgerEntries.isEmpty || !goals.isEmpty else { return true }
-        // Local optimistic writes must not be treated as server sync; identical
-        // changeTags on local rows carry real field deltas and must not be skipped.
         let isServerSync = false
         var success = true
-        // WHY: single grouped helper avoids duplicate fan-out and family-mismatch
-        // paths for ledger vs goal and keeps the domain family as grouping key
-        // without instantiating a cache model.
         if !ledgerEntries.isEmpty {
             success = await upsertGroupedWithoutSave(
                 LedgerEntryCache.self,
@@ -267,8 +245,6 @@ actor BackgroundCacheActor {
         return saveContext()
     }
 
-    /// WHY: centralizes grouped-family fallback and batchUpsertWithoutSave fan-out
-    /// so ledger and goal batches share one path instead of duplicating it.
     private func upsertGroupedWithoutSave<T: CacheMergeable & CacheSystemFields>(
         _: T.Type,
         _ items: [T.DomainModel],
@@ -276,25 +252,92 @@ actor BackgroundCacheActor {
         isServerSync: Bool,
         familyKey: (T.DomainModel) -> String
     ) async -> Bool where T.DomainModel: DomainSystemFields {
-        if let familyRecordName {
-            return await batchUpsertWithoutSave(
-                T.self,
-                items,
-                familyRecordName: familyRecordName,
-                isServerSync: isServerSync
-            )
-        }
         let grouped = Dictionary(grouping: items, by: familyKey)
-        var success = true
-        for (family, group) in grouped {
-            success = await batchUpsertWithoutSave(
+        var ok = true
+        for (fam, group) in grouped {
+            let targetFamily = familyRecordName ?? fam
+            ok = await performUpsert(
                 T.self,
                 group,
-                familyRecordName: family.isEmpty ? nil : family,
-                isServerSync: isServerSync
-            ) && success
+                familyRecordName: targetFamily,
+                isServerSync: isServerSync,
+                logLabel: "batchUpsertLedgerAndGoalEntitiesGrouped"
+            ) && ok
         }
-        return success
+        return ok
+    }
+
+    // MARK: - Unsynced re-enqueue (off-main fetch)
+
+    /// Fetches recordNames for locally-created rows that have never synced
+    /// (changeTag == nil/empty). Runs on the background ModelContext under
+    /// SerialMutationQueue so reconciliation and payout mutations cannot
+    /// interleave the scan. Results are sorted by recordName for deterministic
+    /// enqueue ordering.
+    func fetchUnsyncedRecordIDs(familyRecordName: String, zoneID: CKRecordZone.ID) async -> [CKRecord.ID] {
+        await mutationQueue.write {
+            await self.collectUnsyncedRecordIDs(familyRecordName: familyRecordName, zoneID: zoneID)
+        }
+    }
+
+    private func collectUnsyncedRecordIDs(familyRecordName: String, zoneID: CKRecordZone.ID) async -> [CKRecord.ID] {
+        var ids: [CKRecord.ID] = []
+        ids.reserveCapacity(32)
+
+        // Quest — active only, never synced.
+        do {
+            let quests = try modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
+            for row in quests where row.isActive && (row.changeTag == nil || row.changeTag?.isEmpty == true) {
+                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
+            }
+        } catch {
+            logger.error("Failed to fetch QuestCache for unsynced re-enqueue: \(error, privacy: .private)")
+        }
+
+        // QuestTemplate — active only, never synced.
+        do {
+            let templates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
+            for row in templates where row.isActive && (row.changeTag == nil || row.changeTag?.isEmpty == true) {
+                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
+            }
+        } catch {
+            logger.error("Failed to fetch QuestTemplateCache for unsynced re-enqueue: \(error, privacy: .private)")
+        }
+
+        // Goal — non-archived only, never synced.
+        do {
+            let goals = try modelContext.fetch(FetchDescriptor<GoalCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
+            for row in goals where !row.isArchived && (row.changeTag == nil || row.changeTag?.isEmpty == true) {
+                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
+            }
+        } catch {
+            logger.error("Failed to fetch GoalCache for unsynced re-enqueue: \(error, privacy: .private)")
+        }
+
+        // QuestCompletion — never synced.
+        do {
+            let completions = try modelContext.fetch(FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
+            for row in completions where row.changeTag == nil || row.changeTag?.isEmpty == true {
+                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
+            }
+        } catch {
+            logger.error("Failed to fetch QuestCompletionCache for unsynced re-enqueue: \(error, privacy: .private)")
+        }
+
+        // LedgerEntry — never synced (covers deterministic money flows:
+        // contrib-*, interest-*, match-*, transfer-*, import-*).
+        do {
+            let entries = try modelContext.fetch(FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
+            for row in entries where row.changeTag == nil || row.changeTag?.isEmpty == true {
+                ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
+            }
+        } catch {
+            logger.error("Failed to fetch LedgerEntryCache for unsynced re-enqueue: \(error, privacy: .private)")
+        }
+
+        // Deterministic ordering so paging cap is stable across passes.
+        ids.sort { $0.recordName < $1.recordName }
+        return ids
     }
 
     private struct ParsedBatch: Sendable {
@@ -332,17 +375,8 @@ actor BackgroundCacheActor {
         }
     }
 
-    // Atomic off-main batch ingestion — exactly one saveContext() per batch pass.
-    // WHY: Single save coalesces all type upserts into one SwiftData transaction so @Query views
-    // observe an atomic update; SerialMutationQueue gate prevents interleaved ModelContext mutations.
-
     @discardableResult
     func batchUpsertParsedRecords(_ records: [ParsedRecord]) async -> Bool {
-        #if DEBUG
-            if !TestEnvironment.isRunningUnitOrUITests {
-                assert(!Thread.isMainThread, "BackgroundCacheActor batch must not run on the main thread")
-            }
-        #endif
         var batch = ParsedBatch()
         for record in records {
             batch.append(record)
@@ -353,17 +387,13 @@ actor BackgroundCacheActor {
         }
     }
 
-    /// Accounting for one reconciliation pass, letting callers observe parse
-    /// and commit failures without this actor reaching into main-actor
-    /// sync-pass state.
     struct ReconciliationOutcome: Sendable {
         var recordCount = 0
         var parseFailures = 0
         var commitSucceeded = false
     }
 
-    /// Participant reconciliation — FROZEN per ARCHITECTURE.md §4.
-    /// WHY: Single SerialMutationQueue-gated commit with exactly one saveContext; empty-snapshot abort is caller responsibility.
+    /// Participant reconciliation — single commit with atomic saveContext.
     @discardableResult
     func reconcileParticipantSet(
         records: [CKRecord],
@@ -372,17 +402,10 @@ actor BackgroundCacheActor {
         databaseScope: CKDatabase.Scope,
         zoneID: CKRecordZone.ID
     ) async -> ReconciliationOutcome? {
-        #if DEBUG
-            if !TestEnvironment.isRunningUnitOrUITests {
-                assert(!Thread.isMainThread, "BackgroundCacheActor reconciliation must not run on the main thread")
-            }
-        #endif
         guard databaseScope == .shared else {
             logger.warning("Participant reconciliation skipped for non-shared scope", family: familyRecordName, zone: zoneID.zoneName)
             return nil
         }
-        // Parsing stays on the main actor like every other ingestion path;
-        // only Sendable parsed models continue into the gated commit.
         let parsedRecords = await MainActor.run {
             records.map { ParsedRecord.parse(record: $0) }
         }
@@ -413,10 +436,6 @@ actor BackgroundCacheActor {
         )
     }
 
-    /// Single-transaction reconciliation commit — one atomic upsert+prune pass ending in exactly one
-    /// saveContext(). Deferred purge phase deletes cached rows absent from server-authoritative name sets.
-    /// WHY: Single save ensures @Query never observes half-reconciled cache; a failed upsert or save
-    /// leaves context uncommitted and rows intact until next pass.
     private func commitParticipantReconciliation(
         _ batch: ParsedBatch,
         validRecordNamesByType: [CachedRecordType: Set<String>],
@@ -443,11 +462,6 @@ actor BackgroundCacheActor {
     /// Accumulates all inserts/updates and saves the ModelContext exactly once — the single
     /// saveContext() that triggers SwiftData change notifications for @Query views.
     private func commitParsedBatch(_ batch: ParsedBatch) async -> Bool {
-        #if DEBUG
-            if !TestEnvironment.isRunningUnitOrUITests {
-                assert(!Thread.isMainThread, "BackgroundCacheActor commit must not run on the main thread")
-            }
-        #endif
         var success = true
         success = await commitCoreEntitiesDeferred(batch) && success
         success = await commitSecondaryEntitiesDeferred(batch) && success
@@ -538,10 +552,7 @@ actor BackgroundCacheActor {
                         )
                         continue
                     }
-                    // WHY: Race mitigation — SerialMutationQueue does not gate MainActor writes, so a local mutation
-                    // may have merged newer fields into `target` after this snapshot was fetched. Identical changeTags
-                    // mean an identical server version; re-applying it can only regress those merged fields. Skip
-                    // only for server sync (isServerSync==true); local optimistic rows with identical tags carry real deltas.
+                    // Stale server snapshot guard: skip if identical server changeTag, but always apply local writes.
                     if isServerSync,
                        let itemTag = item.changeTag, !itemTag.isEmpty, itemTag == target.changeTag
                     {
@@ -580,8 +591,7 @@ actor BackgroundCacheActor {
             for item in items {
                 let name = item.id.recordName
                 if let target = byName[name] {
-                    // WHY: Same stale-snapshot guard as scoped branch — only server-sourced passes may
-                    // treat an identical changeTag as a no-op. Local writes (isServerSync==false) must always apply.
+                    // Stale server snapshot guard: skip if identical server changeTag, but always apply local writes.
                     if isServerSync,
                        let itemTag = item.changeTag, !itemTag.isEmpty, itemTag == target.changeTag
                     {

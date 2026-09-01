@@ -9,7 +9,6 @@ import Foundation
 import Observation
 import os
 
-// WHY: SpendingLogRow stays the single ViewModel row type for ledger UI; HeroLedgerViewModel reuses it instead of redefining an identical struct.
 struct SpendingLogRow: Identifiable, Equatable {
     let id: String
     let amount: Double
@@ -81,7 +80,6 @@ final class TreasuryViewModel {
 
     // MARK: - Helpers
 
-    // WHY: Single source via AppState so WeekMath windows stay consistent across rebuild paths.
     private var resolvedPayoutDay: PayoutDay {
         appState.resolvedPayoutDay
     }
@@ -112,7 +110,6 @@ final class TreasuryViewModel {
 
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
-        // WHY: Balance derives from ledger sum only; bucket splits render via BucketService balances, not duplicated availableBalance logic.
         balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: profileName)
 
         let payoutDay = resolvedPayoutDay

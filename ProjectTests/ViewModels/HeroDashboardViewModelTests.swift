@@ -644,4 +644,151 @@ struct HeroDashboardViewModelTests {
         #expect(activeGoal.goal.recordName == "goal_maya_art")
         #expect(activeGoal.savedPennies == 2500)
     }
+
+    // MARK: - Weekly completion ring edge cases
+
+    @Test
+    func `hub weekly ring partial targetCount counts 2 singles plus triple as goal 5 completed 3`() throws {
+        let harness = try ChildHubHarness()
+        let currentWeek = WeekMath.weekOf(date: Date())
+        func makeQuest(_ name: String, targetCount: Int, isAllOrNothing: Bool = false) -> QuestCache {
+            QuestCache(
+                recordName: name,
+                familyRecordName: SampleData.familyID.recordName,
+                assigneeRecordName: SampleData.hero1ID.recordName,
+                templateRecordName: "t1",
+                weekOf: currentWeek,
+                questName: name,
+                isActive: true,
+                goldReward: 10.0,
+                xpReward: 10,
+                rarity: "common",
+                scheduleType: QuestSchedule.weeklyFlexible.rawValue,
+                targetCount: targetCount,
+                isAllOrNothing: isAllOrNothing,
+                approvalMode: ApprovalMode.autoApprove.rawValue,
+                descriptionText: nil,
+                createdByRecordName: "parent_dad"
+            )
+        }
+        let single1 = makeQuest("q-single1", targetCount: 1)
+        let single2 = makeQuest("q-single2", targetCount: 1)
+        let triple = makeQuest("q-triple", targetCount: 3)
+        let logs = [
+            harness.log("log-s1", quest: single1, status: .autoApproved),
+            harness.log("log-s2", quest: single2, status: .autoApproved),
+            harness.log("log-t1", quest: triple, status: .autoApproved)
+        ]
+        harness.viewModel.rebuild(quests: [single1, single2, triple], logs: logs, templates: [], goals: [])
+        #expect(harness.viewModel.weeklyGoal == 5)
+        #expect(harness.viewModel.weeklyCompleted == 3)
+        #expect(harness.viewModel.weeklyProgress == 0.6)
+    }
+
+    @Test
+    func `hub weekly ring pendingReview counts toward goal not completed`() throws {
+        let harness = try ChildHubHarness()
+        let currentWeek = WeekMath.weekOf(date: Date())
+        func makeQuest(_ name: String) -> QuestCache {
+            QuestCache(
+                recordName: name,
+                familyRecordName: SampleData.familyID.recordName,
+                assigneeRecordName: SampleData.hero1ID.recordName,
+                templateRecordName: "t1",
+                weekOf: currentWeek,
+                questName: name,
+                isActive: true,
+                goldReward: 10.0,
+                xpReward: 10,
+                rarity: "common",
+                scheduleType: QuestSchedule.weeklyFlexible.rawValue,
+                isAllOrNothing: false,
+                approvalMode: ApprovalMode.parentVerify.rawValue,
+                descriptionText: nil,
+                createdByRecordName: "parent_dad"
+            )
+        }
+        let pendingQuest = makeQuest("q-pending")
+        let doneQuest = makeQuest("q-done")
+        let pendingLog = QuestCompletionCache(
+            recordName: "log-pending",
+            questRecordName: pendingQuest.recordName,
+            familyRecordName: SampleData.familyID.recordName,
+            completerRecordName: SampleData.hero1ID.recordName,
+            completedDate: Date(),
+            weekOf: currentWeek,
+            verificationStatus: VerificationStatus.pending.rawValue,
+            approvalMode: ApprovalMode.parentVerify.rawValue,
+            verifiedByRecordName: nil,
+            verifiedDate: nil
+        )
+        let approvedLog = harness.log("log-done", quest: doneQuest, status: .autoApproved)
+        harness.viewModel.rebuild(quests: [pendingQuest, doneQuest], logs: [pendingLog, approvedLog], templates: [], goals: [])
+        #expect(harness.viewModel.weeklyGoal == 2)
+        #expect(harness.viewModel.weeklyCompleted == 1)
+    }
+
+    @Test
+    func `hub weekly ring carry forward stale exclusion`() throws {
+        let harness = try ChildHubHarness()
+        let currentWeek = WeekMath.weekOf(date: Date())
+        let previousWeek = WeekMath.weekStart(byAddingWeeks: -1, to: currentWeek)
+        let current = harness.quest("q-current", weekOf: currentWeek)
+        let stale = harness.quest("q-stale", weekOf: previousWeek)
+        harness.viewModel.rebuild(
+            quests: [current, stale],
+            logs: [harness.log("log-stale", quest: stale, status: .autoApproved)],
+            templates: [],
+            goals: []
+        )
+        #expect(harness.viewModel.weeklyGoal == 1)
+        #expect(harness.viewModel.weeklyCompleted == 0)
+    }
+
+    @Test
+    func `hub weekly ring isAllOrNothing does not affect ring counting`() throws {
+        let harness = try ChildHubHarness()
+        let currentWeek = WeekMath.weekOf(date: Date())
+        let aonQuest = QuestCache(
+            recordName: "q-aon",
+            familyRecordName: SampleData.familyID.recordName,
+            assigneeRecordName: SampleData.hero1ID.recordName,
+            templateRecordName: "t1",
+            weekOf: currentWeek,
+            questName: "AON Quest",
+            isActive: true,
+            goldReward: 10.0,
+            xpReward: 10,
+            rarity: "common",
+            scheduleType: QuestSchedule.weeklyFlexible.rawValue,
+            targetCount: 3,
+            isAllOrNothing: true,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            descriptionText: nil,
+            createdByRecordName: "parent_dad"
+        )
+        let single = QuestCache(
+            recordName: "q-single",
+            familyRecordName: SampleData.familyID.recordName,
+            assigneeRecordName: SampleData.hero1ID.recordName,
+            templateRecordName: "t2",
+            weekOf: currentWeek,
+            questName: "Single",
+            isActive: true,
+            goldReward: 10.0,
+            xpReward: 10,
+            rarity: "common",
+            scheduleType: QuestSchedule.weeklyFlexible.rawValue,
+            targetCount: 1,
+            isAllOrNothing: true,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            descriptionText: nil,
+            createdByRecordName: "parent_dad"
+        )
+        // 1/3 of AON triple should still count as 1 toward ring; isAllOrNothing gates payout only.
+        let logs = [harness.log("log-aon-partial", quest: aonQuest, status: .autoApproved)]
+        harness.viewModel.rebuild(quests: [aonQuest, single], logs: logs, templates: [], goals: [])
+        #expect(harness.viewModel.weeklyGoal == 4)
+        #expect(harness.viewModel.weeklyCompleted == 1)
+    }
 }

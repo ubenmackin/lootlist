@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// WHY: Single source of truth for Bucket Split entry card — centralizes copy/icon/tokens to avoid drift to SavingsSplitView.
+/// Card row linking to the Bucket Split editor view.
 struct BucketSplitEntryRow: View {
     /// Accessibility identifier for the tappable row. Pass
     /// `ledger.bucketSplitRow` or `heroDetail.bucketSplitRow` to preserve

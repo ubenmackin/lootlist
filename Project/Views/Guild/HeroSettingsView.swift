@@ -38,6 +38,9 @@ struct HeroSettingsView: View {
                     // Hero Header Card
                     heroHeaderCard
 
+                    // Savings & Bucket Allocations
+                    savingsAllocationsSection
+
                     // Payout Day Override
                     payoutDayOverrideSection
 
@@ -104,6 +107,74 @@ struct HeroSettingsView: View {
 
     private var avatarView: some View {
         ProfileAvatarView(profileCache: hero)
+    }
+
+    // MARK: - Savings Allocations Section
+
+    private var savingsAllocationsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Savings Allocations")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Spend Bucket", systemImage: "cart.fill")
+                        .font(.subheadline)
+                    Spacer()
+                    Text("\(hero.splitPercentSpend)%")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                }
+                Divider()
+                HStack {
+                    Label("Short-Term Goal", systemImage: "target")
+                        .font(.subheadline)
+                    Spacer()
+                    Text("\(hero.splitPercentShort)%")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                }
+                Divider()
+                HStack {
+                    Label("Long-Term Treasury", systemImage: "lock.shield.fill")
+                        .font(.subheadline)
+                    Spacer()
+                    Text("\(hero.splitPercentLong)%")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                }
+
+                if hero.interestEnabled || hero.matchEnabled {
+                    Divider()
+                    if hero.interestEnabled {
+                        HStack {
+                            Label("Interest Rate", systemImage: "chart.line.uptrend.xyaxis")
+                                .font(.subheadline)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                            Spacer()
+                            Text("\(Double(hero.interestRateBps) / 100.0, specifier: "%g")%")
+                                .font(.subheadline.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                        }
+                    }
+                    if hero.matchEnabled {
+                        HStack {
+                            Label("Match Rate", systemImage: "arrow.trianglehead.branch")
+                                .font(.subheadline)
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                            Spacer()
+                            Text("\(Double(hero.matchRateBps) / 100.0, specifier: "%g")%")
+                                .font(.subheadline.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .background(cardBackground)
+            .padding(.horizontal)
+        }
     }
 
     // MARK: - Payout Day Override Section

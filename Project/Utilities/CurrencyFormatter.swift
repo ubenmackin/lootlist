@@ -7,19 +7,12 @@
 
 import Foundation
 
-/// Canonical formatter for locale-aware currency display.
-///
-/// WHY: Uses FormatStyle.Currency backed by Locale.current.currency so the
-/// formatter is cached (no per-call NumberFormatter allocation for 20+ call
-/// sites) and composes with SwiftUI Text(value, format: .currency(code:)).
+/// Canonical formatter for locale-aware currency display backed by `FormatStyle.Currency`.
 enum CurrencyFormatter: Sendable {
-    // WHY: Locale-aware currency code drives FormatStyle; fallback keeps formatting stable.
     static var currencyCode: String {
         Locale.current.currency?.identifier ?? "USD"
     }
 
-    // WHY: Cached currency FormatStyle avoids per-call NumberFormatter allocation
-    // and composes with SwiftUI Text(value, format: .currency(code:)).
     static var currencyStyle: FloatingPointFormatStyle<Double>.Currency {
         FloatingPointFormatStyle<Double>.Currency(code: currencyCode).locale(Locale.current)
     }
@@ -42,25 +35,20 @@ enum CurrencyFormatter: Sendable {
         string(abs(amount))
     }
 
-    // WHY: Preset pills share one DRY currency path so locale changes stay single-point.
     static func presetString(_ preset: String) -> String {
         string(Double(preset) ?? 0)
     }
 
-    // WHY: Editing fields need plain decimals without currency symbol, but still centralize via CurrencyFormatter.
     static func editingString(_ amount: Double) -> String {
         String(format: "%.2f", amount)
     }
 
-    // WHY: Expose symbol without hardcoding "$" so views never embed a literal.
     static var currencySymbol: String {
         Locale.current.currencySymbol ?? ""
     }
 
     /// Locale-aware decimal parsing — single-source for all amount fields so
     /// comma decimals (e.g. "1,99") work in every locale.
-    ///
-    /// WHY: Shared FormatStyle parse avoids per-call NumberFormatter allocation.
     static func decimalDouble(from text: String) -> Double? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

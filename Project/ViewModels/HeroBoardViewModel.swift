@@ -26,14 +26,10 @@ final class HeroBoardViewModel {
     private(set) var claimedRows: [BoardRow] = []
     private(set) var errorMessage: String?
 
-    /// Record names of quests this device has optimistically claimed but whose
-    /// save has not yet been acknowledged. If ingest later reveals another
-    /// claimer for one of these, the child sees the lost-race toast.
-    /// WHY: Mutex protects against concurrent Task { await claim(row) } double-tap interleaving on @MainActor.
+    /// Record names of quests optimistically claimed on this device awaiting save confirmation.
     private let pendingClaims = Mutex<Set<String>>([])
 
     /// Record names with a claim save currently in flight on this device.
-    /// WHY: Mutex serializes the check-insert-remove around the await so a second tap cannot slip between isClaiming and insert.
     private let inFlightClaims = Mutex<Set<String>>([])
 
     private let boardService: HeroBoardService
@@ -87,11 +83,7 @@ final class HeroBoardViewModel {
         settlePendingClaims()
     }
 
-    /// Detects lost claim races against ingested server state. The lists are
-    /// already rebuilt from cache at this point — the refresh itself is free.
-    /// WHY: Only clears pending entries that have settled (now claimed) so a
-    /// local optimistic write that hasn't yet been confirmed does not lose its
-    /// pending marker before the server-wins ingest pulse arrives.
+    /// Detects lost claim races against ingested server state.
     private func settlePendingClaims() {
         let currentUser = currentUserRecordName
         let pending = pendingClaims.withLock { $0 }
@@ -135,7 +127,6 @@ final class HeroBoardViewModel {
     func claim(_ row: BoardRow) async {
         guard let hero = appState.currentProfile else { return }
         let id = row.id
-        // WHY: Early guard + insert before the await prevents concurrent Tasks from the same double-tap interleaving.
         let inserted = inFlightClaims.withLock { $0.insert(id).inserted }
         guard inserted else { return }
         defer { _ = inFlightClaims.withLock { $0.remove(id) } }
@@ -168,11 +159,7 @@ final class HeroBoardViewModel {
                 }
             }
         } catch BoardClaimError.lostToAnotherHero {
-            // WHY: Optimistic UI rollback on lost claim race — the
-            // resolver merges via ingest and the cache pulse reveals the
-            // winner; do not keep an optimistic row that the server rejected.
-            // inFlightClaims is cleared by the defer; pending must be dropped
-            // so rebuildLists does not re-toast the stale optimistic entry.
+            // Optimistic UI rollback when claim lost to another hero.
             pendingClaims.withLock { _ = $0.remove(id) }
             let message = "Another hero claimed this quest"
             errorMessage = message
