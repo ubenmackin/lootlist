@@ -363,4 +363,40 @@ extension BackgroundCacheActor {
             modelContext.delete(match)
         }
     }
+
+    // MARK: - Watermark stamping
+
+    // WHY: Single semantic home for freshness stamping keeps TTL and scope rules in one place.
+    private func freshnessKey(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> String {
+        let scopeString = switch scope {
+        case .private: "private"
+        case .shared: "shared"
+        case .public: "public"
+        @unknown default: "unknown"
+        }
+        return "cache_fresh_\(familyRecordName)_\(scopeString)_\(type.rawValue)"
+    }
+
+    // WHY: Scope-aware grouping ensures a private-scope success never over-stamps shared types.
+    private func scopedSet(for types: Set<CachedRecordType>, scope: CKDatabase.Scope) -> Set<CachedRecordType> {
+        types.filter { $0.fetchScopes.contains(scope) }
+    }
+
+    // WHY: Single semantic home groups types per scope and persists only on success so partial failures never mark stale data fresh.
+    func stampCacheWatermark(onFamily familyRecordName: String, types: Set<CachedRecordType>, scope: CKDatabase.Scope) async {
+        guard !familyRecordName.isEmpty else { return }
+        let scoped = scopedSet(for: types, scope: scope)
+        guard !scoped.isEmpty else { return }
+        // WHY: Stamp-on-success-only — caller gates success; this method only persists the already-validated fresh set.
+        let now = Date()
+        let defaults = UserDefaults.standard
+        for type in scoped {
+            defaults.set(now, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        }
+    }
+
+    // WHY: Convenience overload preserves call-site ergonomics without duplicating grouping logic.
+    func stampCacheWatermark(onFamily familyRecordName: String, types: [CachedRecordType], scope: CKDatabase.Scope) async {
+        await stampCacheWatermark(onFamily: familyRecordName, types: Set(types), scope: scope)
+    }
 }

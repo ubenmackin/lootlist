@@ -414,6 +414,15 @@ final class NotificationService {
             logger.warning("Failed to clear app badge count: \(error, privacy: .private)")
         }
     }
+
+    // WHY: Best-effort fallback delegates stamping to the single semantic home; no direct watermark writes here.
+    private func stampWatermarkFallback(onFamily familyRecordName: String, types: Set<CachedRecordType>, scope: CKDatabase.Scope) async {
+        guard let actor = appState.backgroundCacheActor ?? cacheService.backgroundWriter else {
+            logger.log(level: .default, "Watermark fallback skipped: BackgroundCacheActor unavailable — best-effort path")
+            return
+        }
+        await actor.stampCacheWatermark(onFamily: familyRecordName, types: types, scope: scope)
+    }
 }
 
 enum VerificationAction: Sendable, Equatable {

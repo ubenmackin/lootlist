@@ -19,98 +19,322 @@ extension QuestService {
         else {
             throw FamilyServiceError.unauthorized
         }
-        // Calculate approved logs count avoiding double-counting if current completion is already cached.
+        let approvedCount = try await calculateApprovedCount(for: quest, completion: completion)
+        let creditedGold = GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
+        if completion.xpCredited == nil {
+            let handled = try await handleXPCredit(
+                quest: quest,
+                hero: hero,
+                completion: completion,
+                approvedCount: approvedCount,
+                creditedGold: creditedGold
+            )
+            if let earlyReturn = handled {
+                return earlyReturn
+            }
+        }
+        try await settleRealTimeIfNeeded(hero: hero, creditedGold: creditedGold, questFamilyID: quest.family.recordID)
+        return creditedGold
+    }
+
+    private func calculateApprovedCount(for quest: Quest, completion: QuestCompletion) async throws -> Int {
         let logs = try await fetchQuestLogs(forQuest: quest, useCache: true)
         let approvedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
         let priorApproved = approvedLogs.count
         let alreadyCounted = approvedLogs.contains { $0.id.recordName == completion.id.recordName }
-        let approvedCount = alreadyCounted ? max(1, priorApproved) : max(1, priorApproved + 1)
+        return alreadyCounted ? max(1, priorApproved) : max(1, priorApproved + 1)
+    }
 
-        let creditedGold = GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
-
-        if completion.xpCredited == nil {
-            let currentQuest = await resolveAuthoritativeQuest(quest)
-            let remaining = GoldCalculation.marginalXPCredit(
-                for: currentQuest,
+    private func handleXPCredit(
+        quest: Quest,
+        hero: Profile,
+        completion: QuestCompletion,
+        approvedCount: Int,
+        creditedGold: Double
+    ) async throws -> Double? {
+        let currentQuest = await resolveAuthoritativeQuest(quest)
+        let remaining = GoldCalculation.marginalXPCredit(
+            for: currentQuest,
+            approvedCount: approvedCount,
+            alreadyCredited: currentQuest.xpBanked
+        )
+        if remaining > 0 {
+            return try await creditRewardAndClaim(
+                quest: quest,
+                hero: hero,
+                completion: completion,
+                currentQuest: currentQuest,
                 approvedCount: approvedCount,
-                alreadyCredited: currentQuest.xpBanked
+                creditedGold: creditedGold,
+                remaining: remaining
             )
+        }
+        await stampCompletionCredit(completion, xpGain: 0)
+        return nil
+    }
 
-            if remaining > 0 {
-                let heroProfile = resolveAuthoritativeHero(hero)
-                let (totalXP, _) = xpService.calculatedXP(baseXP: remaining, profile: heroProfile)
-
-                // Deterministic idempotency key: reward-{completionID} in the quest's zone.
-                // Construct the event locally but do not persist or enqueue until the
-                // server confirms this device won the atomic claim.
-                let rewardID = RewardEvent.recordID(completionRecordName: completion.id.recordName, zoneID: quest.id.zoneID)
-                let rewardEvent = cacheService.fetchRewardEvent(
-                    recordName: rewardID.recordName,
-                    family: quest.family.recordID.recordName
-                )?.toRewardEvent(zoneID: quest.id.zoneID) ?? RewardEvent(
-                    profile: CKRecord.Reference(recordID: hero.id, action: .none),
-                    questCompletion: CKRecord.Reference(recordID: completion.id, action: .none),
-                    xpAmount: totalXP,
-                    goldAmount: creditedGold,
-                    timestamp: completion.completedDate,
-                    family: quest.family,
-                    id: rewardID
-                )
-
-                // Saves reward event with deterministic ID to prevent duplicate credit.
-                guard try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil) else {
-                    // Lost the race — another device already claimed the deterministic event.
-                    // Remove any phantom local row so reconcile cannot hydrate xpCredited on the loser.
-                    await cacheService.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
-                    return 0
-                }
+    private func creditRewardAndClaim(
+        quest: Quest,
+        hero: Profile,
+        completion: QuestCompletion,
+        currentQuest: Quest,
+        approvedCount _: Int,
+        creditedGold: Double,
+        remaining: Int
+    ) async throws -> Double? {
+        let heroProfile = resolveAuthoritativeHero(hero)
+        let (totalXP, _) = xpService.calculatedXP(baseXP: remaining, profile: heroProfile)
+        let rewardID = RewardEvent.recordID(completionRecordName: completion.id.recordName, zoneID: quest.id.zoneID)
+        let rewardEvent = preparedRewardEvent(
+            quest: quest,
+            hero: hero,
+            completion: completion,
+            rewardID: rewardID,
+            totalXP: totalXP,
+            creditedGold: creditedGold
+        )
+        let baselineXP = cacheService.fetchProfile(recordName: hero.id.recordName, family: quest.family.recordID.recordName)?.xpTotal ?? hero.xp
+        let baselineBanked = currentQuest.xpBanked
+        // Atomic gate: claim must succeed before any local XP, quest bank, or stamp mutations.
+        do {
+            let claimed = try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil)
+            if !claimed {
+                // Loser: no phantom was persisted before claim, so ensure no pending enqueue remains.
+                await cacheService.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
+                syncCoordinator.dequeueSave(recordID: rewardID)
+                syncCoordinator.dequeueSave(recordID: currentQuest.id)
+                syncCoordinator.dequeueSave(recordID: completion.id)
+                syncCoordinator.dequeueSave(recordID: hero.id)
+                return 0
+            }
+        } catch {
+            if isTransientRewardError(error) {
+                // Queue the phantom for later sync but defer XP/quest/stamp until claim succeeds.
                 await cacheService.upsertRewardEvent(rewardEvent)
-                let isOwnerReward = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
-                let storedOwnerReward = appState.isZoneOwner
-                if isOwnerReward != storedOwnerReward {
-                    Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
-                        .warning("QuestService.applyReward rewardEvent isOwner corrected via creator anchor: stored=\(storedOwnerReward) resolved=\(isOwnerReward)")
-                }
-                syncCoordinator.enqueueRewardEvent(rewardEvent, isOwner: isOwnerReward)
-
-                // Grant XP only after this device atomically claimed the event.
-                try await xpService.addXP(totalXP, to: hero)
-
-                var updatedQuest = currentQuest
-                updatedQuest.xpBanked = currentQuest.xpBanked + remaining
-                await cacheService.upsertQuest(updatedQuest)
-                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
-                    syncCoordinator,
-                    id: updatedQuest.id,
-                    appState: appState,
-                    logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
-                    context: "QuestService.applyReward"
+                enqueueRewardEvent(rewardEvent)
+                toastManager?.show(message: "Reward queued — will sync when online.", type: .info)
+                throw error
+            }
+            await cacheService.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
+            syncCoordinator.dequeueSave(recordID: rewardID)
+            throw error
+        }
+        // Successful claim: now persist reward and credit XP atomically.
+        await cacheService.upsertRewardEvent(rewardEvent)
+        enqueueRewardEvent(rewardEvent)
+        do {
+            try await xpService.addXP(totalXP, to: hero)
+        } catch {
+            if !isTransientRewardError(error) {
+                await cacheService.removePhantomRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)
+                syncCoordinator.dequeueSave(recordID: rewardID)
+                await handleHardRollback(
+                    rewardEvent: rewardEvent,
+                    quest: quest,
+                    hero: hero,
+                    completion: completion,
+                    currentQuest: currentQuest,
+                    baselineXP: baselineXP,
+                    baselineBanked: baselineBanked
                 )
-
-                await stampCompletionCredit(completion, xpGain: remaining)
-
-                // Loot drop rolls only when the reward actually settles (winner only).
-                // Gating on successful claim prevents double-rolling across concurrent devices.
-                let rarity = QuestRarity.from(xp: quest.xpReward)
-                let streakDays = currentStreak(for: heroProfile, familyName: quest.family.recordID.recordName)
-                await lootDropService?.rollAndCredit(questRarity: rarity, streakDays: streakDays, to: heroProfile, eventKey: completion.id.recordName)
-            } else {
-                // Cap reached: no marginal XP remains. Stamp 0 so the GoldCalculation cap
-                // is enforced via the idempotency marker and a re-run cannot re-credit.
-                await stampCompletionCredit(completion, xpGain: 0)
+                throw error
             }
         }
+        var updatedQuest = currentQuest
+        updatedQuest.xpBanked = baselineBanked + remaining
+        await cacheService.upsertQuest(updatedQuest)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: updatedQuest.id,
+            appState: appState,
+            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+            context: "QuestService.applyReward"
+        )
+        await stampCompletionCredit(completion, xpGain: remaining)
+        let rarity = QuestRarity.from(xp: quest.xpReward)
+        let streakDays = currentStreak(for: heroProfile, familyName: quest.family.recordID.recordName)
+        await lootDropService?.rollAndCredit(questRarity: rarity, streakDays: streakDays, to: heroProfile, eventKey: completion.id.recordName)
+        return nil
+    }
 
-        // Resolves family from cache for real-time settlement without live network fetches.
-        let questFamilyID = quest.family.recordID
+    private func preparedRewardEvent(
+        quest: Quest,
+        hero: Profile,
+        completion: QuestCompletion,
+        rewardID: CKRecord.ID,
+        totalXP: Int,
+        creditedGold: Double
+    ) -> RewardEvent {
+        if let cached = cacheService.fetchRewardEvent(recordName: rewardID.recordName, family: quest.family.recordID.recordName)?
+            .toRewardEvent(zoneID: quest.id.zoneID)
+        {
+            return cached
+        }
+        return RewardEvent(
+            profile: CKRecord.Reference(recordID: hero.id, action: .none),
+            questCompletion: CKRecord.Reference(recordID: completion.id, action: .none),
+            xpAmount: totalXP,
+            goldAmount: creditedGold,
+            timestamp: completion.completedDate,
+            family: quest.family,
+            id: rewardID
+        )
+    }
+
+    private func enqueueRewardEvent(_ rewardEvent: RewardEvent) {
+        let isOwnerReward = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let storedOwnerReward = appState.isZoneOwner
+        if isOwnerReward != storedOwnerReward {
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService")
+                .warning("QuestService.applyReward rewardEvent isOwner corrected via creator anchor: stored=\(storedOwnerReward) resolved=\(isOwnerReward)")
+        }
+        syncCoordinator.enqueueRewardEvent(rewardEvent, isOwner: isOwnerReward)
+    }
+
+    private struct RewardBaselines {
+        let xp: Int
+        let banked: Int
+    }
+
+    private func claimRewardEvent(
+        rewardEvent: RewardEvent,
+        quest: Quest,
+        hero: Profile,
+        heroProfile: Profile,
+        completion: QuestCompletion,
+        currentQuest: Quest,
+        creditedGold: Double,
+        baselines: RewardBaselines
+    ) async throws -> Double? {
+        do {
+            let claimed = try await cloudKit.claimRewardEvent(rewardEvent, in: quest.id.zoneID, using: nil)
+            if !claimed {
+                await handleLoserRace(
+                    rewardEvent: rewardEvent,
+                    quest: quest,
+                    hero: hero,
+                    completion: completion,
+                    currentQuest: currentQuest,
+                    baselineXP: baselines.xp,
+                    baselineBanked: baselines.banked
+                )
+                return 0
+            }
+        } catch {
+            if isTransientRewardError(error) {
+                toastManager?.show(message: "Reward queued — will sync when online.", type: .info)
+                return creditedGold
+            }
+            await handleHardRollback(
+                rewardEvent: rewardEvent,
+                quest: quest,
+                hero: hero,
+                completion: completion,
+                currentQuest: currentQuest,
+                baselineXP: baselines.xp,
+                baselineBanked: baselines.banked
+            )
+            throw error
+        }
+        let rarity = QuestRarity.from(xp: quest.xpReward)
+        let streakDays = currentStreak(for: heroProfile, familyName: quest.family.recordID.recordName)
+        await lootDropService?.rollAndCredit(questRarity: rarity, streakDays: streakDays, to: heroProfile, eventKey: completion.id.recordName)
+        return nil
+    }
+
+    private func handleLoserRace(
+        rewardEvent: RewardEvent,
+        quest: Quest,
+        hero: Profile,
+        completion: QuestCompletion,
+        currentQuest: Quest,
+        baselineXP: Int,
+        baselineBanked: Int
+    ) async {
+        await cacheService.removePhantomRewardEvent(recordName: rewardEvent.id.recordName, family: quest.family.recordID.recordName)
+        syncCoordinator.dequeueSave(recordID: rewardEvent.id)
+        await revertProfileXP(hero: hero, zoneID: quest.id.zoneID, baselineXP: baselineXP, context: "QuestService.applyReward.loserRollback")
+        var revertedQuest = currentQuest
+        revertedQuest.xpBanked = baselineBanked
+        await cacheService.upsertQuest(revertedQuest)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: revertedQuest.id,
+            appState: appState,
+            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+            context: "QuestService.applyReward.loserQuestRollback"
+        )
+        var unstamped = completion
+        unstamped.xpCredited = nil
+        await cacheService.upsertQuestCompletion(unstamped)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: unstamped.id,
+            appState: appState,
+            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+            context: "QuestService.applyReward.loserStampRollback"
+        )
+    }
+
+    private func handleHardRollback(
+        rewardEvent: RewardEvent,
+        quest: Quest,
+        hero: Profile,
+        completion: QuestCompletion,
+        currentQuest: Quest,
+        baselineXP: Int,
+        baselineBanked: Int
+    ) async {
+        await cacheService.removePhantomRewardEvent(recordName: rewardEvent.id.recordName, family: quest.family.recordID.recordName)
+        syncCoordinator.dequeueSave(recordID: rewardEvent.id)
+        await revertProfileXP(hero: hero, zoneID: quest.id.zoneID, baselineXP: baselineXP, context: "QuestService.applyReward.hardRollbackXP")
+        var revertedQuest = currentQuest
+        revertedQuest.xpBanked = baselineBanked
+        await cacheService.upsertQuest(revertedQuest)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: revertedQuest.id,
+            appState: appState,
+            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+            context: "QuestService.applyReward.hardRollbackQuest"
+        )
+        var unstamped = completion
+        unstamped.xpCredited = nil
+        await cacheService.upsertQuestCompletion(unstamped)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: unstamped.id,
+            appState: appState,
+            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+            context: "QuestService.applyReward.hardRollbackStamp"
+        )
+    }
+
+    private func revertProfileXP(hero: Profile, zoneID: CKRecordZone.ID, baselineXP: Int, context: String) async {
+        guard let cached = cacheService.fetchProfile(recordName: hero.id.recordName, family: hero.family.recordID.recordName) else { return }
+        var reverted = cached.toProfile(zoneID: zoneID)
+        reverted.xp = baselineXP
+        reverted.level = XPService.level(forXP: baselineXP)
+        await cacheService.upsertProfile(reverted)
+        if appState.currentProfile?.id.recordName == reverted.id.recordName {
+            appState.currentProfile = reverted
+        }
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: reverted.id,
+            appState: appState,
+            logger: Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestService"),
+            context: context
+        )
+    }
+
+    private func settleRealTimeIfNeeded(hero: Profile, creditedGold: Double, questFamilyID: CKRecord.ID) async throws {
         let resolvedFamily: Family? = cacheService.fetchFamily(recordName: questFamilyID.recordName)?
             .toFamily(zoneID: questFamilyID.zoneID)
-
         let effectivePolicy = treasuryService?.effectivePayoutPolicy(for: hero, family: resolvedFamily)
             ?? hero.payoutPolicy
             ?? resolvedFamily?.payoutPolicy
             ?? .perQuest
-
         if effectivePolicy == .realTime, creditedGold > 0, let treasuryService, let resolvedFamily {
             do {
                 _ = try await treasuryService.processRealTimeSettlement(profile: hero, family: resolvedFamily)
@@ -124,8 +348,6 @@ extension QuestService {
                 }
             }
         }
-
-        return creditedGold
     }
 
     private func resolveAuthoritativeQuest(_ quest: Quest) async -> Quest {
@@ -168,5 +390,40 @@ extension QuestService {
             return hero.dailyLoginStreakDays
         }
         return StreakCalculator.computeStreak(from: heroLogs)
+    }
+
+    // WHY: transient CloudKit errors keep optimistic reward + XP and remain queued; hard errors rollback.
+    private func isTransientRewardError(_ error: Error) -> Bool {
+        if let ckError = error as? CKError {
+            switch ckError.code {
+            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy, .resultsTruncated:
+                return true
+            case .operationCancelled:
+                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
+                    return true
+                }
+                return false
+            default:
+                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
+                    return true
+                }
+                let nsErr = error as NSError
+                if nsErr.domain == NSURLErrorDomain, nsErr.code == NSURLErrorTimedOut {
+                    return true
+                }
+                return false
+            }
+        }
+        let nsErr = error as NSError
+        if nsErr.domain == NSURLErrorDomain, nsErr.code == NSURLErrorTimedOut {
+            return true
+        }
+        if let serviceError = error as? CloudKitServiceError {
+            switch serviceError {
+            case .networkUnavailable, .retryable, .exhaustedBudget: return true
+            default: return false
+            }
+        }
+        return false
     }
 }
