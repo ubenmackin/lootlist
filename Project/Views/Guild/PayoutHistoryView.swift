@@ -143,6 +143,7 @@ struct PayoutHistoryView: View {
     }
 
     // MARK: - Toolbar (extracted to help Swift 6 type-checker on Xcode 26.6)
+
     @ToolbarContentBuilder
     private var payoutToolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) { importButton }
