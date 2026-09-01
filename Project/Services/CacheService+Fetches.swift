@@ -13,6 +13,19 @@ import SwiftData
 extension CacheService {
     private static let fetchLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
 
+    // MARK: - Family scope guard (DRY)
+
+    /// Shared fail-closed guard for every family-scoped fetch. Returns the
+    /// unwrapped family when non-empty, otherwise logs and returns nil so
+    /// callers can `guard let family = guardFamily(family) else { return [] }`.
+    private func guardFamily(_ family: String?) -> String? {
+        guard let family, !family.isEmpty else {
+            Self.fetchLogger.warning("family-scoped fetch called without family scope — returning empty (fail-closed)")
+            return nil
+        }
+        return family
+    }
+
     // MARK: - Generic helper
 
     /// Generic fetch helper that handles the common fetch pattern.
@@ -54,10 +67,7 @@ extension CacheService {
         family: String?,
         sortBy: [SortDescriptor<T>] = []
     ) -> [T] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("familyScopedFetch<\(String(describing: T.self), privacy: .private)> called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         let predicate: Predicate<T> = #Predicate<T> { $0.familyRecordName == family }
         return fetch(type, predicate: predicate, sortBy: sortBy)
     }
@@ -66,19 +76,13 @@ extension CacheService {
     /// family-scoped cache read. Reduces per-type boilerplate; future cached
     /// types get fetch for free by conforming to ``FamilyScopedFetchable``.
     func fetchAll<T: FamilyScopedFetchable>(_ type: T.Type, family: String) -> [T] {
-        guard !family.isEmpty else {
-            Self.fetchLogger.warning("fetchAll<\(String(describing: T.self), privacy: .private)> called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetch(type, predicate: #Predicate { $0.familyRecordName == family })
     }
 
     /// Sorted overload for call sites that require deterministic ordering.
     func fetchAll<T: FamilyScopedFetchable>(_ type: T.Type, family: String, sortBy: [SortDescriptor<T>]) -> [T] {
-        guard !family.isEmpty else {
-            Self.fetchLogger.warning("fetchAll<\(String(describing: T.self), privacy: .private)> called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         let predicate: Predicate<T> = #Predicate<T> { $0.familyRecordName == family }
         return fetch(type, predicate: predicate, sortBy: sortBy)
     }
@@ -87,10 +91,7 @@ extension CacheService {
 
     /// Fetches quests, optionally filtered by family and/or a week range.
     func fetchQuests(family: String?, weekInRange: Range<Date>?) -> [QuestCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchQuests called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         if let range = weekInRange {
             let start = range.lowerBound
             let end = range.upperBound
@@ -121,10 +122,7 @@ extension CacheService {
     }
 
     func fetchQuestCompletions(family: String?) -> [QuestCompletionCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchQuestCompletions called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(QuestCompletionCache.self, family: family)
     }
 
@@ -147,18 +145,12 @@ extension CacheService {
     }
 
     func fetchProfiles(family: String?) -> [ProfileCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchProfiles called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(ProfileCache.self, family: family)
     }
 
     func fetchQuestTemplates(family: String?) -> [QuestTemplateCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchQuestTemplates called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(QuestTemplateCache.self, family: family)
     }
 
@@ -228,10 +220,7 @@ extension CacheService {
         #if DEBUG
             ledgerEntryFetchScopes.append(family)
         #endif
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchLedgerEntries(profileRecordName:) called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetch(
             LedgerEntryCache.self,
             predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
@@ -239,12 +228,12 @@ extension CacheService {
         )
     }
 
-    /// WHY DB-level predicate: the per-day transfer guard previously pulled all
-    /// ledger rows for a profile and scanned on the main thread. This fetch
-    /// narrows to the (family, profile, source, date) subset via composite
-    /// index (familyRecordName, profileRecordName, source, date); pair filter
-    /// (fromBucket/toBucket) refines the small subset in-memory, avoiding O(n)
-    /// main-thread scans.
+    /// WHY DB-level predicate narrows via composite index
+    /// `[\.familyRecordName, \.profileRecordName, \.source, \.date]` to the
+    /// (family, profile, source, date) subset; `fromBucket`/`toBucket` are
+    /// sparse optionals not indexed and are filtered in-memory on the small
+    /// indexed subset, avoiding O(n) main-thread scans and table scans.
+    /// WARNING: Do not add fromBucket/toBucket to DB predicate — sparse optionals not indexed, would force table scan.
     func fetchTransfers(
         profileRecordName: String,
         familyRecordName: String,
@@ -261,25 +250,22 @@ extension CacheService {
         let todayStart = range.lowerBound
         let todayEnd = range.upperBound
         let transferSource = LedgerSource.transfer.rawValue
-        return fetch(
+        let candidates = fetch(
             LedgerEntryCache.self,
             predicate: #Predicate { entry in
                 entry.profileRecordName == profileRecordName
                     && entry.familyRecordName == familyRecordName
                     && entry.source == transferSource
-                    && entry.fromBucket == fromRaw
-                    && entry.toBucket == toRaw
                     && entry.date >= todayStart
                     && entry.date < todayEnd
             }
         )
+        // Sparse optional pair not indexed — refine small indexed subset in-memory.
+        return candidates.filter { $0.fromBucket == fromRaw && $0.toBucket == toRaw }
     }
 
     func fetchLedgerEntries(profileRecordName: String, family: String, recordNamePrefix: String) -> [LedgerEntryCache] {
-        guard !family.isEmpty else {
-            Self.fetchLogger.warning("fetchLedgerEntries(profileRecordName:family:recordNamePrefix:) called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard guardFamily(family) != nil else { return [] }
         let prefix = recordNamePrefix
         return fetch(
             LedgerEntryCache.self,
@@ -288,10 +274,7 @@ extension CacheService {
     }
 
     func fetchLedgerEntries(family: String?) -> [LedgerEntryCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchLedgerEntries(family:) called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(
             LedgerEntryCache.self,
             family: family,
@@ -300,10 +283,7 @@ extension CacheService {
     }
 
     func fetchAllowancePeriods(profileRecordName: String, family: String? = nil) -> [AllowancePeriodCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchAllowancePeriods(profileRecordName:) called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetch(
             AllowancePeriodCache.self,
             predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
@@ -312,10 +292,7 @@ extension CacheService {
     }
 
     func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchAllowancePeriods(family:) called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(
             AllowancePeriodCache.self,
             family: family,
@@ -324,18 +301,12 @@ extension CacheService {
     }
 
     func fetchAchievements(family: String?) -> [AchievementCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchAchievements called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(AchievementCache.self, family: family)
     }
 
     func fetchProfileAchievements(profileRecordName: String, family: String? = nil) -> [ProfileAchievementCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchProfileAchievements(profileRecordName:) called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetch(
             ProfileAchievementCache.self,
             predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
@@ -344,10 +315,7 @@ extension CacheService {
     }
 
     func fetchNotificationPreferences(profileRecordName: String, family: String? = nil) -> [NotificationPreferenceCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchNotificationPreferences(profileRecordName:) called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetch(
             NotificationPreferenceCache.self,
             predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family }
@@ -366,10 +334,7 @@ extension CacheService {
     }
 
     func fetchGemLedgers(family: String?) -> [GemLedgerCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchGemLedgers called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(GemLedgerCache.self, family: family)
     }
 
@@ -388,10 +353,7 @@ extension CacheService {
     }
 
     func fetchRewardEvents(family: String?) -> [RewardEventCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchRewardEvents called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(RewardEventCache.self, family: family)
     }
 
@@ -405,10 +367,7 @@ extension CacheService {
     }
 
     func fetchGoals(family: String?) -> [GoalCache] {
-        guard let family, !family.isEmpty else {
-            Self.fetchLogger.warning("fetchGoals called without family scope — returning empty (fail-closed)")
-            return []
-        }
+        guard let family = guardFamily(family) else { return [] }
         return fetchAll(GoalCache.self, family: family)
     }
 

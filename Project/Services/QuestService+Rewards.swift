@@ -157,13 +157,14 @@ extension QuestService {
         )
     }
 
+    // WHY: Bespoke fallback to local profile streak without CloudKit query/hydrate — intentionally inline, not a CacheFirst flow.
     /// Computes quest completion streak from local cache without network round-trips.
     private func currentStreak(for hero: Profile, familyName: String) -> Int {
         let cache = cacheService
         let heroLogs = cache.fetchQuestCompletions(family: familyName)
             .filter { $0.completerRecordName == hero.id.recordName }
         let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        if !cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: heroLogs.count) {
+        if !cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope) {
             return hero.dailyLoginStreakDays
         }
         return StreakCalculator.computeStreak(from: heroLogs)

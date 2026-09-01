@@ -23,7 +23,17 @@ enum CacheFirst {
     ///
     /// Encapsulates: check `isCacheAuthoritative(scope-aware)` → return cached
     /// rows mapped (and optionally sorted) → CloudKit query → `hydrateFromQuery`
-    /// → fallback to stale cache on catch with `logger.warning`.
+    /// → fallback to stale cache on transient network failure only.
+    ///
+    /// - Parameter fallbackToStale: When `true` (default), a transient network
+    ///   failure (`networkUnavailable` / retryable / `CKError.network*`) falls
+    ///   back to stale cached rows so offline / brand-new-hero reads remain
+    ///   available. Non-network CloudKit failures (e.g. `notFound`,
+    ///   `permissionFailure`, `serverRecordChanged`) are rethrown even with
+    ///   `fallbackToStale == true` so persistent server errors surface to the
+    ///   caller per §5 (`CloudKitServiceError`) and the UI can show a retry /
+    ///   `StaleDataBanner` instead of silently masking. Pass `false` when the
+    ///   caller must never mask errors (explicit FamilyService-style handling).
     @MainActor
     static func cacheFirst<T: CloudKitRecord, C: FamilyScopedCache>(
         type: CachedRecordType,
@@ -34,7 +44,8 @@ enum CacheFirst {
         map: (C) -> T,
         query: () async throws -> [T],
         hydrate: ([T]) async -> Void,
-        sortedBy sort: ((T, T) -> Bool)? = nil
+        sortedBy sort: ((T, T) -> Bool)? = nil,
+        fallbackToStale: Bool = true
     ) async throws -> [T] {
         let familyName = family.id.recordName
         let cached = fetchCache(familyName)
@@ -42,8 +53,7 @@ enum CacheFirst {
         if cacheService.isCacheAuthoritative(
             familyRecordName: familyName,
             type: type,
-            scope: scope,
-            cachedCount: cached.count
+            scope: scope
         ) {
             let mapped = cached.map(map)
             if let sort {
@@ -60,9 +70,19 @@ enum CacheFirst {
             }
             return queried
         } catch {
-            cacheFirstLogger.warning("cacheFirst \(type.rawValue, privacy: .public) CloudKit query failed, falling back to stale cache: \(error, privacy: .private)")
+            // Cancellation must always propagate.
+            if error is CancellationError {
+                throw error
+            }
+            // Only transient network failures fall back to stale cache. Persistent
+            // CloudKit errors rethrow so callers can surface them (§5).
+            guard fallbackToStale, isTransientNetworkError(error) else {
+                throw error
+            }
+            cacheFirstLogger
+                .warning("cacheFirst \(type.rawValue, privacy: .public) CloudKit query failed (transient network), falling back to stale cache: \(error, privacy: .private)")
             let fallback = fetchCache(familyName)
-            // Brand-new hero may not be marked fresh yet — return cached rows (even empty) on CloudKit failure rather than throwing.
+            // Brand-new hero may not be marked fresh yet — return cached rows (even empty) on transient failure rather than throwing.
             let mapped = fallback.map(map)
             if let sort {
                 return mapped.sorted(by: sort)
@@ -70,32 +90,21 @@ enum CacheFirst {
             return mapped
         }
     }
-}
 
-/// Convenience free function forwarding to CacheFirst.cacheFirst when cacheService/appState are already in scope.
-///
-/// This overload forwards to ``CacheFirst/cacheFirst(type:family:cacheService:appState:fetchCache:map:query:hydrate:sortedBy:)``
-/// when callers already have `cacheService` and `appState` in scope via
-/// captured closures. Prefer the `CacheFirst` enum entry point for new code.
-@MainActor
-func cacheFirst<T: CloudKitRecord, C: FamilyScopedCache>(
-    type: CachedRecordType,
-    family: Family,
-    cacheService: CacheService,
-    appState: AppState,
-    fetchCache: (String) -> [C],
-    map: (C) -> T,
-    query: () async throws -> [T],
-    hydrate: ([T]) async -> Void
-) async throws -> [T] {
-    try await CacheFirst.cacheFirst(
-        type: type,
-        family: family,
-        cacheService: cacheService,
-        appState: appState,
-        fetchCache: fetchCache,
-        map: map,
-        query: query,
-        hydrate: hydrate
-    )
+    /// Returns `true` for transient network errors that justify stale-cache
+    /// fallback; all other errors should surface to the caller.
+    private static func isTransientNetworkError(_ error: Error) -> Bool {
+        if let ckError = error as? CKError {
+            return ckError.code == .networkUnavailable || ckError.code == .networkFailure
+        }
+        if let serviceError = error as? CloudKitServiceError {
+            switch serviceError {
+            case .networkUnavailable, .retryable, .exhaustedBudget:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
+    }
 }

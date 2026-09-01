@@ -735,11 +735,9 @@ final class ProfileViewModel {
         if let cache = achievementService.cacheService {
             let familyName = profile.family.recordID.recordName
             let scope = (appState ?? achievementService.appState)?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
-            let profileCount = cache.fetchProfileAchievements(profileRecordName: profile.id.recordName, family: familyName).count
-            let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, scope: scope, cachedCount: profileCount)
+            let profileAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .profileAchievement, scope: scope)
             let achievementAuthoritative = family.map { fam in
-                let count = cache.fetchAchievements(family: fam.id.recordName).count
-                return cache.isCacheAuthoritative(familyRecordName: fam.id.recordName, type: .achievement, scope: scope, cachedCount: count)
+                cache.isCacheAuthoritative(familyRecordName: fam.id.recordName, type: .achievement, scope: scope)
             } ?? true
             if profileAuthoritative, achievementAuthoritative {
                 return

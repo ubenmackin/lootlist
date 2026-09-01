@@ -352,7 +352,11 @@ final class BucketService {
             if transferID == neighborID {
                 logger
                     .warning(
-                        "BucketService.transfer TOCTOU tolerance: accepted transferID dayBucket \(neighbor, privacy: .public) vs service today \(todayBucket, privacy: .public) within ±1 (midnight straddle)"
+                        """
+                        BucketService.transfer TOCTOU tolerance: accepted transferID dayBucket \
+                        \(neighbor, privacy: .public) vs service today \(todayBucket, privacy: .public) \
+                        within ±1 (midnight straddle)
+                        """
                     )
                 WeekMath.logTransferSkewIfNeeded(localDate: WeekMath.utcDateRange(forDayBucket: neighbor).lowerBound, serverDate: Date())
                 return

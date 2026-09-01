@@ -613,11 +613,12 @@ final class QuestService {
         let familyName = family.id.recordName
         let cache = cacheService
 
+        // WHY: Multi-type sweep with bespoke deferral and payout-week aggregation — intentionally inline, not a single-type CacheFirst flow.
         // Query allowance periods to identify weeks whose payouts have been completed (.paid)
         let cachedAllowance = cache.fetchAllowancePeriods(family: familyName)
         let allowanceScope: CKDatabase.Scope = appState.activeDatabaseScope
         let allowancePeriods: [AllowancePeriod]
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: allowanceScope, cachedCount: cachedAllowance.count) {
+        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: allowanceScope) {
             allowancePeriods = cachedAllowance.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
             // Cache authoritative — paid-week set is complete; clear any prior deferral.
             setSweepDeferred(false)

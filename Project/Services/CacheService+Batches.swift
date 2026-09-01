@@ -32,6 +32,14 @@ extension CacheService {
         }
     }
 
+    /// Recurses into per-family batches when no explicit scope is provided.
+    private func batchUpsertGrouped<T: CacheMergeable>(_: T.Type, items: [T.DomainModel]) {
+        let grouped = groupedByFamily(T.self, items: items)
+        for (family, group) in grouped {
+            batchUpsert(T.self, items: group, familyRecordName: family.isEmpty ? nil : family)
+        }
+    }
+
     /// Single private generic — all batch wrappers route through here.
     private func batchUpsert<T: CacheMergeable>(_: T.Type, items: [T.DomainModel], familyRecordName: String?) {
         if let familyRecordName {
@@ -88,10 +96,7 @@ extension CacheService {
             saveContext()
             return
         }
-        let grouped = Dictionary(grouping: items) { T(from: $0).familyRecordName }
-        for (family, group) in grouped {
-            batchUpsert(T.self, items: group, familyRecordName: family.isEmpty ? nil : family)
-        }
+        batchUpsertGrouped(T.self, items: items)
     }
 
     private func purgeMissing<T: CacheMergeable>(_: T.Type, validRecordNames: Set<String>, familyRecordName: String?) {

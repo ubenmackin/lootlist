@@ -14,6 +14,7 @@ struct StaleDataBanner: View {
 
     private let family: String?
     private let type: CachedRecordType?
+    // WHY: count retained for ABI — scope-aware initializer captures cached row count but staleness gates on authoritative watermark; extension isStale(for:cachedCount:) handles empty-cache case explicitly.
     private let count: Int?
     private let isSyncing: Bool
 
@@ -36,10 +37,10 @@ struct StaleDataBanner: View {
     }
 
     private var isStale: Bool {
-        guard let family, let type, let count else { return true }
-        // Observe watermark version so view recomputes when cache freshness changes.
+        guard let family, let type else { return true }
+        // WHY: Observe watermark version so view recomputes when cache freshness changes; View stays CloudKit-free by delegating scope-aware check to CacheService.
         _ = appState.cacheService?.freshnessVersion
-        return !(appState.cacheService?.isCacheAuthoritative(familyRecordName: family, type: type, scope: appState.activeDatabaseScope, cachedCount: count) ?? false)
+        return appState.cacheService?.isStaleWithoutScope(for: family, type: type, cachedCount: count ?? 0) ?? true
     }
 
     var body: some View {
@@ -76,15 +77,5 @@ struct StaleDataBanner: View {
             .accessibilityLabel("Data may be stale — pull to refresh")
             .accessibilityIdentifier("staleDataBanner")
         }
-    }
-}
-
-extension CacheService {
-    /// Returns true when the local cache has rows for `type` but no freshness
-    /// watermark for `family` — stale data that must be re-validated via CloudKit.
-    func isStale(for family: String, type: CachedRecordType, cachedCount: Int) -> Bool {
-        _ = freshnessVersion
-        guard !family.isEmpty, cachedCount > 0 else { return false }
-        return !isCacheFresh(familyRecordName: family, type: type)
     }
 }

@@ -98,6 +98,7 @@ extension GemLedger: DomainSystemFields {}
 extension RewardEvent: DomainSystemFields {}
 extension Goal: DomainSystemFields {}
 
+// WHY: Blanket extension unsupported in this toolchain; 13 explicit conformances are minimal.
 extension QuestCache: CacheSystemFields {}
 extension QuestCompletionCache: CacheSystemFields {}
 extension QuestTemplateCache: CacheSystemFields {}

@@ -85,6 +85,9 @@ enum LootListSchemaV9: VersionedSchema {
 /// (family-scoping) and adds `[\.familyRecordName, \.profileRecordName, \.date]`
 /// and `[\.familyRecordName, \.profileRecordName, \.source, \.date]` to
 /// support hasTransferredToday date-range queries without sparse optional columns.
+/// `fromBucket`/`toBucket` are sparse optionals excluded from the DB predicate
+/// and filtered in-memory on the small indexed subset to avoid table scans.
+/// WARNING: Do not add fromBucket/toBucket to any DB index or predicate — sparse optionals not indexed, would force table scan.
 /// LedgerEntryCache declares three total indexes; V10 adds the latter two.
 /// No new models, no property changes — indexes only.
 /// WHY lightweight: adding indexes without properties is eligible for SwiftData

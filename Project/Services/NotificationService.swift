@@ -98,18 +98,20 @@ final class NotificationService {
         deviceToken = token
     }
 
+    // WHY: Bespoke UserDefaults fallback without CloudKit query/hydrate — intentionally inline, not a CacheFirst single-type flow.
     func isNotificationEnabled(for eventType: NotificationEventType) -> Bool {
         // Reads notification preference with cache freshness check.
         let scope: CKDatabase.Scope = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) ? .private : .shared
         if let cached = cachedPreference(for: eventType),
            let familyName = appState.family?.id.recordName,
-           cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .notificationPreference, scope: scope, cachedCount: 1)
+           cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .notificationPreference, scope: scope)
         {
             return cached.enabled
         }
         return userDefaultsFallback(for: eventType)
     }
 
+    // WHY: Bespoke per-profile fallback to UserDefaults/peer default without CloudKit query — intentionally inline, not a CacheFirst flow.
     func isNotificationEnabled(for eventType: NotificationEventType, profileRecordName: String?, familyRecordName: String?) -> Bool {
         guard let profileRecordName, let familyRecordName else {
             return isNotificationEnabled(for: eventType)

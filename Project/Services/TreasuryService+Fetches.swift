@@ -201,6 +201,7 @@ extension TreasuryService {
         }
     }
 
+    // WHY: Single-record filtered lookup with optional CloudKit fallback and bespoke nil-handling — intentionally inline, not a single-type CacheFirst list flow.
     func fetchAllowancePeriod(profile: Profile,
                               weekOf: Date) async throws -> AllowancePeriod?
     {
@@ -212,7 +213,7 @@ extension TreasuryService {
         let profileName = profile.id.recordName
         let cached = cache.fetchAllowancePeriods(profileRecordName: profileName, family: familyName)
             .first { $0.weekOf == normalizedWeekStart }
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope, cachedCount: cached != nil ? 1 : 0) {
+        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: scope) {
             return cached?.toAllowancePeriod(zoneID: profile.id.zoneID)
         }
         // Brand-new hero has no AllowancePeriod yet — that is a valid
@@ -287,13 +288,13 @@ extension TreasuryService {
 
     // MARK: - Gold Aggregation
 
+    // WHY: Bespoke multi-step cache aggregation with missing-key patching — intentionally inline, not a single-type CacheFirst flow.
     func fetchQuestsForGold(family: Family, logs: [QuestCompletion]) async throws -> [Quest] {
         guard !logs.isEmpty else { return [] }
         let needed = Set(logs.map(\.quest.recordID.recordName))
         let familyName = family.id.recordName
         let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        let count = cacheService.fetchQuests(family: familyName).count
-        let isAuthoritative = cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: count)
+        let isAuthoritative = cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope)
         if isAuthoritative {
             let zoneID = family.id.zoneID
             let cached = cacheService.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }

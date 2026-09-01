@@ -113,6 +113,7 @@ enum WeekMath {
     /// so round-tripping cannot drift by timezone.
     static func date(fromDayKey dayKey: String, calendar: Calendar = .iso8601UTC) -> Date? {
         let parts = dayKey.split(separator: "-")
+        // Uniform subscript access — count == 3 guarantees indices 0..<3 are valid.
         guard parts.count == 3,
               let year = Int(parts[0]),
               let month = Int(parts[1]),

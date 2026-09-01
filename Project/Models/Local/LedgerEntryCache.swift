@@ -14,6 +14,7 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = LedgerEntry
 
     // WHY: lean transfer guard index — (family, profile, source, date) narrows hasTransferredToday without sparse optional columns; pair filter refines the small indexed subset.
+    // WARNING: Do not add fromBucket/toBucket to DB predicate — sparse optionals not indexed, would force table scan. Filter in-memory.
     #Index<LedgerEntryCache>(
         [\.familyRecordName, \.recordName],
         [\.familyRecordName, \.profileRecordName, \.date],
