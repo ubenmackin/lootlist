@@ -24,32 +24,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Select Xcode 26.6 (iOS 26 SDK)
-      uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
-      with:
-        xcode-version: '26.6'
+    # No separate Xcode setup needed for build-mode: none - analysis does not compile.
+    # CI job (macos-26 / Xcode 26.6) already proves the iOS 26 build.
 
-    - name: Install xcodegen and generate project
-      run: |
-        brew list xcodegen || brew install --quiet xcodegen
-        xcodegen generate
-
-    # Initializes CodeQL tools for scanning (Swift manual build, now with real iOS 26 SDK via Xcode 26.6 on macos-26)
+    # Initializes CodeQL tools for scanning (Swift build-mode: none - no xcodebuild, avoids tracer hang)
     - name: Initialize CodeQL
       uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
       with:
         languages: swift
-        build-mode: manual
-
-    # Build step using generic destination (avoids simulator daemon hangs)
-    - name: Build Swift Code
-      run: |
-        xcodebuild -project LootList.xcodeproj \
-          -scheme LootList \
-          -destination 'generic/platform=iOS' \
-          build \
-          CODE_SIGNING_ALLOWED=NO \
-          CODE_SIGN_IDENTITY=-
+        build-mode: none
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
