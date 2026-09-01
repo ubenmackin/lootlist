@@ -133,7 +133,6 @@ struct TrophyRoomView: View {
                 achievements = cache.fetchAchievements(family: family.id.recordName)
             }
             if achievements.isEmpty {
-                // WHY: View is cache-only and must not synthesize domain structs; service provides seeded caches and handles ingest.
                 achievements = achievementService.cachedOrSeededAchievementCaches(for: family)
                 let capturedEarned = earned
                 Task { @MainActor in
@@ -149,7 +148,6 @@ struct TrophyRoomView: View {
         viewModel?.rebuildLists(earned: earned, allAchievements: achievements)
     }
 
-    // WHY: empty grid before first CloudKit pull has no cached definitions; proactively fetch when watermark is stale so grid populates without next sync.
     private func hydrateDefinitionsIfNeeded(family: Family) async {
         guard viewModel?.allAchievements.isEmpty == true else { return }
         do {

@@ -47,7 +47,7 @@ struct ChildHubCardsView: View {
                         Button { onWithdraw(quest, log) } label: {
                             ChoreRowCard(
                                 title: row.title,
-                                subtitle: "Sent to Parent for Review · Tap to Unsubmit",
+                                subtitle: "Tap to Unsubmit",
                                 amountText: "+\(CurrencyFormatter.string(row.amount))",
                                 style: .pendingReview,
                                 isSubmitting: isSubmitting,
@@ -64,6 +64,7 @@ struct ChildHubCardsView: View {
                             amountText: "+\(CurrencyFormatter.string(row.amount))",
                             style: .upcoming,
                             isSubmitting: isSubmitting,
+                            isMultiPart: quest.targetCount > 1,
                             onLeadingAction: { onCompleteQuest(quest) },
                             accessibilityID: "hub.choreRow-\(row.id)"
                         )

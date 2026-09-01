@@ -62,7 +62,6 @@ extension QuestService {
         if let family {
             let cache = cacheService
             let familyName = family.id.recordName
-            // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback at call site (FamilyService-style).
             let count = cache.fetchQuests(family: familyName).count
             let scope: CKDatabase.Scope = appState.activeDatabaseScope
             let isAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: count)

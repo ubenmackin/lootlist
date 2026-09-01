@@ -44,7 +44,6 @@ enum GoalProgressCalculator {
             let profile = first.profileRecordName
             let bucket = first.bucketKind
             let bucketEntries = ledgerEntries.filter { $0.profileRecordName == profile && $0.bucketKind == bucket }
-            // WHY: Ledger amounts are dollars; goal targets are pennies — convert once so FIFO math never drifts on floating point.
             let totalPennies = bucketEntries.reduce(into: Int64(0)) { acc, entry in
                 acc += Int64((entry.amount * 100).rounded())
             }
@@ -101,7 +100,6 @@ struct KidsSavingsGoalsView: View {
 
     private var heroProfiles: [ProfileCache] {
         let heroes = profileCaches.filter { $0.roleEnum == .hero && $0.isActive }
-        // WHY: HeroDetail deep-link must land with focused hero visible without scrolling.
         guard let focused = focusedProfileRecordName else { return heroes }
         return heroes.sorted { lhs, rhs in
             if lhs.recordName == focused {
@@ -420,7 +418,6 @@ struct KidsSavingsGoalsView: View {
     }
 
     private func accentColor(for hero: ProfileCache) -> Color {
-        // WHY: Deterministic per-child color keeps each hero's goals visually grouped without storing an extra field.
         let palette: [Color] = [
             Color(DesignSystemConstants.Colors.accentBlue),
             Color(DesignSystemConstants.Colors.primaryGreen),

@@ -104,8 +104,6 @@ struct JourneyMapView: View {
                 handleInitialLoad(proxy: proxy)
             }
             .onChange(of: animatedHeroLevel) { _, newLevel in
-                // WHY: Scroll driven by state change so the async progression
-                // task never captures ScrollViewProxy across suspension points.
                 withAnimation(.easeInOut(duration: 0.85)) {
                     proxy.scrollTo(newLevel, anchor: .center)
                 }

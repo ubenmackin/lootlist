@@ -303,7 +303,6 @@ final class AchievementService {
         ]
     }
 
-    // WHY: View is cache-only (@Query) and must not synthesize domain structs; service provides cache-first seeded caches so hydration rides the single ingest door.
     func cachedOrSeededAchievementCaches(for family: Family) -> [AchievementCache] {
         let familyName = family.id.recordName
         if let cache = cacheService {
@@ -316,9 +315,6 @@ final class AchievementService {
         return Self.defaultAchievements(for: familyRef).map { AchievementCache(from: $0) }
     }
 
-    // WHY: empty grid before first CloudKit pull has no cached definitions — View
-    // is cache-only (@Query) and must not import CloudKit; service synthesizes
-    // defaults into cache and enqueues via coordinator so hydration rides ingest.
     func ensureDefaultAchievements(for family: Family) async -> [AchievementCache] {
         let familyName = family.id.recordName
         if let cache = cacheService {
@@ -329,8 +325,6 @@ final class AchievementService {
         }
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let defaults = Self.defaultAchievements(for: familyRef)
-        // WHY: optimistic seeds must ride the sanctioned ingest door (hydrateFromQuery) so
-        // SerialMutationQueue serializes writes and encodedSystemFields are preserved; detached Tasks would race.
         if let handler = syncCoordinator?.delegateHandler {
             let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             await handler.hydrateFromQuery(models: defaults, databaseScope: scope, zoneID: family.id.zoneID)
@@ -624,8 +618,6 @@ final class AchievementService {
 
 // MARK: - AchievementService Helpers
 
-/// Helpers extracted to keep type body under lint limit; WHY: single helper
-/// boundary preserves isCacheAuthoritative contract without duplicating freshness logic.
 @MainActor
 private extension AchievementService {
     func fetchCompletedLogs(for profile: Profile, family: Family) async throws -> [QuestCompletion] {

@@ -189,7 +189,6 @@ final class MatchService {
         )
         await cacheService?.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "MatchService.applyMatch")
-        // WHY: Log uses CurrencyFormatter so currency render stays locale-aware and single-point.
         let formattedAmount = CurrencyFormatter.string(Double(matchPennies) / 100.0)
         logger.info("Matched \(formattedAmount, privacy: .public) for goal \(goal.id.recordName, privacy: .private) in month \(month, privacy: .public)")
         return entry

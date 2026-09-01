@@ -141,21 +141,19 @@ final class ChildHubViewModel {
 
         let myQuests = quests.filter { $0.assigneeRecordName == profileName && $0.isActive }
         let myLogs = logs.filter { $0.completerRecordName == profileName }
-        // WHY: questsByID includes inactive quests so pending reviews stay visible after template deactivation; to-do list is separately filtered via myQuests.isActive.
+        // Include inactive quests so pending reviews remain visible after deactivation.
         let questsByID = Dictionary(
             quests.map { ($0.recordName, $0) },
             uniquingKeysWith: { first, _ in first }
         )
         let templatesByID = Dictionary(
-            templates.filter(\.isActive).map { ($0.recordName, $0) },
+            templates.map { ($0.recordName, $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
-        // WHY: Week boundaries come exclusively from WeekMath so the hub's progress
-        // window matches payout cycles everywhere else in the app.
         let payoutDay = appState.resolvedPayoutDay
-        let weekRange = WeekMath.weekRange(starting: WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay))
-        let weekQuests = myQuests.filter { weekRange.contains($0.weekOf) }
+        let weekRange = WeekMath.range(for: Date(), payoutDay: payoutDay).range
+        let weekQuests = myQuests.filter { WeekMath.isQuestInCurrentWeek($0.weekOf, range: weekRange) }
 
         choreRows = buildChoreRows(
             weekQuests: weekQuests,
@@ -164,11 +162,11 @@ final class ChildHubViewModel {
             templatesByID: templatesByID
         )
 
-        weeklyGoal = weekQuests.count
-        weeklyCompleted = weekQuests.filter { quest in
+        weeklyGoal = weekQuests.reduce(0) { $0 + max(1, $1.targetCount) }
+        weeklyCompleted = weekQuests.reduce(0) { sum, quest in
             let approved = myLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
-            return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved)
-        }.count
+            return sum + min(approved, max(1, quest.targetCount))
+        }
 
         streak = StreakCalculator.computeStreak(from: myLogs)
 
@@ -190,9 +188,10 @@ final class ChildHubViewModel {
         let savingsStreak = StreakCalculator.computeSavingsStreak(from: ledgerEntries, profileRecordName: profileName, payoutDay: payoutDay)
         let nextChore = choreRows.first(where: { !$0.isPendingReview })?.title
 
+        let weekTargetTotal = weekQuests.reduce(0) { $0 + max(1, $1.targetCount) }
         let snapshot = WidgetSnapshot(
             todayCompletedQuests: todayLogs.count,
-            todayTotalQuests: max(todayLogs.count, weekQuests.count),
+            todayTotalQuests: max(todayLogs.count, weekTargetTotal),
             dailyQuestStreak: streak,
             weeklySavingsStreak: savingsStreak,
             activeGoalName: activeGoal?.goal.name,
@@ -223,8 +222,7 @@ final class ChildHubViewModel {
             .sorted { $0.completedDate > $1.completedDate }
         for log in pendingLogs {
             guard let quest = questsByID[log.questRecordName] else { continue }
-            // WHY: Keep deactivated quests visible for in-flight reviews; surface stale reward without hiding the row.
-            let subtitle = quest.isActive ? "Sent to Parent for Review" : "Sent to Parent for Review — quest deactivated"
+            let subtitle = quest.isActive ? "Tap to Unsubmit" : "Deactivated · Tap to Unsubmit"
             rows.append(ChoreRowItem(
                 id: log.recordName,
                 title: quest.questName,
@@ -260,10 +258,23 @@ final class ChildHubViewModel {
         }
 
         for quest in sorted {
+            let questLogs = logsByQuest[quest.recordName] ?? []
+            let approved = questLogs.filter(\.isApproved).count
+            let dueStr = Self.dueText(for: quest, templatesByID: templatesByID, todayCode: code)
+            let subtitleText: String
+            if quest.targetCount > 1 {
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .ordinal
+                let ordinal = formatter.string(from: NSNumber(value: approved + 1)) ?? "\(approved + 1)"
+                subtitleText = "\(ordinal) time of \(quest.targetCount) · \(dueStr)"
+            } else {
+                subtitleText = dueStr
+            }
+
             rows.append(ChoreRowItem(
                 id: quest.recordName,
                 title: quest.questName,
-                subtitle: Self.dueText(for: quest, templatesByID: templatesByID, todayCode: code),
+                subtitle: subtitleText,
                 amount: quest.goldReward,
                 isPendingReview: false,
                 questRecordName: quest.recordName,
@@ -294,7 +305,6 @@ final class ChildHubViewModel {
         if days.contains(todayCode) {
             return "Due Today"
         }
-        // WHY: Next weekday lookup via WeekMath so due-text ordering stays payout-anchored and UTC-consistent.
         if let next = WeekMath.nextWeekdayCode(after: todayCode, candidates: days) {
             return "Due \(WeekMath.shortName(for: next))"
         }

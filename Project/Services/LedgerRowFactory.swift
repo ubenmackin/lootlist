@@ -7,7 +7,7 @@
 
 import Foundation
 
-// WHY: Single cache→row path (profile filter + CalendarScope bucket filter + sorted mapping) so Treasury/HeroLedger share one row factory instead of duplicating rebuild logic.
+/// Factory mapping cached ledger entries to presentation spending rows.
 enum LedgerRowFactory {
     static func spendingRows(from ledgers: [LedgerEntryCache], profileRecordName: String, scope: CalendarScope, payoutDay: PayoutDay) -> [SpendingLogRow] {
         ledgers

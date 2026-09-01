@@ -232,7 +232,6 @@ struct QuestManagerView: View {
     private func assignmentRow(quest: QuestCache, vm: QuestManagerViewModel) -> some View {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: quest)
         let approvalMode = quest.approvalModeEnum ?? .autoApprove
-        let rarity = quest.rarityEnum ?? .common
         return Button {
             editingQuest = quest.toQuest(zoneID: zoneID)
         } label: {
@@ -242,9 +241,7 @@ struct QuestManagerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(quest.questName)
                         .font(.subheadline.bold())
-                    // Rarity tiers render as plain effort labels while the
-                    // immersive layer is off; the XP figure stays hidden.
-                    Text("\(CurrencyFormatter.string(quest.goldReward)) · \(FlavorTextProvider.rewardTierName(for: rarity)) · \(approvalMode.displayName)")
+                    Text("\(CurrencyFormatter.string(quest.goldReward)) · \(approvalMode.displayName)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -299,16 +296,13 @@ struct QuestManagerView: View {
     private func templateRow(template: QuestTemplateCache, vm: QuestManagerViewModel) -> some View {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
         let scheduleType = template.scheduleTypeEnum ?? .weeklyFlexible
-        let rarity = template.rarityEnum ?? .common
         return HStack(spacing: 12) {
             Image(systemName: scheduleType.iconSystemName)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
                 Text(template.name)
                     .font(.subheadline.bold())
-                // Rarity tiers render as plain effort labels while the
-                // immersive layer is off; the XP figure stays hidden.
-                Text("\(CurrencyFormatter.string(template.goldReward)) · \(FlavorTextProvider.rewardTierName(for: rarity)) · \(scheduleType.displayName)")
+                Text("\(CurrencyFormatter.string(template.goldReward)) · \(scheduleType.displayName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !template.isActive {

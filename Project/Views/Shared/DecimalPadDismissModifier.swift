@@ -8,7 +8,6 @@
 import SwiftUI
 
 /// Keyboard toolbar that dismisses a decimalPad field by resigning a FocusState binding.
-/// WHY: Uses safeAreaInset instead of ToolbarItemGroup(placement: .keyboard)/inputAccessoryView to avoid non-finite frame faults (Invalid frame dimension).
 struct FocusDecimalPadDismissModifier: ViewModifier {
     var isFocused: FocusState<Bool>.Binding
 

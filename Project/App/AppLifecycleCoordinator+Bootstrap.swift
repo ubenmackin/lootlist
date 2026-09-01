@@ -11,6 +11,7 @@ import os
 
 // MARK: - Bootstrap Sequence
 
+@MainActor
 extension AppLifecycleCoordinator {
     /// Runs the full initial bootstrap sequence exactly once. Subsequent calls
     /// are no-ops while one is in flight or after the initial bootstrap completes.
@@ -36,6 +37,18 @@ extension AppLifecycleCoordinator {
 
         await appState?.restoreSession(cloudKit: cloudKitService)
 
+        if let cache = appState?.cacheService {
+            await cache.bootstrapBackgroundWriterIfNeeded()
+            if let writer = cache.backgroundWriter {
+                if appState?.backgroundCacheActor == nil {
+                    appState?.backgroundCacheActor = writer
+                }
+                if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
+                    concrete.delegateHandler.setBackgroundCache(writer)
+                }
+            }
+        }
+
         // Initialize sync engines before any operation that may enqueue saves
         // (migrations, payouts, hero seeding) to avoid the nil-engine window.
         if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
@@ -56,7 +69,8 @@ extension AppLifecycleCoordinator {
         await reconcileCacheFromCloudKit()
 
         if let zoneID = appState?.familyZoneID {
-            let db = cloudKitService.database(isOwner: appState?.isZoneOwner ?? false)
+            let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+            let db = cloudKitService.database(isOwner: isOwner)
             await appSyncCoordinator?.registerSubscriptions(for: zoneID, in: db)
         }
 
@@ -99,10 +113,11 @@ extension AppLifecycleCoordinator {
 
         handleZoneChangeIfNeeded(currentZoneID: zoneID)
 
-        let scopeKey = "\(profile.id.recordName)|\(family.id.recordName)|\(zoneID.zoneName)|\(zoneID.ownerName)|\(appState.isZoneOwner)"
+        let isOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
+        let scopeKey = "\(profile.id.recordName)|\(family.id.recordName)|\(zoneID.zoneName)|\(zoneID.ownerName)|\(isOwner)"
         let enginesNeedInitialization: Bool = {
             if let concrete = syncCoordinator as? CKSyncEngineCoordinator {
-                return concrete.activeEngine(isOwner: appState.isZoneOwner) == nil
+                return concrete.activeEngine(isOwner: isOwner) == nil
             }
             return false
         }()

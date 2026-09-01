@@ -17,9 +17,7 @@ extension CKSyncEngineDelegateHandler {
         zoneID: CKRecordZone.ID
     ) async {
         let records = models.map { $0.toRecord() }
-        guard !records.isEmpty else { return }
-        // WHY: Hydration must ride ingest() to preserve encodedSystemFields/changeTag for optimistic locking; otherwise RecordBridge would synthesize stale records without server system fields.
-        // Single-save batch accounting: track hydration entry for single-save verification.
+        // Ingest routes through the common pipeline to preserve server system fields.
         hydrateCallCount += 1
         await ingest(
             records: records,

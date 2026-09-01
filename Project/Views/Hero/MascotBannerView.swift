@@ -67,7 +67,6 @@ struct MascotBannerView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(12)
-                // WHY: Speech bubble is card chrome on scenery background — use cardSurface token for contrast.
                 .background(Color(DesignSystemConstants.Colors.cardSurface))
                 .cornerRadius(DesignSystemConstants.CornerRadius.small)
                 .overlay(
@@ -147,7 +146,6 @@ struct MascotBannerView: View {
             }
         }
         .padding()
-        // WHY: Mascot scenery container uses background token to sit behind cardSurface bubbles.
         .background(Color(DesignSystemConstants.Colors.background))
         .cornerRadius(DesignSystemConstants.CornerRadius.card)
         .task {

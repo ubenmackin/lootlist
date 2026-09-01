@@ -15,6 +15,7 @@ struct ChoreRowCard: View {
         case pendingReview
         case upcoming
         case completed
+        case expired
     }
 
     let title: String
@@ -27,6 +28,8 @@ struct ChoreRowCard: View {
 
     var isSubmitting: Bool = false
 
+    var isMultiPart: Bool = false
+
     var onLeadingAction: (() -> Void)?
 
     var accessibilityID: String?
@@ -38,7 +41,7 @@ struct ChoreRowCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(style == .completed ? .secondary : .primary)
+                    .foregroundStyle(style == .completed || style == .expired ? .secondary : .primary)
                     .strikethrough(style == .completed, color: .secondary.opacity(0.5))
                     .lineLimit(1)
 
@@ -105,27 +108,14 @@ struct ChoreRowCard: View {
         case .upcoming:
             if let onLeadingAction {
                 Button(action: onLeadingAction) {
-                    ZStack {
-                        Circle()
-                            .strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen), lineWidth: 2)
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.12)))
-
-                        if isSubmitting {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(Color(DesignSystemConstants.Colors.primaryGreen))
-                        }
-                    }
-                    .contentShape(Circle())
+                    leadingBadge(isMultiPart: isMultiPart, isSubmitting: isSubmitting)
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(isSubmitting)
                 .accessibilityLabel("Complete \(title)")
             } else {
-                Circle()
-                    .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 2)
-                    .frame(width: 32, height: 32)
+                leadingBadge(isMultiPart: isMultiPart, isSubmitting: isSubmitting)
             }
         case .completed:
             ZStack {
@@ -135,6 +125,43 @@ struct ChoreRowCard: View {
                 Image(systemName: "checkmark")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(.white)
+            }
+        case .expired:
+            ZStack {
+                Circle()
+                    .fill(Color.secondary.opacity(0.18))
+                    .frame(width: 32, height: 32)
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func leadingBadge(isMultiPart: Bool, isSubmitting: Bool) -> some View {
+        ZStack {
+            if isMultiPart {
+                Circle()
+                    .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.16))
+                    .frame(width: 32, height: 32)
+                if isSubmitting {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color(DesignSystemConstants.Colors.accentBlue))
+                } else {
+                    Image(systemName: "checklist")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                }
+            } else {
+                Circle()
+                    .strokeBorder(Color.secondary.opacity(0.4), lineWidth: 2)
+                    .frame(width: 32, height: 32)
+                if isSubmitting {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color.secondary)
+                }
             }
         }
     }
@@ -163,6 +190,14 @@ struct ChoreRowCard: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15)))
+        case .expired:
+            Text(amountText)
+                .font(.caption.weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.secondary.opacity(0.15)))
         }
     }
 
@@ -174,6 +209,8 @@ struct ChoreRowCard: View {
             Color.secondary
         case .completed:
             Color(DesignSystemConstants.Colors.primaryGreen)
+        case .expired:
+            Color.secondary
         }
     }
 
@@ -185,6 +222,8 @@ struct ChoreRowCard: View {
             Color(.tertiarySystemGroupedBackground)
         case .completed:
             Color(.secondarySystemGroupedBackground).opacity(0.7)
+        case .expired:
+            Color(.secondarySystemGroupedBackground).opacity(0.55)
         }
     }
 }

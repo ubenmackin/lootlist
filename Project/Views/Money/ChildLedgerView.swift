@@ -25,8 +25,6 @@ struct ChildLedgerView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
 
-        // WHY: Predicate pushdown fetches only this hero's ledgers; avoids loading entire
-        // family ledger set and reduces main-thread filtering for heroes with 1k+ rows.
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
         let ledgerFilter = #Predicate<LedgerEntryCache> {
@@ -49,8 +47,6 @@ struct ChildLedgerView: View {
     /// Ledger entries grouped by date bucket, preserving reverse-chronological
     /// order within each bucket.
     private var dateBuckets: [(title: String, entries: [LedgerEntryCache])] {
-        // WHY: Day and week boundaries ride WeekMath's shared UTC bucket and the
-        // hero's payout-day-aware cycle, matching the rest of the app.
         let payoutDay = appState.resolvedPayoutDay
         let today = Date()
         let thisWeekStart = WeekMath.startOfWeek(for: today, payoutDay: payoutDay)

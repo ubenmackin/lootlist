@@ -103,11 +103,13 @@ final class CelebrationManager {
     }
 
     func enqueueLevelUp(oldLevel: Int, newLevel: Int, heroName: String) {
+        guard FeatureFlags.rpgImmersive else { return }
         let item = CelebrationItem(oldLevel: oldLevel, newLevel: newLevel, heroName: heroName)
         showToast(for: item)
     }
 
     func enqueueDailyLogin(heroName _: String, gems: Int, streakDays: Int) {
+        guard FeatureFlags.rpgImmersive else { return }
         let item = CelebrationItem(
             name: "Daily Reward",
             description: "You earned \(gems) Gems! Streak: \(streakDays) days",
@@ -120,12 +122,13 @@ final class CelebrationManager {
     }
 
     private func showToast(for item: CelebrationItem) {
-        let prefix: String = if item.isLevelUp {
-            "⬆️ Level Up!"
+        if item.isLevelUp {
+            guard FeatureFlags.rpgImmersive else { return }
+            toastManager?.show(message: "⬆️ \(item.description)", type: .success)
         } else {
-            item.isStreakMilestone ? "🔥 Streak Milestone!" : "🏆 Trophy Unlocked!"
+            let prefix = item.isStreakMilestone ? "🔥 Streak Milestone!" : "🏆 Trophy Unlocked!"
+            toastManager?.show(message: "\(prefix) \(item.name)", type: .success)
         }
-        toastManager?.show(message: "\(prefix) \(item.name)", type: .success)
     }
 
     // MARK: - Confetti overlay

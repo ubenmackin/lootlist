@@ -134,7 +134,6 @@ enum DashboardMetricsCalculator {
 
         let heroRecordNames = Set(computedHeroes.map(\.recordName))
         let heroLedgerEntries = ledgers.filter { heroRecordNames.contains($0.profileRecordName) }
-        // WHY: Centralize ledger attribution via BucketService so transfers debit/credit correctly and bucket math lives in one place.
         var computedFamilyOutflow: Double = 0
         for hero in computedHeroes {
             let heroEntries = heroLedgerEntries.filter { $0.profileRecordName == hero.recordName }

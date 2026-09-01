@@ -37,7 +37,6 @@ protocol CacheServicing: AnyObject {
 
 @MainActor
 extension CacheServicing {
-    // WHY: Tombstone identity must be captured before local deletion — default bridges to name-based invalidate so lightweight mocks remain valid without carrying zone validation.
     func invalidate(identity: ScopedRecordIdentity, type: CachedRecordType, expectedActiveZone _: CKRecordZone.ID?) async {
         guard let family = identity.familyRecordName else { return }
         await invalidate(recordName: identity.recordName, family: family, type: type)

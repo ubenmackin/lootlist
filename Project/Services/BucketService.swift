@@ -169,12 +169,10 @@ final class BucketService {
         balances[kind, default: 0] += entry.amount
     }
 
-    // WHY: Single-source ledger total for balance displays; keeps Treasury + HeroLedger on one Double-sum path.
     nonisolated static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
         ledgers.filter { $0.profileRecordName == profileRecordName }.reduce(0) { $0 + $1.amount }
     }
 
-    // WHY: Pure array variant keeps @Query-driven ViewModels on the same attribution formula as the cached fetch path.
     nonisolated static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
         var balances: [BucketKind: Double] = [:]
         for entry in ledgers where entry.profileRecordName == profileRecordName {
@@ -242,14 +240,12 @@ final class BucketService {
         }
 
         let now = Date()
-        // WHY: UTC via WeekMath avoids midnight split.
         let todayBucket = WeekMath.dayBucket(for: now)
         logger
             .debug(
                 "BucketService.transfer local dayBucket \(todayBucket, privacy: .public) transferID \(transferID, privacy: .private) timestamp \(now.timeIntervalSince1970, privacy: .public)"
             )
         try validateTransferID(transferID, dayBucket: todayBucket, from: from, to: to)
-        // WHY: Per-day/per-pair guard is service-owned; view mirrors for UI only.
         guard !hasTransferredToday(
             profileRecordName: profile.id.recordName,
             familyRecordName: family.id.recordName,
@@ -260,8 +256,6 @@ final class BucketService {
             throw BucketServiceError.duplicateTodayTransfer
         }
 
-        // WHY: Deterministic recordName "transfer-{profile}-{transferID}" guarantees
-        // idempotency via CKSyncEngine dedupe; timestamp+nonce fallback removed.
         let recordName = DeterministicRecordID.transfer(profileRecordName: profile.id.recordName, transferID: transferID)
 
         let entry = LedgerEntry(
@@ -307,16 +301,13 @@ final class BucketService {
         from: BucketKind,
         to: BucketKind
     ) -> Bool {
-        // WHY: Same predicate as view; guard is service-owned.
         let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
             family: familyRecordName
         )
-        // WHY: Clock skew near UTC midnight can bypass per-day guard.
         for entry in entries where entry.sourceEnum == .transfer && entry.fromBucket == from.rawValue && entry.toBucket == to.rawValue {
             let entryBucket = WeekMath.dayBucket(for: entry.date)
             guard entryBucket != dayBucket else { continue }
-            // WHY: Centralized skew helper covers both sides of mismatch.
             WeekMath.logTransferSkewIfNeeded(localDate: entry.date, serverDate: Date())
             WeekMath.logTransferSkewIfNeeded(localDate: Date(), serverDate: entry.date)
             guard abs(entryBucket - dayBucket) == 1 else { continue }

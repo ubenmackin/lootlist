@@ -10,11 +10,7 @@ import Foundation
 import os
 import SwiftData
 
-// WHY: Bridges SwiftData cache to CKRecord for CKSyncEngine sends — fail-closed scope validation.
-// WHY: Fail-closed scope validation with one gated escape hatch — QuestCompletion private→shared bridge when family and zone match.
-// WHY: confirmedLocalDeletion uses tryFetch fail-closed so fetch errors retain pending saves.
-// WHY: Deterministic IDs dedupe on recordName.
-// WHY: No hard-delete without tombstone.
+/// Bridges SwiftData cache models to CKRecords for CKSyncEngine synchronization.
 @MainActor
 enum RecordBridge {
     private static let logger = Logger(
@@ -40,13 +36,11 @@ enum RecordBridge {
     }
 
     /// Confirms local deletion across all cache tables before enqueuing server delete.
-    /// WHY: fail-closed — `tryFetch` returns `nil` on context-unavailable *or* on throw; that is NOT confirmation
-    /// of deletion. Returning false keeps the pending save alive for retry, preventing a store-error from becoming a silent data loss.
+    /// Fails closed on lookup errors to retain pending saves until deletion is verified.
     static func confirmedLocalDeletion(for identity: ScopedRecordIdentity, cacheService: CacheService) -> Bool {
         let name = identity.recordName
 
         /// Returns true only when the lookup itself succeeded AND found no row.
-        /// WHY: `tryFetch` fail-closed — `nil` means the fetch itself failed, so we cannot claim the row is absent.
         func confirmedAbsent<T: PersistentModel>(_ type: T.Type, predicate: Predicate<T>) -> Bool {
             guard let rows = cacheService.tryFetch(type, predicate: predicate) else { return false }
             return rows.first == nil
@@ -245,9 +239,6 @@ enum RecordBridge {
             return false
         }
         if cache.validatedDatabaseScope(expectedScope: expectedDatabaseScope) == nil {
-            // WHY: gated escape hatch for pending-review stall — private Hero completion may bridge to .shared
-            // WHY: only for entity == "completion" under strict dual equality: cache.familyRecordName == expectedFamily AND cache.sourceZoneName == expectedZoneID.zoneName (strict non-nil match).
-            // Invariant: both familyRecordName and sourceZoneName must match — either mismatch preserves cross-family/cross-zone isolation.
             let isFamilyZoneMatch = cache.sourceZoneName == expectedZoneID.zoneName
             let persisted = cache.sourceDatabaseScope ?? "nil"
             if isFamilyZoneMatch, persisted == "private",
@@ -288,7 +279,6 @@ enum RecordBridge {
         return toRecord(cache, zoneID)
     }
 
-    // WHY: FamilyCache exception — zone-root record, no zone-scoped dual match; family identity suffices, sourceZoneName not checked.
     private static func bridgeFamily(name: String, zoneID: CKRecordZone.ID, cacheService: CacheService, expectedFamily: String, expectedDatabase: CKDatabase.Scope) -> CKRecord? {
         guard let cache = cacheService.fetchFamily(recordName: name) else { return nil }
         if cache.recordName != expectedFamily {
@@ -327,7 +317,6 @@ enum RecordBridge {
     ]
 
     static func logTransferSkewIfNeeded(localDate: Date, serverDate: Date) {
-        // WHY: Single centralized skew helper lives in WeekMath; RecordBridge forwards to keep one warning string.
         WeekMath.logTransferSkewIfNeeded(localDate: localDate, serverDate: serverDate)
     }
 

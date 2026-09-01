@@ -598,7 +598,7 @@ final class FamilyService: FamilyProfileFetching {
             // Re-resolve current user freshly to avoid stale cached identity across account changes.
             do {
                 let userRecordID = try await cloudKit.currentUserRecordID()
-                return userRecordID.recordName == anchor
+                return ActiveFamilyScopeGuard.isUserRecordNameMatch(userRecordID.recordName, anchor)
             } catch {
                 logger.warning("Could not resolve current user for owner check: \(error, privacy: .private)")
                 return false
@@ -666,7 +666,6 @@ final class FamilyService: FamilyProfileFetching {
         }
     }
 
-    // WHY: per-family owner uses creator anchor when family == active family; otherwise shared (false) — zoneOwner heuristic is fragile.
     private func resolvedIsOwner(for family: Family) -> Bool {
         if family.id.recordName == appState.family?.id.recordName {
             return ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
@@ -714,7 +713,6 @@ final class FamilyService: FamilyProfileFetching {
 
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
         let predicate = NSPredicate(format: "family == %@", familyRef)
-        // WHY: per-family owner uses anchor when family == active family, else shared (false) — never zoneOwner heuristic.
         let isOwner = resolvedIsOwner(for: family)
         let db = cloudKit.database(isOwner: isOwner)
         do {

@@ -235,7 +235,6 @@ extension QuestServiceTests {
         let results = try await questService.fetchTemplates(family: family)
         #expect(results.count == 1)
         #expect(results.first?.name == "Cached Chore")
-        // WHY: freshness-only must attempt CloudKit even when stale cache exists; offline fallback renders stale cache explicitly at call site.
         #expect(cloudKit.readCallCount == 1)
     }
 
@@ -284,7 +283,6 @@ extension QuestServiceTests {
         let activeQuests = try await questService.fetchActiveQuests(profile: hero, weekOf: monday)
         #expect(activeQuests.count == 1)
         #expect(activeQuests.first?.name == "Cached Quest")
-        // WHY: freshness-only must attempt CloudKit even when stale cache exists; offline fallback renders stale cache explicitly at call site.
         #expect(cloudKit.readCallCount == 1)
     }
 
@@ -330,7 +328,6 @@ extension QuestServiceTests {
         let quests = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: monday)
         #expect(quests.count == 1)
         #expect(quests.first?.name == "Cached Quest")
-        // WHY: freshness-only must attempt CloudKit even when stale cache exists; offline fallback renders stale cache explicitly at call site.
         #expect(cloudKit.readCallCount == 1)
     }
 }

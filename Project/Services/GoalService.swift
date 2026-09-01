@@ -125,9 +125,6 @@ final class GoalService {
         var remaining = amountPennies
         var result: [GoalAllocation] = []
 
-        // WHY: Spec is FIFO within the bucket only — oldest incomplete
-        // non-archived goal fills first, overflow cascades. No cross-bucket
-        // group ordering; the caller already scoped to a single bucket.
         let sorted = goals.sorted {
             if $0.createdAt != $1.createdAt {
                 return $0.createdAt < $1.createdAt
@@ -137,7 +134,6 @@ final class GoalService {
 
         for goal in sorted {
             guard remaining > 0 else { break }
-            // WHY: Archived goals are skipped before completed subtraction so an archived+completed goal cannot double-subtract.
             if goal.isArchived {
                 continue
             }
@@ -390,7 +386,6 @@ final class GoalService {
             }
         }
 
-        // WHY: Tombstone must survive local deletion — capture identity before invalidate so enqueueDelete can synthesize CKRecord or buffer even after cache row is gone.
         let isOwnerForIdentity = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
         let identity = ScopedRecordIdentity(
             databaseScope: DatabaseScopeResolver.scope(isOwner: isOwnerForIdentity),

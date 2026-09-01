@@ -31,12 +31,11 @@ extension Notification.Name {
 }
 
 /// Routes notification taps and actionable category responses.
-/// WHY: UNUserNotificationCenterDelegate is not Sendable; @MainActor isolates delegate callbacks.
 @MainActor
 final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "NotificationRouter")
 
-    /// Cold-start tap retention. WHY: Mutex guards delegate queue vs MainActor consumer races.
+    /// Cold-start tap retention buffer.
     private let pendingRoute = Mutex<NotificationRoute?>(nil)
 
     /// Fallback for cold-start before AppDependencies is initialized.

@@ -42,7 +42,6 @@ struct FamilyDashboardView: View {
         self.spending = spending
         self.familyRecordName = familyRecordName
 
-        // WHY: Fail closed — empty family yields zero rows, never an unscoped cross-family query.
         let targetFamily = familyRecordName ?? ""
         FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "FamilyDashboardView")
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
@@ -106,7 +105,6 @@ struct FamilyDashboardView: View {
             ScrollViewReader { scrollProxy in
                 ScrollView {
                     VStack(spacing: 18) {
-                        // WHY: Scope-aware banner observes freshnessVersion so it hides after markCacheFresh without Query change.
                         if !targetFamilyForStale.isEmpty {
                             StaleDataBanner(
                                 family: targetFamilyForStale,
@@ -224,11 +222,7 @@ struct FamilyDashboardView: View {
 
     @MainActor
     private func scheduleRebuild(includingInvitations: Bool = false) {
-        // WHY: Six @Query arrays fire independently; without serialization rebuildLists
-        // (mutating @Observable on MainActor) races refreshInvitations (actor-isolated
-        // InvitationResolver) and allows torn WeekendSummary. Snapshot synchronously
-        // then coalesce via a single cancellable MainActor task so only the latest
-        // cache snapshot rebuilds and rebuild + invitation refresh never interleave.
+        // Coalesce multi-query updates into a single task to prevent torn UI state.
         let profiles = cachedProfiles
         let quests = cachedQuests
         let logs = cachedCompletions
@@ -239,7 +233,7 @@ struct FamilyDashboardView: View {
         let targetVM = viewModel
         maxChildCardHeight = nil
         rebuildTask?.cancel()
-        rebuildTask = Task { @MainActor [targetVM, profiles, quests, logs, ledgers, periods, profileAchievements, achievements] in
+        rebuildTask = Task { [targetVM, profiles, quests, logs, ledgers, periods, profileAchievements, achievements] in
             guard !Task.isCancelled else { return }
             targetVM?.rebuildLists(
                 profiles: profiles,
@@ -319,9 +313,7 @@ private extension FamilyDashboardView {
                 }
                 .onPreferenceChange(ChildCardHeightPreferenceKey.self) { newHeight in
                     if newHeight > 0, maxChildCardHeight != newHeight {
-                        Task { @MainActor in
-                            maxChildCardHeight = newHeight
-                        }
+                        maxChildCardHeight = newHeight
                     }
                 }
                 .padding(.horizontal)
@@ -615,6 +607,7 @@ private extension FamilyDashboardView {
                             Capsule()
                                 .fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.12))
                         )
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reject \(questName)")
@@ -640,6 +633,7 @@ private extension FamilyDashboardView {
                         Capsule()
                             .fill(Color(DesignSystemConstants.Colors.primaryGreen))
                     )
+                    .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Approve \(questName) for \(CurrencyFormatter.string(goldAmount))")

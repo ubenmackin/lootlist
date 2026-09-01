@@ -224,11 +224,6 @@ actor FamilyDiscoveryService {
             logger.info("Initial shared zones check: \(sharedZones.count) shared zones")
 
             if sharedZones.isEmpty {
-                // WHY: Bounded retry is exactly `maxPulseAttempts` total fetches.
-                // The initial check counts as attempt 1; pulse attempts fill the
-                // remaining `maxPulseAttempts - 1` slots so a successful bounded
-                // pass uses 3 fetches (initial + 2 pulses) and a later duplicate
-                // ignored via `AppState` dedupe does not inflate the count.
                 let remainingPulses = max(0, AppConstants.Sync.maxPulseAttempts - 1)
                 if remainingPulses > 0 {
                     for attempt in 1 ... remainingPulses {

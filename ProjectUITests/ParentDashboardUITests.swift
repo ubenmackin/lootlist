@@ -52,22 +52,20 @@ final class ParentDashboardUITests: XCTestCase {
 
     func testApprovePendingCompletionClearsQueueCount() {
         let approveButton = anyElement("dashboard.approveButton-\(Self.pendingCompletionRecordName)")
-        scrollToHittable(approveButton)
         XCTAssertTrue(approveButton.waitForExistence(timeout: 10.0), "Approve action should render for the seeded pending completion")
+        scrollToHittable(approveButton)
         approveButton.tap()
 
-        XCTAssertFalse(approveButton.waitForExistence(timeout: 15.0),
-                       "Approved completion should leave the queue")
+        waitForDisappearance(of: approveButton, timeout: 15.0)
     }
 
     func testRejectPendingCompletionClearsQueueCount() {
         let rejectButton = anyElement("dashboard.rejectButton-\(Self.pendingCompletionRecordName)")
-        scrollToHittable(rejectButton)
         XCTAssertTrue(rejectButton.waitForExistence(timeout: 10.0), "Reject action should render for the seeded pending completion")
+        scrollToHittable(rejectButton)
         rejectButton.tap()
 
-        XCTAssertFalse(rejectButton.waitForExistence(timeout: 15.0),
-                       "Rejected completion should leave the queue")
+        waitForDisappearance(of: rejectButton, timeout: 15.0)
     }
 
     // MARK: - Deposit / Withdraw Entry Points
@@ -393,13 +391,20 @@ final class ParentDashboardUITests: XCTestCase {
         wait(for: [expectation(for: NSPredicate(format: "label CONTAINS[c] %@", text), evaluatedWith: element)], timeout: timeout)
     }
 
+    private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval = 10.0) {
+        wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: element)], timeout: timeout)
+    }
+
     /// ScrollView content exists offscreen but cannot be tapped until scrolled
     /// into view; swipe up until the element becomes hittable.
     private func scrollToHittable(_ element: XCUIElement, maxSwipes: Int = 6) {
         var swipes = 0
-        while swipes < maxSwipes, element.exists, !element.isHittable {
+        while swipes < maxSwipes, !element.isHittable {
             app.swipeUp()
             swipes += 1
+            if element.isHittable {
+                break
+            }
         }
     }
 

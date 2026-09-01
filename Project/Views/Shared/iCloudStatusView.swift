@@ -22,10 +22,7 @@ import SwiftUI
 
         private let familyRecordName: String?
 
-        // WHY: Unscoped @Query over all families would leak cross-family rows;
-        // this DEBUG-only overlay is the intentional exception — keep the
-        // fail-closed targetFamily ("" → zero rows) pattern as the exemplar,
-        // do not copy unscoped fetches.
+        // DEBUG-only diagnostic overlay inspects all cached records.
         @Query private var allProfiles: [ProfileCache]
         @Query private var allQuests: [QuestCache]
         @Query private var allTemplates: [QuestTemplateCache]
@@ -40,8 +37,6 @@ import SwiftUI
         @Query private var allGemLedgers: [GemLedgerCache]
         @Query private var allRewardEvents: [RewardEventCache]
 
-        // WHY: value mirror of CKAccountStatus published by the lifecycle
-        // layer — views must not hold CloudKit types or call the service.
         private var accountStatus: CloudAccountStatus {
             appState.cloudAccountStatus
         }

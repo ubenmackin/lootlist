@@ -200,7 +200,6 @@ struct QuestCardView: View {
             QuestCompletionEffectView(
                 xpEarned: quest.xpReward,
                 goldEarned: quest.goldReward > 0 ? quest.goldReward : nil,
-                // WHY: pass neutral rarity when immersive off so celebration stays plain-warm and never leaks RPG tier visuals.
                 rarity: FeatureFlags.rpgImmersive ? rarity : .common,
                 isShowing: $showCompletionEffect
             )

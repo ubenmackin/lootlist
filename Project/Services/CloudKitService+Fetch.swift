@@ -8,8 +8,7 @@
 import CloudKit
 import Foundation
 
-/// WHY: Views must not hold CloudKit types; this value mirror carries account
-/// status across the service boundary for CK-free rendering.
+/// Value mirror of `CKAccountStatus` allowing views to observe account state without importing CloudKit.
 enum CloudAccountStatus: Equatable, Sendable {
     case available
     case noAccount

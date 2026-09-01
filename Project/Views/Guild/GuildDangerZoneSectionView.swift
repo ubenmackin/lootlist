@@ -62,7 +62,6 @@ struct GuildDangerZoneSectionView: View {
     private func signOut() async {
         isSigningOut = true
         defer { isSigningOut = false }
-        // WHY: CloudKit scope and sync coordination stay inside FamilyService so the view never holds CloudKitService.
         await familyService.signOutAndDiscover()
     }
 
@@ -121,7 +120,6 @@ struct GuildDangerZoneSectionView: View {
     @MainActor
     private func deleteFamilyAndReset() async {
         guard let family = appState.family else {
-            // WHY: scope clearing routed through FamilyService to keep CloudKit isolation in the service layer.
             familyService.clearSessionAndScope()
             return
         }

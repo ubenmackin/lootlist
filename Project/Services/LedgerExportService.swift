@@ -50,7 +50,6 @@ final class LedgerExportService {
             let date = dateFormatter.string(from: entry.date)
             let desc = csvEscape(entry.entryDescription)
             let merchant = csvEscape(entry.location ?? "")
-            // WHY: CSV is machine-readable but amount formatting still routes through CurrencyFormatter central point.
             let amount = CurrencyFormatter.editingString(entry.amount)
             let purchasedBy = csvEscape(childName)
             csv += "\(date),\(desc),\(merchant),\(amount),\(purchasedBy)\n"

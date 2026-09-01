@@ -7,9 +7,7 @@
 
 import SwiftUI
 
-// WHY: Freshness watermarks are the sole authority for cache scope; stale non-empty
-// cache must re-validate via CloudKit, so the banner reflects scope-aware
-// isCacheAuthoritative rather than row count.
+/// Banner that indicates when local cached data may be stale based on freshness watermarks.
 struct StaleDataBanner: View {
     @Environment(AppState.self) private var appState
 
@@ -36,11 +34,9 @@ struct StaleDataBanner: View {
         self.isSyncing = isSyncing
     }
 
-    // WHY: Freshness-only authority — stale cache even with rows must be
-    // treated as non-authoritative and re-validated via CloudKit.
     private var isStale: Bool {
         guard let family, let type, let count else { return true }
-        // WHY: Observe watermark version so body recomputes after markCacheFresh without Query count change.
+        // Observe watermark version so view recomputes when cache freshness changes.
         _ = appState.cacheService?.freshnessVersion
         return !(appState.cacheService?.isCacheAuthoritative(familyRecordName: family, type: type, scope: appState.activeDatabaseScope, cachedCount: count) ?? false)
     }

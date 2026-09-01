@@ -14,14 +14,17 @@ struct MyChoresView: View {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyChoresView")
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
+    @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var submittingQuestIDs: Set<String> = []
     @State private var showCelebration: Bool = false
     @State private var pendingWithdrawal: PendingWithdrawal?
+    @State private var isMissedExpanded: Bool = false
 
     struct PendingWithdrawal: Identifiable {
         let quest: QuestCache
@@ -38,9 +41,12 @@ struct MyChoresView: View {
 
         let targetFamily = familyRecordName ?? ""
         let questFilter = #Predicate<QuestCache> {
-            $0.familyRecordName == targetFamily && $0.isActive == true
+            $0.familyRecordName == targetFamily
         }
         let completionFilter = #Predicate<QuestCompletionCache> {
+            $0.familyRecordName == targetFamily
+        }
+        let templateFilter = #Predicate<QuestTemplateCache> {
             $0.familyRecordName == targetFamily
         }
 
@@ -54,6 +60,58 @@ struct MyChoresView: View {
             sort: \QuestCompletionCache.completedDate,
             order: .reverse
         )
+        _cachedTemplates = Query(
+            filter: templateFilter,
+            sort: \QuestTemplateCache.recordName
+        )
+    }
+
+    private var payoutDay: PayoutDay {
+        appState.resolvedPayoutDay
+    }
+
+    private var weekStart: Date {
+        WeekMath.range(for: Date(), payoutDay: payoutDay).start
+    }
+
+    private var weekRange: Range<Date> {
+        WeekMath.range(for: Date(), payoutDay: payoutDay).range
+    }
+
+    private var previousWeekStart: Date {
+        WeekMath.weekStart(byAddingWeeks: -1, to: weekStart)
+    }
+
+    private var previousRange: Range<Date> {
+        WeekMath.weekRange(starting: previousWeekStart)
+    }
+
+    private var myQuests: [QuestCache] {
+        profileQuests
+    }
+
+    private func isFullyCompleted(for quest: QuestCache) -> Bool {
+        let approved = profileLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
+        return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved)
+    }
+
+    /// One-week carry-over includes inactive quests for visibility into missed items.
+    private var missedLastWeek: [QuestCache] {
+        guard let name = appState.currentProfile?.id.recordName else { return [] }
+        return cachedQuests
+            .filter { $0.assigneeRecordName == name }
+            .filter { WeekMath.isQuestInCurrentWeek($0.weekOf, range: previousRange) }
+            .filter { !isFullyCompleted(for: $0) }
+            .filter { $0.targetCount > 1 || templatesByID[$0.templateRecordName]?.scheduleTypeEnum == .specificDays }
+            .sorted(by: { $0.weekOf < $1.weekOf })
+    }
+
+    private var weekDays: [DayInfo] {
+        HeroDashboardViewModel.currentWeekDays(payoutDay: payoutDay)
+    }
+
+    private var templatesByID: [String: QuestTemplateCache] {
+        Dictionary(uniqueKeysWithValues: cachedTemplates.map { ($0.recordName, $0) })
     }
 
     /// Active quests assigned to the current hero profile.
@@ -68,10 +126,14 @@ struct MyChoresView: View {
         return cachedCompletions.filter { $0.completerRecordName == name }
     }
 
-    /// Quests that have been approved or completed by the hero.
+    private var weekQuests: [QuestCache] {
+        profileQuests.filter { $0.isActive && WeekMath.isQuestInCurrentWeek($0.weekOf, range: weekRange) }
+    }
+
+    /// Quests that have been approved or completed by the hero — current week only.
     private var completedQuests: [(quest: QuestCache, log: QuestCompletionCache)] {
         var result: [(QuestCache, QuestCompletionCache)] = []
-        for quest in profileQuests {
+        for quest in weekQuests {
             let questLogs = profileLogs.filter { $0.questRecordName == quest.recordName }
             let approvedLogs = questLogs.filter(\.isApproved)
             if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count),
@@ -80,15 +142,18 @@ struct MyChoresView: View {
                 result.append((quest, latest))
             }
         }
-        return result
+        return result.sorted(by: { $0.1.completedDate > $1.1.completedDate })
     }
 
-    /// Quests whose latest completion is pending parent verification.
+    /// Quests whose latest completion is pending parent verification — current week only.
     private var pendingReviewQuests: [(quest: QuestCache, log: QuestCompletionCache)] {
         let completedQuestNames = Set(completedQuests.map(\.quest.recordName))
         var result: [(QuestCache, QuestCompletionCache)] = []
-        for quest in profileQuests where !completedQuestNames.contains(quest.recordName) {
-            // Find the latest pending completion for this quest.
+        guard let name = appState.currentProfile?.id.recordName else { return [] }
+        let pendingBaseQuests = cachedQuests.filter {
+            $0.assigneeRecordName == name && WeekMath.isQuestInCurrentWeek($0.weekOf, range: weekRange)
+        }
+        for quest in pendingBaseQuests where !completedQuestNames.contains(quest.recordName) {
             if let latestLog = profileLogs
                 .filter({ $0.questRecordName == quest.recordName && $0.verificationStatusEnum == .pending })
                 .sorted(by: { $0.completedDate > $1.completedDate })
@@ -97,21 +162,102 @@ struct MyChoresView: View {
                 result.append((quest, latestLog))
             }
         }
-        return result
+        return result.sorted(by: { $0.1.completedDate > $1.1.completedDate })
     }
 
-    /// Quests that are active and not currently awaiting review (including
-    /// recurring/flexible quests whose earlier completions have already paid out).
-    private var upcomingQuests: [QuestCache] {
-        let pendingQuestNames = Set(pendingReviewQuests.map(\.quest.recordName))
-        return profileQuests.filter { quest in
-            !pendingQuestNames.contains(quest.recordName)
+    /// Overdue specific-days quests within the current week whose every scheduled day is past.
+    private var overdueThisWeek: [QuestCache] {
+        let pendingNames = Set(pendingReviewQuests.map(\.quest.recordName))
+        var result: [QuestCache] = []
+        for quest in weekQuests where quest.isActive {
+            if pendingNames.contains(quest.recordName) {
+                continue
+            }
+            let approvedCount = profileLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
+            if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount) {
+                continue
+            }
+            guard quest.scheduleTypeEnum == .specificDays else { continue }
+            let specDays = templatesByID[quest.templateRecordName]?.specificDays ?? []
+            guard !specDays.isEmpty else { continue }
+            let allPast = specDays.allSatisfy { code in
+                guard let day = weekDays.first(where: { $0.weekdayCode == code }) else { return false }
+                return day.isPast
+            }
+            if allPast {
+                result.append(quest)
+            }
         }
+        return result.sorted(by: { $0.weekOf < $1.weekOf })
     }
 
-    /// Whether any content exists — used for empty-state rendering.
+    /// Quests that are active and not completed/pending/overdue — current week only.
+    private var upcomingQuests: [QuestCache] {
+        let pendingNames = Set(pendingReviewQuests.map(\.quest.recordName))
+        let completedNames = Set(completedQuests.map(\.quest.recordName))
+        let overdueNames = Set(overdueThisWeek.map(\.recordName))
+        let filtered = weekQuests.filter { quest in
+            quest.isActive &&
+                !pendingNames.contains(quest.recordName) &&
+                !completedNames.contains(quest.recordName) &&
+                !overdueNames.contains(quest.recordName)
+        }
+        return filtered.sorted(by: { lhs, rhs in
+            let lhsToday = isScheduledToday(lhs)
+            let rhsToday = isScheduledToday(rhs)
+            if lhsToday != rhsToday {
+                return lhsToday
+            }
+            return lhs.weekOf < rhs.weekOf
+        })
+    }
+
+    /// Whether any current-week content exists — used for empty-state rendering.
     private var isEmpty: Bool {
-        pendingReviewQuests.isEmpty && upcomingQuests.isEmpty && completedQuests.isEmpty
+        pendingReviewQuests.isEmpty && upcomingQuests.isEmpty && completedQuests.isEmpty && overdueThisWeek.isEmpty && missedLastWeek.isEmpty
+    }
+
+    private func isScheduledToday(_ quest: QuestCache) -> Bool {
+        guard quest.scheduleTypeEnum == .specificDays,
+              let days = templatesByID[quest.templateRecordName]?.specificDays
+        else { return false }
+        let todayCode = WeekMath.weekdayCode(for: Date())
+        return days.contains(todayCode)
+    }
+
+    private func approvedCount(for quest: QuestCache) -> Int {
+        profileLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
+    }
+
+    private func progressSuffix(for quest: QuestCache) -> String? {
+        guard quest.targetCount > 1 else { return nil }
+        let count = approvedCount(for: quest)
+        return "\(count)/\(quest.targetCount)"
+    }
+
+    private func upcomingSubtitle(for quest: QuestCache) -> String? {
+        let base = quest.descriptionText
+        if let progress = progressSuffix(for: quest) {
+            if let base, !base.isEmpty {
+                return "\(base) · \(progress)"
+            }
+            return progress
+        }
+        return base
+    }
+
+    private func overdueSubtitle(for quest: QuestCache) -> String {
+        if let progress = progressSuffix(for: quest) {
+            return "Overdue · \(progress) · Tap to Complete"
+        }
+        return "Overdue · Tap to Complete"
+    }
+
+    private func missedSubtitle(for quest: QuestCache) -> String {
+        if let progress = progressSuffix(for: quest) {
+            return "Expired · \(progress)"
+        }
+        return "Expired"
     }
 
     var body: some View {
@@ -125,12 +271,20 @@ struct MyChoresView: View {
                             pendingSection
                         }
 
+                        if !overdueThisWeek.isEmpty {
+                            overdueSection
+                        }
+
                         if !upcomingQuests.isEmpty {
                             upcomingSection
                         }
 
                         if !completedQuests.isEmpty {
                             completedSection
+                        }
+
+                        if !missedLastWeek.isEmpty {
+                            missedSection
                         }
                     }
                 }
@@ -146,11 +300,24 @@ struct MyChoresView: View {
             .navigationTitle("My Quests")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: "heroBoard") {
-                        Label("Hero Board", systemImage: "square.grid.2x2.fill")
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    // Design-token spacing between toolbar items; Hero Board is a
+                    // child-facing surface (not RPG-immersive), so no
+                    // FeatureFlags.rpgImmersive gating — MyChoresView is hero-centric
+                    // and both links are intentional for the child role.
+                    HStack(spacing: DesignSystemConstants.Padding.small) {
+                        NavigationLink {
+                            QuestLogView(familyRecordName: familyRecordName)
+                        } label: {
+                            Label("Quest Log", systemImage: "scroll")
+                        }
+                        .accessibilityIdentifier("chores.questLogLink")
+
+                        NavigationLink(value: "heroBoard") {
+                            Label("Hero Board", systemImage: "square.grid.2x2.fill")
+                        }
+                        .accessibilityIdentifier("chores.heroBoardLink")
                     }
-                    .accessibilityIdentifier("chores.heroBoardLink")
                 }
             }
             .navigationDestination(for: String.self) { destination in
@@ -162,7 +329,7 @@ struct MyChoresView: View {
                 await lifecycleCoordinator?.performManualSync()
             }
             .alert(
-                "Unsubmit Quest?",
+                "Undo Completion?",
                 isPresented: Binding(
                     get: { pendingWithdrawal != nil },
                     set: {
@@ -173,14 +340,14 @@ struct MyChoresView: View {
                 ),
                 presenting: pendingWithdrawal
             ) { target in
-                Button("Move Back to To-Do", role: .destructive) {
+                Button("Undo Completion", role: .destructive) {
                     withdrawQuest(target.quest, log: target.log)
                 }
-                Button("Keep Sent for Review", role: .cancel) {
+                Button("Cancel", role: .cancel) {
                     pendingWithdrawal = nil
                 }
             } message: { target in
-                Text("Move “\(target.quest.questName)” back to your active to-do list?")
+                Text("Revert this completion for “\(target.quest.questName)” and move it back to to-do?")
             }
         }
     }
@@ -197,8 +364,8 @@ struct MyChoresView: View {
                 } label: {
                     ChoreRowCard(
                         title: pair.quest.questName,
-                        subtitle: "Sent to Parent for Review · Tap to Unsubmit",
-                        amountText: CurrencyFormatter.string(pair.quest.goldReward),
+                        subtitle: "Tap to Unsubmit",
+                        amountText: "+\(CurrencyFormatter.string(pair.quest.goldReward))",
                         style: .pendingReview,
                         isSubmitting: submittingQuestIDs.contains(pair.quest.recordName),
                         onLeadingAction: {
@@ -213,6 +380,52 @@ struct MyChoresView: View {
         }
     }
 
+    // MARK: - Overdue Section
+
+    private var overdueSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
+            SectionHeader("Overdue This Week")
+
+            ForEach(overdueThisWeek) { quest in
+                let questLogs = profileLogs.filter { $0.questRecordName == quest.recordName }
+                if quest.targetCount > 1 {
+                    MultiPartQuestCard(
+                        quest: quest,
+                        logs: questLogs,
+                        subtitle: overdueSubtitle(for: quest),
+                        amountText: "+\(CurrencyFormatter.string(quest.goldReward))",
+                        isSubmitting: submittingQuestIDs.contains(quest.recordName),
+                        onCompleteSubPart: { _ in
+                            completeQuest(quest)
+                        },
+                        onWithdraw: { log in
+                            pendingWithdrawal = PendingWithdrawal(quest: quest, log: log)
+                        },
+                        accessibilityID: "chores.overdueMultiRow-\(quest.recordName)"
+                    )
+                } else {
+                    Button {
+                        completeQuest(quest)
+                    } label: {
+                        ChoreRowCard(
+                            title: quest.questName,
+                            subtitle: overdueSubtitle(for: quest),
+                            amountText: CurrencyFormatter.string(quest.goldReward),
+                            style: .pendingReview,
+                            isSubmitting: submittingQuestIDs.contains(quest.recordName),
+                            onLeadingAction: {
+                                completeQuest(quest)
+                            },
+                            accessibilityID: "chores.overdueRow-\(quest.recordName)"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Overdue quest. Tap to complete.")
+                }
+            }
+        }
+    }
+
     // MARK: - Upcoming Section
 
     private var upcomingSection: some View {
@@ -222,17 +435,35 @@ struct MyChoresView: View {
             }
 
             ForEach(upcomingQuests) { quest in
-                ChoreRowCard(
-                    title: quest.questName,
-                    subtitle: quest.descriptionText,
-                    amountText: CurrencyFormatter.string(quest.goldReward),
-                    style: .upcoming,
-                    isSubmitting: submittingQuestIDs.contains(quest.recordName),
-                    onLeadingAction: {
-                        completeQuest(quest)
-                    },
-                    accessibilityID: "chores.upcomingRow-\(quest.recordName)"
-                )
+                let questLogs = profileLogs.filter { $0.questRecordName == quest.recordName }
+                if quest.targetCount > 1 {
+                    MultiPartQuestCard(
+                        quest: quest,
+                        logs: questLogs,
+                        subtitle: upcomingSubtitle(for: quest),
+                        amountText: "+\(CurrencyFormatter.string(quest.goldReward))",
+                        isSubmitting: submittingQuestIDs.contains(quest.recordName),
+                        onCompleteSubPart: { _ in
+                            completeQuest(quest)
+                        },
+                        onWithdraw: { log in
+                            pendingWithdrawal = PendingWithdrawal(quest: quest, log: log)
+                        },
+                        accessibilityID: "chores.upcomingMultiRow-\(quest.recordName)"
+                    )
+                } else {
+                    ChoreRowCard(
+                        title: quest.questName,
+                        subtitle: upcomingSubtitle(for: quest),
+                        amountText: CurrencyFormatter.string(quest.goldReward),
+                        style: .upcoming,
+                        isSubmitting: submittingQuestIDs.contains(quest.recordName),
+                        onLeadingAction: {
+                            completeQuest(quest)
+                        },
+                        accessibilityID: "chores.upcomingRow-\(quest.recordName)"
+                    )
+                }
             }
         }
     }
@@ -256,6 +487,38 @@ struct MyChoresView: View {
                 .accessibilityHint("Completed quest")
             }
         }
+    }
+
+    // MARK: - Missed Last Week Section
+
+    private var missedSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
+            DisclosureGroup(isExpanded: $isMissedExpanded) {
+                VStack(spacing: DesignSystemConstants.Padding.small) {
+                    ForEach(missedLastWeek) { quest in
+                        ChoreRowCard(
+                            title: quest.questName,
+                            subtitle: missedSubtitle(for: quest),
+                            amountText: "Expired",
+                            style: .expired,
+                            accessibilityID: "chores.missedRow-\(quest.recordName)"
+                        )
+                    }
+                }
+                .padding(.top, DesignSystemConstants.Padding.small)
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Missed Last Week (\(missedLastWeek.count))")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .tint(.secondary)
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityIdentifier("chores.missedDisclosure")
     }
 
     // MARK: - Actions
@@ -290,27 +553,20 @@ struct MyChoresView: View {
             let zoneID = appState.resolvedFamilyZoneID()
             let domain = quest.toQuest(zoneID: zoneID)
 
+            let priorApproved = profileLogs.filter { $0.questRecordName == qID && $0.isApproved }.count
+
             do {
                 let completion = try await questService.markComplete(
                     quest: domain,
                     by: profile
                 )
-                // Auto-approved completions trigger a celebration overlay.
-                if completion.verificationStatus == .autoApproved {
-                    HapticsService.success()
-                    // The silent 50xp credit is handled inside
-                    // applyReward / QuestService+Rewards pipeline.
-                    showCelebration = true
-                    // Auto-dismiss the celebration after a short delay.
-                    Task {
-                        do {
-                            try await Task.sleep(for: .seconds(DesignSystemConstants.Celebration.confettiLifetime))
-                        } catch {
-                            Self.logger.debug("Chore celebration dismiss sleep interrupted: \(error, privacy: .private)")
-                        }
-                        showCelebration = false
-                    }
-                }
+                QuestCompletionHelper.handleCompletionResult(
+                    completion,
+                    quest: quest,
+                    priorApproved: priorApproved,
+                    toastManager: toastManager,
+                    showCelebration: $showCelebration
+                )
             } catch {
                 Self.logger.error("Failed to mark chore complete: \(error, privacy: .private)")
             }

@@ -120,12 +120,15 @@ final class XPService {
 
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "XPService.addXP")
 
-        if updated.level > oldLevel {
-            celebrationManager?.enqueueLevelUp(
-                oldLevel: oldLevel,
-                newLevel: updated.level,
-                heroName: updated.displayName
-            )
+        if updated.level > oldLevel, FeatureFlags.rpgImmersive {
+            // Only enqueue level-up toast on the hero's own device if rpgImmersive is enabled
+            if let current = appState.currentProfile, current.id == updated.id {
+                celebrationManager?.enqueueLevelUp(
+                    oldLevel: oldLevel,
+                    newLevel: updated.level,
+                    heroName: updated.displayName
+                )
+            }
 
             if let notificationService {
                 let newLevel = updated.level

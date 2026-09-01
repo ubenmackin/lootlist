@@ -12,7 +12,6 @@ import Testing
 
 @MainActor
 struct QuestServiceSweepTests {
-    // WHY: Scaffold groups 8 related test fixtures without a large tuple (>2 members).
     private struct Scaffold {
         let cloudKit: MockCloudKitService
         let cache: CacheService

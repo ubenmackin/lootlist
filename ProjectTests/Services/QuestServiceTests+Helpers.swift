@@ -25,9 +25,6 @@ struct SaveGateState {
 /// delegating to a real `CKSyncEngineDelegateHandler` backed by the test's
 /// in-memory `CacheService`/`BackgroundCacheActor`. Hydration still rides
 /// the single-save batch path.
-///
-/// WHY: `CKSyncEngineCoordinator` is `final` for Swift 6 concurrency.
-/// The spy composes a real coordinator instead of subclassing it.
 @MainActor
 final class TestSyncCoordinatorSpy {
     /// Underlying coordinator that owns the engine lifecycle.

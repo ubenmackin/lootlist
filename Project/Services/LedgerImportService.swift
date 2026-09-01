@@ -226,7 +226,6 @@ enum LedgerCSVParser {
             negative = true
             text = String(text.dropFirst().dropLast())
         }
-        // WHY: Strip locale currency symbol via CurrencyFormatter so no "$" literal is hard-coded.
         text = text.replacingOccurrences(of: CurrencyFormatter.currencySymbol, with: "")
             .replacingOccurrences(of: ",", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)

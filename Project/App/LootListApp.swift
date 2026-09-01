@@ -303,7 +303,7 @@ private struct RootView: View {
                 DetectedFamilyView(
                     familyCache: FamilyCache(from: family),
                     profileCache: ProfileCache(from: profile),
-                    zoneIDString: zoneID.zoneName,
+                    zoneID: zoneID,
                     isOwner: isOwner
                 )
             case .onboarding:

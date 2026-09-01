@@ -184,7 +184,6 @@ struct HeroTransactionView: View {
 
     // MARK: - Parsing
 
-    // WHY: Delegate to shared FormatStyle so no per-call NumberFormatter is allocated.
     /// Parses amount using the current locale, falling back to dot-normalized Double.
     static func parseAmount(_ text: String) -> Double? {
         CurrencyFormatter.decimalDouble(from: text)

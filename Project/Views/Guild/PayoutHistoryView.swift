@@ -344,12 +344,8 @@ private struct PayoutDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var weekBucketEntries: [LedgerEntryCache] {
-        let weekStart = period.weekOf
-        // Ledger entries are already filtered to the hero; further filter to the payout week
-        // using WeekMath's half-open range semantics via date comparison.
-        let calendar = Calendar.current
-        guard let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) else { return [] }
-        return ledgerEntries.filter { $0.date >= weekStart && $0.date < weekEnd }
+        let range = WeekMath.weekRange(starting: period.weekOf)
+        return ledgerEntries.filter { range.contains($0.date) }
     }
 
     private var goalContributions: [(goal: GoalCache, amount: Double)] {

@@ -37,7 +37,6 @@ struct BucketAttributionParityTests {
 
     @Test
     func `bucket attribution parity across BucketService and DashboardMetricsCalculator including transfer`() {
-        // WHY: LedgerRowFactory/Budget attribution DRY — all VMs must see identical bucket math for the same fixture.
         let ledgers = [
             makeLedger(recordName: "l_spend", amount: 10, source: "quest", bucketKind: BucketKind.spend.rawValue),
             makeLedger(
@@ -99,7 +98,6 @@ struct BucketAttributionParityTests {
         )
         let heroCard = metrics.childAccountCards.first { $0.profile.recordName == "hero1" }
         #expect(heroCard?.balance == 10)
-        // WHY: BucketService.applyBucketAttribution debits fromBucket and credits bucketKind, so transfer net is zero for total but correctly split across buckets.
         #expect((heroCard?.balance ?? 0) == (directBalances.values.reduce(0, +)))
         #expect(metrics.familyOutflow == 10 + 99)
     }

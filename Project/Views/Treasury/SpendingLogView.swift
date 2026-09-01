@@ -22,9 +22,6 @@ struct SpendingLogView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
         _scope = scope
-
-        // WHY: Predicate pushdown fetches only this hero's ledgers; avoids loading entire
-        // family ledger set and reduces main-thread filtering for heroes with 1k+ rows.
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }

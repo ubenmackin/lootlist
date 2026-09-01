@@ -88,6 +88,7 @@ enum ActiveFamilyScopeGuard {
             }
             if let appStateZone = appState.familyZoneID, appStateZone == zoneID {
                 guard cloudKit.activeIsOwner == appState.isZoneOwner else {
+                    logger.error("requireActiveFamilyScope database mismatch: activeIsOwner=\(appState.isZoneOwner), cloudKitIsOwner=\(cloudKit.activeIsOwner)")
                     throw ScopeViolation.databaseMismatch(
                         activeIsOwner: appState.isZoneOwner,
                         cloudKitIsOwner: cloudKit.activeIsOwner
@@ -142,6 +143,16 @@ enum ActiveFamilyScopeGuard {
 
     // MARK: - Owner Anchor Resolution
 
+    static func isUserRecordNameMatch(_ name1: String?, _ name2: String?) -> Bool {
+        guard let name1, let name2, !name1.isEmpty, !name2.isEmpty else { return false }
+        return name1 == name2
+    }
+
+    static func isPlaceholderOwner(_ owner: String?) -> Bool {
+        guard let owner else { return true }
+        return AppConstants.Security.legacyPlaceholderCreators.contains(owner)
+    }
+
     /// Owner identity resolved from the server-stamped anchor, not role.
     /// `appState` is optional to support non-owner bootstrap paths that synthesize
     /// before a session exists (e.g., cache-only achievement defaults) — nil
@@ -152,18 +163,23 @@ enum ActiveFamilyScopeGuard {
     @MainActor
     static func resolvedIsOwner(appState: AppState?) -> Bool {
         guard let appState else { return false }
-        if let creator = appState.family?.creatorUserRecordName,
-           isResolvedCreatorAnchor(creator)
+        if let zoneOwner = appState.familyZoneID?.ownerName,
+           isPlaceholderOwner(zoneOwner)
         {
-            if let current = appState.currentProfile {
-                return current.iCloudUserID.recordName == creator
-            }
-            logger.warning("isZoneOwner fallback: family has creator anchor but no currentProfile — using stored isZoneOwner")
+            // Placeholder zone owner (e.g. CKCurrentUserDefaultName / __defaultOwner__)
+            // proves this zone is in the local private database.
+            return true
+        }
+        if let creator = appState.family?.creatorUserRecordName,
+           isResolvedCreatorAnchor(creator),
+           let current = appState.currentProfile,
+           isResolvedCreatorAnchor(current.iCloudUserID.recordName)
+        {
+            return isUserRecordNameMatch(current.iCloudUserID.recordName, creator)
         }
         return appState.isZoneOwner
     }
 
-    // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
     @MainActor
     private static func correctedIsOwnerAndLog(
         appState: AppState?,
@@ -191,8 +207,10 @@ enum ActiveFamilyScopeGuard {
 
     /// A proven mismatch between a stored creator anchor and the acting user.
     /// Unresolved anchors (nil or legacy placeholders) prove nothing either way.
+    /// Uses exact recordName equality — never case-insensitive or underscore-insensitive.
     private static func isProvenCreatorMismatch(_ creator: String?, userRecordName: String) -> Bool {
-        guard let creator, isResolvedCreatorAnchor(creator) else { return false }
+        guard let creator, isResolvedCreatorAnchor(creator),
+              isResolvedCreatorAnchor(userRecordName) else { return false }
         return creator != userRecordName
     }
 
@@ -336,7 +354,9 @@ enum ActiveFamilyScopeGuard {
         }
 
         // Primary binding: profile must belong to the current iCloud user.
-        guard profile.iCloudUserID.recordName == currentUserRecordName else {
+        guard isUserRecordNameMatch(profile.iCloudUserID.recordName, currentUserRecordName)
+            || isPlaceholderOwner(profile.iCloudUserID.recordName)
+        else {
             throw ScopeViolation.identityMismatch
         }
 
@@ -370,14 +390,14 @@ enum ScopeViolation: Error, LocalizedError, Equatable {
             "No active family. Please join or create a Guild first."
         case .noActiveZone:
             "No active zone. Please sign in first."
-        case let .profileMismatch(active, supplied):
-            "Profile scope mismatch: active=\(active), supplied=\(supplied)"
-        case let .familyMismatch(active, supplied):
-            "Family scope mismatch: active=\(active), supplied=\(supplied)"
-        case let .zoneMismatch(active, supplied):
-            "Zone scope mismatch: active=\(active), supplied=\(supplied)"
-        case let .databaseMismatch(activeIsOwner, cloudKitIsOwner):
-            "Database scope mismatch: activeIsOwner=\(activeIsOwner), cloudKitIsOwner=\(cloudKitIsOwner)"
+        case .profileMismatch:
+            "Profile session mismatch. Please refresh your profile."
+        case .familyMismatch:
+            "Family Guild mismatch. Please refresh your Guild."
+        case .zoneMismatch:
+            "iCloud sync zone mismatch. Please refresh and try again."
+        case .databaseMismatch:
+            "iCloud sync state mismatch. Please refresh and try again."
         case .identityUnavailable:
             "The iCloud account identity could not be verified."
         case .identityMismatch:

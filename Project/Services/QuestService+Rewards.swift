@@ -65,7 +65,6 @@ extension QuestService {
                     return 0
                 }
                 await cacheService.upsertRewardEvent(rewardEvent)
-                // WHY: owner routing uses Family.creatorUserRecordName anchor via resolvedIsOwner, not role.
                 let isOwnerReward = ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState)
                 let storedOwnerReward = appState.isZoneOwner
                 if isOwnerReward != storedOwnerReward {
@@ -163,7 +162,6 @@ extension QuestService {
         let cache = cacheService
         let heroLogs = cache.fetchQuestCompletions(family: familyName)
             .filter { $0.completerRecordName == hero.id.recordName }
-        // WHY: freshness-only sole authority — stale cache must re-validate via CloudKit; explicit stale fallback handled at call site (FamilyService-style).
         let scope: CKDatabase.Scope = appState.activeDatabaseScope
         if !cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: heroLogs.count) {
             return hero.dailyLoginStreakDays

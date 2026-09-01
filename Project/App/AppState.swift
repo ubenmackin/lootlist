@@ -129,15 +129,11 @@ final class AppState {
         }
     }
 
-    /// WHY: Call sites copy-pasted this fallback chain; one resolution point
-    /// keeps family-zone targeting consistent. A cache row's persisted zone
-    /// wins only when neither the session zone nor the family record has one.
     func resolvedFamilyZoneID(fallbackRecord: (any FamilyScopedCache)? = nil) -> CKRecordZone.ID {
         let defaultZone = CKRecordZone.default().zoneID
         return familyZoneID ?? family?.id.zoneID ?? fallbackRecord?.validatedZoneID(requestedZoneID: defaultZone) ?? defaultZone
     }
 
-    /// WHY: Single source for effective payout-day resolution (profile override → family → .sunday) so week windows stay consistent.
     var resolvedPayoutDay: PayoutDay {
         PayoutDayResolver.resolved(for: currentProfile, family: family)
     }
@@ -160,8 +156,7 @@ final class AppState {
     /// `familyZoneID`, `isZoneOwner`). Discovery no longer checks `authStatus`.
     var discoveryService: FamilyDiscoveryService?
 
-    /// WHY: CK-free mirror of the iCloud account status; the lifecycle layer
-    /// refreshes it so views render published state instead of calling CloudKit.
+    /// CloudKit-free mirror of the iCloud account status for UI consumption.
     var cloudAccountStatus: CloudAccountStatus = .couldNotDetermine
 
     /// Convenience for debug overlays — resolves the active family record name without exposing CloudKit
@@ -176,7 +171,6 @@ final class AppState {
     @ObservationIgnored
     private var notificationRouteTask: Task<Void, Never>?
 
-    // WHY: Discovery coordinator actor encapsulates in-flight state and waiter continuation lifecycle safely under actor isolation.
     private actor DiscoveryCoordinator {
         private var isInFlight = false
         private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
@@ -379,9 +373,12 @@ final class AppState {
             return
         }
 
-        let isOwner = defaults.bool(forKey: Self.isOwnerKey)
+        let storedOwner = defaults.bool(forKey: Self.isOwnerKey)
+        let isPlaceholder = ActiveFamilyScopeGuard.isPlaceholderOwner(zoneOwnerName)
+        let isOwner: Bool = isPlaceholder ? true : storedOwner
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
 
+        isZoneOwner = isOwner
         cloudKit.activeFamilyZoneID = zoneID
         cloudKit.activeIsOwner = isOwner
         // Register the zone locally before fetching so a cold launch that has
@@ -417,91 +414,132 @@ final class AppState {
             // consistent active family and does not trigger a spurious scope mismatch.
             family = familyResult
             currentProfile = profile
-            isZoneOwner = isOwner
+            let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: self)
+            isZoneOwner = resolvedOwner
+            if resolvedOwner != isOwner {
+                defaults.set(resolvedOwner, forKey: Self.isOwnerKey)
+                cloudKit.activeIsOwner = resolvedOwner
+            }
             familyZoneID = zoneID
 
             authStatus = .authenticated
             await authStateMachine.send(.sessionRestored)
         } catch {
-            logger.error("Session restoration failed: \(error, privacy: .private)")
-            if error is ScopeViolation {
-                // Clear stale placeholder session and rediscover cloud state.
-                let isPlaceholderOwner = zoneOwnerName == CKCurrentUserDefaultName
-                    || zoneOwnerName == "__defaultOwner__"
-                    || zoneOwnerName == "_defaultOwner_"
-                    || zoneOwnerName == "Owner1"
-                if isPlaceholderOwner || isOwner {
-                    logger.info("ScopeViolation with placeholder/stale owner \(zoneOwnerName, privacy: .private) — clearing stale session and rediscovering")
-                    clearSessionAndCloudKitScope(cloudKit: cloudKit)
-                    await authStateMachine.transition(.restoreFailed)
-                    await discoverExistingCloudState(cloudKit: cloudKit)
-                    return
-                }
-                // For non-placeholder hero cases, keep the offline cache
-                // fallback when the network/identity is transiently unavailable.
-                if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
-                    return
-                }
+            await handleRestorationError(
+                error: error,
+                profileRecordName: profileRecordName,
+                familyRecordName: familyRecordName,
+                zoneID: zoneID,
+                zoneOwnerName: zoneOwnerName,
+                isOwner: isOwner,
+                cloudKit: cloudKit
+            )
+        }
+    }
+
+    private func handleRestorationError(
+        error: Error,
+        profileRecordName: String,
+        familyRecordName: String,
+        zoneID: CKRecordZone.ID,
+        zoneOwnerName: String,
+        isOwner: Bool,
+        cloudKit: any CloudKitServiceProtocol
+    ) async {
+        logger.error("Session restoration failed: \(error, privacy: .private)")
+        if error is ScopeViolation {
+            await handleScopeViolation(
+                profileRecordName: profileRecordName,
+                familyRecordName: familyRecordName,
+                zoneID: zoneID,
+                zoneOwnerName: zoneOwnerName,
+                isOwner: isOwner,
+                cloudKit: cloudKit
+            )
+            return
+        }
+
+        let isUnrecoverable = await isRestorationErrorUnrecoverable(
+            error: error,
+            isOwner: isOwner,
+            familyRecordName: familyRecordName,
+            zoneID: zoneID,
+            cloudKit: cloudKit
+        )
+
+        if isUnrecoverable {
+            if !isOwner,
+               let cloudKitError = error as? CloudKitServiceError,
+               case .zoneNotFound = cloudKitError
+            {
+                logger.info("Shared family zone is unavailable — clearing revoked hero session")
+                familyAccessRevokedSignal = UUID()
                 clearSessionAndCloudKitScope(cloudKit: cloudKit)
                 await authStateMachine.transition(.restoreFailed)
                 await discoverExistingCloudState(cloudKit: cloudKit)
                 return
             }
-            // Validates zone reachability before treating owner fetch errors as transient.
-            let isUnrecoverable: Bool
-            if let ckErr = error as? CloudKitServiceError {
-                switch ckErr {
-                case .notFound, .invalidArguments, .zoneNotFound:
-                    isUnrecoverable = true
-                default:
-                    // `&&` takes an autoclosure, so the awaited probe is hoisted
-                    // into a local `let` — autoclosures forbid `await`.
-                    let reachable = await Self.isZoneReachable(
-                        cloudKit: cloudKit,
-                        familyRecordName: familyRecordName,
-                        zoneID: zoneID
-                    )
-                    isUnrecoverable = isOwner && !reachable
-                }
-            } else {
-                let reachable = await Self.isZoneReachable(
-                    cloudKit: cloudKit,
-                    familyRecordName: familyRecordName,
-                    zoneID: zoneID
-                )
-                isUnrecoverable = isOwner && !reachable
+            if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
+                logger.info("Unrecoverable CloudKit session error and no cache available — clearing session and running cloud discovery")
+                clearSessionAndCloudKitScope(cloudKit: cloudKit)
+                await authStateMachine.transition(.restoreFailed)
+                await discoverExistingCloudState(cloudKit: cloudKit)
             }
-
-            if isUnrecoverable {
-                if !isOwner,
-                   let cloudKitError = error as? CloudKitServiceError,
-                   case .zoneNotFound = cloudKitError
-                {
-                    // A revoked shared zone must not fall back to its cached
-                    // session; that would leave a removed hero looking active.
-                    logger.info("Shared family zone is unavailable — clearing revoked hero session")
-                    familyAccessRevokedSignal = UUID()
-                    clearSessionAndCloudKitScope(cloudKit: cloudKit)
-                    await authStateMachine.transition(.restoreFailed)
-                    await discoverExistingCloudState(cloudKit: cloudKit)
-                    return
-                }
-                // Falls back to local cache before clearing session if zone probe temporarily fails.
-                if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
-                    // Cache restored — session is back, no need to wipe.
-                } else {
-                    logger.info("Unrecoverable CloudKit session error and no cache available — clearing session and running cloud discovery")
-                    clearSessionAndCloudKitScope(cloudKit: cloudKit)
-                    await authStateMachine.transition(.restoreFailed)
-                    await discoverExistingCloudState(cloudKit: cloudKit)
-                }
-            } else {
-                // Transient network error — try cache fallback for offline launch
-                if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
-                    authStatus = .offlineEmptyCache
-                }
+        } else {
+            // Transient network error — try cache fallback for offline launch
+            if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
+                authStatus = .offlineEmptyCache
             }
         }
+    }
+
+    private func handleScopeViolation(
+        profileRecordName: String,
+        familyRecordName: String,
+        zoneID: CKRecordZone.ID,
+        zoneOwnerName: String,
+        isOwner: Bool,
+        cloudKit: any CloudKitServiceProtocol
+    ) async {
+        let isPlaceholderOwner = ActiveFamilyScopeGuard.isPlaceholderOwner(zoneOwnerName)
+        if isPlaceholderOwner || isOwner {
+            logger.info("ScopeViolation with placeholder/stale owner \(zoneOwnerName, privacy: .private) — clearing stale session and rediscovering")
+            clearSessionAndCloudKitScope(cloudKit: cloudKit)
+            await authStateMachine.transition(.restoreFailed)
+            await discoverExistingCloudState(cloudKit: cloudKit)
+            return
+        }
+        // For non-placeholder hero cases, keep the offline cache
+        // fallback when the network/identity is transiently unavailable.
+        if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
+            return
+        }
+        clearSessionAndCloudKitScope(cloudKit: cloudKit)
+        await authStateMachine.transition(.restoreFailed)
+        await discoverExistingCloudState(cloudKit: cloudKit)
+    }
+
+    private func isRestorationErrorUnrecoverable(
+        error: Error,
+        isOwner: Bool,
+        familyRecordName: String,
+        zoneID: CKRecordZone.ID,
+        cloudKit: any CloudKitServiceProtocol
+    ) async -> Bool {
+        if let ckErr = error as? CloudKitServiceError {
+            switch ckErr {
+            case .notFound, .invalidArguments, .zoneNotFound:
+                return true
+            default:
+                break
+            }
+        }
+        let reachable = await Self.isZoneReachable(
+            cloudKit: cloudKit,
+            familyRecordName: familyRecordName,
+            zoneID: zoneID
+        )
+        return isOwner && !reachable
     }
 
     // MARK: - Session Restoration Helpers
@@ -527,7 +565,11 @@ final class AppState {
         // zone notification must not fire before the family context exists.
         family = cachedFamily.toFamily(zoneID: zoneID)
         currentProfile = cachedProfile.toProfile(zoneID: zoneID)
-        isZoneOwner = isOwner
+        let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: self)
+        isZoneOwner = resolvedOwner
+        if resolvedOwner != isOwner {
+            defaults.set(resolvedOwner, forKey: Self.isOwnerKey)
+        }
         familyZoneID = zoneID
         authStatus = .authenticated
         logger.info("Session restored from local cache (offline mode)")
@@ -571,10 +613,6 @@ final class AppState {
             Task { await self.discoveryCoordinator.finish() }
         }
 
-        // WHY: A successful discovery sets `authStatus` to `detectedPreviousFamily`
-        // without yet populating `family`/`currentProfile` (those are set on
-        // acceptance). Ignore a later duplicate sequential pass so the bounded
-        // shared-zone retry does not re-fire and inflate `sharedZoneFetchCount`.
         if case .detectedPreviousFamily = authStatus {
             return
         }
@@ -631,8 +669,7 @@ final class AppState {
         return await service.sharedZoneFamily(cloudKit: cloudKit, zoneID: zoneID)
     }
 
-    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
-        let zoneID = CKRecordZone.ID(zoneName: zoneIDString, ownerName: CKCurrentUserDefaultName)
+    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
         await acceptDetectedFamily(
             family: familyCache.toFamily(zoneID: zoneID),
             profile: profileCache.toProfile(zoneID: zoneID),
@@ -642,35 +679,59 @@ final class AppState {
         )
     }
 
-    func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
+    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
+        let zoneID = CKRecordZone.ID(zoneName: zoneIDString, ownerName: CKCurrentUserDefaultName)
+        await acceptDetectedFamily(
+            familyCache: familyCache,
+            profileCache: profileCache,
+            zoneID: zoneID,
+            isOwner: isOwner,
+            cloudKit: cloudKit
+        )
+    }
+
+    func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner _: Bool, cloudKit: any CloudKitServiceProtocol) async {
+        self.family = family
+        self.currentProfile = profile
+        let resolvedOwner = ActiveFamilyScopeGuard.resolvedIsOwner(appState: self)
         do {
             try await ActiveFamilyScopeGuard.requireServerAuthenticatedIdentity(
                 profile: profile,
                 family: family,
                 zoneID: zoneID,
-                isOwner: isOwner,
+                isOwner: resolvedOwner,
                 cloudKit: cloudKit
             )
         } catch {
             logger.error("Rejected family recovery because server identity validation failed: \(error, privacy: .private)")
+            self.family = nil
+            self.currentProfile = nil
             authStatus = .onboarding
             return
         }
-        saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: isOwner)
-        self.family = family
-        currentProfile = profile
-        isZoneOwner = isOwner
+        saveSession(profile: profile, family: family, zoneID: zoneID, isOwner: resolvedOwner)
+        isZoneOwner = resolvedOwner
         familyZoneID = zoneID
         cloudKit.activeFamilyZoneID = zoneID
-        cloudKit.activeIsOwner = isOwner
+        cloudKit.activeIsOwner = resolvedOwner
         authStatus = .authenticated
+    }
+
+    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneID: CKRecordZone.ID, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
+        await rejectDetectedFamily(
+            family: familyCache.toFamily(zoneID: zoneID),
+            profile: profileCache.toProfile(zoneID: zoneID),
+            zoneID: zoneID,
+            isOwner: isOwner,
+            cloudKit: cloudKit
+        )
     }
 
     func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
         let zoneID = CKRecordZone.ID(zoneName: zoneIDString, ownerName: CKCurrentUserDefaultName)
         await rejectDetectedFamily(
-            family: familyCache.toFamily(zoneID: zoneID),
-            profile: profileCache.toProfile(zoneID: zoneID),
+            familyCache: familyCache,
+            profileCache: profileCache,
             zoneID: zoneID,
             isOwner: isOwner,
             cloudKit: cloudKit

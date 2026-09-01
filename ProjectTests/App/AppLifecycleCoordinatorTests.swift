@@ -141,6 +141,9 @@ private func makeLifecycle(
     let resolvedDefaults = defaults ?? UserDefaults.ephemeral()
     let cache = try CacheService(inMemory: true, defaults: resolvedDefaults)
     appState.cacheService = cache
+    if let container = cache.container {
+        appState.backgroundCacheActor = BackgroundCacheActor(container: container)
+    }
     let appSync = AppSyncCoordinator()
     let migrations = DataMigrationsCoordinator(defaults: resolvedDefaults)
     let toast = ToastManager()
@@ -825,5 +828,97 @@ struct AppLifecycleCoordinatorTests {
         // Subsequent foreground sync after idle must succeed again.
         await lifecycle.performForegroundSync()
         #expect(counting.fetchCount == 2)
+    }
+
+    // MARK: Participant Scope Reconciliation
+
+    @Test
+    func `reconcileCacheFromCloudKit ingests shared records for participant without scope mismatch`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let appState = AppState(defaults: defaults)
+        let zoneID = CKRecordZone.ID(zoneName: "SharedFamilyZone", ownerName: "parentUser")
+        var family = Family(
+            name: "Hero Guild",
+            createdBy: CKRecord.ID(recordName: "parentUser", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        family.creatorUserRecordName = "parentUser"
+        let childProfile = Profile(
+            displayName: "HeroChild",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "childUser", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "childProf1", zoneID: zoneID)
+        )
+        let quest = Quest(
+            template: CKRecord.Reference(recordID: CKRecord.ID(recordName: "tmpl1", zoneID: zoneID), action: .none),
+            assignee: CKRecord.Reference(recordID: childProfile.id, action: .none),
+            goldReward: 10.0,
+            xpReward: 10,
+            scheduleType: .weeklyFlexible,
+            weekOf: WeekMath.weekOf(date: Date()),
+            createdBy: CKRecord.Reference(recordID: CKRecord.ID(recordName: "parentUser", zoneID: zoneID), action: .none),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            name: "Clean Room",
+            id: CKRecord.ID(recordName: "quest1", zoneID: zoneID)
+        )
+
+        appState.family = family
+        appState.currentProfile = childProfile
+        appState.familyZoneID = zoneID
+        // Simulate uncorrected isZoneOwner = true to test that resolvedIsOwner takes precedence
+        appState.isZoneOwner = true
+        appState.authStatus = .authenticated
+
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeIsOwner = false
+        cloudKit.activeFamilyZoneID = zoneID
+        cloudKit.seedMockRecords([family, childProfile, quest], creatorUserRecordName: "parentUser")
+
+        let counting = CountingSyncCoordinator()
+        let lifecycle = try makeLifecycle(appState: appState, cloudKit: cloudKit, sync: counting, defaults: defaults)
+
+        #expect(ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) == false)
+        #expect(appState.activeDatabaseScope == .shared)
+
+        await lifecycle.reconcileCacheFromCloudKit()
+
+        let cachedQuests = appState.cacheService?.fetchQuests(family: "fam1") ?? []
+        #expect(cachedQuests.count == 1)
+        #expect(cachedQuests.first?.recordName == "quest1")
+    }
+
+    @Test
+    func `restoreSession corrects isZoneOwner when creator anchor proves child profile`() async {
+        let defaults = UserDefaults.ephemeral()
+        let zoneID = CKRecordZone.ID(zoneName: "RestoreZone", ownerName: "parentUser")
+        var family = Family(
+            name: "Restore Family",
+            createdBy: CKRecord.ID(recordName: "parentUser", zoneID: zoneID),
+            id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
+        )
+        family.creatorUserRecordName = "parentUser"
+        let childProfile = Profile(
+            displayName: "HeroChild",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "childUser", zoneID: zoneID),
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: "childProf1", zoneID: zoneID)
+        )
+
+        let appState = AppState(defaults: defaults)
+        // Store isOwner = true erroneously in defaults
+        appState.saveSession(profile: childProfile, family: family, zoneID: zoneID, isOwner: true)
+        #expect(defaults.bool(forKey: "session_isZoneOwner") == true)
+
+        let cloudKit = MockCloudKitService()
+        cloudKit.seedMockRecords([family, childProfile], creatorUserRecordName: "parentUser")
+
+        await appState.restoreSession(cloudKit: cloudKit)
+
+        #expect(appState.isZoneOwner == false)
+        #expect(defaults.bool(forKey: "session_isZoneOwner") == false)
+        #expect(cloudKit.activeIsOwner == false)
+        #expect(appState.activeDatabaseScope == .shared)
     }
 }

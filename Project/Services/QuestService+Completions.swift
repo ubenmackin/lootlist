@@ -60,7 +60,6 @@ extension QuestService {
 
         try await validateCanCompleteQuest(quest, questName: questName)
 
-        // WHY: Active family zone is sole authority — hero completions target shared zone; diverged IDs corrected to active zone.
         let resolvedZoneID: CKRecordZone.ID = {
             guard let activeZone = appState.familyZoneID else { return quest.id.zoneID }
             if quest.id.zoneID != activeZone {
@@ -79,6 +78,11 @@ extension QuestService {
             id: CKRecord.ID(recordName: UUID().uuidString, zoneID: resolvedZoneID)
         )
         log.completedDate = completedDate
+
+        let existingLogs = cachedQuestLogs(forQuest: quest)
+        let priorCount = existingLogs.filter(\.verificationStatus.countsTowardCompletion).count
+        let isFinalSubPart = priorCount + 1 >= quest.targetCount
+
         if quest.approvalMode == .autoApprove {
             log.verificationStatus = .autoApproved
             try await applyReward(for: quest, to: profile, completion: log)
@@ -97,13 +101,21 @@ extension QuestService {
                     context: "QuestService.completeQuest.autoApproved"
                 )
             }
+        } else if quest.approvalMode == .parentVerify {
+            // Parent-verified sub-parts stay pending until approved by a parent.
+            log.verificationStatus = .pending
+            await cacheService.upsertQuestCompletion(log)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                syncCoordinator,
+                id: log.id,
+                appState: appState,
+                logger: logger,
+                context: isFinalSubPart ? "QuestService.completeQuest" : "QuestService.completeQuest.intermediate"
+            )
+            dispatchParentReviewNotification(for: log, quest: quest)
         } else {
             await cacheService.upsertQuestCompletion(log)
             ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: log.id, appState: appState, logger: logger, context: "QuestService.completeQuest")
-        }
-
-        if quest.approvalMode == .parentVerify {
-            dispatchParentReviewNotification(for: log, quest: quest)
         }
         Task {
             await syncCoordinator.sendPendingChanges()
@@ -131,7 +143,7 @@ extension QuestService {
         }
         defer { inFlightWithdrawals.withLock { _ = $0.remove(logName) } }
 
-        try validateCanTransitionCompletion(questLog, logName: logName)
+        try validateCanWithdrawCompletion(questLog, logName: logName)
 
         var updated = questLog
         if let cached = cacheService.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
@@ -247,18 +259,11 @@ extension QuestService {
 
     // MARK: - Validation Helpers
 
-    // WHY: xpCredited non-nil preserve is frozen per ARCHITECTURE.md §2 — conflict merge keeps the
-    // first credited value so a re-delivered completion can never be re-minted. See
-    // CKSyncConflictResolver.resolveQuestCompletionConflict; do not alter without review.
-
     private func validateCanCompleteQuest(_ quest: Quest, questName: String) async throws {
         if let cachedQuest = cacheService.fetchQuest(recordName: questName, family: quest.family.recordID.recordName) {
             guard cachedQuest.isActive else {
                 throw QuestServiceError.alreadyCompleted
             }
-            // WHY: First write has nil changeTag (new QuestCompletion/Quest not yet saved) — only
-            // flag staleData when both sides have a tag and they differ. Nil on either side means
-            // not yet round-tripped, so not a conflict.
             if let expectedTag = quest.changeTag, let currentTag = cachedQuest.changeTag,
                expectedTag != currentTag
             {
@@ -282,7 +287,6 @@ extension QuestService {
             guard cached.verificationStatusEnum == .pending else {
                 throw QuestServiceError.alreadyResolved(cached.verificationStatus)
             }
-            // WHY: Same nil-coalesced rule as validateCanCompleteQuest — nil changeTag on first write is not stale; only mismatched non-nil tags indicate a conflicting edit.
             if let expectedTag = questLog.changeTag, let currentTag = cached.changeTag, expectedTag != currentTag {
                 throw QuestServiceError.staleData("completion was updated on another device")
             }
@@ -293,17 +297,29 @@ extension QuestService {
         }
     }
 
+    private func validateCanWithdrawCompletion(_ questLog: QuestCompletion, logName: String) throws {
+        if let cached = cacheService.fetchQuestCompletion(recordName: logName, family: questLog.family.recordID.recordName) {
+            guard cached.verificationStatusEnum == .pending || cached.verificationStatusEnum == .autoApproved else {
+                throw QuestServiceError.alreadyResolved(cached.verificationStatus)
+            }
+            if let expectedTag = questLog.changeTag, let currentTag = cached.changeTag, expectedTag != currentTag {
+                throw QuestServiceError.staleData("completion was updated on another device")
+            }
+        } else {
+            guard questLog.verificationStatus == .pending || questLog.verificationStatus == .autoApproved else {
+                throw QuestServiceError.alreadyResolved(questLog.verificationStatus.rawValue)
+            }
+        }
+    }
+
     // MARK: - Post-Transition Notification & Settlement Helpers
 
     private func dispatchParentReviewNotification(for log: QuestCompletion, quest: Quest) {
-        // WHY: questNeedsReview is parent-only — never enqueue local notification on child's device; sync ingestion delivers to parent.
         guard let currentProfile = appState.currentProfile, currentProfile.role.isParent else { return }
-        // WHY: shared-device edge — avoid self-notification when completer and current profile are the same.
         let completerRecordName = log.completedBy.recordID.recordName
         guard currentProfile.id.recordName != completerRecordName else { return }
         let familyName = quest.family.recordID.recordName
         if let parent = resolveParent(recordID: quest.createdBy.recordID, familyRecordName: familyName) {
-            // WHY: questNeedsReview is parent-only — verify resolved profile is actually a parent.
             guard parent.role.isParent else { return }
             guard parent.id.recordName != completerRecordName else { return }
             if let notificationService {
@@ -320,7 +336,6 @@ extension QuestService {
         if let parent = resolveParentViaCacheScan(familyRecordName: familyName),
            let notificationService
         {
-            // WHY: questNeedsReview is parent-only — fallback scan must still resolve a parent.
             guard parent.role.isParent else { return }
             guard parent.id.recordName != completerRecordName else { return }
             Task { @MainActor @Sendable [logger, notificationService, log, parent] in

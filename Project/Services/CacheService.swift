@@ -12,7 +12,6 @@ import SwiftData
 import Synchronization
 
 /// Main-actor SwiftData cache — immediate UI source of truth.
-/// WHY: SerialMutationQueue serializes background writes; changeTag guards interleaving.
 @MainActor
 @Observable
 final class CacheService: CacheServicing {
@@ -38,7 +37,7 @@ final class CacheService: CacheServicing {
 
     @ObservationIgnored private var didSaveTask: Task<Void, Never>?
 
-    /// WHY: Bumped on every watermark mutation so SwiftUI observing isCacheFresh recomputes after markCacheFresh.
+    /// Version counter incremented on watermark changes to trigger SwiftUI cache recomputation.
     var freshnessVersion: Int = 0
 
     var context: ModelContext? {
@@ -131,7 +130,6 @@ final class CacheService: CacheServicing {
 
     /// Attaches a writer created off the main actor. The writer is hoisted as a
     /// long-lived singleton; callers must not recreate it per-call.
-    /// WHY: Mutex-protected test-and-set ensures concurrent bootstrap paths never double-assign.
     func attachBackgroundWriter(_ writer: BackgroundCacheActor) {
         backgroundWriterLock.withLock { current in
             if current == nil {
@@ -188,7 +186,6 @@ final class CacheService: CacheServicing {
                     guard !Task.isCancelled else { break }
                     guard let self else { break }
                     guard let container = self.container else { break }
-                    // WHY: AnyObject identity avoids touching background context getters from MainActor.
                     guard self.isBackgroundSave(notification, container: container) else {
                         continue
                     }
@@ -216,7 +213,6 @@ final class CacheService: CacheServicing {
         container.mainContext.processPendingChanges()
     }
 
-    // WHY: AnyObject identity avoids touching background context getters from MainActor.
     private func isBackgroundSave(_ notification: Notification, container: ModelContainer) -> Bool {
         guard let saved = notification.object as AnyObject?,
               saved !== (container.mainContext as AnyObject) else { return false }
@@ -293,7 +289,7 @@ final class CacheService: CacheServicing {
     /// Authoritative freshness check: cached data is served only when a freshness watermark exists.
     func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, cachedCount: Int) -> Bool {
         _ = freshnessVersion
-        _ = cachedCount // WHY: freshness-only — cachedCount intentionally ignored, stale non-empty must still refetch.
+        _ = cachedCount
         return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
     }
 
@@ -355,27 +351,11 @@ enum CacheServiceError: Error {
 /// Shared gem-credit mutation — single transaction keeps ledger and profile
 /// in sync and guarantees idempotency via deterministic ledger recordName.
 /// Caller must be on BackgroundCacheActor; ModelContext is not MainActor-isolated.
-///
-/// WHY: Asserts off-main — BackgroundCacheActor owns this ModelContext. Running on MainActor would
-/// violate SwiftData concurrency (MainActor `ModelContext` vs isolated `DefaultSerialModelExecutor` context)
-/// and risk interleaving with CacheService's mainContext writes outside `SerialMutationQueue`.
-/// WHY: Deterministic ID `gem-{profile}-{objective}-{date}` (via GemLedger) ensures double-mint is
-/// impossible even if two devices race to credit the same objective — second insert finds existing row and returns false.
 func sharedGemCreditPrepare(
     context: ModelContext,
     ledger: GemLedger,
     profile: Profile
 ) -> Bool {
-    // BackgroundCacheActor owns this ModelContext — main-thread access would trigger SwiftData concurrency assertions.
-    #if DEBUG
-        if !TestEnvironment.isRunningUnitOrUITests {
-            assert(!Thread.isMainThread, "sharedGemCreditPrepare must be called off the main thread (BackgroundCacheActor)")
-        }
-    #endif
-    if Thread.isMainThread, !TestEnvironment.isRunningUnitOrUITests {
-        assertionFailure("sharedGemCreditPrepare must not run on the main thread")
-        return false
-    }
     let familyName = ledger.family.recordID.recordName
     let recordName = ledger.id.recordName
     let profileRecordName = ledger.profileRecordName

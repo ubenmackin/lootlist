@@ -27,10 +27,8 @@ struct BucketTransferView: View {
     @Query private var ledgerCaches: [LedgerEntryCache]
 
     init(familyRecordName: String? = nil) {
-        // WHY: Fail closed — empty family yields zero rows, never an unscoped cross-family query.
         let targetFamily = familyRecordName ?? ""
         #if DEBUG
-            // WHY: Empty predicate silently matches nothing and can mask stale-cache reads; assert in DEBUG unless running tests.
             assert(!targetFamily.isEmpty || TestEnvironment.isRunningUnitOrUITests, "BucketTransferView: empty familyRecordName — predicate will match no rows (fail-closed)")
         #endif
         let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
@@ -53,7 +51,6 @@ struct BucketTransferView: View {
         appState.family
     }
 
-    // WHY: Balances derive from @Query cache source-of-truth so UI stays reactive, feeding the shared BucketService attribution formula so view and service math can never drift.
     private var balances: [BucketKind: Double] {
         guard let profile else { return [:] }
         let targetProfile = profile.id.recordName
@@ -64,11 +61,7 @@ struct BucketTransferView: View {
         return result
     }
 
-    // WHY: Transfer IDs are deterministic per (profile, UTC day, from→to pair), so a second move
-    // between the same pair today would upsert over — and silently destroy — the first transfer's ledger row.
-    // Contract: dayBucket is UTC via WeekMath.dayBucket (not Calendar.current); deterministic recordName is transfer-{profile}-{dayBucket} in UTC.
-    // WHY UTC: device-local calendar splits the same instant into different days near midnight, breaking per-day dedupe across devices.
-    // View mirrors service predicate for button disable only; authoritative per-day/per-pair guard is service-owned in BucketService.hasTransferredToday.
+    /// Limit to one transfer per bucket pair per UTC day (deterministic ID constraint).
     private var hasTransferredToday: Bool {
         guard let profile else { return false }
         let targetProfile = profile.id.recordName
@@ -92,7 +85,6 @@ struct BucketTransferView: View {
         BucketKind.allCases.filter { $0 != fromBucket }
     }
 
-    // WHY: Locale-aware parsing via CurrencyFormatter so comma decimals work and both sheets share one parser.
     private var parsedAmount: Double? {
         guard let value = CurrencyFormatter.decimalDouble(from: amountText),
               value.isFinite, value > 0
@@ -207,7 +199,6 @@ struct BucketTransferView: View {
             HStack {
                 Image(systemName: "arrow.left.arrow.right")
                     .foregroundStyle(.secondary)
-                // WHY: decimalPad has no return key; focused binding + keyboard toolbar provides dismissal.
                 TextField("0.00", text: $amountText)
                     .keyboardType(.decimalPad)
                     .focused($isAmountFocused)
@@ -255,7 +246,6 @@ struct BucketTransferView: View {
         CurrencyFormatter.string(balances[kind] ?? 0)
     }
 
-    // WHY: CurrencyFormatter is single-source for currency; no hardcoded "$" literals.
     private var formattedConfirmAmount: String {
         guard let amount = parsedAmount else { return CurrencyFormatter.string(0.0) }
         return CurrencyFormatter.string(amount)
@@ -276,10 +266,6 @@ struct BucketTransferView: View {
             isSaving = true
             defer { isSaving = false }
             do {
-                // WHY: day-keyed transferID makes the record name deterministic per
-                // (profile, UTC day, pair) so CloudKit dedupes cross-device
-                // double-runs. UTC via WeekMath, not Calendar.current, avoids
-                // midnight-boundary splits.
                 let dayKeyedID = "\(WeekMath.dayBucket(for: Date()))-\(fromBucket.rawValue)-\(toBucket.rawValue)"
                 _ = try await bucketService.transfer(
                     from: fromBucket,

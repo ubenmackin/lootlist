@@ -73,15 +73,14 @@ final class HeroDashboardUITests: XCTestCase {
 
         app.tabBars.buttons["Quests"].tap()
 
-        // Pending rows key off the quest's record name; upcoming rows list
-        // every active assignment not awaiting review, including ones whose
-        // auto-approved completion already paid out.
+        // Pending rows key off the quest's record name; completed rows list
+        // auto-approved completions that have already been fulfilled.
         XCTAssertTrue(element(withIdentifier: "chores.pendingRow-quest_hero1_3").waitForExistence(timeout: 5.0),
                       "Quest sent for review should render in the amber pending section")
-        XCTAssertTrue(element(withIdentifier: "chores.upcomingRow-quest_hero1_1").exists,
-                      "Auto-approved quest should remain listed under Upcoming")
-        XCTAssertTrue(element(withIdentifier: "chores.upcomingRow-quest_hero1_2").exists,
-                      "Auto-approved quest should remain listed under Upcoming")
+        XCTAssertTrue(element(withIdentifier: "chores.completedRow-quest_hero1_1").exists,
+                      "Auto-approved quest should be listed under Completed")
+        XCTAssertTrue(element(withIdentifier: "chores.completedRow-quest_hero1_2").exists,
+                      "Auto-approved quest should be listed under Completed")
 
         XCTAssertTrue(element(withIdentifier: "chores.heroBoardLink").exists, "Hero Board should be reachable from My Chores")
     }
