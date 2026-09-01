@@ -13,7 +13,12 @@ import SwiftData
 final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     typealias DomainModel = LedgerEntry
 
-    #Index<LedgerEntryCache>([\.familyRecordName, \.recordName], [\.familyRecordName, \.profileRecordName, \.date])
+    // WHY: lean transfer guard index — (family, profile, source, date) narrows hasTransferredToday without sparse optional columns; pair filter refines the small indexed subset.
+    #Index<LedgerEntryCache>(
+        [\.familyRecordName, \.recordName],
+        [\.familyRecordName, \.profileRecordName, \.date],
+        [\.familyRecordName, \.profileRecordName, \.source, \.date]
+    )
 
     var recordName: String
     var profileRecordName: String

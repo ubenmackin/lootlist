@@ -72,7 +72,7 @@ enum CacheFirst {
     }
 }
 
-/// Convenience free function matching the blueprint-described signature.
+/// Convenience free function forwarding to CacheFirst.cacheFirst when cacheService/appState are already in scope.
 ///
 /// This overload forwards to ``CacheFirst/cacheFirst(type:family:cacheService:appState:fetchCache:map:query:hydrate:sortedBy:)``
 /// when callers already have `cacheService` and `appState` in scope via

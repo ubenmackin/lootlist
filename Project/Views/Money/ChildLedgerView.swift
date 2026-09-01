@@ -5,11 +5,28 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 
 /// Read-only transaction history for a child profile, grouped by date into daily sections.
 struct ChildLedgerView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ChildLedgerView")
+    /// WHY static formatters: per-cell DateFormatter alloc caused scroll jank on large ledgers; reuse single instance confined to MainActor.
+    @MainActor private static let shortTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter
+    }()
+
+    @MainActor private static let mediumDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
     @Environment(AppState.self) private var appState
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
@@ -26,6 +43,7 @@ struct ChildLedgerView: View {
         self.profileRecordName = profileRecordName
 
         let targetFamily = familyRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "ChildLedgerView")
         let targetProfile = profileRecordName ?? ""
         let ledgerFilter = #Predicate<LedgerEntryCache> {
             $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
@@ -116,7 +134,7 @@ struct ChildLedgerView: View {
                     .background(Color(.systemGroupedBackground))
             }
             .sheet(isPresented: $isShowingTransfer) {
-                BucketTransferView(familyRecordName: familyRecordName)
+                BucketTransferView(familyRecordName: familyRecordName, profileRecordName: profileRecordName)
             }
             .sheet(isPresented: $isShowingSplit) {
                 SavingsSplitView(
@@ -130,6 +148,8 @@ struct ChildLedgerView: View {
                 await lifecycleCoordinator?.performManualSync()
             }
         }
+        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch.
+        .id(profileRecordName)
     }
 
     // MARK: - Bucket Split Entry
@@ -324,16 +344,12 @@ struct ChildLedgerView: View {
 
     /// Returns a human-readable date label. Today/Yesterday buckets show the
     /// time; older entries show the abbreviated date.
-    private func formattedDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-
+    @MainActor private func formattedDate(_ date: Date) -> String {
+        // WHY static formatter: reused MainActor-confined formatter avoids per-cell alloc during scrolling.
         if WeekMath.isToday(date) || WeekMath.isYesterday(date) {
-            formatter.timeStyle = .short
-            formatter.dateStyle = .none
+            Self.shortTimeFormatter.string(from: date)
         } else {
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .none
+            Self.mediumDateFormatter.string(from: date)
         }
-        return formatter.string(from: date)
     }
 }

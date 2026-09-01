@@ -5,10 +5,13 @@
 //  Created by Ben Mackin on 8/17/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 
 struct QuestsView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "QuestsView")
+
     @Environment(AppState.self) private var appState
     @Environment(QuestService.self) private var questService
     @Environment(ToastManager.self) private var toastManager
@@ -39,28 +42,28 @@ struct QuestsView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
 
-        // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
-        // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "QuestsView")
+        // WHY: predicate pushdown — filter by family+profile at store; avoids family-wide scan.
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
+        // WHY: hero-scoped completions — store filters by completer to avoid family-wide scan.
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         let currentProfileFilter = #Predicate<ProfileCache> {
             $0.recordName == targetProfile && $0.familyRecordName == targetFamily
         }
 
+        // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
         _cachedTemplates = Query(
             filter: templateFilter,
@@ -72,8 +75,7 @@ struct QuestsView: View {
         )
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
-            sort: \AllowancePeriodCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
         _currentProfileRows = Query(
             filter: currentProfileFilter,
@@ -89,12 +91,14 @@ struct QuestsView: View {
 
     /// Quests assigned to the active hero profile.
     private var profileQuests: [QuestCache] {
+        // WHY: defensive — predicate is source of truth; in-memory guard for stale identity.
         guard let name = appState.currentProfile?.id.recordName else { return [] }
         return cachedQuests.filter { $0.assigneeRecordName == name && $0.isActive }
     }
 
     /// Completions logged by the active hero profile.
     private var profileLogs: [QuestCompletionCache] {
+        // WHY: defensive — store is source of truth; guards identity drift.
         guard let name = appState.currentProfile?.id.recordName else { return [] }
         return cachedCompletions.filter { $0.completerRecordName == name }
     }
@@ -138,6 +142,8 @@ struct QuestsView: View {
                 handleLootDismissalChange(isShown)
             }
         }
+        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch; defensive filter in rebuild() is secondary guard.
+        .id(profileRecordName)
     }
 
     private var scrollContent: some View {
@@ -215,18 +221,13 @@ struct QuestsView: View {
     private func rebuildViewModel(_ vm: HeroDashboardViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
         guard let targetVM = vm ?? viewModel else { return }
-        guard let profileName = appState.currentProfile?.id.recordName else { return }
+        guard let currentName = appState.currentProfile?.id.recordName else { return }
 
-        // Filter family-scoped cached records for the active hero profile.
-        let quests = cachedQuests
-            .filter { $0.assigneeRecordName == profileName && $0.isActive }
-
-        let logs = cachedCompletions
-            .filter { $0.completerRecordName == profileName }
-
-        let templates = cachedTemplates
-
-        targetVM.rebuildLists(quests: quests, logs: logs, templates: templates, allowancePeriods: cachedAllowancePeriods)
+        // WHY: predicate is primary profile scope; secondary in-memory filter guards stale identity when view is not recreated on profile switch.
+        let quests = cachedQuests.filter { $0.assigneeRecordName == currentName }
+        let logs = cachedCompletions.filter { $0.completerRecordName == currentName }
+        let periods = cachedAllowancePeriods.filter { $0.profileRecordName == currentName }
+        targetVM.rebuildLists(quests: quests, logs: logs, templates: cachedTemplates, allowancePeriods: periods)
     }
 
     // MARK: - Quest Board

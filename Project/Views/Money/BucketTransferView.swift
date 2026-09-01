@@ -24,14 +24,20 @@ struct BucketTransferView: View {
     @State private var isSaving: Bool = false
     @State private var showConfirmation: Bool = false
 
+    private let familyRecordName: String?
+    private let profileRecordName: String?
+
     @Query private var ledgerCaches: [LedgerEntryCache]
 
-    init(familyRecordName: String? = nil) {
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         let targetFamily = familyRecordName ?? ""
-        #if DEBUG
-            assert(!targetFamily.isEmpty || TestEnvironment.isRunningUnitOrUITests, "BucketTransferView: empty familyRecordName — predicate will match no rows (fail-closed)")
-        #endif
-        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        let targetProfile = profileRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "BucketTransferView")
+        // WHY predicate pushdown: per-profile query keeps store indexed (family, profile) — avoids loading N× ledgers for family with many heroes. Self-ownership gated (acting.id
+        // == profile.id) requires profile scope; mirrors BucketService.hasTransferredToday indexed predicate.
+        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         _ledgerCaches = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
     }
 
@@ -52,10 +58,9 @@ struct BucketTransferView: View {
     }
 
     private var balances: [BucketKind: Double] {
-        guard let profile else { return [:] }
-        let targetProfile = profile.id.recordName
+        // WHY no mid-thread profile filter: ledgerCaches already predicate-pushed to family+profile at store level.
         var result: [BucketKind: Double] = [:]
-        for entry in ledgerCaches where entry.profileRecordName == targetProfile {
+        for entry in ledgerCaches {
             BucketService.applyBucketAttribution(entry, to: &result)
         }
         return result
@@ -63,16 +68,16 @@ struct BucketTransferView: View {
 
     /// Limit to one transfer per bucket pair per UTC day (deterministic ID constraint).
     private var hasTransferredToday: Bool {
-        guard let profile else { return false }
-        let targetProfile = profile.id.recordName
+        // Single-sourced via BucketService indexed guard — avoids duplicated linear scan over @Query results.
+        guard let profile, let family else { return false }
         let today = WeekMath.dayBucket(for: Date())
-        return ledgerCaches.contains { entry in
-            entry.profileRecordName == targetProfile
-                && entry.sourceEnum == .transfer
-                && entry.fromBucket == fromBucket.rawValue
-                && entry.toBucket == toBucket.rawValue
-                && WeekMath.dayBucket(for: entry.date) == today
-        }
+        return bucketService.hasTransferredToday(
+            profileRecordName: profile.id.recordName,
+            familyRecordName: family.id.recordName,
+            dayBucket: today,
+            from: fromBucket,
+            to: toBucket
+        )
     }
 
     /// Buckets available as the source — everything except the current to-bucket.
@@ -143,6 +148,8 @@ struct BucketTransferView: View {
             }
             .toastOverlay()
         }
+        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch.
+        .id(profileRecordName)
     }
 
     // MARK: - Sections
@@ -266,14 +273,18 @@ struct BucketTransferView: View {
             isSaving = true
             defer { isSaving = false }
             do {
-                let dayKeyedID = "\(WeekMath.dayBucket(for: Date()))-\(fromBucket.rawValue)-\(toBucket.rawValue)"
+                // WHY single capture and atomic mint: view captures `Date()` once and passes the
+                // raw instant to `BucketService.transfer(at:)` which derives `dayBucket` and
+                // deterministic `transferID` from that same instant — eliminating the double-Date()
+                // TOCTOU where view and service straddle 00:00 UTC and produce mismatched buckets.
+                let now = Date()
                 _ = try await bucketService.transfer(
                     from: fromBucket,
                     to: toBucket,
                     amount: amount,
                     profile: profile,
                     family: family,
-                    transferID: dayKeyedID
+                    at: now
                 )
                 HapticsService.rigid()
                 dismiss()

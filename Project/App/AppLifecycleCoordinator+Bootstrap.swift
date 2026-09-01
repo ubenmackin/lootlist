@@ -133,6 +133,10 @@ extension AppLifecycleCoordinator {
 
         await syncCoordinator.fetchChanges()
         await syncCoordinator.sendPendingChanges()
+        // WHY: terminated-push coverage complements push-driven sync — schedule
+        // BGProcessingTask retry so pendingRecordZoneChanges still upload after
+        // jetsam or throttled silent push.
+        AppDelegate.scheduleSyncProcessingTask()
         await reconcileCacheFromCloudKit()
         await evaluateTrophiesCatchup()
 

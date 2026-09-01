@@ -7,23 +7,6 @@
 
 import SwiftUI
 
-enum GoldFormat {
-    static func magnitude(_ amount: Double) -> String {
-        CurrencyFormatter.magnitude(amount)
-    }
-
-    static func signed(_ amount: Double) -> String {
-        let body = magnitude(amount)
-        if amount < 0 {
-            return "−\(body)"
-        }
-        if amount > 0 {
-            return "+\(body)"
-        }
-        return body
-    }
-}
-
 struct BalanceCardView: View {
     let balance: Double?
 
@@ -82,12 +65,12 @@ struct BalanceCardView: View {
         )
         .padding(.horizontal)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Current balance \(balance.map { GoldFormat.magnitude($0) } ?? "loading")")
+        .accessibilityLabel("Current balance \(balance.map { CurrencyFormatter.magnitude($0) } ?? "loading")")
     }
 
     private var amountText: String {
         guard let balance else { return "—" }
-        return GoldFormat.magnitude(balance)
+        return CurrencyFormatter.magnitude(balance)
     }
 
     private func weekLabel(for date: Date) -> String {

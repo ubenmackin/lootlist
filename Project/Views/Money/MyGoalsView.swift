@@ -27,19 +27,24 @@ struct MyGoalsView: View {
     @State private var errorMessage: String?
 
     private let familyRecordName: String?
+    private let profileRecordName: String?
     private let goalService: GoalService?
 
     private var resolvedGoalService: GoalService? {
         goalService ?? envGoalService
     }
 
-    init(familyRecordName: String? = nil, goalService: GoalService? = nil) {
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil, goalService: GoalService? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         self.goalService = goalService
 
         let targetFamily = familyRecordName ?? ""
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+        let targetProfile = profileRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "MyGoalsView")
+        // WHY: predicate pushdown — filter by family+profile at store; fail-closed to 0 rows when empty.
+        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
 
         _cachedGoals = Query(
             filter: goalFilter,
@@ -54,6 +59,7 @@ struct MyGoalsView: View {
 
     /// Goals belonging to the current hero profile, excluding archived goals.
     private var activeGoals: [GoalCache] {
+        // WHY: defensive secondary guard — predicate is source of truth; filters stale identity when view not yet recreated.
         guard let name = appState.currentProfile?.id.recordName else { return [] }
         return cachedGoals.filter {
             $0.profileRecordName == name && !$0.isArchived
@@ -69,16 +75,10 @@ struct MyGoalsView: View {
         activeGoals.filter { $0.bucketKindEnum == .longTermSave }
     }
 
-    /// Computes cumulative saved pennies for a goal from ledger entries whose
-    /// record name follows the deterministic contribution-ID pattern
-    /// `contrib-{goalRecordName}-{sourceEventID}`.
+    /// Computes cumulative saved pennies for a goal from deterministic
+    /// contribution records via the shared ``GoalProgressCalculator``.
     private func savedPennies(for goal: GoalCache) -> Int64 {
-        let prefix = "contrib-\(goal.recordName)-"
-        return cachedLedgers
-            .filter { $0.recordName.hasPrefix(prefix) }
-            .reduce(into: Int64(0)) { acc, entry in
-                acc += Int64((entry.amount * 100).rounded())
-            }
+        GoalProgressCalculator.contributionPennies(for: goal, in: cachedLedgers)
     }
 
     /// Whether any content exists (including across both buckets).
@@ -194,6 +194,8 @@ struct MyGoalsView: View {
                 }
             }
         }
+        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch; defensive filter in activeGoals is secondary guard.
+        .id(profileRecordName)
     }
 
     // MARK: - Bucket Section

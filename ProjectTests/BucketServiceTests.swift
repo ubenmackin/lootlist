@@ -368,4 +368,49 @@ struct BucketServiceTests {
 
         #expect(scaffold.ledgerEntries().count == 3)
     }
+
+    // MARK: - Deterministic TransferID — Midnight Skew Atomicity
+
+    @Test
+    func `deterministicTransferID consistent when Date captured once near UTC midnight`() {
+        // WHY single capture: `WeekMath.dayBucket(for:)` quantizes at UTC midnight; two `Date()`
+        // calls straddling 00:00 UTC would yield different buckets. Capturing `Date()` once
+        // and reusing for bucket + ID keeps view/service atomic.
+        let secondsPerDay: Double = 86400
+        // Arbitrary stable epoch day to avoid DST/timezone influence — UTC bucket only.
+        let baseDay = 19700
+        let baseStart = Double(baseDay) * secondsPerDay
+        // 23:00 UTC — within 2h of midnight threshold on same UTC day.
+        let dateA = Date(timeIntervalSince1970: baseStart + 23 * 3600)
+        // 23:50 UTC — still same UTC day, 50 min later, still within 2h window.
+        let dateB = dateA.addingTimeInterval(50 * 60)
+        // Verify both dates quantize to the same UTC bucket via `WeekMath` (single-capture contract).
+        let bucketA = WeekMath.dayBucket(for: dateA)
+        let bucketB = WeekMath.dayBucket(for: dateB)
+        #expect(bucketA == bucketB, "Two Dates within same UTC day must yield same dayBucket")
+        #expect(WeekMath.isNearUTCMidnight(dateA), "23:00 is within 2h of UTC midnight")
+        #expect(WeekMath.isNearUTCMidnight(dateB), "23:50 is within 2h of UTC midnight")
+
+        // Deterministic ID derived from a single-captured bucket must be stable.
+        let idA = BucketService.deterministicTransferID(dayBucket: bucketA, from: .spend, to: .shortTermSave)
+        let idB = BucketService.deterministicTransferID(dayBucket: bucketB, from: .spend, to: .shortTermSave)
+        #expect(idA == idB, "Same UTC bucket + pair must produce identical transferID")
+
+        // Capturing once: re-deriving from the same mocked Date yields identical ID.
+        let idA2 = BucketService.deterministicTransferID(
+            dayBucket: WeekMath.dayBucket(for: dateA),
+            from: .spend,
+            to: .shortTermSave
+        )
+        #expect(idA2 == idA, "Re-capturing same instant must stay consistent")
+
+        // Cross-midnight: 00:10 UTC next day must be a different bucket/ID, but each side
+        // remains self-consistent when its own Date is captured once.
+        let dateAfterMidnight = dateB.addingTimeInterval(20 * 60) // 00:10 next UTC day
+        let bucketC = WeekMath.dayBucket(for: dateAfterMidnight)
+        #expect(bucketC == bucketA + 1, "00:10 UTC next day must be next bucket")
+        let idC = BucketService.deterministicTransferID(dayBucket: bucketC, from: .spend, to: .shortTermSave)
+        #expect(idC != idA, "Next UTC day must produce distinct transferID for same pair")
+        #expect(WeekMath.isNearUTCMidnight(dateAfterMidnight), "00:10 is within 2h of UTC midnight")
+    }
 }

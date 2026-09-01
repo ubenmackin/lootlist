@@ -14,6 +14,7 @@ enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
     case unsupported
     case invalidAmount
     case persistenceFailed
+    case duplicate
     case underlying(String)
 
     var errorDescription: String? {
@@ -21,6 +22,7 @@ enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
         case .unsupported: "This action isn't supported on this device."
         case .invalidAmount: "Enter a valid positive amount."
         case .persistenceFailed: "Could not save your spending. Please try again."
+        case .duplicate: "An entry with these details already exists. Edit the description to save a distinct entry."
         case .underlying: "Something went wrong. Please try again."
         }
     }
@@ -148,6 +150,9 @@ class SpendingService {
 
     // MARK: - Helpers
 
+    // WHY: deterministicRecordName must produce the same CKRecord.ID on every
+    // device for identical payloads so CloudKit dedupes money movements.
+    // All discriminating fields must be folded into the hash — never a random UUID.
     private func deterministicRecordName(source: String, profile: Profile, family: Family, amount: Double, description: String, date: Date) -> String {
         let ms = Int(date.timeIntervalSince1970 * 1000)
         let cents = Int((abs(amount) * 100).rounded())
@@ -167,6 +172,11 @@ class SpendingService {
         }
     }
 
+    // WHY: CloudKit dedupe requires deterministic IDs. A random UUID escape hatch
+    // would create divergent recordNames for the same logical entry across
+    // devices, defeating idempotency. On payload collision at the same base
+    // name, extend deterministically so every device converges on the same
+    // alternate name instead of forking.
     private func makeLedgerID(source: String, profile: Profile, family: Family, amount: Double, description: String, location: String?, date: Date) -> CKRecord.ID {
         let base = deterministicRecordName(source: source, profile: profile, family: family, amount: amount, description: description, date: date)
         var recordName = base
@@ -177,7 +187,20 @@ class SpendingService {
            || existing.location != location
            || Int((abs(existing.amount) * 100).rounded()) != Int((abs(amount) * 100).rounded())
         {
-            recordName = "\(base)-\(UUID().uuidString)"
+            // WHY: Extend deterministically — hash all discriminating fields so
+            // same divergent payload yields same recordName on any device.
+            // Payload must include every field that participates in base-record
+            // collisions (description + ms) so hash-colliding descriptions cannot
+            // still collide after the suffix.
+            let ms = Int(date.timeIntervalSince1970 * 1000)
+            let cents = Int((abs(amount) * 100).rounded())
+            let normalizedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let trimmedLower = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let payload = "\(trimmedLower)|\(ms)|\(cents)|\(normalizedLocation)|\(source)"
+            let hash = SHA256.hash(data: Data(payload.utf8))
+            let hex = hash.prefix(4).map { String(format: "%02x", $0) }.joined()
+            let msSuffix = ms % 1000
+            recordName = "\(base)-\(hex)-\(msSuffix)"
         }
         return CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
     }

@@ -17,6 +17,7 @@ protocol CacheServicing: AnyObject {
 
     func fetchLedgerEntries(profileRecordName: String, family: String?) -> [LedgerEntryCache]
     func fetchLedgerEntries(profileRecordName: String, family: String, recordNamePrefix: String) -> [LedgerEntryCache]
+    func fetchTransfers(profileRecordName: String, familyRecordName: String, from fromRaw: String, to toRaw: String, dayBucket: Int) -> [LedgerEntryCache]
     func fetchLedgerEntry(recordName: String, family: String) -> LedgerEntryCache?
     func fetchProfiles(family: String?) -> [ProfileCache]
     func fetchProfile(recordName: String, family: String) -> ProfileCache?

@@ -8,6 +8,7 @@
 import BackgroundTasks
 import CloudKit
 import os
+import Synchronization
 import UIKit
 import UserNotifications
 
@@ -26,6 +27,7 @@ extension SyncOutcome {
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     static let weeklyPayoutTaskId = "com.volcrypt.lootlist.weeklypayout"
+    static let syncTaskId = "com.volcrypt.lootlist.sync"
     private nonisolated static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppDelegate")
 
     func application(
@@ -47,10 +49,17 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             guard let refreshTask = task as? BGAppRefreshTask else { return }
             Self.handleWeeklyPayoutBackgroundRefresh(task: refreshTask)
         }
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.syncTaskId, using: nil) { task in
+            guard let processingTask = task as? BGProcessingTask else { return }
+            Self.handleSyncProcessingTask(task: processingTask)
+        }
     }
 
     static func scheduleWeeklyPayoutRefresh(payoutDay: PayoutDay = .sunday) {
-        #if targetEnvironment(simulator) || os(macOS)
+        #if targetEnvironment(simulator)
+            logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
+            return
+        #elseif os(macOS)
             logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
             return
         #else
@@ -86,6 +95,51 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 
             let success = await shared.lifecycleCoordinator.handleWeeklyPayoutBackgroundRefresh()
             task.setTaskCompleted(success: success)
+        }
+    }
+
+    static func scheduleSyncProcessingTask() {
+        #if targetEnvironment(simulator)
+            logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
+            return
+        #elseif os(macOS)
+            logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
+            return
+        #else
+            let request = BGProcessingTaskRequest(identifier: syncTaskId)
+            request.earliestBeginDate = Date(timeIntervalSinceNow: 60 * 15)
+            request.requiresNetworkConnectivity = true
+            request.requiresExternalPower = false
+
+            do {
+                try BGTaskScheduler.shared.submit(request)
+            } catch {
+                logger.debug("Failed to submit BGProcessingTask: \(error, privacy: .private)")
+            }
+        #endif
+    }
+
+    private static func handleSyncProcessingTask(task: BGProcessingTask) {
+        // WHY: terminated-push coverage — retries pending uploads when silent pushes are throttled or jetsam kills app before sync.
+        let expired = Mutex(false)
+        var syncTask: Task<Void, Never>?
+        task.expirationHandler = {
+            logger.warning("Sync BGProcessingTask expired prior to completion")
+            expired.withLock { $0 = true }
+            syncTask?.cancel()
+            task.setTaskCompleted(success: false)
+        }
+
+        syncTask = Task { @MainActor in
+            guard let shared = AppDependencies.shared else {
+                guard !expired.withLock({ $0 }) else { return }
+                task.setTaskCompleted(success: false)
+                return
+            }
+
+            await shared.lifecycleCoordinator.performManualSync()
+            guard !expired.withLock({ $0 }) else { return }
+            task.setTaskCompleted(success: true)
         }
     }
 
@@ -164,6 +218,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             case let .completed(outcome):
                 completionHandler(outcome.backgroundFetchResult)
             case .deadlineExpired:
+                // WHY: terminated-push coverage — if the 25s push sync races
+                // past its deadline (jetsam / throttled push), schedule the
+                // BGProcessingTask retry so pendingRecordZoneChanges still
+                // upload when the system next launches the app.
+                Self.scheduleSyncProcessingTask()
                 completionHandler(.failed)
             }
         }

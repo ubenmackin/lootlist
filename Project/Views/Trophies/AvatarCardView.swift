@@ -70,6 +70,15 @@ struct AvatarCardView: View {
                     .overlay(
                         Circle().strokeBorder(Color.gold.opacity(0.7), lineWidth: 2.5)
                     )
+            } else if let emoji = model.avatarEmoji, !emoji.isEmpty {
+                Circle()
+                    .fill(Color.white.opacity(0.16))
+                    .frame(width: DesignSystemConstants.AvatarSize.large, height: DesignSystemConstants.AvatarSize.large)
+                    .overlay(
+                        Circle().strokeBorder(Color.gold.opacity(0.7), lineWidth: 2.5)
+                    )
+                Text(emoji)
+                    .font(.system(size: 56))
             } else {
                 Circle()
                     .fill(Color.white.opacity(0.16))

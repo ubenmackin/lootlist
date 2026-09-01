@@ -23,6 +23,12 @@ final class LedgerImportViewModel {
     /// Flips once finalization succeeds so the presenting sheet can dismiss.
     private(set) var didComplete: Bool = false
 
+    /// WHY @Query count feedback: LedgerImportView observes LedgerEntryCache
+    /// directly so the post-import count updates the moment finalize's
+    /// deterministic `import-` rows land in cache, without waiting for a
+    /// parent list refresh or manual fetch.
+    private(set) var importedCount: Int = 0
+
     let familyRecordName: String?
 
     init(importService: LedgerImportService, appState: AppState, familyRecordName: String?) {
@@ -124,12 +130,26 @@ final class LedgerImportViewModel {
             let summary = try await importService.finalize(stagedRows, family: family)
             logger.info("Import confirmed: \(summary.importedCount) imported, \(summary.skippedDuplicates) duplicates skipped")
             didComplete = true
+            // WHY trigger sync after upsert: cache write gives instant UI via
+            // @Query, but CloudKit still needs the pending save. Rely on the
+            // view's LedgerEntryCache @Query to refresh the count.
+            await importService.syncCoordinator.sendPendingChanges()
             return true
         } catch {
             logger.error("Import finalization failed: \(error, privacy: .private)")
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "Could not import transactions."
             return false
         }
+    }
+
+    /// Called from LedgerImportView's `onChange(of: importedLedgers)` so the
+    /// ViewModel rebuild observes cache changes without a parent-list refresh.
+    func updateImportedCount(_ count: Int) {
+        importedCount = count
+    }
+
+    func updateImportedCount(from ledgers: [LedgerEntryCache]) {
+        importedCount = ledgers.count
     }
 
     func loadingFailed(_ message: String) {

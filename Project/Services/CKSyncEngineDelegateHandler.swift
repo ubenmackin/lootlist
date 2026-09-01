@@ -22,6 +22,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     private weak var appState: AppState?
     private weak var coordinator: CKSyncEngineCoordinator?
     private weak var notificationService: NotificationService?
+    private weak var toastManager: ToastManager?
 
     /// Test-visible hydration accounting for single-save batch verification.
     var hydrateCallCount = 0
@@ -32,7 +33,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         cacheService: CacheService? = nil,
         appState: AppState? = nil,
         coordinator: CKSyncEngineCoordinator? = nil,
-        notificationService: NotificationService? = nil
+        notificationService: NotificationService? = nil,
+        toastManager: ToastManager? = nil
     ) {
         self.backgroundCache = backgroundCache
         self.conflictResolver = conflictResolver
@@ -40,6 +42,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         self.appState = appState
         self.coordinator = coordinator
         self.notificationService = notificationService
+        self.toastManager = toastManager
+    }
+
+    func setToastManager(_ toastManager: ToastManager) {
+        self.toastManager = toastManager
     }
 
     func setCoordinator(_ coordinator: CKSyncEngineCoordinator) {
@@ -168,13 +175,36 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                     await MainActor.run {
                         syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
                         syncEngine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+                        self.coordinator?.clearRetryState(for: recordID)
                     }
                     self.logger.warning("nextRecordZoneChangeBatch removed dangling pending save for \(recordID.recordName, privacy: .private) — enqueued delete")
                 } else {
-                    self.logger
-                        .warning(
-                            "nextRecordZoneChangeBatch suppressed dangling delete for \(recordID.recordName, privacy: .private) — local row still present, pending save retained for retry"
-                        )
+                    // WHY: `locallyDeleted == false` is ambiguous — row still present (retain)
+                    // or fetch threw (unknown stall); distinguish via fetchSucceeded
+                    // so unknown does not spin indefinitely.
+                    let fetchSucceeded = await MainActor.run {
+                        RecordBridge.fetchSucceeded(for: identity, cacheService: cacheService)
+                    }
+                    if !fetchSucceeded {
+                        // WHY: transient ModelContext fetch failure — do NOT drop save nor convert to delete; log and schedule retry with exponential backoff and 30s deadline to avoid tight spin.
+                        self.logger
+                            .warning(
+                                "nextRecordZoneChangeBatch fetch error for \(recordID.recordName, privacy: .private) — verification failed, pending save retained for retry with 30s deadline"
+                            )
+                        let isOwner = identity.databaseScope == .private
+                        await MainActor.run {
+                            self.coordinator?.scheduleRetry(for: recordID, isOwner: isOwner)
+                        }
+                    } else {
+                        self.logger
+                            .warning(
+                                "nextRecordZoneChangeBatch suppressed dangling delete for \(recordID.recordName, privacy: .private) — local row still present, pending save retained for retry"
+                            )
+                    }
+                }
+            } else {
+                await MainActor.run {
+                    self.coordinator?.clearRetryState(for: recordID)
                 }
             }
             return record
@@ -602,6 +632,41 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
             if let resolvedRecord = await conflictResolver.resolveFailedSave(record: record, error: error, databaseScope: scope) {
                 let pendingSave = CKSyncEngine.PendingRecordZoneChange.saveRecord(resolvedRecord.recordID)
                 syncEngine.state.add(pendingRecordZoneChanges: [pendingSave])
+            } else {
+                // WHY: pending save was rejected and not re-enqueued — surface the discard so optimistic UI does not silently flip.
+                let isServerRecordChanged = error.code == .serverRecordChanged
+                let isSecondary = CachedRecordType.recordType(for: record.recordType).map { type in
+                    ![CachedRecordType.quest, .profile, .questCompletion, .allowancePeriod].contains(type)
+                } ?? false
+                // Secondary server-wins already toasted inside resolver; avoid duplicate banner for that exact path.
+                if isServerRecordChanged, isSecondary {
+                    continue
+                }
+                let familyForStale: String? = appState?.family?.id.recordName
+                    ?? (record["family"] as? CKRecord.Reference)?.recordID.recordName
+                if let familyForStale, let staleType = CachedRecordType.recordType(for: record.recordType) {
+                    cacheService?.invalidateFreshness(familyRecordName: familyForStale, type: staleType)
+                } else if familyForStale == nil,
+                          let staleType = CachedRecordType.recordType(for: record.recordType)
+                {
+                    let typeLabel = String(describing: staleType)
+                    let recordName = record.recordID.recordName
+                    logger.fault(
+                        "Could not resolve family for stale invalidation — skipping freshness invalidation for \(typeLabel, privacy: .public) id=\(recordName, privacy: .private)"
+                    )
+                }
+                let message: String = {
+                    if let staleType = CachedRecordType.recordType(for: record.recordType) {
+                        switch staleType {
+                        case .ledgerEntry: return "Your spending change couldn't be saved — pull to refresh."
+                        case .goal: return "Your goal change couldn't be saved — pull to refresh."
+                        case .profile: return "Your profile change couldn't be saved — pull to refresh."
+                        default: return "Your change couldn't be saved — pull to refresh."
+                        }
+                    }
+                    return "Your change couldn't be saved — pull to refresh."
+                }()
+                toastManager?.show(message: message, type: .warning)
             }
         }
     }

@@ -115,16 +115,24 @@ struct TrophyRoomView: View {
         }
         .onChange(of: cachedAchievements) { _, _ in rebuild() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuild() }
+        .onChange(of: currentProfileRows) { _, _ in rebuild() }
     }
 
     /// Instant cache-first rebuild; background sync updates SwiftData @Query automatically.
+    /// WHY cache-first avatar: TrophyRoomView rebuilds from @Query ProfileCache rows
+    /// so the level ring renders at 0ms offline without holding a domain Profile struct
+    /// or waiting on XPService/AchievementService CloudKit fetches.
     private func rebuild() {
-        guard let profileName = appState.currentProfile?.id.recordName else { return }
+        // Derive active hero identity from cache first for offline 0ms rendering;
+        // fall back to domain Profile only when cache has not yet hydrated.
+        let cachedProfileName = currentProfileRows.first?.recordName ?? appState.currentProfile?.id.recordName
 
-        // Filter family-scoped cached achievements for the active profile.
-        var earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
-        if earned.isEmpty, let cache = cacheService, let familyName = appState.family?.id.recordName {
-            earned = cache.fetchProfileAchievements(profileRecordName: profileName, family: familyName)
+        var earned: [ProfileAchievementCache] = []
+        if let profileName = cachedProfileName {
+            earned = cachedProfileAchievements.filter { $0.profileRecordName == profileName }
+            if earned.isEmpty, let cache = cacheService, let familyName = appState.family?.id.recordName {
+                earned = cache.fetchProfileAchievements(profileRecordName: profileName, family: familyName)
+            }
         }
 
         var achievements = cachedAchievements
@@ -135,17 +143,18 @@ struct TrophyRoomView: View {
             if achievements.isEmpty {
                 achievements = achievementService.cachedOrSeededAchievementCaches(for: family)
                 let capturedEarned = earned
+                let capturedProfiles = currentProfileRows
                 Task { @MainActor in
                     let seeded = await achievementService.ensureDefaultAchievements(for: family)
                     // If @Query still empty after ingest, push seeded to grid; otherwise @Query drives refresh.
                     if cachedAchievements.isEmpty {
-                        viewModel?.rebuildLists(earned: capturedEarned, allAchievements: seeded)
+                        viewModel?.rebuildLists(earned: capturedEarned, allAchievements: seeded, profileCaches: capturedProfiles)
                     }
                 }
             }
         }
 
-        viewModel?.rebuildLists(earned: earned, allAchievements: achievements)
+        viewModel?.rebuildLists(earned: earned, allAchievements: achievements, profileCaches: currentProfileRows)
     }
 
     private func hydrateDefinitionsIfNeeded(family: Family) async {
@@ -169,6 +178,11 @@ struct TrophyRoomView: View {
                 )
                 .padding(.horizontal)
                 .padding(.top, 8)
+
+                if let avatarCard = viewModel.avatarCard {
+                    AvatarCardView(model: avatarCard)
+                        .padding(.horizontal)
+                }
 
                 Text("All Trophies")
                     .font(.title2.bold())

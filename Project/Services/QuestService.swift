@@ -62,6 +62,17 @@ final class QuestService {
 
     let toastManager: ToastManager?
 
+    // WHY: expired-quest deactivation needs a complete paid-week set —
+    // incomplete snapshot would mis-expire quests still owed payout; deferral keeps them active until next sync.
+    private(set) var sweepDeferred: Bool = false
+    var onSweepDeferred: ((Bool) -> Void)?
+
+    private func setSweepDeferred(_ value: Bool) {
+        guard sweepDeferred != value else { return }
+        sweepDeferred = value
+        onSweepDeferred?(value)
+    }
+
     var cloudKitReference: any CloudKitServiceProtocol {
         cloudKit
     }
@@ -485,6 +496,7 @@ final class QuestService {
     /// Cache-first read. On cold cache miss, falls back to a single synchronous
     /// CloudKit query to hydrate. Background ongoing refresh handled by
     /// CKSyncEngine via push notifications.
+    /// WHY: when cache is not authoritative and CloudKit fails, returns stale cache without invalidating freshness — retry occurs on next reconcileCacheFromCloudKit.
     func fetchActiveQuests(profile: Profile, weekOf: Date) async throws -> [Quest] {
         let range = WeekMath.range(for: weekOf, payoutDay: effectivePayoutDay(for: profile)).range
         let family = Family(
@@ -607,14 +619,20 @@ final class QuestService {
         let allowancePeriods: [AllowancePeriod]
         if cache.isCacheAuthoritative(familyRecordName: familyName, type: .allowancePeriod, scope: allowanceScope, cachedCount: cachedAllowance.count) {
             allowancePeriods = cachedAllowance.map { $0.toAllowancePeriod(zoneID: family.id.zoneID) }
+            // Cache authoritative — paid-week set is complete; clear any prior deferral.
+            setSweepDeferred(false)
         } else {
             let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
             let predicate = NSPredicate(format: "family == %@", familyRef)
             do {
                 allowancePeriods = try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: family.id.zoneID)
+                setSweepDeferred(false)
             } catch {
                 logger.warning("Failed to fetch allowance periods from CloudKit", family: familyName, zone: family.id.zoneID.zoneName)
-                // Defer sweep when cache is stale and CloudKit is unavailable — incomplete paid-week set would leave expired quests active an extra cycle.
+                // WHY: incomplete paid-week set would mis-expire quests still owed payout — defer expiry until next authoritative sync.
+                setSweepDeferred(true)
+                toastManager?.show(message: "Quest expiry check deferred — will retry next sync", type: .warning)
+                // Keep cache stale — do NOT invalidate freshness; next reconcileCacheFromCloudKit retries automatically.
                 return []
             }
         }

@@ -57,31 +57,36 @@ struct ChildHubView: View {
         self.familyRecordName = familyRecordName
         self.profileRecordName = profileRecordName
 
-        // Scope queries to family at store layer; nil familyRecordName uses "" to return zero rows (no cross-family fetch).
         let targetFamily = familyRecordName ?? ""
-        FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "ChildHubView")
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "ChildHubView")
+        // WHY: fail-closed to "" when profileRecordName is nil; AppState not yet resolved in init.
         let targetProfile = profileRecordName ?? ""
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        // WHY: predicate pushdown — filter by family+profile at store; fail-closed to 0 rows when empty.
+        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
+        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
+        // WHY: templates are family-scoped (shared across heroes).
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let currentProfileFilter = #Predicate<ProfileCache> {
             $0.recordName == targetProfile && $0.familyRecordName == targetFamily
         }
 
-        _cachedQuests = Query(filter: questFilter, sort: \QuestCache.weekOf, order: .reverse)
+        // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
+        _cachedQuests = Query(filter: questFilter, sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)])
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
-        _cachedGoals = Query(filter: goalFilter, sort: \GoalCache.createdAt)
-        _cachedLedgers = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date, order: .reverse)
-        _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf, order: .reverse)
+        _cachedTemplates = Query(filter: templateFilter, sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)])
+        _cachedGoals = Query(filter: goalFilter, sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)])
+        _cachedLedgers = Query(filter: ledgerFilter, sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)])
+        _cachedAllowancePeriods = Query(
+            filter: allowanceFilter,
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
+        )
         _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
         _currentProfileRows = Query(
             filter: currentProfileFilter,
@@ -214,6 +219,8 @@ struct ChildHubView: View {
             .onChange(of: cachedProfiles) { _, _ in rebuild() }
             .onChange(of: currentProfileRows) { _, _ in rebuild() }
         }
+        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch; defensive filter in rebuild() is secondary guard.
+        .id(profileRecordName)
     }
 
     // MARK: - Header
@@ -407,22 +414,27 @@ struct ChildHubView: View {
 
     private func rebuild(_ vm: ChildHubViewModel? = nil, _ tvm: TreasuryViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
-        guard let profileName = appState.currentProfile?.id.recordName else { return }
+        guard let currentName = appState.currentProfile?.id.recordName else { return }
+
+        // WHY: predicate is primary profile scope; secondary in-memory guard prevents cross-profile leak when view identity is stale (profile switches without recreation).
+        let quests = cachedQuests.filter { $0.assigneeRecordName == currentName }
+        let logs = cachedCompletions.filter { $0.completerRecordName == currentName }
+        let ledgers = cachedLedgers.filter { $0.profileRecordName == currentName }
+        let periods = cachedAllowancePeriods.filter { $0.profileRecordName == currentName }
 
         (vm ?? viewModel)?.rebuild(
-            quests: cachedQuests,
-            logs: cachedCompletions,
+            quests: quests,
+            logs: logs,
             templates: cachedTemplates,
             goals: cachedGoals
         )
 
-        // Keep spending-sheet view model synced for live balances on Log a Purchase (mirrors Money tab).
         if let treasury = tvm ?? treasuryViewModel {
             treasury.rebuildLists(
-                logs: cachedCompletions.filter { $0.completerRecordName == profileName },
-                ledgers: cachedLedgers.filter { $0.profileRecordName == profileName },
-                quests: cachedQuests.filter { $0.assigneeRecordName == profileName },
-                allowancePeriods: cachedAllowancePeriods.filter { $0.profileRecordName == profileName },
+                logs: logs,
+                ledgers: ledgers,
+                quests: quests,
+                allowancePeriods: periods,
                 scope: .thisWeek
             )
         }
@@ -435,7 +447,7 @@ struct ChildHubView: View {
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
 
-        Task {
+        Task { @MainActor in
             defer { submittingQuestIDs.remove(qID) }
             guard let profile = appState.currentProfile else { return }
             do {
@@ -452,7 +464,7 @@ struct ChildHubView: View {
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
 
-        Task {
+        Task { @MainActor in
             defer { submittingQuestIDs.remove(qID) }
             guard let profile = appState.currentProfile else { return }
 

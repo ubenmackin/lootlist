@@ -307,9 +307,9 @@ struct HeroLedgerView: View {
 
                 Spacer(minLength: 12)
 
-                Text(GoldFormat.signed(entry.amount))
+                Text(CurrencyFormatter.signed(entry.amount))
                     .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(entry.amount >= 0 ? Color.gold : Color(DesignSystemConstants.Colors.dangerRed))
+                    .foregroundStyle(entry.amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed))
             }
             .padding(12)
             .background(

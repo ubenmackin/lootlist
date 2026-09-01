@@ -8,6 +8,7 @@
 import SwiftUI
 
 /// Banner that indicates when local cached data may be stale based on freshness watermarks.
+/// WHY: after a server-wins conflict discards an optimistic mutation, the cache is marked stale so this banner appears until the next foreground sync re-validates.
 struct StaleDataBanner: View {
     @Environment(AppState.self) private var appState
 

@@ -38,27 +38,71 @@ enum RecordBridge {
     /// Confirms local deletion across all cache tables before enqueuing server delete.
     /// Fails closed on lookup errors to retain pending saves until deletion is verified.
     static func confirmedLocalDeletion(for identity: ScopedRecordIdentity, cacheService: CacheService) -> Bool {
-        let name = identity.recordName
-
-        /// Returns true only when the lookup itself succeeded AND found no row.
-        func confirmedAbsent<T: PersistentModel>(_ type: T.Type, predicate: Predicate<T>) -> Bool {
-            guard let rows = cacheService.tryFetch(type, predicate: predicate) else { return false }
-            return rows.first == nil
+        switch deletionCheckResult(for: identity, cacheService: cacheService) {
+        case .confirmed:
+            return true
+        case .stillPresent:
+            return false
+        case .unknown:
+            // WHY: fetch failed — retain pending save for retry.
+            logger.fault("RecordBridge confirmedLocalDeletion unknown — fetch threw for \(identity.recordName, privacy: .private); retaining pending save for retry")
+            return false
         }
+    }
 
-        return confirmedAbsent(FamilyCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(ProfileCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(QuestCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(QuestTemplateCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(QuestCompletionCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(LedgerEntryCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(AllowancePeriodCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(AchievementCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(ProfileAchievementCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(NotificationPreferenceCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(GemLedgerCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(RewardEventCache.self, predicate: #Predicate { $0.recordName == name })
-            && confirmedAbsent(GoalCache.self, predicate: #Predicate { $0.recordName == name })
+    /// WHY: distinguishes present row from fetch error so caller can retry without dropping delete.
+    static func fetchSucceeded(for identity: ScopedRecordIdentity, cacheService: CacheService) -> Bool {
+        deletionCheckResult(for: identity, cacheService: cacheService) != .unknown
+    }
+
+    /// Tri-state result — prevents stall where `tryFetch == nil` was collapsed to `false` and retained pending save indefinitely without retry.
+    private enum DeletionCheckResult {
+        case confirmed
+        case stillPresent
+        case unknown
+    }
+
+    private static func deletionCheckResult(for identity: ScopedRecordIdentity, cacheService: CacheService) -> DeletionCheckResult {
+        let name = identity.recordName
+        var allAbsent = true
+        // WHY: fail closed — any fetch error returns .unknown for retry.
+        for type in CachedRecordType.allCases {
+            guard let result = deletionStatus(for: type, name: name, cacheService: cacheService) else {
+                continue
+            }
+            if result == .unknown {
+                return .unknown
+            }
+            allAbsent = false
+        }
+        return allAbsent ? .confirmed : .stillPresent
+    }
+
+    /// Generic helper — single predicate source for existence checks.
+    /// Returns `.stillPresent` if a row exists, `nil` if absent, `.unknown` if the fetch threw.
+    private static func fetchExists(_ type: (some CacheMergeable & PersistentModel).Type, name: String, cacheService: CacheService) -> DeletionCheckResult? {
+        guard let rows = cacheService.tryFetch(type, predicate: #Predicate { $0.recordName == name }) else {
+            return .unknown
+        }
+        return rows.first != nil ? .stillPresent : nil
+    }
+
+    private static func deletionStatus(for type: CachedRecordType, name: String, cacheService: CacheService) -> DeletionCheckResult? {
+        switch type {
+        case .family: fetchExists(FamilyCache.self, name: name, cacheService: cacheService)
+        case .profile: fetchExists(ProfileCache.self, name: name, cacheService: cacheService)
+        case .quest: fetchExists(QuestCache.self, name: name, cacheService: cacheService)
+        case .questTemplate: fetchExists(QuestTemplateCache.self, name: name, cacheService: cacheService)
+        case .questCompletion: fetchExists(QuestCompletionCache.self, name: name, cacheService: cacheService)
+        case .ledgerEntry: fetchExists(LedgerEntryCache.self, name: name, cacheService: cacheService)
+        case .allowancePeriod: fetchExists(AllowancePeriodCache.self, name: name, cacheService: cacheService)
+        case .achievement: fetchExists(AchievementCache.self, name: name, cacheService: cacheService)
+        case .profileAchievement: fetchExists(ProfileAchievementCache.self, name: name, cacheService: cacheService)
+        case .notificationPreference: fetchExists(NotificationPreferenceCache.self, name: name, cacheService: cacheService)
+        case .gemLedger: fetchExists(GemLedgerCache.self, name: name, cacheService: cacheService)
+        case .rewardEvent: fetchExists(RewardEventCache.self, name: name, cacheService: cacheService)
+        case .goal: fetchExists(GoalCache.self, name: name, cacheService: cacheService)
+        }
     }
 
     private static func resolvedRecord(

@@ -357,10 +357,7 @@ private struct PayoutDetailSheet: View {
 
     private var goalContributions: [(goal: GoalCache, amount: Double)] {
         goals.compactMap { goal in
-            let prefix = "contrib-\(goal.recordName)-"
-            let total = weekBucketEntries
-                .filter { $0.recordName.hasPrefix(prefix) }
-                .reduce(0.0) { $0 + $1.amount }
+            let total = GoalProgressCalculator.contributionAmount(for: goal, in: weekBucketEntries)
             return total > 0 ? (goal, total) : nil
         }
     }

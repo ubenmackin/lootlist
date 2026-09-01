@@ -9,66 +9,6 @@ import os
 import SwiftData
 import SwiftUI
 
-enum GoalProgressCalculator {
-    static func allocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
-        let hasContribIDs = ledgerEntries.contains { $0.recordName.hasPrefix("contrib-") }
-        if hasContribIDs {
-            return directContributionAllocations(goals: goals, ledgerEntries: ledgerEntries)
-        }
-        return fifoAllocations(goals: goals, ledgerEntries: ledgerEntries)
-    }
-
-    private static func directContributionAllocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
-        var result: [String: Int64] = [:]
-        for goal in goals where !goal.isArchived {
-            let prefix = "contrib-\(goal.recordName)-"
-            let pennies = ledgerEntries
-                .filter { $0.recordName.hasPrefix(prefix) && $0.profileRecordName == goal.profileRecordName }
-                .reduce(into: Int64(0)) { acc, entry in
-                    acc += Int64((entry.amount * 100).rounded())
-                }
-            result[goal.recordName] = max(pennies, 0)
-        }
-        for goal in goals where result[goal.recordName] == nil {
-            result[goal.recordName] = 0
-        }
-        return result
-    }
-
-    private static func fifoAllocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
-        var result: [String: Int64] = [:]
-        let grouped = Dictionary(grouping: goals.filter { !$0.isArchived }) { "\($0.profileRecordName)|\($0.bucketKind)" }
-        for (_, bucketGoals) in grouped {
-            let sorted = bucketGoals.sorted { $0.createdAt < $1.createdAt }
-            guard let first = sorted.first else { continue }
-            let profile = first.profileRecordName
-            let bucket = first.bucketKind
-            let bucketEntries = ledgerEntries.filter { $0.profileRecordName == profile && $0.bucketKind == bucket }
-            let totalPennies = bucketEntries.reduce(into: Int64(0)) { acc, entry in
-                acc += Int64((entry.amount * 100).rounded())
-            }
-            var remaining = max(totalPennies, 0)
-            for goal in sorted {
-                if goal.completedAt != nil {
-                    result[goal.recordName] = goal.targetAmountPennies
-                    remaining = max(remaining - goal.targetAmountPennies, 0)
-                    continue
-                }
-                let alloc = min(remaining, goal.targetAmountPennies)
-                result[goal.recordName] = alloc
-                remaining -= alloc
-            }
-            for goal in sorted where result[goal.recordName] == nil {
-                result[goal.recordName] = 0
-            }
-        }
-        for goal in goals where result[goal.recordName] == nil {
-            result[goal.recordName] = 0
-        }
-        return result
-    }
-}
-
 struct KidsSavingsGoalsView: View {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "KidsSavingsGoalsView")
 
@@ -90,6 +30,7 @@ struct KidsSavingsGoalsView: View {
         self.familyRecordName = familyRecordName
         self.focusedProfileRecordName = focusedProfileRecordName
         let targetFamily = familyRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "KidsSavingsGoalsView")
         let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }

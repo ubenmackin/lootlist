@@ -111,7 +111,7 @@ final class GoalService {
     /// `contrib-{goalRecordName}-{sourceEventID}` — CloudKit dedupes the record
     /// name across devices, making every contribution double-run safe.
     static func contributionRecordName(goalRecordName: String, sourceEventID: String) -> String {
-        "contrib-\(goalRecordName)-\(sourceEventID)"
+        DeterministicRecordID.contribution(goalRecordName: goalRecordName, sourceEventID: sourceEventID)
     }
 
     // MARK: - FIFO Allocator (pure, no side effects)
@@ -583,7 +583,7 @@ final class GoalService {
                                          profileRecordName: String,
                                          familyRecordName: String) -> Int64
     {
-        let prefix = "contrib-\(goalRecordName)-"
+        let prefix = DeterministicRecordID.contributionPrefix(for: goalRecordName)
         let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
             family: familyRecordName,

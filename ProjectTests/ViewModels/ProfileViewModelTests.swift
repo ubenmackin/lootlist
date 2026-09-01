@@ -260,7 +260,7 @@ struct ProfileViewModelTests {
             familyRecordName: family.id.recordName,
             earnedDate: Date(timeIntervalSince1970: 1000)
         )
-        viewModel.rebuildLists(earned: [legacyPA], allAchievements: [cache])
+        viewModel.rebuildLists(earned: [legacyPA], allAchievements: [cache], profileCaches: [ProfileCache(from: hero)])
         #expect(viewModel.latestEarnedTrophyName == "First Steps")
         #expect(viewModel.earnedAchievementRecordNames.contains(AchievementRequirement.firstQuest.rawValue))
 
@@ -272,11 +272,11 @@ struct ProfileViewModelTests {
             familyRecordName: family.id.recordName,
             earnedDate: Date(timeIntervalSince1970: 2000)
         )
-        viewModel.rebuildLists(earned: [currentPA], allAchievements: [cache])
+        viewModel.rebuildLists(earned: [currentPA], allAchievements: [cache], profileCaches: [ProfileCache(from: hero)])
         #expect(viewModel.latestEarnedTrophyName == "First Steps")
 
         // Both present — newest earnedDate wins, canonical lookup still resolves.
-        viewModel.rebuildLists(earned: [legacyPA, currentPA], allAchievements: [cache])
+        viewModel.rebuildLists(earned: [legacyPA, currentPA], allAchievements: [cache], profileCaches: [ProfileCache(from: hero)])
         #expect(viewModel.latestEarnedTrophyName == "First Steps")
     }
 }

@@ -65,11 +65,14 @@ final class TrophyRoomViewModel {
         return achievementByCanonicalKey[latest.achievementRecordName]?.name
     }
 
-    func rebuildLists(earned: [ProfileAchievementCache], allAchievements: [AchievementCache]) {
-        guard let profile = appState.currentProfile else { return }
-        let profileName = profile.id.recordName
-
-        self.earned = earned.filter { $0.profileRecordName == profileName }
+    func rebuildLists(earned: [ProfileAchievementCache], allAchievements: [AchievementCache], profileCaches: [ProfileCache]) {
+        // Cache-first trophies: counts come directly from ProfileAchievementCache rows (0ms, offline).
+        if let activeRecordName = profileCaches.first?.recordName {
+            self.earned = earned.filter { $0.profileRecordName == activeRecordName }
+        } else {
+            // No active profile — fail-closed to empty to avoid cross-profile leak on cold-start.
+            self.earned = []
+        }
 
         var achievementsToUse = allAchievements
         if achievementsToUse.isEmpty, let family = appState.family {
@@ -101,27 +104,32 @@ final class TrophyRoomViewModel {
             }
         }
         self.achievementByCanonicalKey = lookup
-        // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
-        if FeatureFlags.rpgImmersive {
-            avatarCard = makeAvatarCard(profile: profile)
+        // WHY cache-first avatar: ProfileCache @Query delivers 0ms offline rendering
+        // without holding a domain Profile or hitting CloudKit via XPService/AchievementService.
+        // All fields (displayName/level/xp/gems/avatarEmoji) are read directly from
+        // the SwiftData cache row so the level ring stays correct even when trophies
+        // are empty and the device is offline.
+        if FeatureFlags.rpgImmersive, let profileCache = profileCaches.first {
+            avatarCard = makeAvatarCard(profileCache: profileCache)
         } else {
             avatarCard = nil
         }
     }
 
-    private func makeAvatarCard(profile: Profile) -> AvatarCardModel {
-        let progress = xpService.levelProgress(profile: profile)
+    private func makeAvatarCard(profileCache: ProfileCache) -> AvatarCardModel {
+        let progress = xpService.levelProgress(profileCache: profileCache)
         return AvatarCardModel(
-            displayName: profile.displayName,
-            avatarClass: profile.avatarClass,
-            customAvatarImageData: profile.customAvatarImageData,
-            role: profile.role,
-            title: XPService.title(forLevel: profile.level),
-            level: profile.level,
+            displayName: profileCache.displayName,
+            avatarClass: profileCache.avatarClassEnum,
+            customAvatarImageData: profileCache.customAvatarImageData,
+            role: profileCache.roleEnum ?? .hero,
+            title: XPService.title(forLevel: profileCache.level),
+            level: profileCache.level,
             xpIntoCurrentLevel: progress.xpIntoCurrentLevel,
             xpForNextLevel: progress.xpForNextLevel,
             progress: progress.progress,
-            accessories: xpService.unlockedAccessories(profile: profile)
+            accessories: xpService.unlockedAccessories(profileCache: profileCache),
+            avatarEmoji: profileCache.avatarEmoji
         )
     }
 }
@@ -137,6 +145,33 @@ struct AvatarCardModel: Equatable, Sendable {
     let xpForNextLevel: Int
     let progress: Double
     let accessories: [String]
+    let avatarEmoji: String?
+
+    init(
+        displayName: String,
+        avatarClass: AvatarClass?,
+        customAvatarImageData: Data?,
+        role: UserRole,
+        title: String,
+        level: Int,
+        xpIntoCurrentLevel: Int,
+        xpForNextLevel: Int,
+        progress: Double,
+        accessories: [String],
+        avatarEmoji: String? = nil
+    ) {
+        self.displayName = displayName
+        self.avatarClass = avatarClass
+        self.customAvatarImageData = customAvatarImageData
+        self.role = role
+        self.title = title
+        self.level = level
+        self.xpIntoCurrentLevel = xpIntoCurrentLevel
+        self.xpForNextLevel = xpForNextLevel
+        self.progress = progress
+        self.accessories = accessories
+        self.avatarEmoji = avatarEmoji
+    }
 
     var effectiveClassDisplay: String {
         if let avatarClass {

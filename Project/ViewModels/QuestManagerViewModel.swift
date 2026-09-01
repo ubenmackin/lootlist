@@ -28,6 +28,9 @@ final class QuestManagerViewModel {
 
     private(set) var activeAssignments: [QuestCache] = []
 
+    // WHY: when sweepExpiredQuests defers due to incomplete paid-week data, banner signals stale expiry until next sync.
+    private(set) var sweepDeferred: Bool = false
+
     private(set) var isLoading: Bool = false
 
     private(set) var loadError: String?
@@ -42,6 +45,12 @@ final class QuestManagerViewModel {
         self.familyService = familyService
         self.appState = appState
         heroBoardService = HeroBoardService(questService: questService)
+        sweepDeferred = questService.sweepDeferred
+        questService.onSweepDeferred = { [weak self] deferred in
+            Task { @MainActor in
+                self?.sweepDeferred = deferred
+            }
+        }
     }
 
     func load() async {

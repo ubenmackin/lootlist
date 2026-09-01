@@ -27,6 +27,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.volcrypt.lootlist.weeklypayout</string>
+		<string>com.volcrypt.lootlist.sync</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

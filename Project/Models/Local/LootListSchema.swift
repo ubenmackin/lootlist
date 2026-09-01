@@ -80,4 +80,39 @@ enum LootListSchemaV9: VersionedSchema {
     }
 }
 
-typealias LootListSchema = LootListSchemaV9
+/// Schema V10: lightweight index-only migration for LedgerEntryCache.
+/// Retains pre-existing base composite index `[\.familyRecordName, \.recordName]`
+/// (family-scoping) and adds `[\.familyRecordName, \.profileRecordName, \.date]`
+/// and `[\.familyRecordName, \.profileRecordName, \.source, \.date]` to
+/// support hasTransferredToday date-range queries without sparse optional columns.
+/// LedgerEntryCache declares three total indexes; V10 adds the latter two.
+/// No new models, no property changes — indexes only.
+/// WHY lightweight: adding indexes without properties is eligible for SwiftData
+/// lightweight migration when versionIdentifier bumps; V9 stores migrate without
+/// destructive reset. Incompatible-schema fallback in CacheService still handles
+/// the case where lightweight migration is unavailable by recreating the store.
+enum LootListSchemaV10: VersionedSchema {
+    static var versionIdentifier: Schema.Version {
+        Schema.Version(10, 0, 0)
+    }
+
+    static var models: [any PersistentModel.Type] {
+        [
+            FamilyCache.self,
+            ProfileCache.self,
+            QuestCache.self,
+            QuestTemplateCache.self,
+            QuestCompletionCache.self,
+            AllowancePeriodCache.self,
+            LedgerEntryCache.self,
+            AchievementCache.self,
+            ProfileAchievementCache.self,
+            NotificationPreferenceCache.self,
+            GemLedgerCache.self,
+            RewardEventCache.self,
+            GoalCache.self
+        ]
+    }
+}
+
+typealias LootListSchema = LootListSchemaV10

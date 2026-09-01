@@ -25,9 +25,23 @@ struct LedgerImportView: View {
     @State private var viewModel: LedgerImportViewModel?
     @State private var isShowingFilePicker: Bool = false
 
+    /// WHY @Query for post-import count: observing LedgerEntryCache directly
+    /// gives instant feedback when deterministic `import-` rows land in the
+    /// local cache, versus waiting for a parent list to re-fetch or a manual
+    /// refresh. The count updates the moment finalize's upsert commits.
+    @Query private var importedLedgers: [LedgerEntryCache]
+
     init(importService: LedgerImportService, familyRecordName: String?) {
         self.importService = importService
         self.familyRecordName = familyRecordName
+        let targetFamily = familyRecordName ?? ""
+        // Filter by family and deterministic import ID prefix `import-` so only
+        // rows created by CSV import are counted, not manual or quest entries.
+        _importedLedgers = Query(
+            filter: #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.recordName.starts(with: "import-") },
+            sort: \LedgerEntryCache.date,
+            order: .reverse
+        )
     }
 
     var body: some View {
@@ -55,6 +69,9 @@ struct LedgerImportView: View {
                     familyRecordName: familyRecordName
                 )
                 viewModel = vm
+                // Keep ViewModel's count in sync with the live @Query so
+                // post-import feedback is immediate without parent refresh.
+                vm.updateImportedCount(importedLedgers.count)
                 // UI tests cannot drive the system document picker, so a
                 // staged CSV path short-circuits straight into the normal
                 // review flow; production launches never set it.
@@ -62,6 +79,10 @@ struct LedgerImportView: View {
                     stageForUITests(path: csvPath, viewModel: vm)
                 }
             }
+        }
+        .onChange(of: importedLedgers) { _, newLedgers in
+            // ViewModel rebuild observes cache changes via @Query count.
+            viewModel?.updateImportedCount(newLedgers.count)
         }
     }
 
@@ -94,6 +115,12 @@ struct LedgerImportView: View {
                 description: "Pick an exported transactions file to review it here before anything is imported.",
                 topPadding: 0
             )
+            if importedLedgers.count > 0 {
+                Text("\(importedLedgers.count) transactions imported")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("import.importedCount")
+            }
             Button {
                 isShowingFilePicker = true
             } label: {
@@ -138,7 +165,7 @@ struct LedgerImportView: View {
                     )
                 }
             } header: {
-                Text("\(vm.includedRows.count) included · \(vm.blockedRowCount) blocked")
+                Text("\(vm.includedRows.count) included · \(vm.blockedRowCount) blocked · \(importedLedgers.count) already imported")
             } footer: {
                 confirmFooter(viewModel: vm)
             }

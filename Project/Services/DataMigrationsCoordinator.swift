@@ -180,7 +180,7 @@ extension DataMigrationsCoordinator {
                     if realTimeEntry != nil {
                         continue
                     }
-                    let weekEnd = Calendar.iso8601UTC.date(byAdding: .day, value: 7, to: period.weekOf) ?? period.weekOf.addingTimeInterval(7 * 86400)
+                    let weekEnd = WeekMath.weekRange(starting: period.weekOf).upperBound
                     let depositBonusSum = existingLedgers
                         .filter {
                             $0.profile.recordID == period.profile.recordID &&
@@ -413,6 +413,24 @@ extension DataMigrationsCoordinator {
                 return
             }
             logger.info("Schema V8 destructive cache reset handled by SwiftData container open.")
+        }
+    }
+
+    /// Marker step for the V10 cache-schema bump. V10 is a lightweight
+    /// index-only migration (LedgerEntryCache adds two composite indexes for
+    /// hasTransferredToday). No properties added/removed, no data backfill.
+    /// SwiftData handles index creation via lightweight migration when the
+    /// versionIdentifier bumps from 9 to 10; the marker only records that the
+    /// transition was observed per account+family so downstream checks can assert
+    /// the store is at V10. Fail-open without an active zone mirrors V8.
+    static func schemaV10LedgerIndexMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
+        MigrationStep(id: "SchemaV10LedgerIndexMarker", version: 10) {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            guard cloudKit.activeFamilyZoneID != nil else {
+                logger.info("No active family zone; nothing to record for schema V10.")
+                return
+            }
+            logger.info("Schema V10 lightweight index migration handled by SwiftData container open.")
         }
     }
 }

@@ -43,7 +43,12 @@ struct FamilyDashboardView: View {
         self.familyRecordName = familyRecordName
 
         let targetFamily = familyRecordName ?? ""
-        FamilyScopeValidator.assertNonEmpty(targetFamily: targetFamily, viewName: "FamilyDashboardView")
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "FamilyDashboardView")
+        // WHY aggregated view intentionally does NOT push profile filter: FamilyDashboard is
+        // family-aggregated for the parent role — it renders cross-hero totals, child account
+        // cards, and the pending approval queue across all profiles. Adding a profile
+        // predicate here would incorrectly narrow the cache slice and break aggregation;
+        // family-only scoping with stable sorts is the correct isolation boundary for this screen.
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }

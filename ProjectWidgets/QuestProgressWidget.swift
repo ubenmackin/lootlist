@@ -5,24 +5,36 @@
 //  Created by Ben Mackin on 8/29/26.
 //
 
+import os
 import SwiftUI
 import WidgetKit
 
 struct QuestProgressProvider: TimelineProvider {
+    /// WHY os_signpost: widget snapshot duration is budget-sensitive; signpost instruments hangs in Instruments without logging overhead.
+    private static let log = OSLog(subsystem: "com.volcrypt.lootlist", category: "WidgetSnapshot")
+
     func placeholder(in _: Context) -> QuestProgressEntry {
         QuestProgressEntry(date: Date(), snapshot: .placeholder)
     }
 
     func getSnapshot(in _: Context, completion: @escaping (QuestProgressEntry) -> Void) {
+        // WHY off-main avoidance: widget snapshot is time-limited; synchronous CacheService fetch on main risks hang. Serve cached UserDefaults snapshot instantly.
+        let signpostID = OSSignpostID(log: Self.log)
+        os_signpost(.begin, log: Self.log, name: "WidgetSnapshot", signpostID: signpostID, "QuestProgress getSnapshot")
         let snapshot = WidgetDataBridge.loadSnapshot()
-        completion(QuestProgressEntry(date: Date(), snapshot: snapshot))
+        let entry = QuestProgressEntry(date: Date(), snapshot: snapshot)
+        os_signpost(.end, log: Self.log, name: "WidgetSnapshot", signpostID: signpostID)
+        completion(entry)
     }
 
     func getTimeline(in _: Context, completion: @escaping (Timeline<QuestProgressEntry>) -> Void) {
-        let snapshot = WidgetDataBridge.loadSnapshot()
-        let entry = QuestProgressEntry(date: Date(), snapshot: snapshot)
+        let signpostID = OSSignpostID(log: Self.log)
+        os_signpost(.begin, log: Self.log, name: "WidgetSnapshot", signpostID: signpostID, "QuestProgress getTimeline")
+        let cachedSnapshot = WidgetDataBridge.loadSnapshot()
+        let entry = QuestProgressEntry(date: Date(), snapshot: cachedSnapshot)
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 30, to: Date()) ?? Date()
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
+        os_signpost(.end, log: Self.log, name: "WidgetSnapshot", signpostID: signpostID)
         completion(timeline)
     }
 }
