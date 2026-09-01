@@ -43,29 +43,33 @@ struct TreasuryView: View {
 
         let targetFamily = familyRecordName ?? ""
         let targetProfile = profileRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "TreasuryView")
+        // REGRESSION GUARD: TreasuryView is the exemplar for predicate pushdown — all four
+        // queries MUST remain family + profile scoped at the store layer
+        // (`familyRecordName == targetFamily && <profileField> == targetProfile`). Do not
+        // regress to family-only predicates with in-memory `filter { profile == name }`; the
+        // profile predicate must stay in the #Predicate for isolation and I/O efficiency.
+        // WHY stable sorts: CloudKit merge reorders can shuffle equal-dated rows; secondary recordName keeps ForEach(id: \.recordName) stable and avoids reorder churn across sync
+        // passes.
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
         _cachedLedgers = Query(
             filter: ledgerFilter,
-            sort: \LedgerEntryCache.date,
-            order: .reverse
+            sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
         )
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
-            sort: \AllowancePeriodCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
     }
 
@@ -135,6 +139,8 @@ struct TreasuryView: View {
                 rebuild()
             }
         }
+        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch.
+        .id(profileRecordName)
     }
 
     private func ensureViewModel() {
@@ -208,7 +214,7 @@ struct TreasuryView: View {
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.gold)
+                        .fill(Color(DesignSystemConstants.Colors.gold))
                 )
         }
         .disabled(viewModel?.canLogManually == false)
@@ -233,15 +239,15 @@ struct WeeklyBreakdownCard: View {
                              icon: "checkmark.seal.fill",
                              tint: Color(DesignSystemConstants.Colors.primaryGreen))
                 BreakdownRow(label: "Earned from Quests",
-                             value: GoldFormat.signed(breakdown.goldFromQuests),
+                             value: CurrencyFormatter.signed(breakdown.goldFromQuests),
                              icon: "banknote",
-                             tint: .gold)
+                             tint: Color(DesignSystemConstants.Colors.gold))
                 BreakdownRow(label: "Extra Bonus",
-                             value: GoldFormat.signed(breakdown.bonusGold),
+                             value: CurrencyFormatter.signed(breakdown.bonusGold),
                              icon: "gift.fill",
                              tint: Color(DesignSystemConstants.Colors.accentBlue))
                 BreakdownRow(label: "Spent",
-                             value: GoldFormat.signed(breakdown.spent),
+                             value: CurrencyFormatter.signed(breakdown.spent),
                              icon: "arrow.down.circle.fill",
                              tint: Color(DesignSystemConstants.Colors.dangerRed))
                 if let status = breakdown.payoutStatus {
@@ -254,9 +260,9 @@ struct WeeklyBreakdownCard: View {
                 }
                 Divider()
                 BreakdownRow(label: "Net for the Week",
-                             value: GoldFormat.signed(breakdown.net),
+                             value: CurrencyFormatter.signed(breakdown.net),
                              icon: "scalemass.fill",
-                             tint: breakdown.net >= 0 ? .gold : Color(DesignSystemConstants.Colors.dangerRed),
+                             tint: breakdown.net >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed),
                              isEmphasized: true)
             } else {
                 HStack {
@@ -279,7 +285,7 @@ struct WeeklyBreakdownCard: View {
 
     private func payoutRowValue(status: PayoutStatus, paidAmount: Double?) -> String {
         if status == .paid, let paidAmount {
-            return "\(status.displayName) · \(GoldFormat.magnitude(paidAmount))"
+            return "\(status.displayName) · \(CurrencyFormatter.magnitude(paidAmount))"
         }
         return status.displayName
     }

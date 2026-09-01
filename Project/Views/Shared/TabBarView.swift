@@ -214,8 +214,8 @@ struct TabBarView: View {
         }
         .tag(RootTab.home)
 
-        MyChoresView(familyRecordName: familyName)
-            .id("hero-quests-\(familyName ?? "")")
+        MyChoresView(familyRecordName: familyName, profileRecordName: appState.currentProfile?.id.recordName)
+            .id("hero-quests-\(familyName ?? "")-\(appState.currentProfile?.id.recordName ?? "")")
             .tabItem {
                 Label("Quests", systemImage: "list.bullet.clipboard")
             }

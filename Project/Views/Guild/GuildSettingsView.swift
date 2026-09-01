@@ -64,16 +64,26 @@ struct GuildSettingsView: View {
         let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
         let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
 
-        _cachedProfiles = Query(filter: profileFilter, sort: \ProfileCache.displayName)
-        _cachedQuests = Query(filter: questFilter, sort: \QuestCache.weekOf, order: .reverse)
-        _cachedCompletions = Query(filter: completionFilter, sort: \QuestCompletionCache.completedDate, order: .reverse)
-        _cachedLedgers = Query(filter: ledgerFilter, sort: \LedgerEntryCache.date, order: .reverse)
-        _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf, order: .reverse)
-        _cachedAchievements = Query(filter: achievementFilter, sort: \AchievementCache.name)
-        _cachedProfileAchievements = Query(filter: profileAchievementFilter, sort: \ProfileAchievementCache.earnedDate, order: .reverse)
-        _cachedGoals = Query(filter: goalFilter, sort: \GoalCache.createdAt)
-        _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: \GemLedgerCache.createdAt, order: .reverse)
-        _cachedRewardEvents = Query(filter: rewardEventFilter, sort: \RewardEventCache.timestamp, order: .reverse)
+        // WHY stable sorts: all caches feed ForEach(id: \.recordName); secondary recordName tie-breaker keeps ordering deterministic across CloudKit merge reorders.
+        _cachedProfiles = Query(filter: profileFilter, sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)])
+        _cachedQuests = Query(filter: questFilter, sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)])
+        _cachedCompletions = Query(
+            filter: completionFilter,
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+        )
+        _cachedLedgers = Query(filter: ledgerFilter, sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)])
+        _cachedAllowancePeriods = Query(
+            filter: allowanceFilter,
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
+        )
+        _cachedAchievements = Query(filter: achievementFilter, sort: [SortDescriptor(\AchievementCache.name), SortDescriptor(\AchievementCache.recordName)])
+        _cachedProfileAchievements = Query(
+            filter: profileAchievementFilter,
+            sort: [SortDescriptor(\ProfileAchievementCache.earnedDate, order: .reverse), SortDescriptor(\ProfileAchievementCache.recordName)]
+        )
+        _cachedGoals = Query(filter: goalFilter, sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)])
+        _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)])
+        _cachedRewardEvents = Query(filter: rewardEventFilter, sort: [SortDescriptor(\RewardEventCache.timestamp, order: .reverse), SortDescriptor(\RewardEventCache.recordName)])
     }
 
     private var isRevokeAlertPresented: Binding<Bool> {

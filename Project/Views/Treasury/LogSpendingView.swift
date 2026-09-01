@@ -85,7 +85,7 @@ struct LogSpendingView: View {
                 Section {
                     HStack {
                         Image(systemName: "banknote")
-                            .foregroundStyle(Color.gold)
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.gold))
                         TextField("2.50", text: $amountText)
                             .keyboardType(.decimalPad)
                             .focused($isAmountFocused)

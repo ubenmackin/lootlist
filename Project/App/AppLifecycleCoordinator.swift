@@ -340,6 +340,18 @@ final class AppLifecycleCoordinator {
         }
     }
 
+    // MARK: - Terminated Sync Retry
+
+    /// Schedules the BGProcessingTask retry for pending uploads.
+    /// WHY: terminated-push coverage complements push-driven sync — silent
+    /// pushes may be throttled on expensive networks and iOS 26 jetsam can
+    /// kill the app before pendingRecordZoneChanges (ledger entries, quest
+    /// completions) upload. The BGProcessingTask ensures unsynced changes
+    /// eventually reach CloudKit when the system next launches the app.
+    func scheduleTerminatedSyncRetry() {
+        AppDelegate.scheduleSyncProcessingTask()
+    }
+
     // MARK: - Test Helpers
 
     /// Test-only helper to set scope key directly.

@@ -143,6 +143,7 @@ extension AppLifecycleCoordinator {
         )
     }
 
+    // WHY: deferred quest expiry (paid-week incomplete would mis-expire) retries automatically on next reconcile — stale allowancePeriod freshness forces re-query, no extra retry logic.
     func reconcileCacheFromCloudKit() async {
         guard let appState,
               let family = appState.family,

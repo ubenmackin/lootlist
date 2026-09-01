@@ -40,6 +40,11 @@ enum WeekMath {
         return normalizedStart ..< end
     }
 
+    /// UTC start-of-day via `Calendar.iso8601UTC` — single-source wrapper so services never call Calendar directly for week math.
+    static func startOfDay(for date: Date) -> Date {
+        Calendar.iso8601UTC.startOfDay(for: date)
+    }
+
     /// Atomically derives the payout-anchored week start and its half-open range
     /// from a single date and payoutDay, so [start, end) can never be built
     /// from mismatched inputs.
@@ -90,9 +95,59 @@ enum WeekMath {
         return String(format: "%04d-%02d", components.year ?? 0, components.month ?? 0)
     }
 
-    // WHY: UTC bucket avoids midnight dedupe collisions across devices/timezones (transfer edge).
+    /// UTC `yyyy-MM-dd` day key for daily-login deterministic dedupe.
+    /// WHY single-source UTC: the same instant must resolve to the same
+    /// `daily-{yyyy-MM-dd}` GemLedger eventKey on every device/timezone, so
+    /// CloudKit `GemLedger.deterministicRecordID(eventKey:)` dedupes and
+    /// `hasClaimedToday` is cross-device consistent. Mirrors `monthKey` /
+    /// `DeterministicIdentity.dayKeyUTC` pattern; `WeekMath` owns the calendar
+    /// math via `Calendar.iso8601UTC` so day bucket cannot diverge per device.
+    /// Production always uses `Calendar.iso8601UTC`; `calendar` param exists only
+    /// for deterministic test injection.
+    static func dayKey(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
+        let comps = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
+    }
+
+    /// Reverse of `dayKey(for:)` — parses `yyyy-MM-dd` via the same UTC calendar
+    /// so round-tripping cannot drift by timezone.
+    static func date(fromDayKey dayKey: String, calendar: Calendar = .iso8601UTC) -> Date? {
+        let parts = dayKey.split(separator: "-")
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]) else { return nil }
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        return calendar.date(from: comps)
+    }
+
+    /// Calendar-aware same-day check via single-source dayKey.
+    static func isSameDay(_ lhs: Date, _ rhs: Date, calendar: Calendar = .iso8601UTC) -> Bool {
+        dayKey(for: lhs, calendar: calendar) == dayKey(for: rhs, calendar: calendar)
+    }
+
+    /// UTC-quantized day bucket for deterministic money-movement dedupe.
+    /// Returns `Int(Calendar.iso8601UTC.startOfDay(for: date).timeIntervalSince1970 / 86400)`.
+    /// WHY UTC: the same instant resolves to the same bucket on every device/timezone, so
+    /// `BucketService.deterministicTransferID` / `BucketService.transfer` can dedupe via
+    /// `recordName == "transfer-{profile}-{dayBucket}-{from}-{to}"` without fragmentation.
+    /// WHY single capture: callers and `BucketService.transfer` must capture `Date()` once
+    /// and reuse for both `dayBucket` and the ledger `date` to avoid a TOCTOU at ~00:00 UTC
+    /// where successive `Date()` calls straddle midnight and yield different buckets/duplicate transfers.
     static func dayBucket(for date: Date) -> Int {
         Int(Calendar.iso8601UTC.startOfDay(for: date).timeIntervalSince1970 / 86400)
+    }
+
+    /// UTC day range for a dayBucket — half-open [start, end) via Calendar.iso8601UTC to match dayBucket(for:).
+    static func utcDateRange(forDayBucket dayBucket: Int) -> Range<Date> {
+        let cal = Calendar.iso8601UTC
+        let epochStart = cal.startOfDay(for: Date(timeIntervalSince1970: 0))
+        let start = cal.date(byAdding: .day, value: dayBucket, to: epochStart) ?? Date(timeIntervalSince1970: Double(dayBucket) * 86400)
+        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86400)
+        return start ..< end
     }
 
     /// Warns if local and server creation timestamps fall into different UTC day buckets.
@@ -113,12 +168,24 @@ enum WeekMath {
 
     /// Today/Yesterday checks ride the shared UTC day bucket so day grouping
     /// matches the app's single timezone instead of a device-local calendar.
-    static func isToday(_ date: Date) -> Bool {
-        dayBucket(for: date) == dayBucket(for: Date())
+    /// `calendar` defaults to `Calendar.iso8601UTC` for production; tests may
+    /// inject an explicit calendar for deterministic control.
+    static func isToday(_ date: Date, calendar: Calendar = .iso8601UTC) -> Bool {
+        // Fast path for the single-source UTC bucket; calendar-aware fallback via dayKey.
+        if calendar == Calendar.iso8601UTC {
+            return dayBucket(for: date) == dayBucket(for: Date())
+        }
+        return dayKey(for: date, calendar: calendar) == dayKey(for: Date(), calendar: calendar)
     }
 
-    static func isYesterday(_ date: Date) -> Bool {
-        dayBucket(for: date) == dayBucket(for: Date()) - 1
+    static func isYesterday(_ date: Date, calendar: Calendar = .iso8601UTC) -> Bool {
+        if calendar == Calendar.iso8601UTC {
+            return dayBucket(for: date) == dayBucket(for: Date()) - 1
+        }
+        // Calendar-aware: yesterday is the day before today in the same calendar.
+        let cal = calendar
+        guard let yesterday = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: Date())) else { return false }
+        return isSameDay(date, yesterday, calendar: cal)
     }
 
     static func shortName(for weekdayCode: String) -> String {

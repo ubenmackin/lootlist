@@ -34,31 +34,38 @@ struct MyChoresView: View {
         }
     }
 
+    /// Family and profile scope — when `nil` (no family/profile loaded) queries return zero rows fail-closed.
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
-    init(familyRecordName: String? = nil) {
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "MyChoresView")
+        // WHY: predicate pushdown — filter by family+profile at store; avoids family-wide scan.
         let questFilter = #Predicate<QuestCache> {
-            $0.familyRecordName == targetFamily
+            $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile
         }
+        // WHY: hero-scoped completions — store filters by completer to avoid family-wide scan.
         let completionFilter = #Predicate<QuestCompletionCache> {
-            $0.familyRecordName == targetFamily
+            $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile
         }
+        // WHY: templates are family-scoped (shared across heroes).
         let templateFilter = #Predicate<QuestTemplateCache> {
             $0.familyRecordName == targetFamily
         }
 
+        // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
         _cachedTemplates = Query(
             filter: templateFilter,
@@ -116,12 +123,14 @@ struct MyChoresView: View {
 
     /// Active quests assigned to the current hero profile.
     private var profileQuests: [QuestCache] {
+        // WHY: defensive — predicate is source of truth; in-memory guard for stale identity.
         guard let name = appState.currentProfile?.id.recordName else { return [] }
         return cachedQuests.filter { $0.assigneeRecordName == name && $0.isActive }
     }
 
     /// Completions logged by the current hero, grouped by quest.
     private var profileLogs: [QuestCompletionCache] {
+        // WHY: defensive — store is source of truth; guards identity drift.
         guard let name = appState.currentProfile?.id.recordName else { return [] }
         return cachedCompletions.filter { $0.completerRecordName == name }
     }
@@ -350,6 +359,8 @@ struct MyChoresView: View {
                 Text("Revert this completion for “\(target.quest.questName)” and move it back to to-do?")
             }
         }
+        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch.
+        .id(profileRecordName)
     }
 
     // MARK: - Pending Review Section
@@ -528,7 +539,7 @@ struct MyChoresView: View {
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
 
-        Task {
+        Task { @MainActor in
             defer { submittingQuestIDs.remove(qID) }
             guard let profile = appState.currentProfile else { return }
             do {
@@ -545,7 +556,7 @@ struct MyChoresView: View {
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
 
-        Task {
+        Task { @MainActor in
             defer { submittingQuestIDs.remove(qID) }
             guard let profile = appState.currentProfile
             else { return }

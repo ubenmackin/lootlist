@@ -115,21 +115,41 @@ final class CKSyncConflictResolver {
 
         logger.info("Resolving serverRecordChanged conflict for \(serverRecord.recordType) id=\(serverRecord.recordID.recordName, privacy: .private)")
 
-        switch serverRecord.recordType {
-        case Quest.recordType:
-            return await resolveQuestConflict(serverRecord: serverRecord, originalRecord: originalRecord)
-        case Profile.recordType:
-            return await resolveProfileConflict(serverRecord: serverRecord, originalRecord: originalRecord)
-        case QuestCompletion.recordType:
-            return await resolveQuestCompletionConflict(serverRecord: serverRecord, originalRecord: originalRecord)
-        case AllowancePeriod.recordType:
-            return await resolveAllowancePeriodConflict(serverRecord: serverRecord, originalRecord: originalRecord)
-        default:
-            break
+        if let coreResult = await coreConflictResult(serverRecord: serverRecord, originalRecord: originalRecord) {
+            return coreResult
         }
 
-        // For other models, parse server record and update cache as source of truth
+        await handleSecondaryServerWins(serverRecord: serverRecord, originalRecord: originalRecord)
+        return nil
+    }
+
+    private func coreConflictResult(serverRecord: CKRecord, originalRecord: CKRecord) async -> CKRecord? {
+        switch serverRecord.recordType {
+        case Quest.recordType:
+            await resolveQuestConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+        case Profile.recordType:
+            await resolveProfileConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+        case QuestCompletion.recordType:
+            await resolveQuestCompletionConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+        case AllowancePeriod.recordType:
+            await resolveAllowancePeriodConflict(serverRecord: serverRecord, originalRecord: originalRecord)
+        default:
+            nil
+        }
+    }
+
+    private func handleSecondaryServerWins(serverRecord: CKRecord, originalRecord: CKRecord) async {
+        // WHY: Server-wins discards optimistic mutation; surface revert instead of silent flip.
         let parsedRecord = ParsedRecord.parse(record: serverRecord)
+        let secondaryType = CachedRecordType.recordType(for: serverRecord.recordType)
+        let secondaryFamily: String? = appState?.family?.id.recordName
+            ?? (serverRecord["family"] as? CKRecord.Reference)?.recordID.recordName
+            ?? (originalRecord["family"] as? CKRecord.Reference)?.recordID.recordName
+        let cachedTagBeforeMerge: String? = {
+            guard secondaryType != nil, secondaryFamily != nil else { return nil }
+            return originalRecord.recordChangeTag
+        }()
+
         switch parsedRecord {
         case .parseFailure:
             coordinator?.noteParseFailure()
@@ -137,10 +157,92 @@ final class CKSyncConflictResolver {
         case .ignoredSystemRecord:
             logger.debug("Ignored system record in conflict resolver: type=\(serverRecord.recordType, privacy: .public)")
         default:
-            await backgroundCache?.batchUpsertParsedRecords([parsedRecord])
+            await commitSecondaryParsedRecord(parsedRecord)
+            surfaceSecondaryRevertIfNeeded(
+                secondaryType: secondaryType,
+                secondaryFamily: secondaryFamily,
+                cachedTagBeforeMerge: cachedTagBeforeMerge,
+                serverRecord: serverRecord,
+                originalRecord: originalRecord
+            )
         }
+    }
 
-        return nil
+    private func commitSecondaryParsedRecord(_ parsedRecord: ParsedRecord) async {
+        if let backgroundCache {
+            await backgroundCache.batchUpsertParsedRecords([parsedRecord])
+            return
+        }
+        guard let cacheService else { return }
+        // WHY: Third sanctioned exception per ARCHITECTURE.md §2 — in-memory fallback when BackgroundCacheActor unavailable; mirrors ingest isServerSync semantics.
+        if await commitPrimaryFallback(parsedRecord, cacheService: cacheService) {
+            return
+        }
+        await commitRemainingFallback(parsedRecord, cacheService: cacheService)
+    }
+
+    private func commitPrimaryFallback(_ parsedRecord: ParsedRecord, cacheService: CacheService) async -> Bool {
+        switch parsedRecord {
+        case let .ledgerEntry(entry): await cacheService.upsertLedgerEntry(entry, isServerSync: true)
+        case let .goal(goal): await cacheService.upsertGoal(goal, isServerSync: true)
+        case let .profile(profile): await cacheService.upsertProfile(profile, isServerSync: true)
+        case let .family(family): await cacheService.upsertFamily(family)
+        case let .quest(quest): await cacheService.upsertQuest(quest, isServerSync: true)
+        case let .questTemplate(template): await cacheService.upsertQuestTemplate(template, isServerSync: true)
+        case let .questCompletion(completion): await cacheService.upsertQuestCompletion(completion, isServerSync: true)
+        default: return false
+        }
+        return true
+    }
+
+    private func commitRemainingFallback(_ parsedRecord: ParsedRecord, cacheService: CacheService) async {
+        switch parsedRecord {
+        case let .allowancePeriod(period): await cacheService.upsertAllowancePeriod(period, isServerSync: true)
+        case let .achievement(achievement): await cacheService.upsertAchievement(achievement, isServerSync: true)
+        case let .profileAchievement(profileAchievement): await cacheService.upsertProfileAchievement(profileAchievement, isServerSync: true)
+        case let .notificationPreference(preference): await cacheService.upsertNotificationPreference(preference, isServerSync: true)
+        case let .gemLedger(ledger): await cacheService.upsertGemLedger(ledger, isServerSync: true)
+        case let .rewardEvent(event): await cacheService.upsertRewardEvent(event, isServerSync: true)
+        case .ignoredSystemRecord, .parseFailure: break
+        default: break
+        }
+    }
+
+    private func surfaceSecondaryRevertIfNeeded(
+        secondaryType: CachedRecordType?,
+        secondaryFamily: String?,
+        cachedTagBeforeMerge: String?,
+        serverRecord: CKRecord,
+        originalRecord: CKRecord
+    ) {
+        guard let secondaryType, let secondaryFamily else {
+            if secondaryFamily == nil, let secondaryType {
+                let typeLabel = String(describing: secondaryType)
+                let recordName = serverRecord.recordID.recordName
+                logger.fault(
+                    "Could not resolve family for secondary conflict revert — skipping freshness invalidation for \(typeLabel, privacy: .public) id=\(recordName, privacy: .private)"
+                )
+            }
+            return
+        }
+        let serverTag = serverRecord.recordChangeTag
+        let shouldSurface: Bool = {
+            if let cachedTagBeforeMerge, let serverTag {
+                // WHY: cached tag divergence proves an optimistic write was clobbered by server-wins.
+                return cachedTagBeforeMerge != serverTag
+            }
+            // Fallback when tags unavailable — compare local pending fields to server snapshot.
+            return didLocalFieldsDiffer(serverRecord: serverRecord, clientRecord: originalRecord)
+        }()
+        guard shouldSurface else { return }
+        cacheService?.invalidateFreshness(familyRecordName: secondaryFamily, type: secondaryType)
+        let message = switch secondaryType {
+        case .ledgerEntry: "Your spending change was reverted by newer server data. Pull to refresh."
+        case .goal: "Your goal update was reverted by newer server data. Pull to refresh."
+        case .profile: "Your profile change was reverted by newer server data. Pull to refresh."
+        default: "Your recent change was reverted — server data won. Pull to refresh."
+        }
+        toastManager?.show(message: message, type: .warning)
     }
 
     /// FROZEN — Quest xpBanked monotonic merge per ARCHITECTURE.md §2. Concurrent completions across
@@ -437,6 +539,190 @@ final class CKSyncConflictResolver {
         }
 
         return serverRecord
+    }
+
+    // WHY: Fallback field diff when changeTags unavailable; surface discard instead of silent flip.
+    private func didLocalFieldsDiffer(serverRecord: CKRecord, clientRecord: CKRecord) -> Bool {
+        let keys = Set(serverRecord.allKeys()).union(clientRecord.allKeys())
+        for key in keys {
+            let serverValue = serverRecord[key] as CKRecordValue?
+            let clientValue = clientRecord[key] as CKRecordValue?
+            if !ckRecordValuesEqual(serverValue, clientValue) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // WHY: Explicit typed handling before NSObject fallback — prevents
+    // Data/Date/NSNumber collisions where String(describing:) would mask
+    // differences (e.g., Int(10) vs Double(10.0) or distinct Data bytes).
+    private func ckRecordValuesEqual(_ lhs: CKRecordValue?, _ rhs: CKRecordValue?) -> Bool {
+        if lhs == nil, rhs == nil {
+            return true
+        }
+        guard let lhs, let rhs else { return false }
+        if let result = ckReferenceEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckReferenceArrayEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckDataEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckDateEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckNumberEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckArrayEquality(lhs, rhs) {
+            return result
+        }
+        if let lObj = lhs as? NSObject, let rObj = rhs as? NSObject {
+            return lObj.isEqual(rObj)
+        }
+        assertionFailure(
+            "ckRecordValuesEqual: unhandled CKRecordValue types "
+                + "\(type(of: lhs)) vs \(type(of: rhs))"
+        )
+        return false
+    }
+
+    private func ckArrayElementsEqual(_ lhs: Any, _ rhs: Any) -> Bool {
+        if let result = ckReferenceEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckDataEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckDateEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckNumberEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckArrayEquality(lhs, rhs) {
+            return result
+        }
+        if let result = ckStringEquality(lhs, rhs) {
+            return result
+        }
+        if let lObj = lhs as? NSObject, let rObj = rhs as? NSObject {
+            return lObj.isEqual(rObj)
+        }
+        assertionFailure(
+            "ckArrayElementsEqual: unhandled element types "
+                + "\(type(of: lhs)) vs \(type(of: rhs))"
+        )
+        return false
+    }
+
+    private func ckReferenceEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
+        if let lRef = lhs as? CKRecord.Reference,
+           let rRef = rhs as? CKRecord.Reference
+        {
+            return lRef.recordID == rRef.recordID && lRef.action == rRef.action
+        }
+        if (lhs is CKRecord.Reference) || (rhs is CKRecord.Reference) {
+            return false
+        }
+        return nil
+    }
+
+    private func ckReferenceArrayEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
+        if let lArr = lhs as? [CKRecord.Reference],
+           let rArr = rhs as? [CKRecord.Reference]
+        {
+            guard lArr.count == rArr.count else { return false }
+            for (left, right) in zip(lArr, rArr)
+                where left.recordID != right.recordID || left.action != right.action
+            {
+                return false
+            }
+            return true
+        }
+        return nil
+    }
+
+    private func ckDataEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
+        if let lData = lhs as? Data, let rData = rhs as? Data {
+            return lData == rData
+        }
+        if (lhs is Data) || (rhs is Data) {
+            return false
+        }
+        return nil
+    }
+
+    private func ckDateEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
+        if let lDate = lhs as? Date, let rDate = rhs as? Date {
+            return lDate == rDate
+        }
+        if (lhs is Date) || (rhs is Date) {
+            return false
+        }
+        return nil
+    }
+
+    private func ckNumberEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
+        if let lNum = lhs as? NSNumber, let rNum = rhs as? NSNumber {
+            // Distinguish Int vs Double encodings — NSNumber isEqual would
+            // otherwise treat Int(10) and Double(10.0) as equal.
+            if String(cString: lNum.objCType) != String(cString: rNum.objCType) {
+                return false
+            }
+            return lNum.isEqual(rNum)
+        }
+        if (lhs is NSNumber) || (rhs is NSNumber) {
+            return false
+        }
+        if let lInt = lhs as? Int, let rInt = rhs as? Int {
+            return lInt == rInt
+        }
+        if (lhs is Int) || (rhs is Int) {
+            return false
+        }
+        if let lDouble = lhs as? Double, let rDouble = rhs as? Double {
+            return lDouble == rDouble
+        }
+        if (lhs is Double) || (rhs is Double) {
+            return false
+        }
+        if let lInt64 = lhs as? Int64, let rInt64 = rhs as? Int64 {
+            return lInt64 == rInt64
+        }
+        if (lhs is Int64) || (rhs is Int64) {
+            return false
+        }
+        return nil
+    }
+
+    private func ckArrayEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
+        if let lArr = lhs as? NSArray, let rArr = rhs as? NSArray {
+            guard lArr.count == rArr.count else { return false }
+            for index in 0 ..< lArr.count
+                where !ckArrayElementsEqual(lArr[index], rArr[index])
+            {
+                return false
+            }
+            return true
+        }
+        if (lhs is NSArray) || (rhs is NSArray) {
+            return false
+        }
+        return nil
+    }
+
+    private func ckStringEquality(_ lhs: Any, _ rhs: Any) -> Bool? {
+        if let lStr = lhs as? String, let rStr = rhs as? String {
+            return lStr == rStr
+        }
+        if (lhs is String) || (rhs is String) {
+            return false
+        }
+        return nil
     }
 
     func handleDeletedRecord(

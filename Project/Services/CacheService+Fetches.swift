@@ -239,6 +239,42 @@ extension CacheService {
         )
     }
 
+    /// WHY DB-level predicate: the per-day transfer guard previously pulled all
+    /// ledger rows for a profile and scanned on the main thread. This fetch
+    /// narrows to the (family, profile, source, date) subset via composite
+    /// index (familyRecordName, profileRecordName, source, date); pair filter
+    /// (fromBucket/toBucket) refines the small subset in-memory, avoiding O(n)
+    /// main-thread scans.
+    func fetchTransfers(
+        profileRecordName: String,
+        familyRecordName: String,
+        from fromRaw: String,
+        to toRaw: String,
+        dayBucket: Int
+    ) -> [LedgerEntryCache] {
+        guard !familyRecordName.isEmpty, !profileRecordName.isEmpty else {
+            Self.fetchLogger.warning("fetchTransfers called without family/profile scope — returning empty (fail-closed)")
+            return []
+        }
+        guard !fromRaw.isEmpty, !toRaw.isEmpty else { return [] }
+        let range = WeekMath.utcDateRange(forDayBucket: dayBucket)
+        let todayStart = range.lowerBound
+        let todayEnd = range.upperBound
+        let transferSource = LedgerSource.transfer.rawValue
+        return fetch(
+            LedgerEntryCache.self,
+            predicate: #Predicate { entry in
+                entry.profileRecordName == profileRecordName
+                    && entry.familyRecordName == familyRecordName
+                    && entry.source == transferSource
+                    && entry.fromBucket == fromRaw
+                    && entry.toBucket == toRaw
+                    && entry.date >= todayStart
+                    && entry.date < todayEnd
+            }
+        )
+    }
+
     func fetchLedgerEntries(profileRecordName: String, family: String, recordNamePrefix: String) -> [LedgerEntryCache] {
         guard !family.isEmpty else {
             Self.fetchLogger.warning("fetchLedgerEntries(profileRecordName:family:recordNamePrefix:) called without family scope — returning empty (fail-closed)")

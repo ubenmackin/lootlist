@@ -57,6 +57,13 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
     @ObservationIgnored private var currentPassHadCacheWriteFailures = false
     @ObservationIgnored private let pendingEnqueueBuffer = Mutex<[ScopedRecordIdentity]>([])
     @ObservationIgnored private let pendingDeleteBuffer = Mutex<[ScopedRecordIdentity]>([])
+    // WHY: transient fetch failures leave deletion unverified — stall would retain pending save forever without progress; retry state ensures exponential backoff re-evaluation rather than tight spin.
+    // WHY: retry state is Mutex-backed and accessed from both MainActor and nonisolated deinit; nonisolated storage avoids Swift 6 actor-isolation violation.
+    @ObservationIgnored private nonisolated let retryDeadlines = Mutex<[String: Date]>([:])
+    @ObservationIgnored private nonisolated let retryAttempts = Mutex<[String: Int]>([:])
+    // WHY: stores in-flight retry Tasks per record so deinit can cancel and overwrite handling can coalesce storms.
+    // Nonisolated so deinit (nonisolated) can cancel without hopping to MainActor or racing with scheduleRetry/clearRetryState.
+    @ObservationIgnored private nonisolated let retryTasks = Mutex<[String: Task<Void, Never>]>([:])
 
     var isSyncing: Bool = false
     var lastSyncedAt: Date?
@@ -86,6 +93,14 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         self.defaults = defaults
 
         delegateHandler.setCoordinator(self)
+    }
+
+    deinit {
+        // Cancel any pending retry Tasks to avoid re-enqueue after coordinator teardown.
+        let tasks = retryTasks.withLock { Array($0.values) }
+        for task in tasks {
+            task.cancel()
+        }
     }
 
     // MARK: - Engine Setup
@@ -265,6 +280,69 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         logger.info("Enqueued pending delete: \(recordID.recordName, privacy: .private) in \(isOwner ? "private" : "shared") database")
     }
 
+    // MARK: - Retry Scheduling (fail-closed stall recovery)
+
+    /// Schedules re-evaluation of a pending save after transient fetch failure.
+    /// WHY: `confirmedLocalDeletion` returning `false` on `tryFetch == nil` stalls sync batch indefinitely; scheduling with exponential backoff [0.5s, 1.5s, 4s] and stamping a 30s
+    /// retry deadline ensures re-attempt without tight spin and never drops deletion.
+    func scheduleRetry(for recordID: CKRecord.ID, isOwner: Bool) {
+        let key = recordID.recordName
+        // Overwrite handling: cancel any existing retry Task for this record before stamping new deadline.
+        retryTasks.withLock { tasks in
+            tasks[key]?.cancel()
+        }
+        let attempt = retryAttempts.withLock { counts -> Int in
+            let next = (counts[key] ?? 0) + 1
+            counts[key] = min(next, AppConstants.CloudKit.backoffScheduleNanos.count)
+            return next
+        }
+        // Stamp 30s retry deadline so engine will re-attempt rather than spin.
+        retryDeadlines.withLock { $0[key] = Date().addingTimeInterval(30) }
+        let backoffNanos = AppConstants.CloudKit.backoffScheduleNanos[safe: attempt - 1] ?? AppConstants.CloudKit.backoffScheduleNanos.last ?? 4_000_000_000
+        logger.warning("Scheduling retry for \(recordID.recordName, privacy: .private) attempt \(attempt) backoff \(Double(backoffNanos) / 1_000_000_000)s with 30s deadline")
+        let task = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: backoffNanos)
+            } catch {
+                return
+            }
+            if Task.isCancelled {
+                return
+            }
+            await MainActor.run {
+                guard let self else { return }
+                if Task.isCancelled {
+                    return
+                }
+                // Skip re-enqueue if retry state was cleared on success while waiting.
+                let shouldRetry = self.retryDeadlines.withLock { $0[key] != nil }
+                guard shouldRetry else { return }
+                self.enqueueSave(recordID: recordID, isOwner: isOwner)
+            }
+            // Cleanup Task slot if still current.
+            self?.retryTasks.withLock { tasks in
+                _ = tasks.removeValue(forKey: key)
+            }
+        }
+        retryTasks.withLock { $0[key] = task }
+    }
+
+    /// Returns the stamped 30s retry deadline for a record, if any.
+    func retryDeadline(for recordID: CKRecord.ID) -> Date? {
+        retryDeadlines.withLock { $0[recordID.recordName] }
+    }
+
+    /// Clears retry state after successful re-evaluation.
+    func clearRetryState(for recordID: CKRecord.ID) {
+        let key = recordID.recordName
+        retryTasks.withLock { tasks in
+            tasks[key]?.cancel()
+            tasks.removeValue(forKey: key)
+        }
+        retryAttempts.withLock { _ = $0.removeValue(forKey: key) }
+        retryDeadlines.withLock { _ = $0.removeValue(forKey: key) }
+    }
+
     // MARK: - Manual Trigger APIs
 
     /// Manually triggers a remote fetch pass across active engines.
@@ -344,6 +422,13 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             syncError = error.localizedDescription
             postSyncDidComplete(outcome: .failed)
         }
+        // WHY: terminated-push coverage complements push-driven sync — silent
+        // pushes are throttled on expensive networks and jetsam can kill the
+        // app before pendingRecordZoneChanges upload. Scheduling the
+        // BGProcessingTask retry ensures unsynced ledger entries and quest
+        // completions eventually reach CloudKit when the system next launches
+        // the app in the background.
+        AppDelegate.scheduleSyncProcessingTask()
     }
 
     // MARK: - Sync Pass Settlement

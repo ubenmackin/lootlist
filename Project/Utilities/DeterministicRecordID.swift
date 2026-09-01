@@ -12,6 +12,25 @@ import Foundation
 /// all money-movement flows. Centralizing prefixes and formatting prevents
 /// cross-device dedupe divergence.
 enum DeterministicRecordID {
+    /// Single-source root for all goal-contribution record names.
+    /// All prefix checks and ID factories must route through this constant.
+    private static let contribRoot = "contrib-"
+
+    /// Prefix for a specific goal's contribution records: `contrib-{goalRecordName}-`.
+    static func contributionPrefix(for goalRecordName: String) -> String {
+        "\(contribRoot)\(goalRecordName)-"
+    }
+
+    /// Returns true when `recordName` is any contribution record.
+    static func isContributionRecord(_ recordName: String) -> Bool {
+        recordName.hasPrefix(contribRoot)
+    }
+
+    /// Returns true when `recordName` is a contribution for the given goal.
+    static func isContribution(_ recordName: String, for goalRecordName: String) -> Bool {
+        recordName.hasPrefix(contributionPrefix(for: goalRecordName))
+    }
+
     static func interest(profileRecordName: String, monthKey: String) -> String {
         "interest-\(profileRecordName)-\(monthKey)"
     }
@@ -21,7 +40,7 @@ enum DeterministicRecordID {
     }
 
     static func contribution(goalRecordName: String, sourceEventID: String) -> String {
-        "contrib-\(goalRecordName)-\(sourceEventID)"
+        "\(contributionPrefix(for: goalRecordName))\(sourceEventID)"
     }
 
     static func transfer(profileRecordName: String, transferID: String) -> String {
@@ -47,12 +66,19 @@ enum DeterministicRecordID {
 
 /// Canonical deterministic identity helpers that must remain single-source.
 ///
-/// `monthKeyUTC` is intentionally thin — the authoritative calendar math lives
-/// in `WeekMath.monthKey(for:calendar:)` so timezone handling cannot diverge
-/// between interest and match flows.
+/// `monthKeyUTC` / `dayKeyUTC` are intentionally thin — the authoritative
+/// calendar math lives in `WeekMath` so timezone handling cannot diverge
+/// between interest/match/daily-login flows.
 enum DeterministicIdentity {
     static func monthKeyUTC(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
         WeekMath.monthKey(for: date, calendar: calendar)
+    }
+
+    /// UTC `yyyy-MM-dd` day key for daily-login deterministic dedupe.
+    /// Thin wrapper over `WeekMath.dayKey(for:calendar:)` so daily-login shares
+    /// the single-source `Calendar.iso8601UTC` path with `WeekMath` and monthKey.
+    static func dayKeyUTC(for date: Date, calendar: Calendar = .iso8601UTC) -> String {
+        WeekMath.dayKey(for: date, calendar: calendar)
     }
 }
 

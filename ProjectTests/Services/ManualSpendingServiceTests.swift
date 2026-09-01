@@ -633,4 +633,142 @@ struct SpendingServiceTests {
         #expect(balances[.longTermSave] == nil)
         #expect(balances.count == 2)
     }
+
+    // MARK: - Deterministic ID dedupe (cross-device)
+
+    @Test
+    func `same inputs produce same recordName across two devices`() async throws {
+        let zoneID = makeZoneID()
+        let family = makeFamily(zoneID)
+        let hero = makeHero(zoneID)
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let description = "Deterministic Coffee"
+        let amount = 4.50
+        let location = "Cafe"
+
+        // WHY: CloudKit dedupes by recordName — identical payloads must converge
+        // to the same deterministic ID on every device, never a random UUID.
+        func makeService() throws -> SpendingService {
+            let ck = MockCloudKitService()
+            ck.activeFamilyZoneID = zoneID
+            let cache = try CacheService(inMemory: true)
+            let appState = AppState()
+            let service = SpendingService(cloudKit: ck, cacheService: cache, appState: appState)
+            setupActiveScope(appState: appState, cloudKit: ck, family: family, actingProfile: hero)
+            return service
+        }
+
+        let serviceA = try makeService()
+        let entryA = try await serviceA.logManual(
+            profile: hero, family: family, familyRecordName: family.id.recordName,
+            description: description, amount: amount, location: location, date: fixedDate
+        )
+
+        let serviceB = try makeService()
+        let entryB = try await serviceB.logManual(
+            profile: hero, family: family, familyRecordName: family.id.recordName,
+            description: description, amount: amount, location: location, date: fixedDate
+        )
+
+        #expect(entryA.id.recordName == entryB.id.recordName, "Same inputs must yield same deterministic recordName across devices")
+        // Must not contain UUID randomness — deterministic suffix is hex + ms only.
+        #expect(!entryA.id.recordName.contains("-UUID") && entryA.id.recordName.count < 120)
+    }
+
+    @Test
+    func `different payloads produce different deterministic names without UUID collision`() async throws {
+        let zoneID = makeZoneID()
+        let family = makeFamily(zoneID)
+        let hero = makeHero(zoneID)
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let baseDescription = "Deterministic Lunch"
+        let amount = 9.99
+
+        let ck = MockCloudKitService()
+        ck.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = SpendingService(cloudKit: ck, cacheService: cache, appState: appState)
+        setupActiveScope(appState: appState, cloudKit: ck, family: family, actingProfile: hero)
+
+        // Seed a base entry.
+        let baseEntry = try await service.logManual(
+            profile: hero, family: family, familyRecordName: family.id.recordName,
+            description: baseDescription, amount: amount, location: "Cafe A", date: fixedDate
+        )
+        let baseName = baseEntry.id.recordName
+
+        /// Same deterministic base would collide, but different location must
+        /// produce a distinct deterministic extended name, not a UUID.
+        /// Manually seed a colliding base name with different payload to force
+        /// the deterministic extended path. We simulate the collision by
+        /// inserting a row whose recordName equals the base that the next
+        /// call will compute, but with differing location.
+        func divergentRecordName(location: String) async throws -> String {
+            let ck2 = MockCloudKitService()
+            ck2.activeFamilyZoneID = zoneID
+            let cache2 = try CacheService(inMemory: true)
+            // Pre-seed cache2 with the base entry to force collision on next write.
+            let baseLedger = LedgerEntry(
+                profile: CKRecord.Reference(recordID: hero.id, action: .none),
+                amount: -abs(amount),
+                description: baseDescription,
+                location: "Cafe A",
+                date: fixedDate,
+                source: "manual",
+                family: makeFamilyRef(zoneID),
+                id: CKRecord.ID(recordName: baseName, zoneID: zoneID)
+            )
+            await cache2.upsertLedgerEntry(baseLedger)
+            let appState2 = AppState()
+            let svc2 = SpendingService(cloudKit: ck2, cacheService: cache2, appState: appState2)
+            setupActiveScope(appState: appState2, cloudKit: ck2, family: family, actingProfile: hero)
+            let entry = try await svc2.logManual(
+                profile: hero, family: family, familyRecordName: family.id.recordName,
+                description: baseDescription, amount: amount, location: location, date: fixedDate
+            )
+            return entry.id.recordName
+        }
+
+        let name1 = try await divergentRecordName(location: "Cafe B")
+        let name2 = try await divergentRecordName(location: "Cafe B")
+
+        #expect(name1 == name2, "Different payload divergent ID must be deterministic across devices")
+        #expect(name1 != baseName, "Divergent payload must not collide with base recordName")
+        #expect(!name1.lowercased().contains("uuid"), "Extended ID must not contain random UUID")
+        // Extended deterministic suffix format: base-hex(8)-msSuffix
+        #expect(name1.hasPrefix(baseName + "-"), "Extended ID must extend base with deterministic suffix")
+        let suffix = String(name1.dropFirst(baseName.count + 1))
+        let parts = suffix.split(separator: "-")
+        #expect(parts.count == 2, "Suffix must be hex(8)-msSuffix")
+        #expect(parts[0].count == 8 && parts[0].allSatisfy(\.isHexDigit), "First suffix part must be 4-byte hex")
+    }
+
+    @Test
+    func `double run with same inputs is idempotent — no duplicate row`() async throws {
+        let zoneID = makeZoneID()
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+        let cache = try CacheService(inMemory: true)
+        let appState = AppState()
+        let service = SpendingService(cloudKit: cloudKit, cacheService: cache, appState: appState)
+
+        let hero = makeHero(zoneID)
+        let family = makeFamily(zoneID)
+        setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
+
+        let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = try await service.logManual(
+            profile: hero, family: family, familyRecordName: family.id.recordName,
+            description: "Idempotent Latte", amount: 5.00, location: "Cafe", date: fixedDate
+        )
+        let second = try await service.logManual(
+            profile: hero, family: family, familyRecordName: family.id.recordName,
+            description: "Idempotent Latte", amount: 5.00, location: "Cafe", date: fixedDate
+        )
+
+        #expect(first.id.recordName == second.id.recordName, "Idempotent double-run must converge to same recordName")
+        let cached = cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName)
+        #expect(cached.count == 1, "Double-run must not create duplicate ledger row")
+    }
 }

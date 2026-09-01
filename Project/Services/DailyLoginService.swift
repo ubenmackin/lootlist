@@ -41,6 +41,8 @@ final class DailyLoginService {
         7: 50
     ]
 
+    /// Test-only calendar injection. Production code always uses UTC via
+    /// `Calendar.iso8601UTC` / `WeekMath` so day keys are cross-device identical.
     private var customCalendar: Calendar?
 
     init(cloudKitService: any CloudKitServiceProtocol,
@@ -136,7 +138,7 @@ final class DailyLoginService {
             zoneID: profile.id.zoneID
         )
         if let standardLedger = cacheService.fetchGemLedger(recordName: standardLedgerID.recordName, family: familyRecordName) {
-            if calendar.isDateInToday(standardLedger.createdAt) {
+            if WeekMath.isToday(standardLedger.createdAt, calendar: calendar) {
                 return true
             }
         }
@@ -148,7 +150,7 @@ final class DailyLoginService {
             zoneID: profile.id.zoneID
         )
         if let v2Ledger = cacheService.fetchGemLedger(recordName: v2LedgerID.recordName, family: familyRecordName) {
-            if calendar.isDateInToday(v2Ledger.createdAt) {
+            if WeekMath.isToday(v2Ledger.createdAt, calendar: calendar) {
                 return true
             }
         }
@@ -158,7 +160,7 @@ final class DailyLoginService {
             family: familyRecordName
         )
         let loginLedgers = allLedgers.filter { $0.source == "dailyLogin" }
-        if loginLedgers.contains(where: { calendar.isDateInToday($0.createdAt) }) {
+        if loginLedgers.contains(where: { WeekMath.isToday($0.createdAt, calendar: calendar) }) {
             return true
         }
         if !loginLedgers.isEmpty {
@@ -189,7 +191,7 @@ final class DailyLoginService {
             zoneID: profile.id.zoneID
         )
         if let cachedLedger = cacheService?.fetchGemLedger(recordName: ledgerID.recordName, family: familyRecordName),
-           calendar.isDateInToday(cachedLedger.createdAt)
+           WeekMath.isToday(cachedLedger.createdAt, calendar: calendar)
         {
             return .claimedToday
         }
@@ -205,7 +207,7 @@ final class DailyLoginService {
             return .available
         }
 
-        if let yesterday = yesterday(), calendar.isDate(lastDate, inSameDayAs: yesterday) {
+        if let yesterday = yesterday(), WeekMath.isSameDay(lastDate, yesterday, calendar: calendar) {
             return .available
         }
 
@@ -280,7 +282,7 @@ final class DailyLoginService {
             zoneID: profile.id.zoneID
         )
         let hasPriorDayLedger = (cacheService?.fetchGemLedger(recordName: legacyLedgerID.recordName, family: familyRecordName))
-            .map { !calendar.isDateInToday($0.createdAt) } ?? false
+            .map { !WeekMath.isToday($0.createdAt, calendar: calendar) } ?? false
         let creditEventKey = hasPriorDayLedger ? "daily-\(today)-v2" : "daily-\(today)"
 
         // Credit gems and persist claim state using deterministic idempotent eventKey.
@@ -315,29 +317,26 @@ final class DailyLoginService {
 
     // MARK: - Date helpers
 
+    /// Single-source UTC calendar for daily-login day bucket.
+    /// WHY UTC via `WeekMath`/`Calendar.iso8601UTC`: the same instant must
+    /// mint the same `today` string and `GemLedger.deterministicRecordID`
+    /// `daily-{yyyy-MM-dd}` prefix on every device/timezone, so CloudKit
+    /// dedupe and `hasClaimedToday` are cross-device consistent. This mirrors
+    /// `WeekMath.dayBucket` / `DeterministicIdentity.dayKeyUTC` / `WeekMath.monthKey`.
+    /// `customCalendar` is test-only injection; production path is always UTC.
     private var calendar: Calendar {
-        customCalendar ?? {
-            var cal = Calendar(identifier: .gregorian)
-            cal.timeZone = .autoupdatingCurrent
-            return cal
-        }()
+        customCalendar ?? Calendar.iso8601UTC
     }
 
-    private func dayFormatter() -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = calendar.timeZone
-        formatter.calendar = calendar
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter
-    }
-
+    /// UTC-quantized `yyyy-MM-dd` day string via `WeekMath` single source.
+    /// Routes through `DeterministicIdentity.dayKeyUTC` so the calendar math
+    /// stays centralized and cannot diverge per device.
     private func todayString(for date: Date = Date()) -> String {
-        dayFormatter().string(from: date)
+        DeterministicIdentity.dayKeyUTC(for: date, calendar: calendar)
     }
 
     private func dateFromString(_ str: String) -> Date? {
-        dayFormatter().date(from: str)
+        WeekMath.date(fromDayKey: str, calendar: calendar)
     }
 
     private func yesterday(relativeTo date: Date = Date()) -> Date? {

@@ -81,7 +81,10 @@ struct LedgerEntryRow: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(alignment: .top, spacing: 12) {
-                let iconInfo = LedgerRowStyle.sourceIcon(for: entry.source, fallbackTint: entry.amount >= 0 ? .gold : Color(DesignSystemConstants.Colors.dangerRed))
+                let iconInfo = LedgerRowStyle.sourceIcon(
+                    for: entry.source,
+                    fallbackTint: entry.amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed)
+                )
                 Image(systemName: iconInfo.name)
                     .font(.title2)
                     .foregroundStyle(iconInfo.color)
@@ -133,9 +136,9 @@ struct LedgerEntryRow: View {
 
                 Spacer(minLength: 12)
 
-                Text(GoldFormat.signed(entry.amount))
+                Text(CurrencyFormatter.signed(entry.amount))
                     .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(entry.amount >= 0 ? Color.gold : Color(DesignSystemConstants.Colors.dangerRed))
+                    .foregroundStyle(entry.amount >= 0 ? Color(DesignSystemConstants.Colors.gold) : Color(DesignSystemConstants.Colors.dangerRed))
             }
             .padding(12)
             .background(
@@ -144,6 +147,6 @@ struct LedgerEntryRow: View {
             )
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(entry.description), \(GoldFormat.signed(entry.amount)), \(LedgerRowStyle.dateText(for: entry.date))")
+        .accessibilityLabel("\(entry.description), \(CurrencyFormatter.signed(entry.amount)), \(LedgerRowStyle.dateText(for: entry.date))")
     }
 }

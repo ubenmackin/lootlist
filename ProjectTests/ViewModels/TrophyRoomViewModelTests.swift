@@ -42,16 +42,16 @@ struct TrophyRoomViewModelTests {
             profileRecordName: hero.id.recordName, familyRecordName: family.id.recordName,
             earnedDate: Date(timeIntervalSince1970: 1000)
         )
-        vm.rebuildLists(earned: [legacy], allAchievements: [cache])
+        vm.rebuildLists(earned: [legacy], allAchievements: [cache], profileCaches: [ProfileCache(from: hero)])
         #expect(vm.latestEarnedTrophyName == "First Steps")
         let current = ProfileAchievementCache(
             recordName: "pa-cur", achievementRecordName: "fam1-\(AchievementRequirement.firstQuest.rawValue)",
             profileRecordName: hero.id.recordName, familyRecordName: family.id.recordName,
             earnedDate: Date(timeIntervalSince1970: 2000)
         )
-        vm.rebuildLists(earned: [current], allAchievements: [cache])
+        vm.rebuildLists(earned: [current], allAchievements: [cache], profileCaches: [ProfileCache(from: hero)])
         #expect(vm.latestEarnedTrophyName == "First Steps")
-        vm.rebuildLists(earned: [legacy, current], allAchievements: [cache])
+        vm.rebuildLists(earned: [legacy, current], allAchievements: [cache], profileCaches: [ProfileCache(from: hero)])
         #expect(vm.latestEarnedTrophyName == "First Steps")
     }
 }

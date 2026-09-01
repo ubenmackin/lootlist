@@ -35,6 +35,17 @@ enum CurrencyFormatter: Sendable {
         string(abs(amount))
     }
 
+    static func signed(_ amount: Double) -> String {
+        let body = magnitude(amount)
+        if amount < 0 {
+            return "−\(body)"
+        }
+        if amount > 0 {
+            return "+\(body)"
+        }
+        return body
+    }
+
     static func presetString(_ preset: String) -> String {
         string(Double(preset) ?? 0)
     }

@@ -69,6 +69,7 @@ extension Toast: Equatable {
 /// Global toast banner presenter. Observable, main-actor isolated, injected via
 /// `@Environment` from `LootListApp`. Toasts stack newest-first (index 0 is the
 /// newest) and auto-dismiss after a fixed delay.
+/// WHY: optimistic mutations that are later reverted by server-wins or engine rejection surface via toasts instead of silently flipping.
 @MainActor
 @Observable
 final class ToastManager {

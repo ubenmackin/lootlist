@@ -212,7 +212,7 @@ final class TreasuryService {
                 return cached.toAllowancePeriod(zoneID: family.id.zoneID)
             }
 
-            let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: startOfWeek)
+            let normalizedWeekStart = WeekMath.startOfDay(for: startOfWeek)
             let matched: [AllowancePeriod] = try await CacheFirst.cacheFirst(
                 type: .allowancePeriod,
                 family: family,

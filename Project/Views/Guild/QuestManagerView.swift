@@ -207,26 +207,42 @@ struct QuestManagerView: View {
     }
 
     private func assignmentsTab(vm: QuestManagerViewModel) -> some View {
-        List {
-            if vm.activeAssignments.isEmpty {
-                emptyAssignmentsState
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else {
-                let grouped = Dictionary(grouping: vm.activeAssignments) { $0.assigneeRecordName }
-                let heroRecords = vm.heroes
-                ForEach(Array(grouped.keys.sorted()), id: \.self) { heroID in
-                    let heroQuests = grouped[heroID] ?? []
-                    let hero = heroRecords.first { $0.recordName == heroID }
-                    Section(header: Text(hero?.displayName ?? "Unknown Hero")) {
-                        ForEach(heroQuests) { quest in
-                            assignmentRow(quest: quest, vm: vm)
+        VStack(spacing: 0) {
+            // WHY: deferred expiry leaves past-week quests active; banner signals stale state until next reconcileCacheFromCloudKit retries.
+            if let familyName = familyRecordName ?? appState.family?.id.recordName,
+               !familyName.isEmpty,
+               vm.sweepDeferred || cachedAssignments.isEmpty
+            {
+                StaleDataBanner(
+                    family: familyName,
+                    type: .quest,
+                    count: cachedAssignments.count,
+                    isSyncing: lifecycleCoordinator?.isSyncing == true
+                )
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+            List {
+                if vm.activeAssignments.isEmpty {
+                    emptyAssignmentsState
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                } else {
+                    let grouped = Dictionary(grouping: vm.activeAssignments) { $0.assigneeRecordName }
+                    let heroRecords = vm.heroes
+                    ForEach(Array(grouped.keys.sorted()), id: \.self) { heroID in
+                        let heroQuests = grouped[heroID] ?? []
+                        let hero = heroRecords.first { $0.recordName == heroID }
+                        Section(header: Text(hero?.displayName ?? "Unknown Hero")) {
+                            ForEach(heroQuests) { quest in
+                                assignmentRow(quest: quest, vm: vm)
+                            }
                         }
                     }
                 }
             }
+            .listStyle(.insetGrouped)
         }
-        .listStyle(.insetGrouped)
     }
 
     private func assignmentRow(quest: QuestCache, vm: QuestManagerViewModel) -> some View {
