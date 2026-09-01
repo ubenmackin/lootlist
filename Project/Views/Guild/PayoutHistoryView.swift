@@ -87,28 +87,7 @@ struct PayoutHistoryView: View {
                 .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
                 .navigationTitle("Payout History")
                 .navigationBarTitleDisplayMode(.large)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showImportSheet = true
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                        }
-                        // Import is a privileged parent mutation, matching the
-                        // service-layer authorization in LedgerImportService.
-                        .disabled(appState.currentProfile?.role.isParent != true)
-                        .accessibilityLabel("Import Transactions")
-                        .accessibilityIdentifier("payoutHistory.importButton")
-                    }
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showExportPicker = true
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        .disabled(appState.currentProfile?.role.isParent != true)
-                    }
-                }
+                .toolbar { payoutToolbar }
                 .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
                     Button("Export as CSV") {
                         exportFormat = .csv
@@ -161,6 +140,33 @@ struct PayoutHistoryView: View {
                     )
                 }
         }
+    }
+
+    // MARK: - Toolbar (extracted to help Swift 6 type-checker on Xcode 26.6)
+    @ToolbarContentBuilder
+    private var payoutToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) { importButton }
+        ToolbarItem(placement: .primaryAction) { exportButton }
+    }
+
+    private var importButton: some View {
+        Button {
+            showImportSheet = true
+        } label: {
+            Image(systemName: "square.and.arrow.down")
+        }
+        .disabled(appState.currentProfile?.role.isParent != true)
+        .accessibilityLabel("Import Transactions")
+        .accessibilityIdentifier("payoutHistory.importButton")
+    }
+
+    private var exportButton: some View {
+        Button {
+            showExportPicker = true
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+        }
+        .disabled(appState.currentProfile?.role.isParent != true)
     }
 
     private func ensureViewModel() {
