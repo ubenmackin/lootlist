@@ -92,60 +92,51 @@ class SpendingService {
         let targetZoneID = profile.family.recordID.zoneID
         let profileName = profile.id.recordName
         let familyName = profile.family.recordID.recordName
-        let cached = cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
-        let filtered = cached.filter { dateRange.contains($0.date) }
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        if cacheService.isCacheAuthoritative(familyRecordName: familyName, type: .ledgerEntry, scope: scope, cachedCount: cached.count) {
-            return filtered.map { cacheRow in
-                LedgerEntry(
-                    profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
-                    amount: cacheRow.amount,
-                    description: cacheRow.entryDescription,
-                    location: cacheRow.location,
-                    date: cacheRow.date,
-                    source: cacheRow.source,
-                    family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
-                    id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
-                )
-            }
-        }
-
-        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
+        let family = Family(
+            name: "",
+            createdBy: profile.family.recordID,
+            id: CKRecord.ID(recordName: familyName, zoneID: targetZoneID)
+        )
         let isOwner = targetZoneID.ownerName == CKCurrentUserDefaultName || (ActiveFamilyScopeGuard.resolvedIsOwner(appState: appState) && appState.familyZoneID == targetZoneID)
-        let db = cloudKit.database(isOwner: isOwner)
-        do {
-            let all = try await cloudKit.query(
-                LedgerEntry.self,
-                predicate: predicate,
-                in: targetZoneID,
-                sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
-                using: db
-            )
-            // Scope mirrors the database the query itself ran against, which
-            // this method resolves per-zone rather than from the active session.
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
-                models: all,
-                databaseScope: DatabaseScopeResolver.scope(isOwner: isOwner),
-                zoneID: targetZoneID
-            )
-            return all.filter { dateRange.contains($0.date) }
-        } catch {
-            logger.warning("fetchTransactions CloudKit query failed, falling back to cache: \(error, privacy: .private)")
-            let fallback = cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
-            return fallback.filter { dateRange.contains($0.date) }.map { cacheRow in
-                LedgerEntry(
-                    profile: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.profileRecordName, zoneID: targetZoneID), action: .none),
-                    amount: cacheRow.amount,
-                    description: cacheRow.entryDescription,
-                    location: cacheRow.location,
-                    date: cacheRow.date,
-                    source: cacheRow.source,
-                    family: CKRecord.Reference(recordID: CKRecord.ID(recordName: cacheRow.familyRecordName, zoneID: targetZoneID), action: .none),
-                    id: CKRecord.ID(recordName: cacheRow.recordName, zoneID: targetZoneID)
+        let scopeForHydrate: CKDatabase.Scope = DatabaseScopeResolver.scope(isOwner: isOwner)
+        // WHY: dateRange filtering is applied once in fetchCache. The previous
+        // post-filter `result.filter { dateRange.contains($0.date) }` was a
+        // redundant second pass over the same bounded set (cached path and
+        // stale-network fallback both already filter in fetchCache); keeping a
+        // single filter preserves sort order without double iteration.
+        return try await CacheFirst.cacheFirst(
+            type: .ledgerEntry,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService, profileName, dateRange] familyName in
+                cacheService.fetchLedgerEntries(profileRecordName: profileName, family: familyName)
+                    .filter { dateRange.contains($0.date) }
+            },
+            map: { [targetZoneID] cache in
+                cache.toLedgerEntry(zoneID: targetZoneID)
+            },
+            query: { [cloudKit, profile, targetZoneID, isOwner] in
+                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                let predicate = NSPredicate(format: "profile == %@", profileRef as CVarArg)
+                let db = cloudKit.database(isOwner: isOwner)
+                return try await cloudKit.query(
+                    LedgerEntry.self,
+                    predicate: predicate,
+                    in: targetZoneID,
+                    sortDescriptors: [NSSortDescriptor(key: "date", ascending: false)],
+                    using: db
                 )
-            }
-        }
+            },
+            hydrate: { [syncCoordinator, scopeForHydrate, targetZoneID] models in
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: models,
+                    databaseScope: scopeForHydrate,
+                    zoneID: targetZoneID
+                )
+            },
+            sortedBy: { $0.date > $1.date }
+        )
     }
 
     // MARK: - Helpers

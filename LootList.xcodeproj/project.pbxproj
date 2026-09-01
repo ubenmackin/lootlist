@@ -28,6 +28,7 @@
 		0D6FF1926A1D879EDE84A21B /* ProfileCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27CD50815F7D1BF211D66DA /* ProfileCache.swift */; };
 		0E6C4DF8B74D3ADEC3A8609A /* NotificationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F56074526FD4DE3AADA0F3DA /* NotificationServiceTests.swift */; };
 		0ECB012D3F05A1627F2908E0 /* SnapshotHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D4F84AFC2DAC6F06A2ACB69 /* SnapshotHelper.swift */; };
+		0EF3FF9C417B758386CACCB2 /* FetchTransfersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4406CCE98B5B2FC14D72ACB /* FetchTransfersTests.swift */; };
 		0F6D5B334426A40C749B8161 /* PayoutDayResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */; };
 		0F875494740B30818381D710 /* ActiveFamilyScopeGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B80D9E2A60A733F696ADC70 /* ActiveFamilyScopeGuardTests.swift */; };
 		0F8FF43F03C29BE52E1CBC0D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABEF2FC4366881264C70BF9E /* Assets.xcassets */; };
@@ -250,6 +251,7 @@
 		A5F050FD7940FC9D2E15B874 /* AllowancePayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DCAA1B2A51F158C1633A551 /* AllowancePayoutEngine.swift */; };
 		A6CC4F0896A3EFBBE8FF6653 /* HeroBoardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35B40A26C97411D811F77F48 /* HeroBoardViewModel.swift */; };
 		A75F8715C11AD74DDDCC63B2 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86FCD8DE053FCE5CF03E264 /* AppDelegate.swift */; };
+		A7F622F942F90B284F093B00 /* CacheMergeable+Grouping.swift in Sources */ = {isa = PBXBuildFile; fileRef = 825C2EED5B54A83A23803514 /* CacheMergeable+Grouping.swift */; };
 		A828B1B6B47748CE3DFC7AD9 /* HeroBoardViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21B2721834052A5030A71C27 /* HeroBoardViewModelTests.swift */; };
 		A8583FA64C5CD3647605036F /* BackgroundCacheActor+SystemFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = F74A4F7F6BED8FEC9092351F /* BackgroundCacheActor+SystemFields.swift */; };
 		A9076D491EEFF5E99600A80F /* OnboardingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE3059DE9424EEBF9EAD434 /* OnboardingViewModel.swift */; };
@@ -636,6 +638,7 @@
 		80AA429949DE95170513B347 /* LootListSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListSchema.swift; sourceTree = "<group>"; };
 		81528F8B356212A13CF346D9 /* LootListIntegrationTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListIntegrationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		81E373C156981A67C46478F5 /* GemServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemServiceTests.swift; sourceTree = "<group>"; };
+		825C2EED5B54A83A23803514 /* CacheMergeable+Grouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheMergeable+Grouping.swift"; sourceTree = "<group>"; };
 		82C129EBFC1E4A24C907149C /* LedgerImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerImportView.swift; sourceTree = "<group>"; };
 		830400052B99000D040CC4A2 /* ChildLedgerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildLedgerView.swift; sourceTree = "<group>"; };
 		831CA0373D9645FB1500A84B /* FamilyServiceTests+Authorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyServiceTests+Authorization.swift"; sourceTree = "<group>"; };
@@ -768,6 +771,7 @@
 		E2F5A4EAC2699405B24BCCE8 /* InterestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterestService.swift; sourceTree = "<group>"; };
 		E32B2E2469AC328AFF8AB94A /* CelebrationOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CelebrationOverlayView.swift; sourceTree = "<group>"; };
 		E3751E7F14A08F2974B39920 /* LootListShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListShortcuts.swift; sourceTree = "<group>"; };
+		E4406CCE98B5B2FC14D72ACB /* FetchTransfersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FetchTransfersTests.swift; sourceTree = "<group>"; };
 		E51839A707B6EEEF665443E2 /* CacheService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheService.swift; sourceTree = "<group>"; };
 		E580BB884E3BE6CF6CB21A5B /* SectionHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionHeader.swift; sourceTree = "<group>"; };
 		E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutDayResolver.swift; sourceTree = "<group>"; };
@@ -972,6 +976,7 @@
 				51E844D116A5F96DE5E85C1C /* BucketService.swift */,
 				68346001171FD0C1F3D08B31 /* CacheConversions.swift */,
 				7C1648367E274E2959762725 /* CacheFirst.swift */,
+				825C2EED5B54A83A23803514 /* CacheMergeable+Grouping.swift */,
 				E51839A707B6EEEF665443E2 /* CacheService.swift */,
 				888F4B414BCB903A20D25936 /* CacheService+Batches.swift */,
 				DEF7D7FC99070A5F1DE8E67B /* CacheService+Fetches.swift */,
@@ -1153,6 +1158,7 @@
 				909FB1F2378D5841120AEE35 /* FamilyServiceTests+IdentityDedupe.swift */,
 				73C8BE8C58884EE28C25F335 /* FamilyServiceTests+OwnerAnchor.swift */,
 				A49B5A27C700FC780D0D78C1 /* FamilyShareReconcilerTests.swift */,
+				E4406CCE98B5B2FC14D72ACB /* FetchTransfersTests.swift */,
 				81E373C156981A67C46478F5 /* GemServiceTests.swift */,
 				8C0ECCD13E8A26ABF8A61ED3 /* GoalServiceTests.swift */,
 				EA56F1C78EF704793A4CC8BA /* HeroAvatarSpritesTests.swift */,
@@ -1737,6 +1743,7 @@
 				3BAFA13490A68A51609472C2 /* CKSyncEngineDelegateHandler.swift in Sources */,
 				0B88EDE3C487D4A6D398A8D9 /* CacheConversions.swift in Sources */,
 				D3420451322FE7FC865E19A5 /* CacheFirst.swift in Sources */,
+				A7F622F942F90B284F093B00 /* CacheMergeable+Grouping.swift in Sources */,
 				48A7A33F67F89B89B8C2A131 /* CacheService+Batches.swift in Sources */,
 				17EB2FEBB3135A1603CD5A14 /* CacheService+Fetches.swift in Sources */,
 				46C78F8638B7C0731E55148C /* CacheService+Invalidation.swift in Sources */,
@@ -2038,6 +2045,7 @@
 				8D96EC37B3D9D14409727627 /* FamilyServiceTests+OwnerAnchor.swift in Sources */,
 				ED9699802AC50FDE9DE80541 /* FamilyServiceTests.swift in Sources */,
 				57749E46F37B3AF67734097D /* FamilyShareReconcilerTests.swift in Sources */,
+				0EF3FF9C417B758386CACCB2 /* FetchTransfersTests.swift in Sources */,
 				0880A879F3DC8F996BCCABD0 /* GemServiceTests.swift in Sources */,
 				DBFA70B7C4CD3298F2BD7898 /* GoalEnhancementTests.swift in Sources */,
 				439D1BFFD82DBB027204A9EF /* GoalPacingCalculatorTests.swift in Sources */,

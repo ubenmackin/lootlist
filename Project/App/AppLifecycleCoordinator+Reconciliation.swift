@@ -197,7 +197,6 @@ extension AppLifecycleCoordinator {
                 } else if let cacheService = appState.cacheService {
                     for type in succeededTypes {
                         cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type, scope: .shared)
-                        cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type)
                     }
                 }
             }
@@ -214,7 +213,6 @@ extension AppLifecycleCoordinator {
             if let cacheService = appState.cacheService {
                 for type in succeededTypes {
                     cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type, scope: targetScope)
-                    cacheService.markCacheFresh(familyRecordName: family.id.recordName, type: type)
                 }
             }
         }

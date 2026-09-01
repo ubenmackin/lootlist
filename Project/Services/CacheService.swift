@@ -21,11 +21,14 @@ final class CacheService: CacheServicing {
 
     /// Single off-main writer for every cache mutation, built from this service's own container so
     /// app-level wiring can hand the same instance to the sync stack.
-    private let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
-    private let bootstrapLock = Mutex<Bool>(false)
+    private nonisolated(unsafe) let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
+    private nonisolated(unsafe) let bootstrapLock = Mutex<Bool>(false)
     var backgroundWriter: BackgroundCacheActor? {
         backgroundWriterLock.withLock { $0 }
     }
+
+    // WHY: iOS 26 native SwiftData cross-context propagation may lag up to ~500ms under memory pressure; didSave fallback bridges background saves to mainContext via processPendingChanges; iOS 27+ native propagation is reliable so observer is skipped.
+    private nonisolated(unsafe) var didSaveObserver: NSObjectProtocol?
 
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var batchDepth = 0
@@ -35,10 +38,13 @@ final class CacheService: CacheServicing {
         var ledgerEntryFetchScopes: [String?] = []
     #endif
 
-    @ObservationIgnored private var didSaveTask: Task<Void, Never>?
-
     /// Version counter incremented on watermark changes to trigger SwiftUI cache recomputation.
     var freshnessVersion: Int = 0
+
+    // WHY: Staleness ceiling only needs to cover the normal foreground-catch-up window, yet remain
+    // short enough that a backgrounded device which dropped a throttled silent push re-validates on
+    // next foreground. One hour is a conservative default; a single named constant keeps tuning trivial.
+    nonisolated static let freshnessMaximumAge: TimeInterval = 3600
 
     var context: ModelContext? {
         container?.mainContext
@@ -85,7 +91,27 @@ final class CacheService: CacheServicing {
                 _ = await self.createAndAttachWriterIfNeeded()
             }
         }
-        installDidSaveObserver()
+        installDidSaveObserverIfNeeded()
+    }
+
+    deinit {
+        // WHY: background bootstrap Task may be cancelled on teardown before deferred flag reset runs; clearing here ensures flag never remains stuck under cancellation.
+        bootstrapLock.withLock { $0 = false }
+        if let observer = didSaveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    // WHY: iOS 26 fallback — native cross-context propagation may delay @Query refresh up to ~500ms under memory pressure; explicit didSave → processPendingChanges bridging covers flake window. iOS 27+ uses native propagation only.
+    private func installDidSaveObserverIfNeeded() {
+        if #available(iOS 27, *) {
+            return
+        }
+        guard didSaveObserver == nil, let container else { return }
+        let didSaveName = Notification.Name("ModelContextDidSave")
+        didSaveObserver = NotificationCenter.default.addObserver(forName: didSaveName, object: nil, queue: .main) { [weak self] _ in
+            self?.container?.mainContext.processPendingChanges()
+        }
     }
 
     /// Safe, non-crashing in-memory fallback `CacheService` for fallback paths and test scenarios.
@@ -162,61 +188,24 @@ final class CacheService: CacheServicing {
         }
         guard shouldCreate else { return false }
         defer { bootstrapLock.withLock { $0 = false } }
+        // WHY: Task cancelled while writer creation was in flight must still clear flag via defer; explicit cancellation checks bail before awaiting detached creation.
+        if Task.isCancelled {
+            return false
+        }
         guard !hasBackgroundWriter else { return false }
+        if Task.isCancelled {
+            return false
+        }
         let writer = await BackgroundCacheActor.makeBackgroundWriter(for: container)
+        if Task.isCancelled {
+            return false
+        }
         attachBackgroundWriter(writer)
         return true
     }
 
     private static func errorCategory(_ error: Error) -> String {
         String(describing: type(of: error))
-    }
-
-    /// NOTE (WWDC26 / iOS 27 SDK tracking): SwiftData observation bridging for iOS 26 uses
-    /// ModelContext.didSave notifications to trigger processPendingChanges on the main context.
-    private func installDidSaveObserver() {
-        guard container != nil else { return }
-        guard didSaveTask == nil else { return }
-        didSaveTask = Task { @MainActor [weak self] in
-            #if DEBUG
-                assert(Thread.isMainThread, "installDidSaveObserver must hop to MainActor")
-            #endif
-            await withTaskCancellationHandler {
-                for await notification in NotificationCenter.default.notifications(named: ModelContext.didSave) {
-                    guard !Task.isCancelled else { break }
-                    guard let self else { break }
-                    guard let container = self.container else { break }
-                    guard self.isBackgroundSave(notification, container: container) else {
-                        continue
-                    }
-                    #if DEBUG
-                        assert(Thread.isMainThread)
-                    #endif
-                    self.refreshMainContextAfterBackgroundSave()
-                }
-            } onCancel: {}
-        }
-    }
-
-    /// Cancels the didSave observer and clears the stored reference atomically.
-    func stopDidSaveObserver() {
-        didSaveTask?.cancel()
-        didSaveTask = nil
-    }
-
-    deinit {
-        didSaveTask?.cancel()
-    }
-
-    private func refreshMainContextAfterBackgroundSave() {
-        guard let container else { return }
-        container.mainContext.processPendingChanges()
-    }
-
-    private func isBackgroundSave(_ notification: Notification, container: ModelContainer) -> Bool {
-        guard let saved = notification.object as AnyObject?,
-              saved !== (container.mainContext as AnyObject) else { return false }
-        return true
     }
 
     func withBatch(_ work: () -> Void) {
@@ -251,7 +240,18 @@ final class CacheService: CacheServicing {
     private static let freshnessKeyPrefix = "cache_fresh_"
 
     /// Stamps freshness watermarks across database scopes for this family and type.
+    // WHY: Unscoped overload stamps both scopes + legacy key — retained only as test helper; production paths must use the scoped overload to preserve explicit scope isolation and avoid cross-scope over-stamping.
+    @available(*, deprecated, message: "Use scoped markCacheFresh(familyRecordName:type:scope:)")
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
+        defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
+        for scope in [CKDatabase.Scope.private, .shared] {
+            defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
+        }
+        freshnessVersion &+= 1
+    }
+
+    // WHY: Test-only stamping helper that preserves unscoped semantics (legacy + both scopes) without surfacing deprecated-warning noise in CI when -warnings-as-errors is enabled; production must use scoped overload.
+    func markCacheFreshForTests(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
         for scope in [CKDatabase.Scope.private, .shared] {
             defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
@@ -286,11 +286,42 @@ final class CacheService: CacheServicing {
         return defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) != nil
     }
 
-    /// Authoritative freshness check: cached data is served only when a freshness watermark exists.
-    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, cachedCount: Int) -> Bool {
+    /// Returns the stored freshness stamp date for the given family, type, and scope, if any.
+    func freshnessDate(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Date? {
+        defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) as? Date
+    }
+
+    /// Authoritative freshness check: cached data is served only when a freshness watermark exists
+    /// and is still within the staleness window.
+    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
         _ = freshnessVersion
-        _ = cachedCount
-        return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
+        // WHY: Wall-clock dependence is accepted after considering monotonic alternatives
+        // (CFAbsoluteTimeGetCurrent / ProcessInfo.systemUptime). Forward skew (>1h) makes a fresh
+        // watermark appear stale and forces an unnecessary CloudKit query; backward skew makes a
+        // stale watermark appear fresh and would serve stale cache as authoritative. The defensive
+        // `interval >= 0` guard clamps backward skew to stale (forcing re-validation) so blast
+        // radius is bounded to an extra round-trip vs. bounded staleness — monotonic uptime was
+        // rejected because it does not survive relaunches/reboots without persisted anchors.
+        guard let date = freshnessDate(familyRecordName: familyRecordName, type: type, scope: scope) else {
+            return false
+        }
+        let interval = Date().timeIntervalSince(date)
+        return interval >= 0 && interval <= Self.freshnessMaximumAge
+    }
+
+    // WHY: Scope-encapsulated staleness check — loops private/shared internally so Views never import CloudKit or handle CKDatabase.Scope; empty cache is never stale, otherwise at least one authoritative scope is required.
+    func isStale(for family: String, type: CachedRecordType, cachedCount: Int) -> Bool {
+        _ = freshnessVersion
+        guard !family.isEmpty, cachedCount > 0 else { return false }
+        for scope in [CKDatabase.Scope.private, .shared] where isCacheAuthoritative(familyRecordName: family, type: type, scope: scope) {
+            return false
+        }
+        return true
+    }
+
+    // WHY: Alias for call sites that prefer explicit non-scoped naming; delegates to scope-encapsulated loop above so View layer stays CloudKit-free.
+    func isStaleWithoutScope(for family: String, type: CachedRecordType, cachedCount: Int) -> Bool {
+        isStale(for: family, type: type, cachedCount: cachedCount)
     }
 
     /// Clears freshness watermarks across all scopes for this family and record type.

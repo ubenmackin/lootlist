@@ -128,7 +128,8 @@ final class AchievementService {
             let cached = cache.fetchAchievements(family: familyName)
             let cachedIDs = Set(cached.map(\.recordName))
             let scope: CKDatabase.Scope = appState.activeDatabaseScope
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope, cachedCount: cached.count),
+            // WHY: Bespoke seeding gate with set-membership check across defaults — intentionally inline, not a single-type CacheFirst flow.
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope),
                defaults.allSatisfy({ cachedIDs.contains($0.id.recordName) })
             {
                 return
@@ -354,12 +355,13 @@ final class AchievementService {
         return defaults.map { AchievementCache(from: $0) }
     }
 
+    // WHY: Bespoke fallback seeding default achievements when CloudKit empty — intentionally inline, not a single-type CacheFirst flow.
     func fetchAllDefinitions(family: Family) async throws -> [Achievement] {
         let familyName = family.id.recordName
         if let cache = cacheService {
             let cached = cache.fetchAchievements(family: familyName)
             let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope, cachedCount: cached.count) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .achievement, scope: scope) {
                 return cached.map { $0.toAchievement(zoneID: family.id.zoneID) }
             }
         }
@@ -620,6 +622,7 @@ final class AchievementService {
 
 @MainActor
 private extension AchievementService {
+    // WHY: Multi-type stats aggregation with fallback-family and verification-status filtering — intentionally inline, not a CacheFirst flow.
     func fetchCompletedLogs(for profile: Profile, family: Family) async throws -> [QuestCompletion] {
         let profileName = profile.id.recordName
         let zoneID = profile.id.zoneID
@@ -631,7 +634,7 @@ private extension AchievementService {
             let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             let cachedLogs = cache.fetchQuestCompletions(family: primaryFamilyName)
                 .filter { $0.completerRecordName == profileName }
-            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .questCompletion, scope: scope, cachedCount: cachedLogs.count) {
+            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .questCompletion, scope: scope) {
                 return cachedLogs
                     .map { $0.toQuestCompletion(zoneID: zoneID) }
                     .filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
@@ -669,6 +672,7 @@ private extension AchievementService {
         }
     }
 
+    // WHY: Multi-type stats aggregation with fallback-family fallback and fail-closed cache — intentionally inline, not a CacheFirst flow.
     func fetchLedgerEntries(for profile: Profile, family: Family) async throws -> [LedgerEntry] {
         let profileName = profile.id.recordName
         let zoneID = profile.id.zoneID
@@ -682,7 +686,7 @@ private extension AchievementService {
                 profileRecordName: profileName,
                 family: primaryFamilyName
             )
-            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .ledgerEntry, scope: scope, cachedCount: cachedLedger.count) {
+            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .ledgerEntry, scope: scope) {
                 return cachedLedger.map { $0.toLedgerEntry(zoneID: zoneID) }
             }
         }
@@ -718,6 +722,7 @@ private extension AchievementService {
         }
     }
 
+    // WHY: Multi-type stats aggregation with fallback-family and bespoke filtering — intentionally inline, not a CacheFirst flow.
     func fetchGoals(for profile: Profile, family: Family) async throws -> [Goal] {
         let profileName = profile.id.recordName
         let zoneID = profile.id.zoneID
@@ -728,7 +733,7 @@ private extension AchievementService {
             let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
             let cached = cache.fetchGoals(family: primaryFamilyName)
                 .filter { $0.profileRecordName == profileName }
-            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .goal, scope: scope, cachedCount: cached.count) {
+            if cache.isCacheAuthoritative(familyRecordName: primaryFamilyName, type: .goal, scope: scope) {
                 return cached.map { $0.toGoal(zoneID: zoneID) }
             }
         }
@@ -758,6 +763,7 @@ private extension AchievementService {
         }
     }
 
+    // WHY: Bespoke quest aggregation building dictionary with missing-fetch patching — intentionally inline, not a single-type CacheFirst flow.
     func fetchQuestCache(
         for completedLogs: [QuestCompletion],
         profileID: CKRecord.ID,
@@ -769,7 +775,7 @@ private extension AchievementService {
         if let cache = cacheService {
             let cachedQuests = cache.fetchQuests(family: familyName)
             let scope: CKDatabase.Scope = appState?.activeDatabaseScope ?? DatabaseScopeResolver.scope(isOwner: false)
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: cachedQuests.count) {
+            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope) {
                 for questCacheRow in cachedQuests {
                     let questObj = questCacheRow.toQuest(zoneID: zoneID)
                     questCache[questObj.id] = questObj

@@ -576,8 +576,9 @@ final class AppState {
         // A cache hit implies a prior successful sync; stamp the
         // family/profile freshness gates so the first launch after
         // a transient CloudKit failure does not re-fetch them.
-        cache.markCacheFresh(familyRecordName: familyRecordName, type: .family)
-        cache.markCacheFresh(familyRecordName: familyRecordName, type: .profile)
+        let freshnessScope: CKDatabase.Scope = resolvedOwner ? .private : .shared
+        cache.markCacheFresh(familyRecordName: familyRecordName, type: .family, scope: freshnessScope)
+        cache.markCacheFresh(familyRecordName: familyRecordName, type: .profile, scope: freshnessScope)
         return true
     }
 

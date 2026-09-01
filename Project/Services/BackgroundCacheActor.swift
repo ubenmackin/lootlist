@@ -146,7 +146,7 @@ actor BackgroundCacheActor {
             saveContext()
             return
         }
-        let grouped = Dictionary(grouping: items) { M(from: $0).familyRecordName }
+        let grouped = groupedByFamily(M.self, items: items)
         for (family, group) in grouped {
             _ = await performUpsert(M.self, group, familyRecordName: family.isEmpty ? nil : family, isServerSync: isServerSync, logLabel: "upsertDomainModels")
             saveContext()
@@ -604,7 +604,7 @@ actor BackgroundCacheActor {
             }
             return true
         }
-        let grouped = Dictionary(grouping: items) { T(from: $0).familyRecordName }
+        let grouped = groupedByFamily(T.self, items: items)
         var success = true
         for (family, group) in grouped {
             success = await performUpsert(T.self, group, familyRecordName: family.isEmpty ? nil : family, isServerSync: isServerSync, logLabel: logLabel) && success

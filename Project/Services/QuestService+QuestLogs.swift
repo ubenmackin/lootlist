@@ -53,6 +53,7 @@ extension QuestService {
         return GoldCalculation.totalCredit(for: quests, logs: logs)
     }
 
+    // WHY: Bespoke multi-step missing-fetch with dictionary merge across cached + CloudKit quests — intentionally inline, not a single-type CacheFirst flow.
     private func fetchQuestsForLogs(
         _ logs: [QuestCompletion],
         family: Family?
@@ -62,9 +63,8 @@ extension QuestService {
         if let family {
             let cache = cacheService
             let familyName = family.id.recordName
-            let count = cache.fetchQuests(family: familyName).count
             let scope: CKDatabase.Scope = appState.activeDatabaseScope
-            let isAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope, cachedCount: count)
+            let isAuthoritative = cache.isCacheAuthoritative(familyRecordName: familyName, type: .quest, scope: scope)
             if isAuthoritative {
                 let zoneID = family.id.zoneID
                 let cached = cache.fetchQuests(family: familyName).map { $0.toQuest(zoneID: zoneID) }
@@ -105,89 +105,132 @@ extension QuestService {
 
     /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestLogs(forQuest quest: Quest, useCache: Bool = true) async throws -> [QuestCompletion] {
-        if useCache {
-            let cache = cacheService
-            let questName = quest.id.recordName
-            let familyName = quest.family.recordID.recordName
-            let cached = cache.fetchQuestCompletions(family: familyName)
-                .filter { $0.questRecordName == questName }
-            let scope: CKDatabase.Scope = appState.activeDatabaseScope
-            if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
-                return cached.map { $0.toQuestCompletion(zoneID: quest.id.zoneID) }
-                    .sorted { $0.completedDate > $1.completedDate }
-            }
+        if !useCache {
+            let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
+            let predicate = NSPredicate(format: "quest == %@", questRef)
+            let all = try await cloudKit.query(
+                QuestCompletion.self,
+                predicate: predicate,
+                in: quest.id.zoneID,
+                sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+            )
+            await syncCoordinator.delegateHandler.hydrateFromQuery(
+                models: all,
+                databaseScope: appState.activeDatabaseScope,
+                zoneID: quest.id.zoneID
+            )
+            return all
         }
-
-        let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
-        let predicate = NSPredicate(format: "quest == %@", questRef)
-        let all = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: predicate,
-            in: quest.id.zoneID,
-            sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+        let family = Family(
+            name: "",
+            createdBy: quest.family.recordID,
+            id: CKRecord.ID(recordName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
         )
-        await syncCoordinator.delegateHandler.hydrateFromQuery(
-            models: all,
-            databaseScope: appState.activeDatabaseScope,
-            zoneID: quest.id.zoneID
+        return try await CacheFirst.cacheFirst(
+            type: .questCompletion,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService, quest] familyName in
+                cacheService.fetchQuestCompletions(family: familyName)
+                    .filter { $0.questRecordName == quest.id.recordName }
+            },
+            map: { [quest] cache in
+                cache.toQuestCompletion(zoneID: quest.id.zoneID)
+            },
+            query: { [cloudKit, quest] in
+                let questRef = CKRecord.Reference(recordID: quest.id, action: .none)
+                let predicate = NSPredicate(format: "quest == %@", questRef)
+                return try await cloudKit.query(
+                    QuestCompletion.self,
+                    predicate: predicate,
+                    in: quest.id.zoneID,
+                    sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+                )
+            },
+            hydrate: { [syncCoordinator, appState, quest] models in
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: models,
+                    databaseScope: appState.activeDatabaseScope,
+                    zoneID: quest.id.zoneID
+                )
+            },
+            sortedBy: { $0.completedDate > $1.completedDate }
         )
-        return all
     }
 
     /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestLogs(for profile: Profile) async throws -> [QuestCompletion] {
-        let cache = cacheService
-        let profileName = profile.id.recordName
-        let familyName = profile.family.recordID.recordName
-        let cached = cache.fetchQuestCompletions(family: familyName)
-            .filter { $0.completerRecordName == profileName }
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
-            return cached.map { $0.toQuestCompletion(zoneID: profile.id.zoneID) }
-                .sorted { $0.completedDate > $1.completedDate }
-        }
-
-        let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
-        let pred = NSPredicate(format: "completedBy == %@", profileRef)
-        let all = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: pred,
-            in: profile.id.zoneID,
-            sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+        let family = Family(
+            name: "",
+            createdBy: profile.family.recordID,
+            id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
-        await syncCoordinator.delegateHandler.hydrateFromQuery(
-            models: all,
-            databaseScope: appState.activeDatabaseScope,
-            zoneID: profile.id.zoneID
+        return try await CacheFirst.cacheFirst(
+            type: .questCompletion,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService, profile] familyName in
+                cacheService.fetchQuestCompletions(family: familyName)
+                    .filter { $0.completerRecordName == profile.id.recordName }
+            },
+            map: { [profile] cache in
+                cache.toQuestCompletion(zoneID: profile.id.zoneID)
+            },
+            query: { [cloudKit, profile] in
+                let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
+                let pred = NSPredicate(format: "completedBy == %@", profileRef)
+                return try await cloudKit.query(
+                    QuestCompletion.self,
+                    predicate: pred,
+                    in: profile.id.zoneID,
+                    sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+                )
+            },
+            hydrate: { [syncCoordinator, appState, profile] models in
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: models,
+                    databaseScope: appState.activeDatabaseScope,
+                    zoneID: profile.id.zoneID
+                )
+            },
+            sortedBy: { $0.completedDate > $1.completedDate }
         )
-        return all
     }
 
     // MARK: - Batch Fetch
 
     /// Cache-first read. Background refresh handled by CKSyncEngine via push notifications.
     func fetchQuestCompletionsForFamily(family: Family) async throws -> [QuestCompletion] {
-        let cache = cacheService
-        let familyName = family.id.recordName
-        let cached = cache.fetchQuestCompletions(family: familyName)
-        let scope: CKDatabase.Scope = appState.activeDatabaseScope
-        if cache.isCacheAuthoritative(familyRecordName: familyName, type: .questCompletion, scope: scope, cachedCount: cached.count) {
-            return cached.map { $0.toQuestCompletion(zoneID: family.id.zoneID) }
-        }
-
-        let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
-        let predicate = NSPredicate(format: "family == %@", familyRef)
-        let completions = try await cloudKit.query(
-            QuestCompletion.self,
-            predicate: predicate,
-            in: family.id.zoneID,
-            sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+        try await CacheFirst.cacheFirst(
+            type: .questCompletion,
+            family: family,
+            cacheService: cacheService,
+            appState: appState,
+            fetchCache: { [cacheService] familyName in
+                cacheService.fetchQuestCompletions(family: familyName)
+            },
+            map: { [family] cache in
+                cache.toQuestCompletion(zoneID: family.id.zoneID)
+            },
+            query: { [cloudKit, family] in
+                let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
+                let predicate = NSPredicate(format: "family == %@", familyRef)
+                return try await cloudKit.query(
+                    QuestCompletion.self,
+                    predicate: predicate,
+                    in: family.id.zoneID,
+                    sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
+                )
+            },
+            hydrate: { [syncCoordinator, appState, family] models in
+                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    models: models,
+                    databaseScope: appState.activeDatabaseScope,
+                    zoneID: family.id.zoneID
+                )
+            }
         )
-        await syncCoordinator.delegateHandler.hydrateFromQuery(
-            models: completions,
-            databaseScope: appState.activeDatabaseScope,
-            zoneID: family.id.zoneID
-        )
-        return completions
     }
 }

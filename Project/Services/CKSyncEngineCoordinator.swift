@@ -521,7 +521,6 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             for scope in effectiveScopes where type.fetchScopes.contains(scope) {
                 cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
             }
-            cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
         }
     }
 
@@ -542,7 +541,6 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
             for scope in effectiveScopes where type.fetchScopes.contains(scope) {
                 cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
             }
-            cacheService.markCacheFresh(familyRecordName: familyRecordName, type: type)
         }
     }
 

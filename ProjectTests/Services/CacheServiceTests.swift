@@ -667,39 +667,41 @@ struct CacheServiceTests {
 
     // MARK: - Background → Main Propagation
 
+    /// Regression gate: validates that SwiftData's native cross-context propagation
+    /// surfaces background `@ModelActor` saves to `mainContext` without any explicit
+    /// observer or `processPendingChanges()` bridging.
+    ///
+    /// If this test ever fails on a future OS, an explicit bridging mechanism
+    /// (e.g. `ModelContext.didSave` observer → `processPendingChanges()`) must be
+    /// reintroduced. See: git history for the removed `installDidSaveObserver()`.
     @Test
-    func `background save becomes visible to main context via didSave observer`() async throws {
+    func `background save is visible to main context via native SwiftData propagation`() async throws {
         let service = try makeService()
         #expect(service.container != nil)
         guard let container = service.container else { return }
 
-        // Let the main-actor `ModelContext.didSave` observer task subscribe
-        // before the background save fires its notification, so the observer
-        // cannot miss the event it is meant to react to.
         await Task.yield()
         await Task.yield()
 
         let backgroundActor = BackgroundCacheActor(container: container)
-        var quest = Quest(
+        let quest = Quest(
             template: ref("tpl"),
             assignee: ref("hero"),
-            goldReward: 5.0,
-            xpReward: 50,
+            goldReward: 10.0,
+            xpReward: 100,
             scheduleType: .weeklyFlexible,
             approvalMode: .autoApprove,
             weekOf: Date(),
             createdBy: ref("user1"),
             family: ref("fam"),
-            name: "Observer Quest",
-            id: CKRecord.ID(recordName: "observer_quest")
+            name: "Native Propagation Quest",
+            id: CKRecord.ID(recordName: "native_propagation_quest")
         )
 
-        // Background-context upsert (the push→UI pipeline's write side).
+        // Insert via background context — no observer, relying on native propagation.
         await backgroundActor.batchUpsertQuests([quest])
 
-        // Poll until the main context sees the inserted row. The observer's
-        // processPendingChanges() kick makes this
-        // deterministic even when automatic cross-context propagation is missed.
+        // Poll until the main context sees the row via native propagation.
         var inserted: [QuestCache] = []
         for _ in 0 ..< 50 {
             inserted = (try? container.mainContext.fetch(FetchDescriptor<QuestCache>())) ?? []
@@ -708,25 +710,26 @@ struct CacheServiceTests {
             }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        #expect(inserted.count == 1)
-        #expect(inserted.first?.recordName == "observer_quest")
+        #expect(inserted.count == 1, "mainContext should see insert via native SwiftData propagation")
+        #expect(inserted.first?.recordName == "native_propagation_quest")
 
-        // Background updates must also be reflected by the main context.
-        quest.goldReward = 42.0
-        quest.name = "Observer Quest Updated"
-        await backgroundActor.batchUpsertQuests([quest])
+        // Also validate that updates propagate natively.
+        var updatedQuest = quest
+        updatedQuest.goldReward = 99.0
+        updatedQuest.name = "Native Propagation Quest Updated"
+        await backgroundActor.batchUpsertQuests([updatedQuest])
 
         var updated: [QuestCache] = []
         for _ in 0 ..< 50 {
             updated = (try? container.mainContext.fetch(FetchDescriptor<QuestCache>())) ?? []
-            if updated.first?.goldReward == 42.0 {
+            if updated.first?.goldReward == 99.0 {
                 break
             }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        #expect(updated.count == 1)
-        #expect(updated.first?.questName == "Observer Quest Updated")
-        #expect(updated.first?.goldReward == 42.0)
+        #expect(updated.count == 1, "mainContext should see update via native SwiftData propagation")
+        #expect(updated.first?.questName == "Native Propagation Quest Updated")
+        #expect(updated.first?.goldReward == 99.0)
     }
 
     @Test
