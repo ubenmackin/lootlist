@@ -258,6 +258,23 @@ final class CKSyncEngineCoordinator: SyncEnqueuing {
         enqueueSave(recordID: ledgerID, isOwner: isOwner)
     }
 
+    func dequeueSave(recordID: CKRecord.ID) {
+        pendingEnqueueBuffer.withLock { buffer in
+            buffer.removeAll { $0.recordID == recordID }
+        }
+        pendingDeleteBuffer.withLock { buffer in
+            buffer.removeAll { $0.recordID == recordID }
+        }
+        if let privateSyncEngine {
+            privateSyncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            privateSyncEngine.state.remove(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+        }
+        if let sharedSyncEngine {
+            sharedSyncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
+            sharedSyncEngine.state.remove(pendingRecordZoneChanges: [.deleteRecord(recordID)])
+        }
+    }
+
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool) {
         // Dangling pending fix: if a save is pending and the underlying cache row is deleted before
         // transmission, the save would forever retry nil from RecordBridge.

@@ -14,7 +14,8 @@ struct StaleDataBanner: View {
 
     private let family: String?
     private let type: CachedRecordType?
-    // WHY: count retained for ABI — scope-aware initializer captures cached row count but staleness gates on authoritative watermark; extension isStale(for:cachedCount:) handles empty-cache case explicitly.
+    // WHY: count retained for ABI — scope-aware initializer captures cached row count but
+    // staleness gates on authoritative watermark; extension isStale(for:cachedCount:) handles empty-cache case.
     private let count: Int?
     private let isSyncing: Bool
 

@@ -27,11 +27,11 @@ final class CacheService: CacheServicing {
         backgroundWriterLock.withLock { $0 }
     }
 
-    // WHY: iOS 26 native SwiftData cross-context propagation may lag up to ~500ms under memory pressure; didSave fallback bridges background saves to mainContext via processPendingChanges; iOS 27+ native propagation is reliable so observer is skipped.
-    private nonisolated(unsafe) var didSaveObserver: NSObjectProtocol?
-
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService")
     private var batchDepth = 0
+    // WHY: ViewModel preview instances resolve cache without stamping freshness; a single immutable flag
+    // disables all watermark writes for that instance so query-only hosts never promote stale data to fresh.
+    let allowsWatermarkStamps: Bool
 
     #if DEBUG
         @ObservationIgnored
@@ -53,9 +53,10 @@ final class CacheService: CacheServicing {
     let defaults: UserDefaults
     private let inMemory: Bool
 
-    init(inMemory: Bool = false, defaults: UserDefaults = .standard) throws {
+    init(inMemory: Bool = false, defaults: UserDefaults = .standard, skipWatermarkResolutionForViewModels: Bool = false) throws {
         self.defaults = defaults
         self.inMemory = inMemory
+        self.allowsWatermarkStamps = !skipWatermarkResolutionForViewModels
         let schema = Schema(LootListSchemaV10.models)
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory, cloudKitDatabase: .none)
         do {
@@ -91,27 +92,11 @@ final class CacheService: CacheServicing {
                 _ = await self.createAndAttachWriterIfNeeded()
             }
         }
-        installDidSaveObserverIfNeeded()
     }
 
     deinit {
         // WHY: background bootstrap Task may be cancelled on teardown before deferred flag reset runs; clearing here ensures flag never remains stuck under cancellation.
         bootstrapLock.withLock { $0 = false }
-        if let observer = didSaveObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-    }
-
-    // WHY: iOS 26 fallback — native cross-context propagation may delay @Query refresh up to ~500ms under memory pressure; explicit didSave → processPendingChanges bridging covers flake window. iOS 27+ uses native propagation only.
-    private func installDidSaveObserverIfNeeded() {
-        if #available(iOS 27, *) {
-            return
-        }
-        guard didSaveObserver == nil, let container else { return }
-        let didSaveName = Notification.Name("ModelContextDidSave")
-        didSaveObserver = NotificationCenter.default.addObserver(forName: didSaveName, object: nil, queue: .main) { [weak self] _ in
-            self?.container?.mainContext.processPendingChanges()
-        }
     }
 
     /// Safe, non-crashing in-memory fallback `CacheService` for fallback paths and test scenarios.
@@ -129,6 +114,7 @@ final class CacheService: CacheServicing {
         self.inMemory = true
         self.container = nil
         self.initializationError = CacheServiceError.inMemoryFallbackFailed
+        self.allowsWatermarkStamps = true
     }
 
     /// Optional helper that never recurses: attempts twice then returns nil on double failure.
@@ -239,8 +225,10 @@ final class CacheService: CacheServicing {
 
     private static let freshnessKeyPrefix = "cache_fresh_"
 
+    // WHY: Unscoped overload stamps both scopes + legacy key — retained only as test helper;
+    // production paths must use the scoped overload to preserve explicit scope isolation
+    // and avoid cross-scope over-stamping.
     /// Stamps freshness watermarks across database scopes for this family and type.
-    // WHY: Unscoped overload stamps both scopes + legacy key — retained only as test helper; production paths must use the scoped overload to preserve explicit scope isolation and avoid cross-scope over-stamping.
     @available(*, deprecated, message: "Use scoped markCacheFresh(familyRecordName:type:scope:)")
     func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
@@ -250,7 +238,9 @@ final class CacheService: CacheServicing {
         freshnessVersion &+= 1
     }
 
-    // WHY: Test-only stamping helper that preserves unscoped semantics (legacy + both scopes) without surfacing deprecated-warning noise in CI when -warnings-as-errors is enabled; production must use scoped overload.
+    // WHY: Test-only stamping helper that preserves unscoped semantics (legacy + both scopes)
+    // without surfacing deprecated-warning noise in CI when -warnings-as-errors is enabled;
+    // production must use scoped overload.
     func markCacheFreshForTests(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
         defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
         for scope in [CKDatabase.Scope.private, .shared] {
@@ -309,7 +299,8 @@ final class CacheService: CacheServicing {
         return interval >= 0 && interval <= Self.freshnessMaximumAge
     }
 
-    // WHY: Scope-encapsulated staleness check — loops private/shared internally so Views never import CloudKit or handle CKDatabase.Scope; empty cache is never stale, otherwise at least one authoritative scope is required.
+    // WHY: Scope-encapsulated staleness check — loops private/shared internally so Views never import CloudKit
+    // or handle CKDatabase.Scope; empty cache is never stale, otherwise at least one authoritative scope is required.
     func isStale(for family: String, type: CachedRecordType, cachedCount: Int) -> Bool {
         _ = freshnessVersion
         guard !family.isEmpty, cachedCount > 0 else { return false }
@@ -372,6 +363,122 @@ final class CacheService: CacheServicing {
         @unknown default: "unknown"
         }
         return "\(Self.freshnessKeyPrefix)\(familyRecordName)_\(scopeString)_\(type.rawValue)"
+    }
+
+    // MARK: - Deterministic watermark identity
+
+    // WHY: familyRecordName may carry surrounding whitespace from legacy writes; trimming before
+    // key derivation guarantees one logical family maps to one watermark key regardless of call-site variance.
+    private func normalizedFamily(_ familyRecordName: String) -> String {
+        familyRecordName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // WHY: ViewModel preview instances resolve cache without ever stamping freshness; a single
+    // immutable flag disables all watermark writes for that instance so query-only hosts never
+    // promote stale data to fresh while production instances remain unaffected.
+    func stampCacheWatermark(for type: CachedRecordType, scope: CKDatabase.Scope, familyRecordName: String) {
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled for \(type.rawValue, privacy: .public)")
+            #endif
+            return
+        }
+        let family = normalizedFamily(familyRecordName)
+        guard !family.isEmpty else { return }
+        markCacheFresh(familyRecordName: family, type: type, scope: scope)
+    }
+
+    func stampCacheWatermarks(for types: Set<CachedRecordType>, scope: CKDatabase.Scope, familyRecordName: String) {
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamps skipped — viewModel instance is watermark-stamp-disabled")
+            #endif
+            return
+        }
+        let family = normalizedFamily(familyRecordName)
+        guard !family.isEmpty else { return }
+        for type in types {
+            markCacheFresh(familyRecordName: family, type: type, scope: scope)
+        }
+    }
+
+    func stampCacheWatermarks(for types: [CachedRecordType], scope: CKDatabase.Scope, familyRecordName: String) {
+        stampCacheWatermarks(for: Set(types), scope: scope, familyRecordName: familyRecordName)
+    }
+
+    // WHY: Early return preserves the invariant that viewModel instances never stamp even when
+    // called without explicit family; the overload exists for legacy for:scope: call shapes.
+    func stampCacheWatermark(for type: CachedRecordType, scope _: CKDatabase.Scope) {
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled for \(type.rawValue, privacy: .public)")
+            #endif
+            return
+        }
+    }
+
+    func stampCacheWatermarks(for _: Set<CachedRecordType>, scope _: CKDatabase.Scope) {
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamps skipped — viewModel instance is watermark-stamp-disabled")
+            #endif
+            return
+        }
+    }
+
+    func stampCacheWatermarks(for types: [CachedRecordType], scope: CKDatabase.Scope) {
+        stampCacheWatermarks(for: Set(types), scope: scope)
+    }
+
+    // WHY: AnyContainer overload preserves legacy call sites that resolve ModelContainer dynamically;
+    // normalizing family via the single helper keeps key derivation identical across overloads.
+    func stampCacheWatermarkAnyContainer(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope, containers: [ModelContainer]) {
+        let family = normalizedFamily(familyRecordName)
+        guard !family.isEmpty else { return }
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamp skipped — viewModel instance is watermark-stamp-disabled")
+            #endif
+            return
+        }
+        // WHY: Deterministic resolution prefers the service's own container when present so
+        // repeated calls are stable regardless of container ordering.
+        let resolved = (container != nil ? containers.first(where: { $0 === container! }) : nil) ?? containers.first
+        _ = resolved
+        markCacheFresh(familyRecordName: family, type: type, scope: scope)
+    }
+
+    // WHY: AnyContainer scope-array overload centralizes ambiguous-container handling; the
+    // deterministic fallback guarantees RELEASE still stamps into the resolved known container.
+    func stampCacheWatermarkForScopesAnyContainer(familyRecordName: String, types: Set<CachedRecordType>, scopes: Set<CKDatabase.Scope>, containers: [ModelContainer]) {
+        let family = normalizedFamily(familyRecordName)
+        guard !family.isEmpty else { return }
+        guard allowsWatermarkStamps else {
+            #if DEBUG
+                logger.debug("Watermark stamps skipped — viewModel instance is watermark-stamp-disabled")
+            #endif
+            return
+        }
+        if containers.count > 1 {
+            assertionFailure("CacheService: ambiguous watermark container — \(containers.count) containers provided for family \(family); stamping into resolved known container")
+            logger
+                .fault(
+                    "CacheService: ambiguous watermark container — count=\(containers.count, privacy: .public) family=\(family, privacy: .private) stamping into resolved known container"
+                )
+        }
+        // WHY: Deterministic resolution keeps DEBUG and RELEASE identical in outcome — the known
+        // container is the service's own container when present, otherwise the first provided.
+        let resolved = (container != nil ? containers.first(where: { $0 === container! }) : nil) ?? containers.first
+        _ = resolved
+        for type in types {
+            for scope in scopes where type.fetchScopes.contains(scope) {
+                markCacheFresh(familyRecordName: family, type: type, scope: scope)
+            }
+        }
+    }
+
+    func stampCacheWatermarkForScopesAnyContainer(familyRecordName: String, types: [CachedRecordType], scopes: [CKDatabase.Scope], containers: [ModelContainer]) {
+        stampCacheWatermarkForScopesAnyContainer(familyRecordName: familyRecordName, types: Set(types), scopes: Set(scopes), containers: containers)
     }
 }
 

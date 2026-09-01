@@ -258,6 +258,7 @@
 		AB2BC56F8A89773C7192D166 /* AppLifecycleCoordinator+Bootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F8ED12B868B6780FA999315 /* AppLifecycleCoordinator+Bootstrap.swift */; };
 		AB5994E89A958B1148A2AB5F /* FamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10C1DE0DDB4F4105574887CE /* FamilyCache.swift */; };
 		ABA21AD6F50F102108FBB1A6 /* QuestManagerViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FA4B6503D1684E537104F9C /* QuestManagerViewModelTests.swift */; };
+		AC553229DBE01C76F1817097 /* LootListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBA39E16A8B1813AFDEF895 /* LootListTests.swift */; };
 		AC6452ACDAFEC79DD628B3A1 /* CloudSharingControllerWrapper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D3BE16829C22EFEF849814C /* CloudSharingControllerWrapper.swift */; };
 		AC9782DB2EB7052A12F5167F /* JourneyZoneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00505E32BB70366929FCB3D8 /* JourneyZoneTests.swift */; };
 		AD33F592DF0BBB906A68660E /* CacheService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51839A707B6EEEF665443E2 /* CacheService.swift */; };
@@ -728,6 +729,7 @@
 		BDAFB843EA07EB30F81A8796 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		BE2A3DEE969995755BD41BCF /* AppLifecycleCoordinator+Reconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppLifecycleCoordinator+Reconciliation.swift"; sourceTree = "<group>"; };
 		BEA32A99EF7AD83493CB7E19 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
+		BFBA39E16A8B1813AFDEF895 /* LootListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListTests.swift; sourceTree = "<group>"; };
 		C0168D33CAFC7EF9E0B61580 /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		C18CEAF67B8C5FB11FF2E43D /* InterestServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterestServiceTests.swift; sourceTree = "<group>"; };
 		C1F0F595013479C502D729A0 /* AuthStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStateMachine.swift; sourceTree = "<group>"; };
@@ -1243,6 +1245,7 @@
 				C18CEAF67B8C5FB11FF2E43D /* InterestServiceTests.swift */,
 				7A0BE2B48DF381704B2D323C /* LedgerExportServiceTests.swift */,
 				4D1AAC2315FD1466EB3A1BA9 /* LedgerImportServiceTests.swift */,
+				BFBA39E16A8B1813AFDEF895 /* LootListTests.swift */,
 				EB804DF8FC93372AAF30F5B9 /* MatchServiceTests.swift */,
 				3712F24C11131B452BA2E078 /* WidgetDataBridgeTests.swift */,
 			);
@@ -2064,6 +2067,7 @@
 				AC9782DB2EB7052A12F5167F /* JourneyZoneTests.swift in Sources */,
 				E2EC7FEA3E0A4FFDE13AAD57 /* LedgerExportServiceTests.swift in Sources */,
 				41A51D171301F8D6A3F741F5 /* LedgerImportServiceTests.swift in Sources */,
+				AC553229DBE01C76F1817097 /* LootListTests.swift in Sources */,
 				DFEAD6B1C37337AF65451C96 /* ManualSpendingServiceTests.swift in Sources */,
 				EF28614BEC17CBDA2E6FF11A /* MatchServiceTests.swift in Sources */,
 				B3FE31C161106ADF8225D5D9 /* MockCloudKitServiceTests.swift in Sources */,

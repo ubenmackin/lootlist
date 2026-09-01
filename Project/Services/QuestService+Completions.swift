@@ -83,44 +83,301 @@ extension QuestService {
         let priorCount = existingLogs.filter(\.verificationStatus.countsTowardCompletion).count
         let isFinalSubPart = priorCount + 1 >= quest.targetCount
 
-        if quest.approvalMode == .autoApprove {
-            log.verificationStatus = .autoApproved
-            try await applyReward(for: quest, to: profile, completion: log)
-            if let cached = cacheService.fetchQuestCompletion(recordName: log.id.recordName, family: quest.family.recordID.recordName) {
-                log = cached.toQuestCompletion(zoneID: resolvedZoneID)
-            } else {
-                // Persist the completion even when the reward claim was lost
-                // (applyReward returned early), so the @Query-driven UI reflects
-                // it and validateCanCompleteQuest prevents duplicates.
-                await cacheService.upsertQuestCompletion(log)
-                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
-                    syncCoordinator,
-                    id: log.id,
-                    appState: appState,
-                    logger: logger,
-                    context: "QuestService.completeQuest.autoApproved"
+        switch quest.approvalMode {
+        case .autoApprove:
+            log = try await completeAutoApprove(log: log, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID)
+        case .parentVerify:
+            log = try await completeParentVerify(log: log, quest: quest, isFinalSubPart: isFinalSubPart, resolvedZoneID: resolvedZoneID)
+        default:
+            log = try await completeGeneric(log: log, resolvedZoneID: resolvedZoneID)
+        }
+        Task { await syncCoordinator.sendPendingChanges() }
+        return log
+    }
+
+    // MARK: - Completion Mode Helpers
+
+    private func completeAutoApprove(log: QuestCompletion, quest: Quest, profile: Profile, resolvedZoneID: CKRecordZone.ID) async throws
+        -> QuestCompletion
+    {
+        var mutableLog = log
+        mutableLog.verificationStatus = .autoApproved
+        await cacheService.upsertQuestCompletion(mutableLog)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: mutableLog.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.completeQuest.autoApproved"
+        )
+        let baselineXP = cacheService.fetchProfile(recordName: profile.id.recordName, family: quest.family.recordID.recordName)?
+            .xpTotal ?? profile.xp
+        var awardApplied = false
+        var awardedXPCredited: Int?
+        do {
+            _ = try await applyReward(for: quest, to: profile, completion: mutableLog)
+            if let cached = cacheService.fetchQuestCompletion(recordName: mutableLog.id.recordName, family: quest.family.recordID.recordName) {
+                mutableLog = cached.toQuestCompletion(zoneID: resolvedZoneID)
+                awardedXPCredited = cached.xpCredited
+                awardApplied = true
+            }
+        } catch {
+            if isTransientCompletionError(error) {
+                return try await handleAutoApproveTransient(
+                    log: mutableLog,
+                    quest: quest,
+                    profile: profile,
+                    resolvedZoneID: resolvedZoneID
                 )
             }
-        } else if quest.approvalMode == .parentVerify {
-            // Parent-verified sub-parts stay pending until approved by a parent.
-            log.verificationStatus = .pending
-            await cacheService.upsertQuestCompletion(log)
+            try await handleAutoApproveHardRollback(
+                log: mutableLog,
+                quest: quest,
+                profile: profile,
+                resolvedZoneID: resolvedZoneID,
+                baselineXP: baselineXP,
+                awardApplied: awardApplied,
+                awardedXPCredited: awardedXPCredited,
+                error: error
+            )
+            throw error
+        }
+        if let cached = cacheService.fetchQuestCompletion(recordName: mutableLog.id.recordName, family: quest.family.recordID.recordName) {
+            mutableLog = cached.toQuestCompletion(zoneID: resolvedZoneID)
+        }
+        return mutableLog
+    }
+
+    private func handleAutoApproveTransient(log: QuestCompletion, quest: Quest, profile: Profile, resolvedZoneID: CKRecordZone.ID)
+        async throws -> QuestCompletion
+    {
+        var mutableLog = log
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: mutableLog.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.completeQuest.autoApproved.transient"
+        )
+        if cacheService.fetchQuestCompletion(recordName: mutableLog.id.recordName, family: quest.family.recordID.recordName)?.xpCredited == nil {
+            try await applyTransientFallbackCredit(log: &mutableLog, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID)
+        }
+        toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
+        Task { await syncCoordinator.sendPendingChanges() }
+        return mutableLog
+    }
+
+    private func applyTransientFallbackCredit(log: inout QuestCompletion, quest: Quest, profile: Profile, resolvedZoneID: CKRecordZone.ID)
+        async throws
+    {
+        // swiftlint:disable:next discouraged_optional_try - transient fallback fetches cached logs best-effort; empty fallback preserves offline queue.
+        let logs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
+        let approvedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
+        let priorApproved = approvedLogs.count
+        let alreadyCounted = approvedLogs.contains { $0.id.recordName == log.id.recordName }
+        let approvedCount = alreadyCounted ? max(1, priorApproved) : max(1, priorApproved + 1)
+        guard let currentQuest = cacheService.fetchQuest(recordName: quest.id.recordName, family: quest.family.recordID.recordName)?
+            .toQuest(zoneID: resolvedZoneID)
+        else {
+            return
+        }
+        let remaining = GoldCalculation.marginalXPCredit(for: currentQuest, approvedCount: approvedCount, alreadyCredited: currentQuest.xpBanked)
+        if remaining > 0 {
+            try await creditTransientReward(log: &log, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID, approvedCount: approvedCount, remaining: remaining)
+        } else if remaining == 0 {
+            var stamped = log
+            stamped.xpCredited = 0
+            await cacheService.upsertQuestCompletion(stamped)
             ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
                 syncCoordinator,
-                id: log.id,
+                id: stamped.id,
                 appState: appState,
                 logger: logger,
-                context: isFinalSubPart ? "QuestService.completeQuest" : "QuestService.completeQuest.intermediate"
+                context: "QuestService.completeQuest.autoApproved.transient.stampZero"
             )
-            dispatchParentReviewNotification(for: log, quest: quest)
-        } else {
-            await cacheService.upsertQuestCompletion(log)
-            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: log.id, appState: appState, logger: logger, context: "QuestService.completeQuest")
         }
-        Task {
-            await syncCoordinator.sendPendingChanges()
+    }
+
+    private func creditTransientReward(
+        log: inout QuestCompletion,
+        quest: Quest,
+        profile: Profile,
+        resolvedZoneID: CKRecordZone.ID,
+        approvedCount: Int,
+        remaining: Int
+    ) async throws {
+        guard let heroProfile = cacheService.fetchProfile(recordName: profile.id.recordName, family: quest.family.recordID.recordName)?
+            .toProfile(zoneID: resolvedZoneID) else { return }
+        let (totalXP, _) = xpService.calculatedXP(baseXP: remaining, profile: heroProfile)
+        let rewardID = RewardEvent.recordID(completionRecordName: log.id.recordName, zoneID: resolvedZoneID)
+        let rewardEvent = RewardEvent(
+            profile: CKRecord.Reference(recordID: profile.id, action: .none),
+            questCompletion: CKRecord.Reference(recordID: log.id, action: .none),
+            xpAmount: totalXP,
+            goldAmount: GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount),
+            timestamp: log.completedDate,
+            family: log.family,
+            id: rewardID
+        )
+        await cacheService.upsertRewardEvent(rewardEvent)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: rewardID,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.completeQuest.autoApproved.transient.reward"
+        )
+        do { _ = try await xpService.addXP(totalXP, to: profile) } catch {}
+        var stamped = log
+        stamped.xpCredited = remaining
+        await cacheService.upsertQuestCompletion(stamped)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: stamped.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.completeQuest.autoApproved.transient.stamp"
+        )
+        if let cached = cacheService.fetchQuestCompletion(recordName: log.id.recordName, family: quest.family.recordID.recordName) {
+            log = cached.toQuestCompletion(zoneID: resolvedZoneID)
         }
-        return log
+    }
+
+    private func handleAutoApproveHardRollback(
+        log: QuestCompletion,
+        quest: Quest,
+        profile: Profile,
+        resolvedZoneID: CKRecordZone.ID,
+        baselineXP: Int,
+        awardApplied: Bool,
+        awardedXPCredited: Int?,
+        error _: Error
+    ) async throws {
+        let rewardRecordName = "reward-\(log.id.recordName)"
+        await cacheService.invalidate(recordName: log.id.recordName, family: quest.family.recordID.recordName, type: .questCompletion)
+        await cacheService.invalidate(recordName: rewardRecordName, family: quest.family.recordID.recordName, type: .rewardEvent)
+        if awardApplied || awardedXPCredited != nil {
+            await revertProfileXPToBaseline(profile: profile, resolvedZoneID: resolvedZoneID, baselineXP: baselineXP)
+            await revertQuestBankAfterAward(quest: quest, resolvedZoneID: resolvedZoneID, credited: awardedXPCredited)
+        } else if let cached = cacheService.fetchProfile(recordName: profile.id.recordName, family: quest.family.recordID.recordName),
+                  cached.xpTotal != baselineXP
+        {
+            var reverted = cached.toProfile(zoneID: resolvedZoneID)
+            reverted.xp = baselineXP
+            reverted.level = XPService.level(forXP: baselineXP)
+            await cacheService.upsertProfile(reverted)
+            if appState.currentProfile?.id.recordName == reverted.id.recordName {
+                appState.currentProfile = reverted
+            }
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                syncCoordinator,
+                id: reverted.id,
+                appState: appState,
+                logger: logger,
+                context: "QuestService.rollbackXP.hard"
+            )
+        }
+    }
+
+    private func revertProfileXPToBaseline(profile: Profile, resolvedZoneID: CKRecordZone.ID, baselineXP: Int) async {
+        guard let cached = cacheService.fetchProfile(recordName: profile.id.recordName, family: profile.family.recordID.recordName) else { return }
+        var reverted = cached.toProfile(zoneID: resolvedZoneID)
+        guard reverted.xp != baselineXP else { return }
+        reverted.xp = baselineXP
+        reverted.level = XPService.level(forXP: baselineXP)
+        await cacheService.upsertProfile(reverted)
+        if appState.currentProfile?.id.recordName == reverted.id.recordName {
+            appState.currentProfile = reverted
+        }
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: reverted.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.rollbackXP"
+        )
+    }
+
+    private func revertQuestBankAfterAward(quest: Quest, resolvedZoneID: CKRecordZone.ID, credited: Int?) async {
+        guard let credited else { return }
+        guard let cachedQuest = cacheService.fetchQuest(recordName: quest.id.recordName, family: quest.family.recordID.recordName) else { return }
+        var revertedQuest = cachedQuest.toQuest(zoneID: resolvedZoneID)
+        revertedQuest.xpBanked = max(0, revertedQuest.xpBanked - credited)
+        await cacheService.upsertQuest(revertedQuest)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: revertedQuest.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.rollbackQuestXP"
+        )
+    }
+
+    private func completeParentVerify(log: QuestCompletion, quest: Quest, isFinalSubPart: Bool, resolvedZoneID: CKRecordZone.ID)
+        async throws -> QuestCompletion
+    {
+        var mutableLog = log
+        mutableLog.verificationStatus = .pending
+        await cacheService.upsertQuestCompletion(mutableLog)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: mutableLog.id,
+            appState: appState,
+            logger: logger,
+            context: isFinalSubPart ? "QuestService.completeQuest" : "QuestService.completeQuest.intermediate"
+        )
+        do {
+            _ = try await cloudKit.save(mutableLog, in: resolvedZoneID)
+        } catch {
+            if isTransientCompletionError(error) {
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    id: mutableLog.id,
+                    appState: appState,
+                    logger: logger,
+                    context: "QuestService.completeQuest.pending.transient"
+                )
+                toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
+                dispatchParentReviewNotification(for: mutableLog, quest: quest)
+                Task { await syncCoordinator.sendPendingChanges() }
+                return mutableLog
+            }
+            await cacheService.invalidate(recordName: mutableLog.id.recordName, family: quest.family.recordID.recordName, type: .questCompletion)
+            throw error
+        }
+        dispatchParentReviewNotification(for: mutableLog, quest: quest)
+        return mutableLog
+    }
+
+    private func completeGeneric(log: QuestCompletion, resolvedZoneID: CKRecordZone.ID) async throws -> QuestCompletion {
+        let mutableLog = log
+        await cacheService.upsertQuestCompletion(mutableLog)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+            syncCoordinator,
+            id: mutableLog.id,
+            appState: appState,
+            logger: logger,
+            context: "QuestService.completeQuest"
+        )
+        do {
+            _ = try await cloudKit.save(mutableLog, in: resolvedZoneID)
+        } catch {
+            if isTransientCompletionError(error) {
+                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
+                    syncCoordinator,
+                    id: mutableLog.id,
+                    appState: appState,
+                    logger: logger,
+                    context: "QuestService.completeQuest.transient"
+                )
+                toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
+                Task { await syncCoordinator.sendPendingChanges() }
+                return mutableLog
+            }
+            await cacheService.invalidate(recordName: mutableLog.id.recordName, family: mutableLog.family.recordID.recordName, type: .questCompletion)
+            throw error
+        }
+        return mutableLog
     }
 
     func withdrawCompletion(questLog: QuestCompletion, by profile: Profile) async throws {
@@ -514,5 +771,49 @@ extension QuestService {
             .filter { $0.questRecordName == questName }
             .map { $0.toQuestCompletion(zoneID: quest.id.zoneID) }
             .sorted { $0.completedDate > $1.completedDate }
+    }
+
+    // WHY: transient CloudKit errors must keep optimistic completion + XP and queue via CKSyncEngine; hard errors roll back.
+    private func isTransientCompletionError(_ error: Error) -> Bool {
+        if let ckError = error as? CKError {
+            switch ckError.code {
+            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy, .resultsTruncated:
+                return true
+            case .operationCancelled:
+                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
+                    return true
+                }
+                return false
+            default:
+                if let underlying = ckError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying.domain == NSURLErrorDomain, underlying.code == NSURLErrorTimedOut {
+                    return true
+                }
+                // Also treat timeout-wrapped errors.
+                if (error as NSError).domain == NSURLErrorDomain, (error as NSError).code == NSURLErrorTimedOut {
+                    return true
+                }
+                return false
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorTimedOut {
+            return true
+        }
+        if let serviceError = error as? CloudKitServiceError {
+            switch serviceError {
+            case .networkUnavailable, .retryable, .exhaustedBudget:
+                return true
+            case .zoneNotFound, .notFound, .serverRecordChanged, .changeTokenExpired, .invalidArguments, .accountUnavailable, .shareFailed, .shareAcceptFailed,
+                 .paginationExhausted,
+                 .underlying, .zoneSetupFailed:
+                return false
+            }
+        }
+        // Non-CKError (validation, permission, unknownItem path) is hard per spec.
+        if error is CKError {
+            return false
+        }
+        // Any CKError partialFailure or permission errors are hard — already covered by default false.
+        return false
     }
 }

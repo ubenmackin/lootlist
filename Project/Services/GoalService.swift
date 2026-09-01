@@ -161,6 +161,15 @@ final class GoalService {
 
     // MARK: - Create Goal
 
+    // INVARIANT: Goal rows are family-scoped and must converge across both
+    // private and shared database scopes. A local create sweeps both scope
+    // caches and stamps freshness for both so a family never observes a
+    // partial or stale sibling-scope row after owner/participant transitions.
+    // WHY cross-scope sweep is intentional: it guarantees a single family
+    // partition converges regardless of which database holds the authoritative
+    // zone, preventing divergence where a hero device and parent device would
+    // see different goal sets after a role handoff.
+
     /// Creates a new savings goal. The acting profile must match the target
     /// profile (hero creates own goals) OR be a parent creating on behalf of a
     /// child. Unauthorized callers get `GoalServiceError.unauthorized`.
