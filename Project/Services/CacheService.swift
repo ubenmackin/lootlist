@@ -41,9 +41,11 @@ final class CacheService: CacheServicing {
     /// Version counter incremented on watermark changes to trigger SwiftUI cache recomputation.
     var freshnessVersion: Int = 0
 
-    // WHY: Staleness ceiling only needs to cover the normal foreground-catch-up window, yet remain
-    // short enough that a backgrounded device which dropped a throttled silent push re-validates on
-    // next foreground. One hour is a conservative default; a single named constant keeps tuning trivial.
+    // WHY: Hydration-token authority — cache is authoritative iff a successful sync/reconciliation
+    // stamped a watermark for this family/type/scope. No wall-clock comparison is performed so
+    // authority is immune to device clock skew; the TTL below is legacy retained for ABI only.
+    // Deprecated: legacy 3600s TTL retained for ABI — no longer consulted.
+    @available(*, deprecated, message: "Legacy wall-clock TTL — W6 hydrates via explicit stamping; retained for ABI only")
     nonisolated static let freshnessMaximumAge: TimeInterval = 3600
 
     var context: ModelContext? {
@@ -281,22 +283,12 @@ final class CacheService: CacheServicing {
         defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) as? Date
     }
 
-    /// Authoritative freshness check: cached data is served only when a freshness watermark exists
-    /// and is still within the staleness window.
+    /// Authoritative freshness check: hydration token existence determines authority.
     func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
         _ = freshnessVersion
-        // WHY: Wall-clock dependence is accepted after considering monotonic alternatives
-        // (CFAbsoluteTimeGetCurrent / ProcessInfo.systemUptime). Forward skew (>1h) makes a fresh
-        // watermark appear stale and forces an unnecessary CloudKit query; backward skew makes a
-        // stale watermark appear fresh and would serve stale cache as authoritative. The defensive
-        // `interval >= 0` guard clamps backward skew to stale (forcing re-validation) so blast
-        // radius is bounded to an extra round-trip vs. bounded staleness — monotonic uptime was
-        // rejected because it does not survive relaunches/reboots without persisted anchors.
-        guard let date = freshnessDate(familyRecordName: familyRecordName, type: type, scope: scope) else {
-            return false
-        }
-        let interval = Date().timeIntervalSince(date)
-        return interval >= 0 && interval <= Self.freshnessMaximumAge
+        // WHY: Hydration token authority — authoritative iff a successful sync/reconciliation stamped
+        // a watermark for this family/type/scope; immune to device clock skew because no Date() comparison is performed.
+        return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
     }
 
     // WHY: Scope-encapsulated staleness check — loops private/shared internally so Views never import CloudKit

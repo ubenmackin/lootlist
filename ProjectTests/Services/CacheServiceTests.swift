@@ -610,16 +610,24 @@ struct CacheServiceTests {
     func `freshness watermark starts unstamped`() throws {
         let service = try makeService()
         #expect(service.isCacheFresh(familyRecordName: "never-stamped-fam", type: .quest) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "never-stamped-fam", type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "never-stamped-fam", type: .quest, scope: .private) == false)
+        #expect(service.isStale(for: "never-stamped-fam", type: .quest, cachedCount: 0) == false)
+        #expect(service.isStale(for: "never-stamped-fam", type: .quest, cachedCount: 3) == true)
     }
 
     @Test
     func `mark cache fresh stamps per family and type`() throws {
         let service = try makeService()
-        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest)
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == true)
-        // Stamps are per-family AND per-type: other families/types stay stale.
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .quest) == false)
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion) == false)
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest, scope: .shared, at: Date())
+        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest, scope: .shared) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-1", type: .quest, scope: .shared) == true)
+        #expect(service.isStale(for: "fresh-fam-1", type: .quest, cachedCount: 1) == false)
+        // Stamps are per-family AND per-type: other families/types stay unhydrated.
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-2", type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-1", type: .questCompletion, scope: .shared) == false)
+        #expect(service.isStale(for: "fresh-fam-2", type: .quest, cachedCount: 2) == true)
+        #expect(service.isStale(for: "fresh-fam-1", type: .questCompletion, cachedCount: 2) == true)
     }
 
     @Test
@@ -627,8 +635,10 @@ struct CacheServiceTests {
         let defaults = UserDefaults.ephemeral()
         let service = try CacheService(inMemory: true, defaults: defaults)
         defaults.set(Date(), forKey: "cache_fresh_fresh-fam-legacy-1_quest")
-        // Legacy un-scoped key in defaults does NOT satisfy .shared scope
+        // Legacy un-scoped key does NOT satisfy scoped authority.
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-legacy-1", type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-legacy-1", type: .quest, scope: .shared) == false)
+        #expect(service.isStale(for: "fresh-fam-legacy-1", type: .quest, cachedCount: 5) == true)
     }
 
     @Test
@@ -636,33 +646,179 @@ struct CacheServiceTests {
         let service = try makeService()
         service.markCacheFresh(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .shared)
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .shared) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .shared) == true)
         #expect(service.isCacheFresh(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .private) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-scope-2", type: .quest, scope: .private) == false)
+        #expect(service.isStale(for: "fresh-fam-scope-2", type: .quest, cachedCount: 1) == false)
+    }
+
+    @Test
+    func `hydrated cache remains authoritative regardless of wall-clock advancement`() throws {
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: true, defaults: defaults)
+        let family = "fresh-fam-clock-immune-1"
+        let stamp = Date()
+        service.markCacheFresh(familyRecordName: family, type: .quest, scope: .shared, at: stamp)
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == true)
+        // Authority is hydration-token based — wall-clock advancement has no effect.
+        // Immediate re-checks simulate +2h, +24h, +1y without moving the stamp.
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == true)
+        #expect(service.freshnessDate(familyRecordName: family, type: .quest, scope: .shared) == stamp)
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 5) == false)
+    }
+
+    @Test
+    func `backward clock skew does not corrupt hydrated cache`() throws {
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: true, defaults: defaults)
+        let family = "fresh-fam-backward-1"
+        service.markCacheFresh(familyRecordName: family, type: .quest, scope: .shared, at: Date())
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == true)
+        // Simulate clock moving backward by stamping a future date — still authoritative.
+        let future = Date(timeIntervalSinceNow: 60 * 60 * 24 * 365)
+        service.markCacheFresh(familyRecordName: family, type: .quest, scope: .shared, at: future)
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == true)
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 3) == false)
+        // Future freshnessDate is preserved; no negative-interval stale flip.
+        #expect(service.freshnessDate(familyRecordName: family, type: .quest, scope: .shared) == future)
+    }
+
+    @Test
+    func `explicit invalidation reliably marks un-authoritative`() async throws {
+        // Unscoped invalidateFreshness removes all scopes for family/type.
+        let defaultsA = UserDefaults.ephemeral()
+        var service = try CacheService(inMemory: true, defaults: defaultsA)
+        let famA = "fresh-fam-inval-1"
+        service.markCacheFresh(familyRecordName: famA, type: .quest, scope: .shared, at: Date())
+        service.markCacheFresh(familyRecordName: famA, type: .quest, scope: .private, at: Date())
+        #expect(service.isCacheAuthoritative(familyRecordName: famA, type: .quest, scope: .shared) == true)
+        service.invalidateFreshness(familyRecordName: famA, type: .quest)
+        #expect(service.isCacheAuthoritative(familyRecordName: famA, type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: famA, type: .quest, scope: .private) == false)
+        #expect(service.isStale(for: famA, type: .quest, cachedCount: 4) == true)
+        #expect(service.isStale(for: famA, type: .quest, cachedCount: 0) == false)
+
+        // Scoped invalidateFreshness removes only the targeted scope.
+        let defaultsB = UserDefaults.ephemeral()
+        service = try CacheService(inMemory: true, defaults: defaultsB)
+        let famB = "fresh-fam-inval-2"
+        service.markCacheFresh(familyRecordName: famB, type: .quest, scope: .shared, at: Date())
+        service.markCacheFresh(familyRecordName: famB, type: .quest, scope: .private, at: Date())
+        service.invalidateFreshness(familyRecordName: famB, type: .quest, scope: .shared)
+        #expect(service.isCacheAuthoritative(familyRecordName: famB, type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: famB, type: .quest, scope: .private) == true)
+        #expect(service.isStale(for: famB, type: .quest, cachedCount: 2) == false)
+        service.invalidateFreshness(familyRecordName: famB, type: .quest, scope: .private)
+        #expect(service.isStale(for: famB, type: .quest, cachedCount: 2) == true)
+
+        // invalidateAllFreshness clears every watermark in the suite.
+        let defaultsC = UserDefaults.ephemeral()
+        service = try CacheService(inMemory: true, defaults: defaultsC)
+        let famC1 = "fresh-fam-inval-3"
+        let famC2 = "fresh-fam-inval-4"
+        service.markCacheFresh(familyRecordName: famC1, type: .quest, scope: .shared, at: Date())
+        service.markCacheFresh(familyRecordName: famC2, type: .profile, scope: .private, at: Date())
+        service.invalidateAllFreshness()
+        #expect(service.isCacheAuthoritative(familyRecordName: famC1, type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: famC2, type: .profile, scope: .private) == false)
+        #expect(service.isStale(for: famC1, type: .quest, cachedCount: 1) == true)
+
+        // purgeFamily removes only the targeted family's watermarks.
+        let defaultsD = UserDefaults.ephemeral()
+        service = try CacheService(inMemory: true, defaults: defaultsD)
+        let famD1 = "fresh-fam-inval-5"
+        let famD2 = "fresh-fam-inval-6"
+        service.markCacheFresh(familyRecordName: famD1, type: .quest, scope: .shared, at: Date())
+        service.markCacheFresh(familyRecordName: famD2, type: .quest, scope: .shared, at: Date())
+        service.purgeFamily(recordName: famD1)
+        #expect(service.isCacheAuthoritative(familyRecordName: famD1, type: .quest, scope: .shared) == false)
+        #expect(service.isStale(for: famD1, type: .quest, cachedCount: 3) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: famD2, type: .quest, scope: .shared) == true)
+        #expect(service.isStale(for: famD2, type: .quest, cachedCount: 3) == false)
+
+        // clearAll removes all watermarks and cache rows.
+        let defaultsE = UserDefaults.ephemeral()
+        service = try CacheService(inMemory: true, defaults: defaultsE)
+        let famE = "fresh-fam-inval-7"
+        service.markCacheFresh(familyRecordName: famE, type: .quest, scope: .shared, at: Date())
+        #expect(service.isCacheAuthoritative(familyRecordName: famE, type: .quest, scope: .shared) == true)
+        try await service.clearAll()
+        #expect(service.isCacheAuthoritative(familyRecordName: famE, type: .quest, scope: .shared) == false)
+        #expect(service.isStale(for: famE, type: .quest, cachedCount: 2) == true)
+        #expect(service.isStale(for: famE, type: .quest, cachedCount: 0) == false)
+    }
+
+    @Test
+    func `scope isolation strictly maintained`() throws {
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: true, defaults: defaults)
+        let family = "fresh-fam-scope-iso-1"
+        // Stamp shared only — private remains unhydrated.
+        service.markCacheFresh(familyRecordName: family, type: .quest, scope: .shared, at: Date())
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .private) == false)
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 3) == false)
+        // Legacy unscoped key must NOT satisfy scoped authority.
+        defaults.set(Date(), forKey: "cache_fresh_\(family)_quest")
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .private) == false)
+        // Private remains unhydrated until explicitly stamped.
+        service.markCacheFresh(familyRecordName: family, type: .quest, scope: .private, at: Date())
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .private) == true)
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 3) == false)
+        // Scoped invalidation preserves the other scope.
+        service.invalidateFreshness(familyRecordName: family, type: .quest, scope: .shared)
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .private) == true)
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 3) == false)
+        service.invalidateFreshness(familyRecordName: family, type: .quest, scope: .private)
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 3) == true)
+    }
+
+    @Test
+    func `empty cache never stale even when unhydrated`() throws {
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: true, defaults: defaults)
+        let family = "fresh-fam-empty-1"
+        #expect(service.isCacheAuthoritative(familyRecordName: family, type: .quest, scope: .shared) == false)
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 0) == false)
+        #expect(service.isStale(for: family, type: .ledgerEntry, cachedCount: 0) == false)
+        #expect(service.isStaleWithoutScope(for: family, type: .quest, cachedCount: 0) == false)
+        // Even with rows, unhydrated is stale; empty is never stale.
+        #expect(service.isStale(for: family, type: .quest, cachedCount: 1) == true)
+        #expect(service.isStaleWithoutScope(for: family, type: .quest, cachedCount: 1) == true)
     }
 
     @Test
     func `clearAll invalidates every freshness stamp`() async throws {
-        let service = try makeService()
-        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest)
-        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion)
-        service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .profile)
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: true, defaults: defaults)
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest, scope: .shared, at: Date())
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion, scope: .shared, at: Date())
+        service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .profile, scope: .private, at: Date())
 
         try await service.clearAll()
 
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == false)
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .questCompletion) == false)
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .profile) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-1", type: .quest, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-1", type: .questCompletion, scope: .shared) == false)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-2", type: .profile, scope: .private) == false)
+        #expect(service.isStale(for: "fresh-fam-1", type: .quest, cachedCount: 1) == true)
     }
 
     @Test
     func `purgeFamily invalidates only that family's freshness stamps`() throws {
-        let service = try makeService()
-        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest)
-        service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .quest)
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: true, defaults: defaults)
+        service.markCacheFresh(familyRecordName: "fresh-fam-1", type: .quest, scope: .shared, at: Date())
+        service.markCacheFresh(familyRecordName: "fresh-fam-2", type: .quest, scope: .shared, at: Date())
 
         service.purgeFamily(recordName: "fresh-fam-1")
 
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-1", type: .quest) == false)
-        #expect(service.isCacheFresh(familyRecordName: "fresh-fam-2", type: .quest) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-1", type: .quest, scope: .shared) == false)
+        #expect(service.isStale(for: "fresh-fam-1", type: .quest, cachedCount: 3) == true)
+        #expect(service.isCacheAuthoritative(familyRecordName: "fresh-fam-2", type: .quest, scope: .shared) == true)
+        #expect(service.isStale(for: "fresh-fam-2", type: .quest, cachedCount: 3) == false)
     }
 
     // MARK: - Background → Main Propagation
