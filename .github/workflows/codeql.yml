@@ -4,13 +4,16 @@ name: "CodeQL Advanced"
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   schedule:
     - cron: '24 4 * * 4'
 
 jobs:
   analyze:
     name: Analyze (Swift)
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 25
     permissions:
       security-events: write
       packages: read
@@ -21,19 +24,17 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Select Latest Xcode
+    - name: Select Xcode 26.6 (iOS 26 SDK)
       uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
       with:
-        xcode-version: latest-stable
+        xcode-version: '26.6'
 
-    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/Library/Developer/Xcode/DerivedData
-        key: ${{ runner.os }}-derived-data-${{ hashFiles('**/*.swift') }}
-        restore-keys: |
-          ${{ runner.os }}-derived-data-
+    - name: Install xcodegen and generate project
+      run: |
+        brew list xcodegen || brew install --quiet xcodegen
+        xcodegen generate
 
-    # Initializes CodeQL tools for scanning
+    # Initializes CodeQL tools for scanning (Swift manual build, now with real iOS 26 SDK via Xcode 26.6 on macos-26)
     - name: Initialize CodeQL
       uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
       with:
