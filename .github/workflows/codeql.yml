@@ -4,10 +4,11 @@ name: "CodeQL Advanced"
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
   schedule:
     - cron: '24 4 * * 4'
+  # pull_request removed: CI on macos-26/Xcode 26.6 already proves the iOS 26 build;
+  # CodeQL Swift autobuild under libtrace still hangs ~10m+ at EmitSwiftModule
+  # (codeql#22121), so don't block PRs. CodeQL will run nightly + on main pushes.
 
 jobs:
   analyze:
