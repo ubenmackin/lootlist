@@ -43,6 +43,7 @@ struct BucketTileView: View {
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                 .fill(Color.white.opacity(0.18))
         )
+        .hoverEffect(.highlight)
         .accessibilityIdentifierIfSet(accessibilityID)
     }
 }

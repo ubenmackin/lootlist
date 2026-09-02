@@ -17,6 +17,7 @@ struct GoalCardView: View {
     var targetDate: Date?
     var createdAt: Date = .init()
     var linkURL: String?
+    var imageURL: String?
     var isCompleted: Bool = false
     var accessibilityID: String?
 
@@ -44,12 +45,49 @@ struct GoalCardView: View {
         return LinkMetadataService.normalizeURL(from: linkURL)
     }
 
+    private var validImageURL: URL? {
+        guard let imageURL, !imageURL.isEmpty,
+              let url = URL(string: imageURL),
+              url.scheme?.lowercased().hasPrefix("http") == true else { return nil }
+        return url
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Emoji + title row + optional store link
+            // Thumbnail + emoji + title row + optional store link
             HStack(spacing: 8) {
-                Text(emoji)
-                    .font(.title2)
+                if let validImageURL {
+                    AsyncImage(url: validImageURL) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                                .frame(width: 44, height: 44)
+                                .background(Color(DesignSystemConstants.Colors.cardSurface))
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        case let .success(image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 44, height: 44)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        case .failure:
+                            Text(emoji)
+                                .font(.title2)
+                                .frame(width: 44, height: 44)
+                                .background(Color(DesignSystemConstants.Colors.cardSurface))
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        @unknown default:
+                            Color(DesignSystemConstants.Colors.cardSurface)
+                                .frame(width: 44, height: 44)
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                } else {
+                    Text(emoji)
+                        .font(.title2)
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(name)
@@ -145,6 +183,7 @@ struct GoalCardView: View {
                              style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
+        .hoverEffect(.highlight)
         .accessibilityIdentifierIfSet(accessibilityID)
     }
 }

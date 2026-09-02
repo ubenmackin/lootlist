@@ -27,6 +27,7 @@ struct ChildLedgerView: View {
         return formatter
     }()
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(AppState.self) private var appState
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
 
@@ -112,7 +113,14 @@ struct ChildLedgerView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
-                    bucketSplitCard
+                    if horizontalSizeClass == .regular {
+                        HStack(alignment: .top, spacing: 16) {
+                            bucketSplitCard
+                                .frame(maxWidth: .infinity)
+                        }
+                    } else {
+                        bucketSplitCard
+                    }
 
                     if isEmpty {
                         emptyState
@@ -242,6 +250,7 @@ struct ChildLedgerView: View {
             )
             .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
+        .hoverEffect(.highlight)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             "\(entry.entryDescription): \(CurrencyFormatter.string(entry.amount))"

@@ -26,7 +26,10 @@ struct GoalEditorSheet: View {
     @State private var targetDate: Date
     @State private var linkURLText: String
     @State private var resolvedTitle: String?
+    @State private var resolvedImageURL: String?
     @State private var isResolvingLink: Bool = false
+    @State private var suggestedPrice: ExtractedPrice?
+    @State private var isExtractingPrice: Bool = false
     @FocusState private var isAmountFocused: Bool
     @State private var isSaving: Bool = false
     @State private var isDeleting: Bool = false
@@ -50,11 +53,15 @@ struct GoalEditorSheet: View {
             _hasTargetDate = State(initialValue: goal.targetDate != nil)
             _targetDate = State(initialValue: goal.targetDate ?? Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
             _linkURLText = State(initialValue: goal.linkURL ?? "")
+            _resolvedImageURL = State(initialValue: goal.imageURL)
+            _resolvedTitle = State(initialValue: nil)
         } else {
             _targetAmountText = State(initialValue: "")
             _hasTargetDate = State(initialValue: false)
             _targetDate = State(initialValue: Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
             _linkURLText = State(initialValue: "")
+            _resolvedImageURL = State(initialValue: nil)
+            _resolvedTitle = State(initialValue: nil)
         }
         _bucketKind = State(initialValue: goal?.bucketKindEnum ?? .shortTermSave)
     }
@@ -90,7 +97,7 @@ struct GoalEditorSheet: View {
                 .padding(.horizontal, DesignSystemConstants.Padding.standard)
                 .padding(.vertical, DesignSystemConstants.Padding.standard)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .navigationTitle(initialGoal != nil ? "Edit Goal" : "New Goal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -121,7 +128,7 @@ struct GoalEditorSheet: View {
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
+            .fill(Color(DesignSystemConstants.Colors.cardSurface))
     }
 
     // MARK: - Emoji Picker
@@ -366,11 +373,60 @@ struct GoalEditorSheet: View {
                         Button {
                             linkURLText = ""
                             resolvedTitle = nil
+                            resolvedImageURL = nil
+                            suggestedPrice = nil
+                            isExtractingPrice = false
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.tertiary)
                         }
                         .buttonStyle(.plain)
+                    }
+                }
+
+                if let imageString = resolvedImageURL,
+                   let imageURL = URL(string: imageString)
+                {
+                    HStack(spacing: 10) {
+                        AsyncImage(url: imageURL) { phase in
+                            switch phase {
+                            case .empty:
+                                ProgressView()
+                                    .frame(width: 40, height: 40)
+                                    .background(Color(DesignSystemConstants.Colors.cardSurface))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            case let .success(image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 40, height: 40)
+                                    .clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            case .failure:
+                                Text(selectedEmoji ?? "🎯")
+                                    .font(.title3)
+                                    .frame(width: 40, height: 40)
+                                    .background(Color(DesignSystemConstants.Colors.cardSurface))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            @unknown default:
+                                Color(DesignSystemConstants.Colors.cardSurface)
+                                    .frame(width: 40, height: 40)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            }
+                        }
+                        .frame(width: 40, height: 40)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let title = resolvedTitle, !title.isEmpty {
+                                Text(title)
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                            }
+                            Text(imageURL.host?.replacingOccurrences(of: "www.", with: "") ?? "Preview")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
                     }
                 }
 
@@ -392,6 +448,27 @@ struct GoalEditorSheet: View {
                             .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                             .font(.caption)
                     }
+                }
+
+                if isExtractingPrice {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Checking price...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let suggested = suggestedPrice {
+                    Button {
+                        targetAmountText = String(format: "%.2f", suggested.amount)
+                        validateAmount(targetAmountText)
+                    } label: {
+                        Label("Use suggested price \(CurrencyFormatter.string(suggested.amount))", systemImage: "dollarsign.circle.fill")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color(DesignSystemConstants.Colors.primaryGreen))
+                    .accessibilityIdentifier("goalEditor.useSuggestedPriceButton")
                 }
             }
             .padding(DesignSystemConstants.Padding.medium)
@@ -464,10 +541,16 @@ struct GoalEditorSheet: View {
         let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = LinkMetadataService.normalizeURL(from: trimmed) else {
             resolvedTitle = nil
+            resolvedImageURL = nil
+            suggestedPrice = nil
+            isExtractingPrice = false
             return
         }
 
         isResolvingLink = true
+        suggestedPrice = nil
+        isExtractingPrice = false
+        resolvedImageURL = nil
         Task { @MainActor in
             if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
                 if let title = metadata.title, !title.isEmpty {
@@ -475,9 +558,29 @@ struct GoalEditorSheet: View {
                     if nameText.isEmpty {
                         nameText = title
                     }
+                } else {
+                    resolvedTitle = nil
                 }
+                resolvedImageURL = metadata.imageURL.flatMap { $0.isEmpty ? nil : $0 }
+            } else {
+                resolvedTitle = nil
+                resolvedImageURL = nil
             }
             isResolvingLink = false
+
+            // One-time price suggestion — only when amount is empty, never auto-overwrite.
+            let amountEmpty = targetAmountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if amountEmpty {
+                isExtractingPrice = true
+                suggestedPrice = nil
+                if let price = await PriceExtractionService.extractPrice(from: url) {
+                    // Re-check emptiness — user may have typed while fetch was in flight.
+                    if targetAmountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        suggestedPrice = price
+                    }
+                }
+                isExtractingPrice = false
+            }
         }
     }
 
@@ -497,7 +600,7 @@ struct GoalEditorSheet: View {
             bucketKind: bucketKind,
             targetDate: hasTargetDate ? targetDate : nil,
             linkURL: finalLink,
-            imageURL: nil
+            imageURL: resolvedImageURL
         )
 
         isSaving = true

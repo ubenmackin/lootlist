@@ -52,6 +52,7 @@ struct TabBarView: View {
                     .tag(RootTab.placeholder)
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
         .onAppear {
             reconcileDefaultSelection()
             // Cold-start notification route retained by the owned router; adopt

@@ -37,7 +37,10 @@ Domain rules agents must not misinterpret:
   - Services and AppState depend on `any CloudKitServiceProtocol` (narrower seams exist where useful). Do not concrete-type CloudKit dependencies.
    - UserDefaults is device-local only: session keys, migration flags, freshness watermarks, `FeatureFlags.rpgImmersive`, badge/icon eligibility. NEVER authoritative cross-device domain data (balances, counters, credits).
       - Cache reads are freshness-only authoritative: `CacheService.isCacheAuthoritative(familyRecordName:type:scope:)` returns true iff a hydration watermark exists for the family/type/scope (`isCacheFresh`); no wall-clock TTL. Stale cache — even non-empty — is never authoritative until re-hydrated or explicitly invalidated. Offline fallback renders hydrated cache instantly; background `CKSyncEngine` reconciles deltas.
-   - Every screen supports light AND dark mode via semantic design tokens (`DesignSystemConstants` / asset-catalog colors such as `gold.colorset`). No hardcoded colors in views.
+    - Every screen supports light AND dark mode via semantic design tokens (`DesignSystemConstants` / asset-catalog colors such as `gold.colorset`). No hardcoded colors in views.
+    - Concurrency Invariants:
+      - Under Swift 6 (SE-0412), `let` constants of `Sendable` types (`Mutex<T>`) on `@MainActor` classes (such as `CacheService.backgroundWriterLock` and `bootstrapLock`) are non-isolated, data-race safe, and accessible from any context (including `deinit`) without `nonisolated(unsafe)`.
+      - Static accessors forwarding to `@MainActor` state (such as `NotificationRouter.shared` forwarding to `AppDependencies.shared`) are explicitly annotated `@MainActor`, guaranteeing compile-time race safety for UI callers without runtime `Thread.isMainThread` / `MainActor.assumeIsolated` dynamic checks. Off-main callers must await.
 
 ## 3. Directory Structure & Component Roles
 
