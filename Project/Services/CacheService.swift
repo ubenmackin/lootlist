@@ -21,6 +21,9 @@ final class CacheService: CacheServicing {
 
     /// Single off-main writer for every cache mutation, built from this service's own container so
     /// app-level wiring can hand the same instance to the sync stack.
+    // WHY: Under Swift 6 (SE-0412), `let` constants of Sendable types (`Mutex<T>`) on @MainActor classes
+    // are non-isolated and safe to read/lock from any execution context (including deinit) without hops
+    // or `nonisolated(unsafe)`. The compiler actively warns against `nonisolated(unsafe)` on Sendable `let`.
     private let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
     private let bootstrapLock = Mutex<Bool>(false)
     var backgroundWriter: BackgroundCacheActor? {

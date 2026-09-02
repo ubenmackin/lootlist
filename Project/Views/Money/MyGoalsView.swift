@@ -15,6 +15,7 @@ struct MyGoalsView: View {
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
     @Environment(GoalService.self) private var envGoalService: GoalService?
     @Environment(ToastManager.self) private var toastManager: ToastManager?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MyGoals")
 
@@ -114,7 +115,7 @@ struct MyGoalsView: View {
                 .padding(.top, DesignSystemConstants.Padding.small)
                 .padding(.bottom, DesignSystemConstants.Padding.large)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .navigationTitle("MY WISHLIST & SAVINGS")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -211,38 +212,40 @@ struct MyGoalsView: View {
                     .font(.subheadline)
             }
 
-            ForEach(goals, id: \.recordName) { goal in
-                Button {
-                    goalToEdit = goal
-                } label: {
-                    goalCard(for: goal)
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
+                ForEach(goals, id: \.recordName) { goal in
                     Button {
                         goalToEdit = goal
                     } label: {
-                        Label("Edit Goal", systemImage: "pencil")
+                        goalCard(for: goal)
                     }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button {
+                            goalToEdit = goal
+                        } label: {
+                            Label("Edit Goal", systemImage: "pencil")
+                        }
 
-                    Button(role: .destructive) {
-                        goalToDelete = goal
-                    } label: {
-                        Label("Delete Goal", systemImage: "trash")
+                        Button(role: .destructive) {
+                            goalToDelete = goal
+                        } label: {
+                            Label("Delete Goal", systemImage: "trash")
+                        }
                     }
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        goalToDelete = goal
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            goalToDelete = goal
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        Button {
+                            goalToEdit = goal
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(Color(DesignSystemConstants.Colors.accentBlue))
                     }
-                    Button {
-                        goalToEdit = goal
-                    } label: {
-                        Label("Edit", systemImage: "pencil")
-                    }
-                    .tint(Color(DesignSystemConstants.Colors.accentBlue))
                 }
             }
         }
@@ -263,116 +266,23 @@ struct MyGoalsView: View {
             completedAt: goal.completedAt
         )
         let validURL = goal.linkURL.flatMap { LinkMetadataService.normalizeURL(from: $0) }
+        let validImageURL: URL? = {
+            guard let raw = goal.imageURL, !raw.isEmpty,
+                  let url = URL(string: raw),
+                  url.scheme?.lowercased().hasPrefix("http") == true else { return nil }
+            return url
+        }()
+        let progress = target > 0 && target.isFinite && saved.isFinite ? min(max(saved / target, 0), 1) : 0.0
+        let percent = Int((progress * 100).rounded())
 
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(goal.emojiIcon ?? "🎯")
-                    .font(.title2)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(goal.name)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    if let pacing, pacing.status != .noDeadline {
-                        HStack(spacing: 4) {
-                            Image(systemName: pacing.status.iconSystemName)
-                                .font(.caption2)
-                            Text(pacing.status.badgeText)
-                                .font(.caption2.weight(.bold))
-                        }
-                        .foregroundStyle(pacing.status.tintColor)
-                    }
-                }
-
-                Spacer()
-
-                if let validURL {
-                    Link(destination: validURL) {
-                        Image(systemName: "arrow.up.right.square")
-                            .font(.subheadline)
-                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                            .padding(4)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("View \(goal.name) online")
-                }
-
-                if isCompleted {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.title3)
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-                        .accessibilityLabel("Completed")
-                }
-            }
-
-            // Saved / Target status line.
-            HStack(spacing: 4) {
-                Text(CurrencyFormatter.string(saved))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-
-                Text("of")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text(CurrencyFormatter.string(target))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let pacing, !isCompleted {
-                    Spacer()
-                    Text(pacing.formattedTargetDate)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // Progress bar.
-            let progress = target > 0 && target.isFinite && saved.isFinite ? min(max(saved / target, 0), 1) : 0.0
-            GeometryReader { geometry in
-                let rawWidth = geometry.size.width
-                let fillWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0) ? rawWidth * CGFloat(progress) : 0
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15))
-                        .frame(height: 8)
-
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color(DesignSystemConstants.Colors.primaryGreen))
-                        .frame(width: fillWidth, height: 8)
-                }
-            }
-            .frame(height: 8)
-
-            // Footer: percent earned + pacing / category.
-            let percent = Int((progress * 100).rounded())
-            HStack {
-                Text(isCompleted ? "✓ \(percent)% earned" : "\(percent)% earned")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-
-                Spacer()
-
-                if let pacing, !isCompleted, pacing.daysRemaining > 7 {
-                    Text("Save \(CurrencyFormatter.string(pacing.weeklyRequiredSavingsDollars))/wk")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(pacing.status.tintColor)
-                } else if let category = goal.category, !category.isEmpty {
-                    Text(category)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color(.tertiarySystemFill))
-                        )
-                }
-            }
+            goalCardHeader(for: goal, pacing: pacing, isCompleted: isCompleted, validURL: validURL, validImageURL: validImageURL)
+            goalCardStatusLine(saved: saved, target: target, pacing: pacing, isCompleted: isCompleted)
+            goalCardProgressBar(progress: progress)
+            goalCardFooter(for: goal, percent: percent, isCompleted: isCompleted, pacing: pacing)
         }
         .padding(DesignSystemConstants.Padding.medium)
+        .hoverEffect(.highlight)
         .background(
             RoundedRectangle(
                 cornerRadius: DesignSystemConstants.CornerRadius.small,
@@ -383,6 +293,140 @@ struct MyGoalsView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel(for: goal, saved: saved, target: target))
         .accessibilityIdentifier("goals.card-\(goal.recordName)")
+    }
+
+    private func goalCardHeader(for goal: GoalCache, pacing: GoalPacingCalculator.PacingSummary?, isCompleted: Bool, validURL: URL?, validImageURL: URL?) -> some View {
+        HStack(spacing: 8) {
+            goalCardIcon(for: goal, validImageURL: validImageURL)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(goal.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if let pacing, pacing.status != .noDeadline {
+                    HStack(spacing: 4) {
+                        Image(systemName: pacing.status.iconSystemName)
+                            .font(.caption2)
+                        Text(pacing.status.badgeText)
+                            .font(.caption2.weight(.bold))
+                    }
+                    .foregroundStyle(pacing.status.tintColor)
+                }
+            }
+            Spacer()
+            if let validURL {
+                Link(destination: validURL) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.subheadline)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View \(goal.name) online")
+            }
+            if isCompleted {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                    .accessibilityLabel("Completed")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func goalCardIcon(for goal: GoalCache, validImageURL: URL?) -> some View {
+        if let validImageURL {
+            AsyncImage(url: validImageURL) { phase in
+                switch phase {
+                case .empty:
+                    ProgressView()
+                        .frame(width: 44, height: 44)
+                        .background(Color(DesignSystemConstants.Colors.cardSurface))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                case let .success(image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 44, height: 44)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                case .failure:
+                    Text(goal.emojiIcon ?? "🎯")
+                        .font(.title2)
+                        .frame(width: 44, height: 44)
+                        .background(Color(DesignSystemConstants.Colors.cardSurface))
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                @unknown default:
+                    Color(DesignSystemConstants.Colors.cardSurface)
+                        .frame(width: 44, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+            .frame(width: 44, height: 44)
+        } else {
+            Text(goal.emojiIcon ?? "🎯")
+                .font(.title2)
+        }
+    }
+
+    private func goalCardStatusLine(saved: Double, target: Double, pacing: GoalPacingCalculator.PacingSummary?, isCompleted: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(CurrencyFormatter.string(saved))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+            Text("of")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(CurrencyFormatter.string(target))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let pacing, !isCompleted {
+                Spacer()
+                Text(pacing.formattedTargetDate)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func goalCardProgressBar(progress: Double) -> some View {
+        GeometryReader { geometry in
+            let rawWidth = geometry.size.width
+            let fillWidth: CGFloat = (rawWidth.isFinite && rawWidth > 0) ? rawWidth * CGFloat(progress) : 0
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15))
+                    .frame(height: 8)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(Color(DesignSystemConstants.Colors.primaryGreen))
+                    .frame(width: fillWidth, height: 8)
+            }
+        }
+        .frame(height: 8)
+    }
+
+    private func goalCardFooter(for goal: GoalCache, percent: Int, isCompleted: Bool, pacing: GoalPacingCalculator.PacingSummary?) -> some View {
+        HStack {
+            Text(isCompleted ? "✓ \(percent)% earned" : "\(percent)% earned")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+            Spacer()
+            if let pacing, !isCompleted, pacing.daysRemaining > 7 {
+                Text("Save \(CurrencyFormatter.string(pacing.weeklyRequiredSavingsDollars))/wk")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(pacing.status.tintColor)
+            } else if let category = goal.category, !category.isEmpty {
+                Text(category)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule()
+                            .fill(Color(DesignSystemConstants.Colors.background))
+                    )
+            }
+        }
     }
 
     private func accessibilityLabel(for goal: GoalCache, saved: Double, target: Double) -> String {

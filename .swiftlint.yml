@@ -13,7 +13,7 @@ custom_rules:
   discouraged_optional_try:
     name: "Discouraged optional try (try?)"
     regex: '(^|[^A-Za-z0-9_])try\?'
-    message: "Avoid try? in production code — prefer do/catch or propagating throws; if suppression is intentional (e.g., try? await Task.sleep), add // swiftlint:disable:next discouraged_optional_try with justification."
+    message: "Avoid try? in production code — prefer do/catch or propagating throws."
     severity: warning
     included: "Project"
     excluded:

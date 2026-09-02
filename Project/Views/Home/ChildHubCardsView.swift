@@ -10,6 +10,8 @@ import SwiftUI
 /// Today's chores and active FIFO goal. Extracted from ChildHubView to keep
 /// the hub composed of ~80-line sections with no logic change.
 struct ChildHubCardsView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     let viewModel: ChildHubViewModel
     let cachedQuests: [QuestCache]
     let cachedCompletions: [QuestCompletionCache]
@@ -19,9 +21,22 @@ struct ChildHubCardsView: View {
     let onWithdraw: (QuestCache, QuestCompletionCache) -> Void
 
     var body: some View {
-        VStack(spacing: DesignSystemConstants.Padding.standard) {
-            todaysChoresCard
-            activeGoalCard
+        if horizontalSizeClass == .regular {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(spacing: DesignSystemConstants.Padding.standard) {
+                    activeGoalCard
+                }
+                .frame(maxWidth: .infinity)
+                VStack(spacing: DesignSystemConstants.Padding.standard) {
+                    todaysChoresCard
+                }
+                .frame(maxWidth: .infinity)
+            }
+        } else {
+            VStack(spacing: DesignSystemConstants.Padding.standard) {
+                todaysChoresCard
+                activeGoalCard
+            }
         }
     }
 
@@ -56,6 +71,7 @@ struct ChildHubCardsView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .hoverEffect(.highlight)
                         .accessibilityHint("Awaiting parent verification. Tap to unsubmit.")
                     } else if let quest {
                         ChoreRowCard(
@@ -68,6 +84,7 @@ struct ChildHubCardsView: View {
                             onLeadingAction: { onCompleteQuest(quest) },
                             accessibilityID: "hub.choreRow-\(row.id)"
                         )
+                        .hoverEffect(.highlight)
                     }
                 }
             }

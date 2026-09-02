@@ -155,6 +155,7 @@
 		5FCA983AF6092E382B71F58D /* BucketKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6ED093009BC913BE9E15B2 /* BucketKind.swift */; };
 		60447CF3B1E15722E78854EF /* LootListScreenshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CDF1B3CCF6974CB463FB5D /* LootListScreenshotTests.swift */; };
 		60574BA049549FCEA283D291 /* UserRole.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */; };
+		61115E2FFA0FA3EAA909E907 /* PriceExtractionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D49FD1EB8CBFBA07D298462 /* PriceExtractionService.swift */; };
 		6266CBBF01E51324720E6356 /* JourneyServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3A14024274BCCB6C894C00D /* JourneyServiceTests.swift */; };
 		6272985E626EA689C58792E3 /* DashboardMetricsCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 494D0857208062129CA6B5B1 /* DashboardMetricsCalculator.swift */; };
 		62A01E2B3B36E4332FE0477F /* LootListSchema.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80AA429949DE95170513B347 /* LootListSchema.swift */; };
@@ -461,6 +462,7 @@
 		0B7571FEBA3A3C7FFE33E5E1 /* HeroAvatarSprites+Knight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Knight.swift"; sourceTree = "<group>"; };
 		0C2BFED61930046789695A81 /* QuestLogViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestLogViewModel.swift; sourceTree = "<group>"; };
 		0C889F94A727717C18C246E9 /* AvatarCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarCardView.swift; sourceTree = "<group>"; };
+		0D49FD1EB8CBFBA07D298462 /* PriceExtractionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PriceExtractionService.swift; sourceTree = "<group>"; };
 		0EC244B5D8CE50F6598C27D6 /* HeroInterestMatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroInterestMatchView.swift; sourceTree = "<group>"; };
 		0F55961EF038C698EEF38952 /* QuestCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestCompletion.swift; sourceTree = "<group>"; };
 		0F750555385910A36899A9BE /* ApprovalMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalMode.swift; sourceTree = "<group>"; };
@@ -1027,6 +1029,7 @@
 				17F5D0DCF7DC5D866038A466 /* MockRecordStore.swift */,
 				7D26DFB71A9E49F5FB0F331E /* NetworkMonitor.swift */,
 				CD7309A7921898E5B1910AA9 /* NotificationService.swift */,
+				0D49FD1EB8CBFBA07D298462 /* PriceExtractionService.swift */,
 				FCE034F3C9A2772273ABDC48 /* QuestCompletionHelper.swift */,
 				793AE042C54685940F7C3EF1 /* QuestService.swift */,
 				6D31C4184B8F627D458937EC /* QuestService+Completions.swift */,
@@ -1907,6 +1910,7 @@
 				A26F81266B230B02484B4AFA /* PayoutStatus.swift in Sources */,
 				48E727264C32D159F773884F /* PixelCanvasView.swift in Sources */,
 				5D6666E73023754792CE57F9 /* PresetPill.swift in Sources */,
+				61115E2FFA0FA3EAA909E907 /* PriceExtractionService.swift in Sources */,
 				8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */,
 				2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */,
 				40646BE2CDF82664B3B2E032 /* ProfileAchievementCache.swift in Sources */,
@@ -2177,7 +2181,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.volcrypt.lootlist;
 				PRODUCT_NAME = LootList;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -2289,6 +2295,9 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -2323,7 +2332,9 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.volcrypt.lootlist;
 				PRODUCT_NAME = LootList;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -2388,6 +2399,9 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;

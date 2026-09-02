@@ -19,6 +19,7 @@ struct FamilyDashboardView: View {
     @Environment(AchievementService.self) private var achievementService
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showRolePicker: Bool = false
@@ -120,11 +121,7 @@ struct FamilyDashboardView: View {
                             .padding(.horizontal)
                         }
                         if let vm = viewModel {
-                            statCardsRow(vm: vm, scrollProxy: scrollProxy)
-                            childAccountsSection(vm: vm)
-                            depositWithdrawSection(vm: vm)
-                            pendingApprovalQueueSection()
-                            weeklySummarySection(summary: vm.weekSummary)
+                            dashboardContent(vm: vm, scrollProxy: scrollProxy)
                         } else {
                             loadingPlaceholder
                         }
@@ -195,6 +192,42 @@ struct FamilyDashboardView: View {
                 {
                     HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: child.displayName)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardContent(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
+        switch horizontalSizeClass {
+        case .regular:
+            VStack(spacing: 18) {
+                statCardsRow(vm: vm, scrollProxy: scrollProxy)
+                childAccountsSection(vm: vm)
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(spacing: 18) {
+                        depositWithdrawSection(vm: vm)
+                        weeklySummarySection(summary: vm.weekSummary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    pendingApprovalQueueSection()
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        case .compact, nil:
+            VStack(spacing: 18) {
+                statCardsRow(vm: vm, scrollProxy: scrollProxy)
+                childAccountsSection(vm: vm)
+                depositWithdrawSection(vm: vm)
+                pendingApprovalQueueSection()
+                weeklySummarySection(summary: vm.weekSummary)
+            }
+        @unknown default:
+            VStack(spacing: 18) {
+                statCardsRow(vm: vm, scrollProxy: scrollProxy)
+                childAccountsSection(vm: vm)
+                depositWithdrawSection(vm: vm)
+                pendingApprovalQueueSection()
+                weeklySummarySection(summary: vm.weekSummary)
             }
         }
     }
@@ -287,6 +320,7 @@ private extension FamilyDashboardView {
                 )
             }
             .buttonStyle(.plain)
+            .hoverEffect(.highlight)
         }
         .padding(.horizontal)
     }
@@ -307,10 +341,9 @@ private extension FamilyDashboardView {
             } else {
                 LazyVGrid(
                     columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
+                        GridItem(.adaptive(minimum: 180, maximum: 280), spacing: 14)
                     ],
-                    spacing: 12
+                    spacing: 14
                 ) {
                     ForEach(vm.childAccountCards) { card in
                         childAccountCard(card, vm: vm)
@@ -404,6 +437,7 @@ private extension FamilyDashboardView {
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                     .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
             )
+            .hoverEffect(.highlight)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("View \(card.profile.displayName)'s account")
