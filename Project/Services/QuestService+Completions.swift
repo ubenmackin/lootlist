@@ -88,8 +88,6 @@ extension QuestService {
             log = try await completeAutoApprove(log: log, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID)
         case .parentVerify:
             log = try await completeParentVerify(log: log, quest: quest, isFinalSubPart: isFinalSubPart, resolvedZoneID: resolvedZoneID)
-        default:
-            log = try await completeGeneric(log: log, resolvedZoneID: resolvedZoneID)
         }
         Task { await syncCoordinator.sendPendingChanges() }
         return log
@@ -170,8 +168,12 @@ extension QuestService {
     private func applyTransientFallbackCredit(log: inout QuestCompletion, quest: Quest, profile: Profile, resolvedZoneID: CKRecordZone.ID)
         async throws
     {
-        // swiftlint:disable:next discouraged_optional_try - transient fallback fetches cached logs best-effort; empty fallback preserves offline queue.
-        let logs = await (try? fetchQuestLogs(forQuest: quest, useCache: true)) ?? []
+        let logs: [QuestCompletion]
+        do {
+            logs = try await fetchQuestLogs(forQuest: quest, useCache: true)
+        } catch {
+            logs = []
+        }
         let approvedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }
         let priorApproved = approvedLogs.count
         let alreadyCounted = approvedLogs.contains { $0.id.recordName == log.id.recordName }
@@ -346,37 +348,6 @@ extension QuestService {
             throw error
         }
         dispatchParentReviewNotification(for: mutableLog, quest: quest)
-        return mutableLog
-    }
-
-    private func completeGeneric(log: QuestCompletion, resolvedZoneID: CKRecordZone.ID) async throws -> QuestCompletion {
-        let mutableLog = log
-        await cacheService.upsertQuestCompletion(mutableLog)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
-            syncCoordinator,
-            id: mutableLog.id,
-            appState: appState,
-            logger: logger,
-            context: "QuestService.completeQuest"
-        )
-        do {
-            _ = try await cloudKit.save(mutableLog, in: resolvedZoneID)
-        } catch {
-            if isTransientCompletionError(error) {
-                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
-                    syncCoordinator,
-                    id: mutableLog.id,
-                    appState: appState,
-                    logger: logger,
-                    context: "QuestService.completeQuest.transient"
-                )
-                toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
-                Task { await syncCoordinator.sendPendingChanges() }
-                return mutableLog
-            }
-            await cacheService.invalidate(recordName: mutableLog.id.recordName, family: mutableLog.family.recordID.recordName, type: .questCompletion)
-            throw error
-        }
         return mutableLog
     }
 

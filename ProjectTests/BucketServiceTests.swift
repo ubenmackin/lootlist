@@ -243,8 +243,8 @@ struct BucketServiceTests {
             cache.context?.insert(ProfileCache(from: guildMaster))
             cache.context?.insert(FamilyCache(from: family))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .family)
         }
 
         func seedEarned(goldReward: Double = 25.0) {
@@ -276,10 +276,10 @@ struct BucketServiceTests {
             cache.context?.insert(QuestCache(from: quest))
             cache.context?.insert(QuestCompletionCache(from: completion))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .quest)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .questCompletion)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .allowancePeriod)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .ledgerEntry)
         }
 
         func payOut() async throws -> AllowancePeriod {

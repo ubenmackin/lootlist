@@ -237,7 +237,7 @@ extension QuestServiceTests {
         )
 
         await cache.upsertQuests([cachedQuest])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         let activeQuests = try await questService.fetchActiveQuests(profile: hero, weekOf: monday)
 
@@ -298,7 +298,7 @@ extension QuestServiceTests {
         )
 
         await cache.upsertQuests([quest])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         let results = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: thursdayMidday)
 
@@ -364,7 +364,7 @@ extension QuestServiceTests {
         )
 
         await cache.upsertQuests([quest])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         let results = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: saturdayMidnight)
 
@@ -431,7 +431,7 @@ extension QuestServiceTests {
         )
 
         await cache.upsertQuests([quest])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         let results = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: fridayLastSecond)
 
@@ -508,7 +508,7 @@ extension QuestServiceTests {
             id: CKRecord.ID(recordName: "quest-out", zoneID: zoneID)
         )
         await cache.upsertQuests([inRangeQuest, outOfRangeQuest])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         let results = try await questService.fetchQuestsForFamilyWeek(family: family, weekOf: now)
 

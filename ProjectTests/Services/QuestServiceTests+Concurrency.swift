@@ -60,9 +60,9 @@ extension QuestServiceTests {
         let pending = scaffold.completion(status: .pending)
         await scaffold.cache.upsertQuestCompletion(pending)
         await scaffold.cache.upsertQuest(scaffold.quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
         scaffold.appState.currentProfile = scaffold.parent
 
         let questService = scaffold.questService
@@ -101,9 +101,9 @@ extension QuestServiceTests {
         let pending = scaffold.completion(status: .pending, recordName: "log-reject")
         await scaffold.cache.upsertQuestCompletion(pending)
         await scaffold.cache.upsertQuest(scaffold.quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
         scaffold.appState.currentProfile = scaffold.parent
 
         let questService = scaffold.questService
@@ -142,9 +142,9 @@ extension QuestServiceTests {
         let pending = scaffold.completion(status: .pending, recordName: "log-withdraw")
         await scaffold.cache.upsertQuestCompletion(pending)
         await scaffold.cache.upsertQuest(scaffold.quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
 
         let questService = scaffold.questService
         let hero = scaffold.hero

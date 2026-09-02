@@ -81,9 +81,9 @@ struct MatchServiceTests {
             cache.context?.insert(FamilyCache(from: family))
             cache.context?.insert(GoalCache(from: goal))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .family)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .ledgerEntry)
             appState.currentProfile = guildMaster
             appState.family = family
         }
@@ -375,7 +375,7 @@ struct MatchServiceTests {
         )
         sc.mock.seedMockRecords([goal2])
         await sc.cache.upsertGoal(goal2)
-        sc.cache.markCacheFresh(familyRecordName: sc.family.id.recordName, type: .ledgerEntry)
+        sc.cache.markCacheFreshForTests(familyRecordName: sc.family.id.recordName, type: .ledgerEntry)
 
         // Goal 1: $5.00 → $5.00 match (mtd = $5.00, remaining = $3.00)
         let e1 = try await sc.match.applyMatch(

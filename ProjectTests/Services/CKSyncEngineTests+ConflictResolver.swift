@@ -208,7 +208,7 @@ extension CKSyncEngineTests {
         #expect(ledgerManual.id.zoneID == zoneID)
 
         let achievementService = AchievementService(cloudKit: ck, cacheService: cache, appState: appState)
-        cache.markCacheFresh(familyRecordName: family.id.recordName, type: .achievement)
+        cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .achievement)
         try await achievementService.seedDefaultAchievements(family: family)
         let definitions = try await achievementService.fetchAllDefinitions(family: family)
         #expect(!definitions.isEmpty)

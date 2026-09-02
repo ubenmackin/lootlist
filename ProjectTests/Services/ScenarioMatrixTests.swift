@@ -642,10 +642,10 @@ struct ScenarioMatrixTests {
         )
         await sut.cache.upsertQuest(quest)
         await sut.cache.upsertQuestCompletions([completion])
-        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
-        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
-        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
-        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
+        sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .quest)
+        sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .questCompletion)
+        sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .allowancePeriod)
+        sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .ledgerEntry)
 
         // Real-time settlement: here the hero settles their own reward, so
         // the acting profile is the hero themself.
@@ -679,7 +679,7 @@ struct ScenarioMatrixTests {
         let hero = makeHero(idName: "hero1", displayName: "Removed Hero", zoneID: zoneID)
         await sut.cache.upsertFamily(family)
         await sut.cache.upsertProfile(hero)
-        sut.cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
+        sut.cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
         _ = try await sut.cloudKit.save(family)
         _ = try await sut.cloudKit.save(hero)
 

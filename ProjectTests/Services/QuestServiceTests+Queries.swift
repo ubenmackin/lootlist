@@ -57,9 +57,9 @@ extension QuestServiceTests {
 
         // A completed sync pass stamped this family's quest/profile/completion
         // caches as fresh, so verify's cache-first resolution is trusted.
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         // verify is parent-only — override the scaffold's default hero acting
         // session to the parent performing the verification.
@@ -154,9 +154,9 @@ extension QuestServiceTests {
         // from cache rather than a CloudKit fetch.
         await scaffold.cache.upsertQuest(scaffold.quest)
         await scaffold.cache.upsertProfile(scaffold.hero)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         // Rangers are parent roles and may verify completions.
         let ranger = Profile(

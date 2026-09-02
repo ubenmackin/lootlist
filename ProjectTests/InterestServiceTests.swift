@@ -73,9 +73,9 @@ struct InterestServiceTests {
             cache.context?.insert(ProfileCache(from: guildMaster))
             cache.context?.insert(FamilyCache(from: family))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .family)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .ledgerEntry)
             appState.currentProfile = guildMaster
             appState.family = family
         }

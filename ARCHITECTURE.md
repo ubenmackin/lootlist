@@ -234,7 +234,7 @@ Conflict resolution in `CKSyncConflictResolver` applies dedicated field/additive
 
 ### AR-004 — Event-Driven / Token-Based Freshness (hydration token authority, clock-skew eliminated)
 
-**Location:** `Project/Services/CacheService.swift:isCacheAuthoritative` now checks `isCacheFresh` existence only, with `freshnessMaximumAge` retained deprecated for ABI.
+**Location:** `Project/Services/CacheService.swift:isCacheAuthoritative` now checks `isCacheFresh` existence only.
 
 **Status:** ACCEPTED (intentional design, mitigated).
 

@@ -21,8 +21,8 @@ final class CacheService: CacheServicing {
 
     /// Single off-main writer for every cache mutation, built from this service's own container so
     /// app-level wiring can hand the same instance to the sync stack.
-    private nonisolated(unsafe) let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
-    private nonisolated(unsafe) let bootstrapLock = Mutex<Bool>(false)
+    private let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
+    private let bootstrapLock = Mutex<Bool>(false)
     var backgroundWriter: BackgroundCacheActor? {
         backgroundWriterLock.withLock { $0 }
     }
@@ -40,13 +40,6 @@ final class CacheService: CacheServicing {
 
     /// Version counter incremented on watermark changes to trigger SwiftUI cache recomputation.
     var freshnessVersion: Int = 0
-
-    // WHY: Hydration-token authority — cache is authoritative iff a successful sync/reconciliation
-    // stamped a watermark for this family/type/scope. No wall-clock comparison is performed so
-    // authority is immune to device clock skew; the TTL below is legacy retained for ABI only.
-    // Deprecated: legacy 3600s TTL retained for ABI — no longer consulted.
-    @available(*, deprecated, message: "Legacy wall-clock TTL — W6 hydrates via explicit stamping; retained for ABI only")
-    nonisolated static let freshnessMaximumAge: TimeInterval = 3600
 
     var context: ModelContext? {
         container?.mainContext
@@ -227,19 +220,6 @@ final class CacheService: CacheServicing {
 
     private static let freshnessKeyPrefix = "cache_fresh_"
 
-    // WHY: Unscoped overload stamps both scopes + legacy key — retained only as test helper;
-    // production paths must use the scoped overload to preserve explicit scope isolation
-    // and avoid cross-scope over-stamping.
-    /// Stamps freshness watermarks across database scopes for this family and type.
-    @available(*, deprecated, message: "Use scoped markCacheFresh(familyRecordName:type:scope:)")
-    func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
-        defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
-        for scope in [CKDatabase.Scope.private, .shared] {
-            defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
-        }
-        freshnessVersion &+= 1
-    }
-
     // WHY: Test-only stamping helper that preserves unscoped semantics (legacy + both scopes)
     // without surfacing deprecated-warning noise in CI when -warnings-as-errors is enabled;
     // production must use scoped overload.
@@ -249,6 +229,12 @@ final class CacheService: CacheServicing {
             defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
         }
         freshnessVersion &+= 1
+    }
+
+    func markCacheFreshForTests(familyRecordName: String, types: [CachedRecordType], at date: Date = Date()) {
+        for type in types {
+            markCacheFreshForTests(familyRecordName: familyRecordName, type: type, at: date)
+        }
     }
 
     /// Stamps freshness for record type in the specified database scope.
@@ -435,7 +421,7 @@ final class CacheService: CacheServicing {
         }
         // WHY: Deterministic resolution prefers the service's own container when present so
         // repeated calls are stable regardless of container ordering.
-        let resolved = (container != nil ? containers.first(where: { $0 === container! }) : nil) ?? containers.first
+        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
         _ = resolved
         markCacheFresh(familyRecordName: family, type: type, scope: scope)
     }
@@ -460,7 +446,7 @@ final class CacheService: CacheServicing {
         }
         // WHY: Deterministic resolution keeps DEBUG and RELEASE identical in outcome — the known
         // container is the service's own container when present, otherwise the first provided.
-        let resolved = (container != nil ? containers.first(where: { $0 === container! }) : nil) ?? containers.first
+        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
         _ = resolved
         for type in types {
             for scope in scopes where type.fetchScopes.contains(scope) {

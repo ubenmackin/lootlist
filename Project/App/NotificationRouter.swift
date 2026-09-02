@@ -43,12 +43,7 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
 
     /// Process-wide accessor forwarding to owned container instance when present.
     static var shared: NotificationRouter {
-        if Thread.isMainThread {
-            if let owned = MainActor.assumeIsolated({ AppDependencies.shared?.notificationRouter }) {
-                return owned
-            }
-        }
-        return _coldStartFallback
+        AppDependencies.shared?.notificationRouter ?? _coldStartFallback
     }
 
     /// Hands the retained cold-start route to the first consumer and clears it.
