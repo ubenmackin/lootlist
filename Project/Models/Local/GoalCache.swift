@@ -139,4 +139,8 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<GoalCache> {
         FetchDescriptor<GoalCache>(predicate: #Predicate { $0.recordName == recordName })
     }
+
+    static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<GoalCache> {
+        FetchDescriptor<GoalCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
 }

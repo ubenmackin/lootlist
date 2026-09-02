@@ -90,4 +90,8 @@ final class ProfileAchievementCache: FamilyScopedCache, CacheMergeable {
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<ProfileAchievementCache> {
         FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == recordName })
     }
+
+    static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<ProfileAchievementCache> {
+        FetchDescriptor<ProfileAchievementCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
 }

@@ -119,4 +119,8 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<AllowancePeriodCache> {
         FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == recordName })
     }
+
+    static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<AllowancePeriodCache> {
+        FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
 }

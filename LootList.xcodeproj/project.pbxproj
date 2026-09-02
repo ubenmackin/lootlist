@@ -126,6 +126,7 @@
 		50E39FEEA657632AB7AF960A /* QuestCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5860C6168028B967E157D8 /* QuestCardView.swift */; };
 		52A53EA19BB89D7C3EFCB445 /* CloudKitModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE5E3D8D810E51ADA1E99FB /* CloudKitModelTests.swift */; };
 		52FE085830E8699E665FCC4A /* TestEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF9C9A669EA50B98696C391D /* TestEnvironment.swift */; };
+		5371C6B963C8F7253A05EB88 /* SerialMutationQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15873D499621B5275204719 /* SerialMutationQueueTests.swift */; };
 		541165B4B56FB49890EC7709 /* QuestServiceTests+Withdrawal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0866C01AF70A428642CA539D /* QuestServiceTests+Withdrawal.swift */; };
 		55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B02119865F6610D00BD4F2A /* TabBarView.swift */; };
 		5610437EA38B06E7BFAD2A73 /* QuestCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4F535D727A65E8357A42F3 /* QuestCache.swift */; };
@@ -798,6 +799,7 @@
 		F05C7F77A257D1BA4B98C33B /* BucketAttributionParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BucketAttributionParityTests.swift; sourceTree = "<group>"; };
 		F0EB1B2B8B423B9762DF42F6 /* GemService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemService.swift; sourceTree = "<group>"; };
 		F0FBEC41B0AE56DCBA885072 /* AchievementServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AchievementServiceTests.swift; sourceTree = "<group>"; };
+		F15873D499621B5275204719 /* SerialMutationQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerialMutationQueueTests.swift; sourceTree = "<group>"; };
 		F1A9A7101EBC70CA783F90FC /* ScopedIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopedIdentityTests.swift; sourceTree = "<group>"; };
 		F2A3A5F8187EDF573AA7C593 /* JourneyZoneDecorations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyZoneDecorations.swift; sourceTree = "<group>"; };
 		F33C9B9CDE214B8BDBBE281D /* GoalServiceFIFOTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalServiceFIFOTests.swift; sourceTree = "<group>"; };
@@ -1187,6 +1189,7 @@
 				3358E19E128D97849CED8D7D /* RecordBridgeTests.swift */,
 				7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */,
 				F1A9A7101EBC70CA783F90FC /* ScopedIdentityTests.swift */,
+				F15873D499621B5275204719 /* SerialMutationQueueTests.swift */,
 				60E8122888D7243A795D93C5 /* SpendingServiceTests.swift */,
 				57E6DF9A305C00115C614D6E /* SpriteSnapshotRenderingTests.swift */,
 				713F91483330CBE92F807137 /* TreasuryServiceRealTimeTests.swift */,
@@ -2093,6 +2096,7 @@
 				6FB9B22B8861AE9F38FFE62C /* RecordBridgeTests.swift in Sources */,
 				C33DCB3037CB75202C0E828F /* ScenarioMatrixTests.swift in Sources */,
 				15F8E71427319512CC71C5EF /* ScopedIdentityTests.swift in Sources */,
+				5371C6B963C8F7253A05EB88 /* SerialMutationQueueTests.swift in Sources */,
 				35BD1002602CDCCF73F7965B /* SpendingServiceTests.swift in Sources */,
 				B332C3390E94185975D736AF /* SpriteSnapshotRenderingTests.swift in Sources */,
 				DCD15CF9101BFF6BA73DBBE7 /* StreakCalculatorTests.swift in Sources */,

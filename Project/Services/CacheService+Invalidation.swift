@@ -176,7 +176,7 @@ extension CacheService {
 
     func deleteByNameAndFamily<T: CacheMergeable & FamilyScopedCache>(_: T.Type, recordName: String, familyRecordName: String) {
         guard let context else { return }
-        let descriptor = FetchDescriptor<T>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+        let descriptor = T.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)
         do {
             let matches = try context.fetch(descriptor)
             for match in matches {

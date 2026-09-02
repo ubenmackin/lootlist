@@ -104,12 +104,8 @@ final class LinkMetadataService {
     private nonisolated static func loadImageURL(from provider: NSItemProvider) async -> URL? {
         if provider.canLoadObject(ofClass: URL.self) {
             return await withCheckedContinuation { continuation in
-                provider.loadObject(ofClass: URL.self) { object, _ in
-                    if let url = object as? URL {
-                        continuation.resume(returning: url)
-                    } else {
-                        continuation.resume(returning: nil)
-                    }
+                _ = provider.loadObject(ofClass: URL.self) { object, _ in
+                    continuation.resume(returning: object as? URL)
                 }
             }
         }

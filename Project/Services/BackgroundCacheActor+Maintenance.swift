@@ -217,7 +217,7 @@ extension BackgroundCacheActor {
         recordName: String,
         familyRecordName: String
     ) async {
-        let descriptor = FetchDescriptor<T>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+        let descriptor = T.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)
         do {
             let matches = try modelContext.fetch(descriptor)
             for match in matches {

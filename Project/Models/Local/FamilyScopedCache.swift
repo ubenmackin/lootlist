@@ -50,6 +50,9 @@ protocol CacheMergeable: PersistentModel {
 
     /// Returns a fetch descriptor scoped to the unique recordName key.
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<Self>
+
+    /// Returns a fetch descriptor scoped to both recordName and familyRecordName composite index.
+    static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<Self>
 }
 
 extension CacheMergeable {

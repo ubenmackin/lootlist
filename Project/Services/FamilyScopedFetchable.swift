@@ -8,9 +8,9 @@
 import Foundation
 import SwiftData
 
-/// Marker refinement of ``FamilyScopedCache`` for types that support the
+/// Marker refinement of ``FamilyScopedCache`` and ``CacheMergeable`` for types that support the
 /// generic family-scoped fetch helper ``CacheService/fetchAll(_:family:)-6aggr``.
-protocol FamilyScopedFetchable: FamilyScopedCache {}
+protocol FamilyScopedFetchable: FamilyScopedCache, CacheMergeable {}
 
 // MARK: - Conformances
 
