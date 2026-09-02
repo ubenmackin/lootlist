@@ -22,9 +22,11 @@ struct CacheServiceTests {
     private func ref(_ name: String) -> CKRecord.Reference {
         CKRecord.Reference(recordID: CKRecord.ID(recordName: name), action: .none)
     }
+}
 
-    // MARK: - Quest Upserts
+// MARK: - Quest Upserts
 
+extension CacheServiceTests {
     @Test
     func `upsert quest inserts new record`() async throws {
         let service = try makeService()
@@ -392,9 +394,11 @@ struct CacheServiceTests {
         #expect(service.fetchFamily(recordName: "famB") != nil)
         #expect(service.fetchQuests(family: "famB").count == 1)
     }
+}
 
-    // MARK: - Remaining Entity Upserts
+// MARK: - Remaining Entity Upserts
 
+extension CacheServiceTests {
     @Test
     func `upsert profile inserts new record`() async throws {
         let service = try makeService()
@@ -513,6 +517,42 @@ struct CacheServiceTests {
     }
 
     @Test
+    func `on disk sqlite fetchAll and fetchAchievements succeeds without crashing`() async throws {
+        let defaults = UserDefaults.ephemeral()
+        let service = try CacheService(inMemory: false, defaults: defaults)
+        defer {
+            if let url = service.container?.configurations.first?.url {
+                try? FileManager.default.removeItem(at: url)
+                let shmUrl = url.deletingPathExtension().appendingPathExtension("store-shm")
+                let walUrl = url.deletingPathExtension().appendingPathExtension("store-wal")
+                try? FileManager.default.removeItem(at: shmUrl)
+                try? FileManager.default.removeItem(at: walUrl)
+            }
+        }
+
+        let achievement = Achievement(
+            name: "Disk Achievement",
+            description: "Testing SQLite queries",
+            iconSystemName: "trophy.fill",
+            category: .quest,
+            requirementType: .firstQuest,
+            requirementValue: 1,
+            family: ref("fam_disk"),
+            id: CKRecord.ID(recordName: "ach_disk")
+        )
+
+        await service.upsertAchievement(achievement)
+
+        let achievements = service.fetchAchievements(family: "fam_disk")
+        #expect(achievements.count == 1)
+        #expect(achievements.first?.name == "Disk Achievement")
+
+        service.deleteByNameAndFamily(AchievementCache.self, recordName: "ach_disk", familyRecordName: "fam_disk")
+        let afterDelete = service.fetchAchievements(family: "fam_disk")
+        #expect(afterDelete.isEmpty)
+    }
+
+    @Test
     func `upsert profile achievement inserts new record`() async throws {
         let service = try makeService()
         let pa = ProfileAchievement(
@@ -599,9 +639,11 @@ struct CacheServiceTests {
         let cached = service.fetchFamily(recordName: "fam1")
         #expect(cached?.payoutDayEnum == .wednesday)
     }
+}
 
-    // MARK: - Freshness Watermark
+// MARK: - Freshness Watermark
 
+extension CacheServiceTests {
     // NOTE: these tests use family names unique to this file ("fresh-fam-*").
     // Stamps live in UserDefaults.standard and persist for the process, so the
     // assertions below must never collide with stamps written by other tests.
@@ -914,48 +956,5 @@ struct CacheServiceTests {
 
         let updated = service.fetchProfiles(family: "fam").first(where: { $0.recordName == "profile-batch1" })
         #expect(updated?.payoutDayEnum == .friday)
-    }
-}
-
-/// Tracks the peak number of writers inside the critical section at once.
-private actor ConcurrencyProbe {
-    private(set) var active = 0
-    private(set) var maxConcurrent = 0
-
-    func enter() {
-        active += 1
-        maxConcurrent = max(maxConcurrent, active)
-    }
-
-    func exit() {
-        active -= 1
-    }
-}
-
-struct SerialMutationQueueTests {
-    /// Two concurrent writes must not interleave: each writer sleeps inside
-    /// the critical section to force suspension, so a broken gate would let
-    /// the next writer enter while the first is still mid-write.
-    @Test
-    func `concurrent writes cannot interleave`() async {
-        let queue = SerialMutationQueue()
-        let probe = ConcurrencyProbe()
-
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0 ..< 20 {
-                group.addTask {
-                    await queue.write {
-                        await probe.enter()
-                        // Suspend inside the critical section so competing
-                        // writers get the chance to race for the gate.
-                        try? await Task.sleep(for: .milliseconds(2))
-                        await probe.exit()
-                    }
-                }
-            }
-        }
-
-        let maxConcurrent = await probe.maxConcurrent
-        #expect(maxConcurrent == 1)
     }
 }

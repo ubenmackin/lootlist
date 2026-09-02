@@ -147,4 +147,8 @@ final class QuestTemplateCache: FamilyScopedCache, CacheMergeable {
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<QuestTemplateCache> {
         FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.recordName == recordName })
     }
+
+    static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<QuestTemplateCache> {
+        FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.recordName == recordName && $0.familyRecordName == familyRecordName })
+    }
 }

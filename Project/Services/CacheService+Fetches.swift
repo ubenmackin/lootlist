@@ -28,15 +28,10 @@ extension CacheService {
 
     // MARK: - Generic helper
 
-    /// Generic fetch helper that handles the common fetch pattern.
-    func fetch<T: PersistentModel>(
-        _: T.Type,
-        predicate: Predicate<T>? = nil,
-        sortBy: [SortDescriptor<T>] = []
-    ) -> [T] {
+    /// Fetch helper accepting a pre-configured FetchDescriptor.
+    func fetch<T: PersistentModel>(_ descriptor: FetchDescriptor<T>) -> [T] {
         guard let context else { return [] }
         do {
-            let descriptor = FetchDescriptor<T>(predicate: predicate, sortBy: sortBy)
             return try context.fetch(descriptor)
         } catch {
             Self.fetchLogger.error("Failed to fetch \(String(describing: T.self), privacy: .private): \(error, privacy: .private)")
@@ -44,16 +39,20 @@ extension CacheService {
         }
     }
 
-    /// Fail-closed variant of `fetch`: returns `nil` when the cache context is unavailable or the
-    /// underlying fetch throws, instead of collapsing the failure into an empty array.
-    func tryFetch<T: PersistentModel>(
+    /// Generic fetch helper that handles the common fetch pattern.
+    func fetch<T: PersistentModel>(
         _: T.Type,
         predicate: Predicate<T>? = nil,
         sortBy: [SortDescriptor<T>] = []
-    ) -> [T]? {
+    ) -> [T] {
+        fetch(FetchDescriptor<T>(predicate: predicate, sortBy: sortBy))
+    }
+
+    /// Fail-closed variant of `fetch`: returns `nil` when the cache context is unavailable or the
+    /// underlying fetch throws, instead of collapsing the failure into an empty array.
+    func tryFetch<T: PersistentModel>(_ descriptor: FetchDescriptor<T>) -> [T]? {
         guard let context else { return nil }
         do {
-            let descriptor = FetchDescriptor<T>(predicate: predicate, sortBy: sortBy)
             return try context.fetch(descriptor)
         } catch {
             Self.fetchLogger.error("Failed to fetch \(String(describing: T.self), privacy: .private): \(error, privacy: .private)")
@@ -61,30 +60,41 @@ extension CacheService {
         }
     }
 
+    /// Overload of `tryFetch` accepting an explicit type, predicate, and sort descriptors.
+    func tryFetch<T: PersistentModel>(
+        _: T.Type,
+        predicate: Predicate<T>? = nil,
+        sortBy: [SortDescriptor<T>] = []
+    ) -> [T]? {
+        tryFetch(FetchDescriptor<T>(predicate: predicate, sortBy: sortBy))
+    }
+
     /// Fetches every record of `T`, optionally scoped to a single family and sorted by `sortBy`.
-    func familyScopedFetch<T: FamilyScopedCache>(
-        _ type: T.Type,
+    func familyScopedFetch<T: FamilyScopedFetchable>(
+        _: T.Type,
         family: String?,
         sortBy: [SortDescriptor<T>] = []
     ) -> [T] {
         guard let family = guardFamily(family) else { return [] }
-        let predicate: Predicate<T> = #Predicate<T> { $0.familyRecordName == family }
-        return fetch(type, predicate: predicate, sortBy: sortBy)
+        var descriptor = T.fetchDescriptor(familyRecordName: family)
+        descriptor.sortBy = sortBy
+        return fetch(descriptor)
     }
 
     /// Generic FamilyScoped fetch helper — single predicate source for every
     /// family-scoped cache read. Reduces per-type boilerplate; future cached
     /// types get fetch for free by conforming to ``FamilyScopedFetchable``.
-    func fetchAll<T: FamilyScopedFetchable>(_ type: T.Type, family: String) -> [T] {
+    func fetchAll<T: FamilyScopedFetchable>(_: T.Type, family: String) -> [T] {
         guard let family = guardFamily(family) else { return [] }
-        return fetch(type, predicate: #Predicate { $0.familyRecordName == family })
+        return fetch(T.fetchDescriptor(familyRecordName: family))
     }
 
     /// Sorted overload for call sites that require deterministic ordering.
-    func fetchAll<T: FamilyScopedFetchable>(_ type: T.Type, family: String, sortBy: [SortDescriptor<T>]) -> [T] {
+    func fetchAll<T: FamilyScopedFetchable>(_: T.Type, family: String, sortBy: [SortDescriptor<T>]) -> [T] {
         guard let family = guardFamily(family) else { return [] }
-        let predicate: Predicate<T> = #Predicate<T> { $0.familyRecordName == family }
-        return fetch(type, predicate: predicate, sortBy: sortBy)
+        var descriptor = T.fetchDescriptor(familyRecordName: family)
+        descriptor.sortBy = sortBy
+        return fetch(descriptor)
     }
 
     // MARK: - Public fetch API

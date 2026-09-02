@@ -80,8 +80,8 @@ enum RecordBridge {
 
     /// Generic helper — single predicate source for existence checks.
     /// Returns `.stillPresent` if a row exists, `nil` if absent, `.unknown` if the fetch threw.
-    private static func fetchExists(_ type: (some CacheMergeable & PersistentModel).Type, name: String, cacheService: CacheService) -> DeletionCheckResult? {
-        guard let rows = cacheService.tryFetch(type, predicate: #Predicate { $0.recordName == name }) else {
+    private static func fetchExists(_ type: (some CacheMergeable).Type, name: String, cacheService: CacheService) -> DeletionCheckResult? {
+        guard let rows = cacheService.tryFetch(type.fetchDescriptor(recordName: name)) else {
             return .unknown
         }
         return rows.first != nil ? .stillPresent : nil

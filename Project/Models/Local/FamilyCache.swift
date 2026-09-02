@@ -116,4 +116,8 @@ final class FamilyCache: CacheMergeable {
     static func fetchDescriptor(recordName: String) -> FetchDescriptor<FamilyCache> {
         FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })
     }
+
+    static func fetchDescriptor(recordName: String, familyRecordName _: String) -> FetchDescriptor<FamilyCache> {
+        FetchDescriptor<FamilyCache>(predicate: #Predicate { $0.recordName == recordName })
+    }
 }

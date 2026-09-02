@@ -41,9 +41,9 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
     /// Fallback for cold-start before AppDependencies is initialized.
     private static let _coldStartFallback = NotificationRouter()
 
-    /// Process-wide accessor forwarding to owned container instance when present.
     // WHY: Explicit @MainActor annotation confirms compile-time isolation matching AppDependencies.shared;
     // UI callers (e.g. TabBarView) access synchronously on MainActor, while off-main callers must await.
+    /// Process-wide accessor forwarding to owned container instance when present.
     @MainActor
     static var shared: NotificationRouter {
         AppDependencies.shared?.notificationRouter ?? _coldStartFallback
