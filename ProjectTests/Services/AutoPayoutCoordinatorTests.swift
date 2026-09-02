@@ -87,7 +87,7 @@ struct AutoPayoutCoordinatorTests {
         cache.context?.insert(ProfileCache(from: heroProfile))
         _ = cache.saveContext()
 
-        cache.markCacheFresh(familyRecordName: familyObj.id.recordName, type: .profile)
+        cache.markCacheFreshForTests(familyRecordName: familyObj.id.recordName, type: .profile)
 
         let coordinator = AutoPayoutCoordinator(
             treasuryService: treasury,
@@ -134,7 +134,7 @@ struct AutoPayoutCoordinatorTests {
             paidPeriod.paidDate = now
             await ctx.cache.upsertAllowancePeriod(paidPeriod)
         }
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
 
         let count = await ctx.coordinator.processPendingPayoutsIfDue(now: now)
 
@@ -208,7 +208,7 @@ struct AutoPayoutCoordinatorTests {
         )
         await ctx.cache.upsertQuest(pastQuest)
         _ = try await ctx.cloudKit.save(pastQuest)
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .quest)
 
         let swept = try await ctx.questService.sweepExpiredQuests(family: ctx.family, currentWeekOf: currentWeek)
 
@@ -268,7 +268,7 @@ struct AutoPayoutCoordinatorTests {
         )
         await ctx.cache.upsertQuest(currentQuest)
         _ = try await ctx.cloudKit.save(currentQuest)
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .quest)
 
         let swept = try await ctx.questService.sweepExpiredQuests(family: ctx.family, currentWeekOf: currentWeek)
 
@@ -339,7 +339,7 @@ struct AutoPayoutCoordinatorTests {
         )
         await ctx.cache.upsertQuest(quest)
         _ = try await ctx.cloudKit.save(quest)
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .quest)
         return template
     }
 
@@ -424,7 +424,7 @@ struct AutoPayoutCoordinatorTests {
         )
         await ctx.cache.upsertQuest(quest)
         _ = try await ctx.cloudKit.save(quest)
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .quest)
 
         _ = await ctx.coordinator.processPendingPayoutsIfDue(now: currentWeek)
 
@@ -756,9 +756,9 @@ struct AutoPayoutCoordinatorTests {
             id: CKRecord.ID(recordName: "period-payout-cutoff", zoneID: ctx.family.id.zoneID)
         )
         await ctx.cache.upsertAllowancePeriod(period)
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .quest)
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .questCompletion)
-        ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .quest)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .questCompletion)
+        ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: .allowancePeriod)
 
         let nextMondayNoon = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 12, minute: 0)))
 
@@ -842,7 +842,7 @@ extension AutoPayoutCoordinatorTests {
         _ = ctx.cache.saveContext()
 
         for type in [CachedRecordType.quest, .questCompletion, .allowancePeriod, .ledgerEntry] {
-            ctx.cache.markCacheFresh(familyRecordName: ctx.family.id.recordName, type: type)
+            ctx.cache.markCacheFreshForTests(familyRecordName: ctx.family.id.recordName, type: type)
         }
     }
 

@@ -94,9 +94,3 @@ actor KeyedAsyncLock {
         }
     }
 }
-
-/// RPG-gated alias — GemService gem mutations are behind `FeatureFlags.rpgImmersive`.
-/// Retained per ARCHITECTURE.md §6 (RPG layer hidden, never deleted) so existing GemService
-/// call sites keep compiling. Prefer `KeyedAsyncLock` directly for new code.
-@available(*, deprecated, message: "Use KeyedAsyncLock directly. GemLock is retained for RPG-gated GemService compat behind FeatureFlags.rpgImmersive.")
-typealias GemLock = KeyedAsyncLock

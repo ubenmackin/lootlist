@@ -181,7 +181,7 @@ struct TreasuryServiceTests {
         await cache.upsertQuestCompletions([completion])
         // A completed sync pass stamped this family's completion cache fresh,
         // so weeklyBreakdown's cache-first gates trust the partial cache.
-        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
 
@@ -288,7 +288,7 @@ struct TreasuryServiceTests {
         await cache.upsertQuest(controlQuest)
         await cache.upsertQuest(boundaryQuest)
         await cache.upsertQuestCompletions([controlCompletion, boundaryCompletion])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
 
@@ -383,8 +383,8 @@ struct TreasuryServiceTests {
         await cache.upsertQuest(quest1)
         await cache.upsertQuest(quest2)
         await cache.upsertQuestCompletions([completion1])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         let breakdown = try await treasury.weeklyBreakdown(profile: profile, family: family, weekOf: monday)
 
@@ -520,8 +520,8 @@ struct TreasuryServiceTests {
             cache.context?.insert(ProfileCache(from: guildMaster))
             cache.context?.insert(FamilyCache(from: family))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .family)
         }
 
         /// Seeds one completed quest in the fixture week so a payout settles.
@@ -555,7 +555,7 @@ struct TreasuryServiceTests {
             cache.context?.insert(QuestCompletionCache(from: completion))
             _ = cache.saveContext()
             for type in [CachedRecordType.quest, .questCompletion, .allowancePeriod, .ledgerEntry] {
-                cache.markCacheFresh(familyRecordName: family.id.recordName, type: type)
+                cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: type)
             }
         }
 

@@ -114,10 +114,10 @@ extension TreasuryServiceTests {
         await cache.upsertProfile(hero)
         await cache.upsertProfile(guildMaster)
         await cache.upsertFamily(family)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .family)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .ledgerEntry)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .family)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .ledgerEntry)
 
         let monday = WeekMath.mondayOfWeek(for: Date())
         let questID = CKRecord.ID(recordName: "quest1", zoneID: zoneID)
@@ -279,8 +279,8 @@ extension TreasuryServiceTests {
         cloudKit.seedMockRecords([targetHero, family, quest, completion])
         await cache.upsertQuest(quest)
         await cache.upsertQuestCompletions([completion])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
 
         // Parent-verified quests settle on the hero's behalf with parent acting profile.
         let result = try await treasury.processRealTimeSettlement(
@@ -439,7 +439,7 @@ extension TreasuryServiceTests {
         )
         await cache.upsertQuest(quest)
         await cache.upsertQuestCompletions([completion])
-        cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         // Hero self-settlement: the acting profile matches the target.
         appState.currentProfile = hero
@@ -648,11 +648,11 @@ extension TreasuryServiceTests {
         await cache.upsertQuest(quest)
         await cache.upsertQuestCompletions([completion])
         await cache.upsertLedgerEntry(bonus)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .profile)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .family)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .quest)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .questCompletion)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .ledgerEntry)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .profile)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .family)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .ledgerEntry)
 
         let period = AllowancePeriod(
             weekOf: monday,
@@ -761,11 +761,11 @@ extension TreasuryServiceTests {
         await cache.upsertQuest(quest)
         await cache.upsertQuestCompletions([completion])
         await cache.upsertLedgerEntry(bonus)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .profile)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .family)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .quest)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .questCompletion)
-        cache.markCacheFresh(familyRecordName: familyID.recordName, type: .ledgerEntry)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .profile)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .family)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .questCompletion)
+        cache.markCacheFreshForTests(familyRecordName: familyID.recordName, type: .ledgerEntry)
 
         let breakdown = try await treasury.weeklyBreakdown(profile: hero,
                                                            family: family,

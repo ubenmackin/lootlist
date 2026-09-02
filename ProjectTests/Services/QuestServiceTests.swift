@@ -195,8 +195,8 @@ struct QuestServiceTests {
         cloudKit.seedMockRecords([deviceA.quest, hero])
         await deviceA.cache.upsertProfile(hero)
         await deviceB.cache.upsertProfile(hero)
-        deviceA.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        deviceA.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        deviceB.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         _ = try await deviceA.questService.markComplete(quest: deviceA.quest, by: hero)
         let cachedA = deviceA.cache.fetchProfile(recordName: hero.id.recordName, family: "fam1")
@@ -348,15 +348,15 @@ struct QuestServiceTests {
         hero.level = 1
         await deviceA.cache.upsertProfile(hero)
         await deviceB.cache.upsertProfile(hero)
-        deviceA.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
-        deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        deviceA.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
+        deviceB.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         _ = try await deviceA.questService.markComplete(quest: deviceA.quest, by: hero)
 
         var questB = deviceB.quest
         questB.xpBanked = 100
         await deviceB.cache.upsertQuest(questB)
-        deviceB.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        deviceB.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
         var heroB = hero
         heroB.xp = 100
         await deviceB.cache.upsertProfile(heroB)
@@ -423,7 +423,7 @@ struct QuestServiceTests {
             CachedRecordType.profile,
             CachedRecordType.questCompletion
         ] {
-            scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: type)
+            scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: type)
         }
 
         scaffold.appState.currentProfile = scaffold.parent
@@ -592,7 +592,7 @@ struct QuestServiceTests {
             CachedRecordType.profile,
             CachedRecordType.questCompletion
         ] {
-            scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: type)
+            scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: type)
         }
 
         scaffold.appState.currentProfile = scaffold.parent
@@ -657,7 +657,7 @@ struct QuestServiceTests {
         #expect(!quests.isEmpty)
         #expect(spy.hydrateCallCount == before + 1, "fetchActiveQuests should hydrate exactly once via single-save batch")
         // Subsequent cache-hit read must not re-hydrate.
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
         let cached = try await scaffold.questService.fetchActiveQuests(profile: scaffold.hero, weekOf: scaffold.quest.weekOf)
         #expect(!cached.isEmpty)
         #expect(spy.hydrateCallCount == before + 1, "Cache-hit must not trigger additional hydrate")

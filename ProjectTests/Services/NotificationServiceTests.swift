@@ -106,7 +106,7 @@ struct NotificationServiceTests {
 
         // A completed sync pass stamped this family's preference cache fresh,
         // so the canonical read trusts the cached row (not just the mirror).
-        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
 
         // The canonical read path now reflects the cached value.
         #expect(service.isNotificationEnabled(for: .questAssigned) == true)
@@ -154,7 +154,7 @@ struct NotificationServiceTests {
         await backgroundCache.batchUpsertNotificationPreferences([remote])
         // SyncEngine stamps freshness after a successful sync pass — model that
         // here so the read-first gate trusts the remotely-written row.
-        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
 
         // Next read picks up the remotely-written value — proving the cache
         // (not UserDefaults) is the read source for a populated, fresh row.
@@ -460,7 +460,7 @@ struct NotificationServiceTests {
             id: CKRecord.ID(recordName: "pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
         )
         await cache.upsertNotificationPreference(pref)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 
@@ -637,7 +637,7 @@ struct NotificationServiceTests {
             id: CKRecord.ID(recordName: "pref-parent1-fam1-questNeedsReview", zoneID: zoneID)
         )
         await cache.upsertNotificationPreference(pref)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .notificationPreference)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .notificationPreference)
 
         let service = NotificationService(cloudKit: ck, appState: app, cacheService: cache, defaults: defaults)
 

@@ -129,7 +129,7 @@ struct QuestServiceSweepTests {
         let pastWeek = try #require(cal.date(byAdding: .day, value: -7, to: currentWeek))
 
         await seedQuest(cache, family: family, hero: hero, parent: parent, weekOf: pastWeek, recordName: "past-quest-defer")
-        cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .quest)
 
         // Paid period exists in cache would allow sweep, but we force the
         // stale-cache path by invalidating freshness so the service must query CloudKit.
@@ -172,7 +172,7 @@ struct QuestServiceSweepTests {
         let pastWeek = try #require(cal.date(byAdding: .day, value: -7, to: currentWeek))
 
         await seedQuest(cache, family: family, hero: hero, parent: parent, weekOf: pastWeek, recordName: "past-quest-active")
-        cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
+        cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .quest)
 
         // Stale cache path — paid period lives only in CloudKit mock, query succeeds.
         cache.invalidateFreshness(familyRecordName: family.id.recordName, type: .allowancePeriod)

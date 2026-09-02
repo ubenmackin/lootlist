@@ -36,7 +36,7 @@ extension QuestServiceTests {
         var quest = scaffold.quest
         quest.name = nil
         await scaffold.cache.upsertQuest(quest)
-        scaffold.cache.markCacheFresh(familyRecordName: scaffold.familyRef.recordID.recordName, type: .quest)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: scaffold.familyRef.recordID.recordName, type: .quest)
 
         cloudKit.readCallCount = 0
 
@@ -84,7 +84,7 @@ extension QuestServiceTests {
         hero.level = 1
         await scaffold.cache.upsertProfile(hero)
         cloudKit.seedMockRecords([scaffold.quest, hero])
-        scaffold.cache.markCacheFresh(familyRecordName: "fam1", type: .questCompletion)
+        scaffold.cache.markCacheFreshForTests(familyRecordName: "fam1", type: .questCompletion)
 
         let resolver = CKSyncConflictResolver(cacheService: scaffold.cache, appState: scaffold.appState)
         let delegate = CKSyncEngineDelegateHandler(conflictResolver: resolver, cacheService: scaffold.cache, appState: scaffold.appState)
@@ -173,7 +173,7 @@ extension QuestServiceTests {
             CachedRecordType.quest,
             CachedRecordType.questCompletion
         ] {
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: type)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: type)
         }
         cloudKit.seedMockRecords([hero])
         appState.currentProfile = hero

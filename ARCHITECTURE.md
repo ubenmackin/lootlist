@@ -36,7 +36,7 @@ Domain rules agents must not misinterpret:
   - Conflict merge semantics are FROZEN: quest banked XP max-merge capped at xpReward; Profile XP additive vs lastSyncedXP baseline with max-floor fallback; xpCredited non-nil preserve; AllowancePeriod uses monotonic-advance merge (highest-rank status wins) rather than strict server authority, and paidDate uses server-preferred-with-client-fallback, with client-wins display overlays. Changes require architecture review. Hero Board claim races resolve via standard server-wins conflict resolution (loser's ingest reveals the other claimer).
   - Services and AppState depend on `any CloudKitServiceProtocol` (narrower seams exist where useful). Do not concrete-type CloudKit dependencies.
    - UserDefaults is device-local only: session keys, migration flags, freshness watermarks, `FeatureFlags.rpgImmersive`, badge/icon eligibility. NEVER authoritative cross-device domain data (balances, counters, credits).
-     - Cache reads are freshness-only authoritative: `CacheService.isCacheAuthoritative(familyRecordName:type:scope:)` returns true iff a freshness watermark exists for the family/type/scope and is ≤ 3600s old (`CacheService.freshnessMaximumAge`); stale cache — even non-empty — is never authoritative and must re-validate via CloudKit. Offline or cold-start fallback rendering is handled explicitly at call sites (FamilyService-style), not hidden in the authoritative predicate.
+      - Cache reads are freshness-only authoritative: `CacheService.isCacheAuthoritative(familyRecordName:type:scope:)` returns true iff a hydration watermark exists for the family/type/scope (`isCacheFresh`); no wall-clock TTL. Stale cache — even non-empty — is never authoritative until re-hydrated or explicitly invalidated. Offline fallback renders hydrated cache instantly; background `CKSyncEngine` reconciles deltas.
    - Every screen supports light AND dark mode via semantic design tokens (`DesignSystemConstants` / asset-catalog colors such as `gold.colorset`). No hardcoded colors in views.
 
 ## 3. Directory Structure & Component Roles
@@ -232,14 +232,14 @@ Conflict resolution in `CKSyncConflictResolver` applies dedicated field/additive
 
 **Security-audit directive:** Server-wins conflict resolution for secondary records is accepted risk and intentional; do not classify the absence of multi-device client-wins field merging for secondary entities as a defect.
 
-### AR-004 — Freshness watermark wall-clock TTL (CacheService.isCacheAuthoritative)
+### AR-004 — Event-Driven / Token-Based Freshness (hydration token authority, clock-skew eliminated)
 
-**Location:** `Project/Services/CacheService.swift:253-261` — `isCacheAuthoritative` checks `Date().timeIntervalSince(date)` against `freshnessMaximumAge (3600s)` with defensive `interval >= 0 && interval <= freshnessMaximumAge`.
+**Location:** `Project/Services/CacheService.swift:isCacheAuthoritative` now checks `isCacheFresh` existence only.
 
 **Status:** ACCEPTED (intentional design, mitigated).
 
-- Freshness watermarks are `Date` values in `UserDefaults` (`cache_fresh_*`), evaluated with wall-clock `Date()`. A monotonic alternative (`CFAbsoluteTimeGetCurrent` / `ProcessInfo.systemUptime`) was considered but rejected: monotonic uptime does not survive app relaunches or device reboots without persisted boot anchors and adds complexity for marginal gain.
-- Clock skew forward (>1h) makes a fresh watermark appear stale and forces an unnecessary CloudKit re-query. Clock skew backward makes a stale watermark appear fresh and would serve stale cache as authoritative; this is now clamped by the defensive `interval >= 0` guard which treats any negative interval (future-dated watermark) as stale and forces re-validation.
-- Blast radius is therefore bounded to an extra CloudKit round-trip (forward skew) vs. bounded staleness within the 1-hour window (mitigated backward skew) — never silent permanent divergence or data loss.
+- Hydration is stamped in `CKSyncEngineCoordinator.completeSyncPass()` / `stampFreshness(for:scopes:)` after a successful fetch across active scopes with zero parse/cache-write failures.
+- Invalidation occurs only via explicit events: `CKSyncConflictResolver` server-wins revert, `CKSyncEngineDelegateHandler` fetch/zone failure, and family purge/sign-out/zone switch.
+- Blast radius: hydrated cache is authoritative regardless of device clock movement (+/- any interval); forward/backward skew no longer forces stale or masks staleness. Prior wall-clock TTL rationale and the `interval >= 0` guard are retired.
 
-**Security-audit directive:** A finding that merely restates the wall-clock skew blast radius of the freshness TTL WITHOUT introducing a new, concrete, in-scope exploit OR a concrete persisted-monotonic design change must be classified as a NON-FINDING and must NOT fail the gate.
+**Security-audit directive:** A finding that merely restates the clock-skew blast radius WITHOUT introducing a new, concrete, in-scope exploit must be classified as a NON-FINDING and must NOT fail the gate, because skew is eliminated under the hydration-token model.

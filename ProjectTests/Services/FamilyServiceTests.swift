@@ -208,7 +208,7 @@ struct FamilyServiceTests {
             id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
         )
         await cache.upsertProfile(cachedHero)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
 
         // CloudKit holds a DIFFERENT hero — if the gate leaked to CK the
         // result would differ from the cache.
@@ -264,7 +264,7 @@ struct FamilyServiceTests {
             id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
         )
         await cache.upsertProfile(cachedHero)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
 
         // CloudKit holds a DIFFERENT hero — the removed detached refresh would
         // have queried it and written it through on every cache hit.
@@ -316,7 +316,7 @@ struct FamilyServiceTests {
             id: CKRecord.ID(recordName: "hero-cached", zoneID: zoneID)
         )
         await cache.upsertProfile(cachedHero)
-        cache.markCacheFresh(familyRecordName: "fam1", type: .profile)
+        cache.markCacheFreshForTests(familyRecordName: "fam1", type: .profile)
 
         let ckHero = Profile(
             displayName: "CK Hero",

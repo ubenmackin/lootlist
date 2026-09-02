@@ -21,8 +21,8 @@ final class CacheService: CacheServicing {
 
     /// Single off-main writer for every cache mutation, built from this service's own container so
     /// app-level wiring can hand the same instance to the sync stack.
-    private nonisolated(unsafe) let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
-    private nonisolated(unsafe) let bootstrapLock = Mutex<Bool>(false)
+    private let backgroundWriterLock = Mutex<BackgroundCacheActor?>(nil)
+    private let bootstrapLock = Mutex<Bool>(false)
     var backgroundWriter: BackgroundCacheActor? {
         backgroundWriterLock.withLock { $0 }
     }
@@ -40,11 +40,6 @@ final class CacheService: CacheServicing {
 
     /// Version counter incremented on watermark changes to trigger SwiftUI cache recomputation.
     var freshnessVersion: Int = 0
-
-    // WHY: Staleness ceiling only needs to cover the normal foreground-catch-up window, yet remain
-    // short enough that a backgrounded device which dropped a throttled silent push re-validates on
-    // next foreground. One hour is a conservative default; a single named constant keeps tuning trivial.
-    nonisolated static let freshnessMaximumAge: TimeInterval = 3600
 
     var context: ModelContext? {
         container?.mainContext
@@ -225,19 +220,6 @@ final class CacheService: CacheServicing {
 
     private static let freshnessKeyPrefix = "cache_fresh_"
 
-    // WHY: Unscoped overload stamps both scopes + legacy key — retained only as test helper;
-    // production paths must use the scoped overload to preserve explicit scope isolation
-    // and avoid cross-scope over-stamping.
-    /// Stamps freshness watermarks across database scopes for this family and type.
-    @available(*, deprecated, message: "Use scoped markCacheFresh(familyRecordName:type:scope:)")
-    func markCacheFresh(familyRecordName: String, type: CachedRecordType, at date: Date = Date()) {
-        defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type))
-        for scope in [CKDatabase.Scope.private, .shared] {
-            defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
-        }
-        freshnessVersion &+= 1
-    }
-
     // WHY: Test-only stamping helper that preserves unscoped semantics (legacy + both scopes)
     // without surfacing deprecated-warning noise in CI when -warnings-as-errors is enabled;
     // production must use scoped overload.
@@ -247,6 +229,12 @@ final class CacheService: CacheServicing {
             defaults.set(date, forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope))
         }
         freshnessVersion &+= 1
+    }
+
+    func markCacheFreshForTests(familyRecordName: String, types: [CachedRecordType], at date: Date = Date()) {
+        for type in types {
+            markCacheFreshForTests(familyRecordName: familyRecordName, type: type, at: date)
+        }
     }
 
     /// Stamps freshness for record type in the specified database scope.
@@ -281,22 +269,12 @@ final class CacheService: CacheServicing {
         defaults.object(forKey: freshnessKey(familyRecordName: familyRecordName, type: type, scope: scope)) as? Date
     }
 
-    /// Authoritative freshness check: cached data is served only when a freshness watermark exists
-    /// and is still within the staleness window.
+    /// Authoritative freshness check: hydration token existence determines authority.
     func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool {
         _ = freshnessVersion
-        // WHY: Wall-clock dependence is accepted after considering monotonic alternatives
-        // (CFAbsoluteTimeGetCurrent / ProcessInfo.systemUptime). Forward skew (>1h) makes a fresh
-        // watermark appear stale and forces an unnecessary CloudKit query; backward skew makes a
-        // stale watermark appear fresh and would serve stale cache as authoritative. The defensive
-        // `interval >= 0` guard clamps backward skew to stale (forcing re-validation) so blast
-        // radius is bounded to an extra round-trip vs. bounded staleness — monotonic uptime was
-        // rejected because it does not survive relaunches/reboots without persisted anchors.
-        guard let date = freshnessDate(familyRecordName: familyRecordName, type: type, scope: scope) else {
-            return false
-        }
-        let interval = Date().timeIntervalSince(date)
-        return interval >= 0 && interval <= Self.freshnessMaximumAge
+        // WHY: Hydration token authority — authoritative iff a successful sync/reconciliation stamped
+        // a watermark for this family/type/scope; immune to device clock skew because no Date() comparison is performed.
+        return isCacheFresh(familyRecordName: familyRecordName, type: type, scope: scope)
     }
 
     // WHY: Scope-encapsulated staleness check — loops private/shared internally so Views never import CloudKit
@@ -443,7 +421,7 @@ final class CacheService: CacheServicing {
         }
         // WHY: Deterministic resolution prefers the service's own container when present so
         // repeated calls are stable regardless of container ordering.
-        let resolved = (container != nil ? containers.first(where: { $0 === container! }) : nil) ?? containers.first
+        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
         _ = resolved
         markCacheFresh(familyRecordName: family, type: type, scope: scope)
     }
@@ -468,7 +446,7 @@ final class CacheService: CacheServicing {
         }
         // WHY: Deterministic resolution keeps DEBUG and RELEASE identical in outcome — the known
         // container is the service's own container when present, otherwise the first provided.
-        let resolved = (container != nil ? containers.first(where: { $0 === container! }) : nil) ?? containers.first
+        let resolved = container.flatMap { known in containers.first(where: { $0 === known }) } ?? containers.first
         _ = resolved
         for type in types {
             for scope in scopes where type.fetchScopes.contains(scope) {

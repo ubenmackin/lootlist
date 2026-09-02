@@ -70,8 +70,8 @@ struct TreasuryServiceRealTimeTests {
             cache.context?.insert(ProfileCache(from: profile))
             cache.context?.insert(FamilyCache(from: family))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .family)
             appState.currentProfile = profile
         }
 
@@ -114,10 +114,10 @@ struct TreasuryServiceRealTimeTests {
             cache.context?.insert(QuestCache(from: quest(goldReward: goldReward)))
             cache.context?.insert(QuestCompletionCache(from: completion()))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .questCompletion)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .allowancePeriod)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .ledgerEntry)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .quest)
         }
 
         func settle() async throws -> AllowancePeriod? {
@@ -275,8 +275,8 @@ struct TreasuryServiceRealTimeTests {
             cache.context?.insert(ProfileCache(from: guildMaster))
             cache.context?.insert(FamilyCache(from: family))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .profile)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .family)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .profile)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .family)
             appState.currentProfile = hero
         }
 
@@ -311,10 +311,10 @@ struct TreasuryServiceRealTimeTests {
             cache.context?.insert(QuestCache(from: quest))
             cache.context?.insert(QuestCompletionCache(from: completion))
             _ = cache.saveContext()
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .quest)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .questCompletion)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .allowancePeriod)
-            cache.markCacheFresh(familyRecordName: family.id.recordName, type: .ledgerEntry)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .quest)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .questCompletion)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .allowancePeriod)
+            cache.markCacheFreshForTests(familyRecordName: family.id.recordName, type: .ledgerEntry)
         }
 
         /// The hero self-settles their reward (the QuestService.applyReward

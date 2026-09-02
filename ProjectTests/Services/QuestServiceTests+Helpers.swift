@@ -37,7 +37,9 @@ final class TestSyncCoordinatorSpy {
     }
 
     init(cache: CacheService, appState: AppState, cloudKit: any CloudKitServiceProtocol, defaults: UserDefaults = .ephemeral()) {
-        let container = cache.container!
+        guard let container = cache.container else {
+            fatalError("CacheService ModelContainer is required for MockCoordinator")
+        }
         let bgActor = BackgroundCacheActor(container: container)
         let resolver = CKSyncConflictResolver(cacheService: cache, appState: appState)
         let handler = CKSyncEngineDelegateHandler(

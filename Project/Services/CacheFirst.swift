@@ -55,6 +55,7 @@ enum CacheFirst {
             type: type,
             scope: scope
         ) {
+            // WHY: hydrated cache renders instantly; network reconciles in background.
             let mapped = cached.map(map)
             if let sort {
                 return mapped.sorted(by: sort)

@@ -61,7 +61,7 @@ final class OfflineAndSyncMatrixTests: XCTestCase {
     }
 
     func testFreshEmptyCacheReturnsZeroItemsWithoutCloudKitFetch() async throws {
-        cacheService.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cacheService.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
         cloudKit.fetchError = NSError(domain: "test", code: -1, userInfo: nil)
 
         let quests = try await questService.fetchActiveQuests(profile: hero, weekOf: Date())
@@ -93,7 +93,7 @@ final class OfflineAndSyncMatrixTests: XCTestCase {
         )
 
         await cacheService.upsertQuest(quest)
-        cacheService.markCacheFresh(familyRecordName: "fam1", type: .quest)
+        cacheService.markCacheFreshForTests(familyRecordName: "fam1", type: .quest)
         cloudKit.fetchError = NSError(domain: "test", code: -1, userInfo: nil)
 
         let quests = try await questService.fetchActiveQuests(profile: hero, weekOf: Date())
@@ -137,8 +137,8 @@ final class OfflineAndSyncMatrixTests: XCTestCase {
 
     func testAchievementServiceFreshEmptyCacheReturnsZeroItemsOffline() async throws {
         let achievementService = AchievementService(cloudKit: cloudKit, cacheService: cacheService, appState: appState)
-        cacheService.markCacheFresh(familyRecordName: "fam1", type: .achievement)
-        cacheService.markCacheFresh(familyRecordName: "fam1", type: .profileAchievement)
+        cacheService.markCacheFreshForTests(familyRecordName: "fam1", type: .achievement)
+        cacheService.markCacheFreshForTests(familyRecordName: "fam1", type: .profileAchievement)
 
         // Inject network error to prove we do not hit CloudKit
         cloudKit.fetchError = NSError(domain: "test", code: -1, userInfo: nil)
