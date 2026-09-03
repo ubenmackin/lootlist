@@ -126,5 +126,6 @@ enum DesignSystemConstants {
         static let maxBannerWidth: CGFloat = 640
         static let iPadTableThreshold: CGFloat = 700
         static let inspectorWidth: CGFloat = 320
+        static let inlineDetailWidth: CGFloat = 400
     }
 }

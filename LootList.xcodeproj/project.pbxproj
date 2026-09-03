@@ -11,6 +11,7 @@
 		02BAED36804122341EDCED4B /* GemShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7524CAB4423538B7191015A0 /* GemShopView.swift */; };
 		0370ADCEF524F2B0D392255B /* VerificationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6333B737C7E26ABA1AFF02EE /* VerificationStatus.swift */; };
 		0527C262F4FF6F2BD21E23D9 /* CKSyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77ED22F2224016018806795B /* CKSyncEngineTests.swift */; };
+		053026DD8458E71B121B956F /* FamilyDashboardBranchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB3BE921F991C80EFF58F3E /* FamilyDashboardBranchViews.swift */; };
 		061FE1E0B34B79D020E61575 /* FamilyDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3EFE5263E8210E2659D41D /* FamilyDiscoveryService.swift */; };
 		063C8490BC2528CA7FFBB5D8 /* OfflineAndSyncMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E8DAC47F670D122621488B /* OfflineAndSyncMatrixTests.swift */; };
 		0649CD2ABA326800F66DAA7A /* MockRecordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F5D0DCF7DC5D866038A466 /* MockRecordStore.swift */; };
@@ -769,6 +770,7 @@
 		CA89DCFD795BA06D52FFDD99 /* Quest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Quest.swift; sourceTree = "<group>"; };
 		CB74BA7516355BF020EC5048 /* Achievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Achievement.swift; sourceTree = "<group>"; };
 		CBA7C096148F8E1833CF1123 /* QuestSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestSchedule.swift; sourceTree = "<group>"; };
+		CBB3BE921F991C80EFF58F3E /* FamilyDashboardBranchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardBranchViews.swift; sourceTree = "<group>"; };
 		CC9C5B09945933E0C31DA59A /* CKSyncEngineTests+ConflictResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CKSyncEngineTests+ConflictResolver.swift"; sourceTree = "<group>"; };
 		CCB97BF352BC5ED47F52E775 /* GemLedgerCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemLedgerCache.swift; sourceTree = "<group>"; };
 		CD7309A7921898E5B1910AA9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -942,6 +944,7 @@
 			isa = PBXGroup;
 			children = (
 				5D88B6F370A39EE21F662AE9 /* ExportChildPickerSheetView.swift */,
+				CBB3BE921F991C80EFF58F3E /* FamilyDashboardBranchViews.swift */,
 				81FB741873508F1F2A086B07 /* FamilyDashboardCardViews.swift */,
 				975CB482406B3EB4588EC345 /* FamilyDashboardView.swift */,
 				4ADE7FFAD883A06D3962847F /* FamilyDashboardView+Sections.swift */,
@@ -1837,6 +1840,7 @@
 				10706C96ABEA5F8503744895 /* Family.swift in Sources */,
 				AB5994E89A958B1148A2AB5F /* FamilyCache.swift in Sources */,
 				3528655C56EF09ADBE7C4CF0 /* FamilyCreationView.swift in Sources */,
+				053026DD8458E71B121B956F /* FamilyDashboardBranchViews.swift in Sources */,
 				57087BB88EC883F781661EFB /* FamilyDashboardCardViews.swift in Sources */,
 				8A4AE21E2B63B6E557A16994 /* FamilyDashboardView+Sections.swift in Sources */,
 				3D15240BE2A19C5E6BE4BC6C /* FamilyDashboardView.swift in Sources */,

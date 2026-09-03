@@ -21,14 +21,9 @@ extension View {
     }
 }
 
-// MARK: - Adaptive 1040-constrained split (DRY ViewThatFits)
+// MARK: - Adaptive split
 
-/// Centralizes the 1040-constrained ViewThatFits fallback used across dashboard screens.
-/// WHY: PayoutHistoryView, FamilyDashboardView, and ChildHub layout previously copy-pasted
-/// ViewThatFits(in:.horizontal) { NavigationSplitView } else { compact } 3×. Single source
-/// below keeps the 1040 cap and 50/50 collapse in sync; compact fallback renders when the
-/// regular split no longer fits.
-@MainActor
+/// Collapses to compact when the regular split no longer fits 50/50.
 struct ViewThatFitsSplit<RegularContent: View, CompactContent: View>: View {
     @ViewBuilder let regularContent: RegularContent
     @ViewBuilder let compactContent: CompactContent

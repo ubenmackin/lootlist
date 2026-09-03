@@ -7,9 +7,6 @@
 
 import SwiftUI
 
-// WHY: stateless dashboard cards live here to keep the main dashboard focused.
-
-// WHY: pure card body keeps height sync via injected minHeight instead of reading dashboard state.
 struct DashboardChildCardContent: View {
     let card: ChildAccountCard
     let minHeight: CGFloat?
@@ -81,7 +78,6 @@ struct DashboardChildCardContent: View {
     }
 }
 
-// WHY: empty state branches on injected role flag so no environment leaks across files.
 struct DashboardEmptyChildrenCard: View {
     let isGuildMaster: Bool
 
@@ -122,7 +118,6 @@ struct DashboardEmptyChildrenCard: View {
     }
 }
 
-// WHY: shared pill button takes an escaping action so callers keep sheet state private.
 struct DashboardQuickActionButton: View {
     let title: String
     let icon: String
@@ -154,7 +149,6 @@ struct DashboardQuickActionButton: View {
     }
 }
 
-// WHY: single stat cell keeps totals row composition free of layout math.
 struct DashboardStatBlock: View {
     let icon: String
     let value: String
@@ -182,7 +176,6 @@ struct DashboardStatBlock: View {
     }
 }
 
-// WHY: totals row derives pending display from injected summary so payout state stays in the dashboard.
 struct DashboardTotalsRow: View {
     let summary: WeekendSummary
     let isPending: Bool
@@ -214,7 +207,6 @@ struct DashboardTotalsRow: View {
     }
 }
 
-// WHY: loading placeholder has no inputs so both size classes share one copy.
 struct DashboardLoadingPlaceholder: View {
     var body: some View {
         VStack(spacing: 16) {
@@ -230,7 +222,6 @@ struct DashboardLoadingPlaceholder: View {
     }
 }
 
-// WHY: invite trigger takes a binding so sheet state never leaves the dashboard.
 struct DashboardInviteButton: View {
     @Binding var showRolePicker: Bool
 

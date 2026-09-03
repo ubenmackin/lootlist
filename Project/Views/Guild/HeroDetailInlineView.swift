@@ -35,12 +35,12 @@ struct HeroDetailInlineView: View {
     }
 
     private var availableBalance: Double {
-        heroLedgers.reduce(0) { $0 + $1.amount }
+        BucketService.ledgerBalance(for: heroLedgers, profileRecordName: hero.recordName)
     }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: DesignSystemConstants.Padding.standard) {
                 headerCard
                 bucketTiles
                 quickActions
@@ -48,9 +48,9 @@ struct HeroDetailInlineView: View {
                 navigationCards
             }
             // WHY: 400 caps inline detail column so ledger rows don't stretch on 11"; centered within inspector.
-            .frame(maxWidth: 400, alignment: .center)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 16)
+            .frame(maxWidth: DesignSystemConstants.Layout.inlineDetailWidth, alignment: .center)
+            .padding(.horizontal, DesignSystemConstants.Padding.standard)
+            .padding(.vertical, DesignSystemConstants.Padding.standard)
         }
         .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
         .navigationTitle(hero.displayName)
@@ -58,7 +58,7 @@ struct HeroDetailInlineView: View {
     }
 
     private var headerCard: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: DesignSystemConstants.Padding.medium) {
             if let emoji = hero.avatarEmoji, !emoji.isEmpty {
                 Text(emoji)
                     .font(.system(size: 44))
@@ -80,7 +80,7 @@ struct HeroDetailInlineView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(16)
+        .padding(DesignSystemConstants.Padding.standard)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
@@ -92,91 +92,58 @@ struct HeroDetailInlineView: View {
     }
 
     private var bucketTiles: some View {
-        HStack(spacing: 8) {
-            bucketTile(kind: .spend)
-            bucketTile(kind: .shortTermSave)
-            bucketTile(kind: .longTermSave)
+        HStack(spacing: DesignSystemConstants.Padding.small) {
+            BucketTileView(
+                emoji: nil,
+                title: BucketKind.spend.shortName,
+                amountText: CurrencyFormatter.string(balances[.spend] ?? 0)
+            )
+            BucketTileView(
+                emoji: nil,
+                title: BucketKind.shortTermSave.shortName,
+                amountText: CurrencyFormatter.string(balances[.shortTermSave] ?? 0)
+            )
+            BucketTileView(
+                emoji: nil,
+                title: BucketKind.longTermSave.shortName,
+                amountText: CurrencyFormatter.string(balances[.longTermSave] ?? 0)
+            )
         }
-    }
-
-    private func bucketTile(kind: BucketKind) -> some View {
-        let amount = balances[kind] ?? 0
-        return VStack(spacing: 4) {
-            Text(kind.shortName)
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Text(CurrencyFormatter.string(amount))
-                .font(.caption.weight(.bold).monospacedDigit())
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
-                .fill(Color(DesignSystemConstants.Colors.cardSurface))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
-        )
     }
 
     private var quickActions: some View {
-        HStack(spacing: 12) {
-            Button(action: onDeposit) {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Deposit").font(.subheadline.weight(.bold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(DesignSystemConstants.Colors.cardSurface))
-                )
-                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.35), lineWidth: 1)
-                )
+        HStack(spacing: DesignSystemConstants.Padding.medium) {
+            DashboardQuickActionButton(
+                title: "Deposit",
+                icon: "plus.circle.fill",
+                color: Color(DesignSystemConstants.Colors.primaryGreen),
+                identifier: "heroInline.depositButton"
+            ) {
+                onDeposit()
             }
-            .accessibilityIdentifier("heroInline.depositButton")
-            Button(action: onWithdraw) {
-                HStack(spacing: 6) {
-                    Image(systemName: "minus.circle.fill")
-                    Text("Withdraw").font(.subheadline.weight(.bold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(DesignSystemConstants.Colors.cardSurface))
-                )
-                .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.35), lineWidth: 1)
-                )
+
+            DashboardQuickActionButton(
+                title: "Withdraw",
+                icon: "minus.circle.fill",
+                color: Color(DesignSystemConstants.Colors.pendingAmber),
+                identifier: "heroInline.withdrawButton"
+            ) {
+                onWithdraw()
             }
-            .accessibilityIdentifier("heroInline.withdrawButton")
         }
     }
 
     private var recentLedgerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
             SectionHeader("RECENT ACTIVITY")
             if recentEntries.isEmpty {
                 Text("No ledger activity yet.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, DesignSystemConstants.Padding.small)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: DesignSystemConstants.Padding.small) {
                     ForEach(recentEntries, id: \.recordName) { entry in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -192,7 +159,7 @@ struct HeroDetailInlineView: View {
                                 .font(.caption.weight(.bold).monospacedDigit())
                                 .foregroundStyle(entry.amount >= 0 ? Color(DesignSystemConstants.Colors.primaryGreen) : Color(DesignSystemConstants.Colors.dangerRed))
                         }
-                        .padding(10)
+                        .padding(DesignSystemConstants.Padding.small)
                         .background(
                             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
@@ -201,7 +168,7 @@ struct HeroDetailInlineView: View {
                 }
             }
         }
-        .padding(12)
+        .padding(DesignSystemConstants.Padding.medium)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
@@ -213,7 +180,7 @@ struct HeroDetailInlineView: View {
     }
 
     private var navigationCards: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: DesignSystemConstants.Padding.small) {
             NavigationLink {
                 HeroLedgerView(hero: hero, familyRecordName: familyRecordName, spending: spending)
                     .environment(appState)
@@ -231,7 +198,7 @@ struct HeroDetailInlineView: View {
     }
 
     private func inlineRow(title: String, subtitle: String, systemImage: String, color: Color) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: DesignSystemConstants.Padding.medium) {
             Image(systemName: systemImage)
                 .foregroundStyle(color)
                 .frame(width: 36, height: 36)
@@ -243,7 +210,7 @@ struct HeroDetailInlineView: View {
             Spacer()
             Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.secondary)
         }
-        .padding(12)
+        .padding(DesignSystemConstants.Padding.medium)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))

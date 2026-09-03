@@ -143,7 +143,7 @@ struct HeroDetailView: View {
 
             // Deposit / Withdraw Buttons
             HStack(spacing: 12) {
-                quickActionButton(
+                DashboardQuickActionButton(
                     title: "Deposit",
                     icon: "plus.circle.fill",
                     color: Color(DesignSystemConstants.Colors.primaryGreen),
@@ -152,7 +152,7 @@ struct HeroDetailView: View {
                     showDepositSheet = true
                 }
 
-                quickActionButton(
+                DashboardQuickActionButton(
                     title: "Withdraw",
                     icon: "minus.circle.fill",
                     color: Color(DesignSystemConstants.Colors.pendingAmber),
@@ -172,35 +172,6 @@ struct HeroDetailView: View {
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
                 .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
         )
-    }
-
-    private func quickActionButton(
-        title: String,
-        icon: String,
-        color: Color,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                Text(title)
-                    .font(.subheadline.weight(.bold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(DesignSystemConstants.Colors.background))
-            )
-            .foregroundStyle(color)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(color.opacity(0.35), lineWidth: 1)
-            )
-        }
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(identifier)
     }
 
     // MARK: - Navigation Cards Section
