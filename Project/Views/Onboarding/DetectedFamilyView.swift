@@ -36,7 +36,7 @@ struct DetectedFamilyView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12)],
+                colors: [Color(DesignSystemConstants.Colors.background), Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12)],
                 startPoint: .top, endPoint: .bottom
             )
         )

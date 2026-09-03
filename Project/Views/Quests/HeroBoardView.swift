@@ -49,7 +49,7 @@ struct HeroBoardView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
         .navigationTitle("Hero Board")
         .navigationBarTitleDisplayMode(.large)
         .onAppear { ensureViewModel() }

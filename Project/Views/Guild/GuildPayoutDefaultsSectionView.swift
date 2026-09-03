@@ -81,7 +81,7 @@ struct GuildPayoutDefaultsSectionView: View {
             .background(cardBackground)
             .padding(.horizontal)
         }
-        .onAppear {
+        .task {
             selectedPolicy = appState.family?.payoutPolicy ?? .perQuest
         }
         .onChange(of: appState.family?.payoutPolicy) { _, newPolicy in
@@ -149,7 +149,7 @@ struct GuildPayoutDefaultsSectionView: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.tertiarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -183,6 +183,6 @@ struct GuildPayoutDefaultsSectionView: View {
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
+            .fill(Color(DesignSystemConstants.Colors.cardSurface))
     }
 }

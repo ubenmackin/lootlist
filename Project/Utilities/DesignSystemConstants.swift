@@ -119,4 +119,12 @@ enum DesignSystemConstants {
         static let confettiLifetime: TimeInterval = 5.0
         static let initialScale: Double = 0.3
     }
+
+    // WHY: 1040 caps reader width + inspector 320 keeps ViewThatFitsSplit in sync, collapsing split to compact when constrained width no longer fits.
+    enum Layout {
+        static let maxContentWidth: CGFloat = 1040
+        static let maxBannerWidth: CGFloat = 640
+        static let iPadTableThreshold: CGFloat = 700
+        static let inspectorWidth: CGFloat = 320
+    }
 }

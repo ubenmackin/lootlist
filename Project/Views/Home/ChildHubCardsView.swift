@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 8/24/26.
 //
 
+import Charts
 import SwiftUI
 
 /// Today's chores and active FIFO goal. Extracted from ChildHubView to keep
@@ -20,6 +21,32 @@ struct ChildHubCardsView: View {
     let onCompleteQuest: (QuestCache) -> Void
     let onWithdraw: (QuestCache, QuestCompletionCache) -> Void
 
+    /// Lightweight ledger slice for sparkline; optional to keep init compatible.
+    let recentLedgers: [LedgerEntryCache]
+    let streak: Int
+
+    init(
+        viewModel: ChildHubViewModel,
+        cachedQuests: [QuestCache],
+        cachedCompletions: [QuestCompletionCache],
+        submittingQuestIDs: Set<String>,
+        familyRecordName: String?,
+        onCompleteQuest: @escaping (QuestCache) -> Void,
+        onWithdraw: @escaping (QuestCache, QuestCompletionCache) -> Void,
+        recentLedgers: [LedgerEntryCache] = [],
+        streak: Int = 0
+    ) {
+        self.viewModel = viewModel
+        self.cachedQuests = cachedQuests
+        self.cachedCompletions = cachedCompletions
+        self.submittingQuestIDs = submittingQuestIDs
+        self.familyRecordName = familyRecordName
+        self.onCompleteQuest = onCompleteQuest
+        self.onWithdraw = onWithdraw
+        self.recentLedgers = recentLedgers
+        self.streak = streak
+    }
+
     var body: some View {
         if horizontalSizeClass == .regular {
             HStack(alignment: .top, spacing: 16) {
@@ -31,11 +58,16 @@ struct ChildHubCardsView: View {
                     todaysChoresCard
                 }
                 .frame(maxWidth: .infinity)
+                VStack(spacing: DesignSystemConstants.Padding.standard) {
+                    streakSparklineCard
+                }
+                .frame(maxWidth: .infinity)
             }
         } else {
             VStack(spacing: DesignSystemConstants.Padding.standard) {
                 todaysChoresCard
                 activeGoalCard
+                streakSparklineCard
             }
         }
     }
@@ -148,6 +180,88 @@ struct ChildHubCardsView: View {
         .padding(DesignSystemConstants.Padding.standard)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(cardBackground)
+    }
+
+    private var streakSparklineCard: some View {
+        VStack(spacing: DesignSystemConstants.Padding.medium) {
+            SectionHeader("Momentum")
+            if recentLedgers.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.title3)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.6))
+                    Text("Complete quests & log savings to see your sparkline.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(height: 80)
+                .frame(maxWidth: .infinity)
+            } else {
+                let points = sparklinePoints
+                let yValues = points.map(\.amount)
+                let minY = yValues.min() ?? 0
+                let maxY = yValues.max() ?? 0
+                let yDomain: ClosedRange<Double> = {
+                    if minY == maxY {
+                        return (minY - 1) ... (maxY + 1)
+                    }
+                    let padding = max(1.0, (maxY - minY) * 0.12)
+                    return (minY - padding) ... (maxY + padding)
+                }()
+                Chart(points) { point in
+                    LineMark(
+                        x: .value("Day", point.label),
+                        y: .value("Amount", point.amount)
+                    )
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                    .interpolationMethod(.catmullRom)
+                    AreaMark(
+                        x: .value("Day", point.label),
+                        y: .value("Amount", point.amount)
+                    )
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.15))
+                    .interpolationMethod(.catmullRom)
+                }
+                .chartYScale(domain: yDomain)
+                .chartYAxis(.hidden)
+                .chartXAxis {
+                    AxisMarks(values: .automatic) { _ in
+                        AxisValueLabel()
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(height: 80)
+                .accessibilityLabel("Recent ledger sparkline")
+            }
+            HStack(spacing: 8) {
+                DashboardStatBlock(icon: "flame.fill", value: "\(streak)", label: "Streak", tint: Color(DesignSystemConstants.Colors.pendingAmber))
+                Divider()
+                DashboardStatBlock(
+                    icon: "banknote.fill",
+                    value: CurrencyFormatter.string(viewModel.availableBalance),
+                    label: "Balance",
+                    tint: Color(DesignSystemConstants.Colors.primaryGreen)
+                )
+            }
+        }
+        .padding(DesignSystemConstants.Padding.standard)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(cardBackground)
+        .accessibilityIdentifier("hub.streakSparklineCard")
+    }
+
+    private var sparklinePoints: [WeeklyEarningPoint] {
+        // WHY group by UTC dayKey so same-day ledgers sum into one point across timezones.
+        let grouped = Dictionary(grouping: recentLedgers) { WeekMath.dayKey(for: $0.date) }
+        return grouped.keys.sorted().suffix(7).compactMap { key in
+            guard let entries = grouped[key] else { return nil }
+            let bucketDate = WeekMath.date(fromDayKey: key) ?? entries.map(\.date).min() ?? Date()
+            let total = entries.reduce(0) { $0 + $1.amount }
+            let label = bucketDate.formatted(.dateTime.month(.abbreviated).day())
+            return WeeklyEarningPoint(id: key, weekStart: bucketDate, label: label, amount: total)
+        }
     }
 
     private var cardBackground: some View {

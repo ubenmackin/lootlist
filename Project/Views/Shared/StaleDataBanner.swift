@@ -64,8 +64,8 @@ struct StaleDataBanner: View {
                     .minimumScaleFactor(0.85)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, DesignSystemConstants.Padding.medium)
+            .padding(.vertical, DesignSystemConstants.Padding.small)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                     .fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.12))
@@ -74,6 +74,7 @@ struct StaleDataBanner: View {
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
                     .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.35), lineWidth: 1)
             )
+            .maxBannerWidth()
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Data may be stale — pull to refresh")
             .accessibilityIdentifier("staleDataBanner")

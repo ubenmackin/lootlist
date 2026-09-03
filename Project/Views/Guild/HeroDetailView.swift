@@ -61,10 +61,11 @@ struct HeroDetailView: View {
 
                 navigationCardsSection
             }
-            .padding(.vertical, DesignSystemConstants.Padding.standard)
+            .maxContentWidth()
             .padding(.horizontal, DesignSystemConstants.Padding.standard)
+            .padding(.vertical, DesignSystemConstants.Padding.standard)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
         .navigationTitle(hero.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $activeDestination) { destination in
@@ -118,7 +119,7 @@ struct HeroDetailView: View {
                     Text(emoji)
                         .font(.system(size: 44))
                         .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color(.tertiarySystemGroupedBackground)))
+                        .background(Circle().fill(Color(DesignSystemConstants.Colors.background)))
                 } else {
                     ProfileAvatarView(profileCache: hero)
                         .frame(width: 60, height: 60)
@@ -165,7 +166,7 @@ struct HeroDetailView: View {
         .padding(DesignSystemConstants.Padding.large)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
@@ -190,7 +191,7 @@ struct HeroDetailView: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.tertiarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.background))
             )
             .foregroundStyle(color)
             .overlay(
@@ -320,7 +321,7 @@ struct HeroDetailView: View {
         .padding(DesignSystemConstants.Padding.medium)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)

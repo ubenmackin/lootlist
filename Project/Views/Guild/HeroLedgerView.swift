@@ -92,7 +92,7 @@ struct HeroLedgerView: View {
             }
             .padding(.vertical)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
         .navigationTitle("Treasury")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { ensureViewModel() }
@@ -198,7 +198,7 @@ struct HeroLedgerView: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             .overlay(
@@ -221,7 +221,7 @@ struct HeroLedgerView: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
             .overlay(
@@ -314,7 +314,7 @@ struct HeroLedgerView: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
         }
     }

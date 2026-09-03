@@ -109,7 +109,7 @@ struct QuestsView: View {
                 scrollContent
             }
             .overlay(lootDropOverlay)
-            .background(Color(.systemGroupedBackground))
+            .background(Color(DesignSystemConstants.Colors.background))
             .scrollContentBackground(.hidden)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)

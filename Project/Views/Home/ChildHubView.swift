@@ -120,43 +120,87 @@ struct ChildHubView: View {
         return appState.cacheService?.isCacheFresh(familyRecordName: targetFamilyForFreshness, type: .profile) ?? false
     }
 
+    private var staleBannerCount: Int {
+        let profiles: Int = cachedProfiles.count
+        let quests: Int = cachedQuests.count
+        let goals: Int = cachedGoals.count
+        let ledgers: Int = cachedLedgers.count
+        return profiles + quests + goals + ledgers
+    }
+
+    private var isBannerSyncing: Bool {
+        lifecycleCoordinator?.isSyncing == true
+    }
+
+    private var hubDisplayName: String? {
+        currentProfileRow?.displayName
+    }
+
+    private var recentLedgersSlice: [LedgerEntryCache] {
+        Array(cachedLedgers.prefix(7))
+    }
+
+    @ViewBuilder
+    private var profileStaleBanner: some View {
+        if !targetFamilyForFreshness.isEmpty {
+            let family: String = targetFamilyForFreshness
+            let count: Int = staleBannerCount
+            let syncing: Bool = isBannerSyncing
+            StaleDataBanner(family: family, type: .profile, count: count, isSyncing: syncing)
+        }
+    }
+
+    @ViewBuilder
+    private var hubContent: some View {
+        if isSyncingPlaceholder {
+            syncingBalanceCard
+        } else if isProfileNotFoundPlaceholder {
+            profileNotFoundCard
+        } else {
+            hubLoadedContent
+        }
+    }
+
+    @ViewBuilder
+    private var hubLoadedContent: some View {
+        if let viewModel {
+            let name: String? = firstName
+            let displayName: String? = hubDisplayName
+            let ledgers: [LedgerEntryCache] = recentLedgersSlice
+            let streakValue: Int = viewModel.streak
+            ChildHubBalanceSection(
+                viewModel: viewModel,
+                firstName: name,
+                displayName: displayName,
+                onSplitTapped: { isShowingSplit = true }
+            )
+            ChildHubCardsView(
+                viewModel: viewModel,
+                cachedQuests: cachedQuests,
+                cachedCompletions: cachedCompletions,
+                submittingQuestIDs: submittingQuestIDs,
+                familyRecordName: familyRecordName,
+                onCompleteQuest: { quest in completeQuest(quest) },
+                onWithdraw: handleWithdraw,
+                recentLedgers: ledgers,
+                streak: streakValue
+            )
+        }
+    }
+
+    private func handleWithdraw(quest: QuestCache, log: QuestCompletionCache) {
+        pendingWithdrawal = PendingWithdrawal(quest: quest, log: log)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
                     header
-
-                    if !targetFamilyForFreshness.isEmpty {
-                        StaleDataBanner(
-                            family: targetFamilyForFreshness,
-                            type: .profile,
-                            count: cachedProfiles.count + cachedQuests.count + cachedGoals.count + cachedLedgers.count,
-                            isSyncing: lifecycleCoordinator?.isSyncing == true
-                        )
-                    }
-
-                    if isSyncingPlaceholder {
-                        syncingBalanceCard
-                    } else if isProfileNotFoundPlaceholder {
-                        profileNotFoundCard
-                    } else if let viewModel {
-                        ChildHubBalanceSection(
-                            viewModel: viewModel,
-                            firstName: firstName,
-                            displayName: currentProfileRow?.displayName,
-                            onSplitTapped: { isShowingSplit = true }
-                        )
-                        ChildHubCardsView(
-                            viewModel: viewModel,
-                            cachedQuests: cachedQuests,
-                            cachedCompletions: cachedCompletions,
-                            submittingQuestIDs: submittingQuestIDs,
-                            familyRecordName: familyRecordName,
-                            onCompleteQuest: { quest in completeQuest(quest) },
-                            onWithdraw: { quest, log in pendingWithdrawal = PendingWithdrawal(quest: quest, log: log) }
-                        )
-                    }
+                    profileStaleBanner
+                    hubContent
                 }
+                .maxContentWidth()
                 .padding(.horizontal, DesignSystemConstants.Padding.standard)
                 .padding(.top, DesignSystemConstants.Padding.small)
                 .padding(.bottom, DesignSystemConstants.Padding.large)

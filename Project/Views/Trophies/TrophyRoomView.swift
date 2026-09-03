@@ -199,7 +199,7 @@ struct TrophyRoomView: View {
             }
             .padding(.vertical)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
     }
 
     private var loadingPlaceholder: some View {

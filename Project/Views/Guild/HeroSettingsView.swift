@@ -49,7 +49,7 @@ struct HeroSettingsView: View {
                 }
                 .padding(.vertical, 16)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .navigationTitle("\(hero.displayName)'s Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -333,6 +333,6 @@ struct HeroSettingsView: View {
 
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(Color(.secondarySystemGroupedBackground))
+            .fill(Color(DesignSystemConstants.Colors.cardSurface))
     }
 }

@@ -14,6 +14,7 @@ struct TemplateManagerView: View {
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TemplateManager")
 
     let editing: QuestTemplate?
+    var onCancel: (() -> Void)?
 
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
@@ -155,17 +156,33 @@ struct TemplateManagerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: save) {
-                        if isSaving {
-                            ProgressView()
+                    Button("Cancel") {
+                        if let onCancel {
+                            onCancel()
                         } else {
-                            Text("Save")
+                            dismiss()
                         }
                     }
-                    .disabled(isSaving)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 12) {
+                        if onCancel != nil {
+                            Button {
+                                onCancel?()
+                            } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .accessibilityLabel("Close inspector")
+                        }
+                        Button(action: save) {
+                            if isSaving {
+                                ProgressView()
+                            } else {
+                                Text("Save")
+                            }
+                        }
+                        .disabled(isSaving)
+                    }
                 }
             }
             .decimalPadDoneToolbar(isFocused: $isAmountFocused)
@@ -249,7 +266,11 @@ struct TemplateManagerView: View {
                     )
                 }
                 isSaving = false
-                dismiss()
+                if let onCancel {
+                    onCancel()
+                } else {
+                    dismiss()
+                }
             } catch {
                 isSaving = false
                 logger.error("Failed to save template: \(error, privacy: .private)")

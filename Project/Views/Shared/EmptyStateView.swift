@@ -26,9 +26,9 @@ struct EmptyStateView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, DesignSystemConstants.Padding.large)
         }
-        .frame(maxWidth: .infinity)
+        .maxBannerWidth()
         .modifier(EmptyStatePaddingModifier(
             topPadding: topPadding,
             bottomPadding: bottomPadding,

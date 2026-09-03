@@ -105,7 +105,7 @@ final class LinkMetadataService {
         if provider.canLoadObject(ofClass: URL.self) {
             return await withCheckedContinuation { continuation in
                 _ = provider.loadObject(ofClass: URL.self) { object, _ in
-                    continuation.resume(returning: object)
+                    continuation.resume(returning: object as? URL)
                 }
             }
         }

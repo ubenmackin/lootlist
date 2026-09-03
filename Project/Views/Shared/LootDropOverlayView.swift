@@ -69,7 +69,7 @@ struct LootDropOverlayView: View {
         .padding(28)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.modal)
-                .fill(Color(uiColor: .systemBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
                 .shadow(radius: 20)
         )
     }

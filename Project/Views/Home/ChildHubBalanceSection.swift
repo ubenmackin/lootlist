@@ -11,15 +11,27 @@ import SwiftUI
 /// ChildHubView to keep the hub composed of ~80-line sections with no logic
 /// change; all derived figures come from ChildHubViewModel.
 struct ChildHubBalanceSection: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     let viewModel: ChildHubViewModel
     let firstName: String?
     let displayName: String?
     let onSplitTapped: () -> Void
 
     var body: some View {
-        VStack(spacing: DesignSystemConstants.Padding.standard) {
-            balanceHeroCard
-            weeklyProgressCard
+        if horizontalSizeClass == .regular {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 260), spacing: DesignSystemConstants.Padding.standard)],
+                spacing: DesignSystemConstants.Padding.standard
+            ) {
+                balanceHeroCard
+                weeklyProgressCard
+            }
+        } else {
+            VStack(spacing: DesignSystemConstants.Padding.standard) {
+                balanceHeroCard
+                weeklyProgressCard
+            }
         }
     }
 
@@ -73,7 +85,7 @@ struct ChildHubBalanceSection: View {
             }
         }
         .padding(DesignSystemConstants.Padding.large)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.header, style: .continuous)
                 .fill(
@@ -112,7 +124,7 @@ struct ChildHubBalanceSection: View {
                 .frame(width: 72, height: 72)
         }
         .padding(DesignSystemConstants.Padding.standard)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(cardBackground)
     }
 

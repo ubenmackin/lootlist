@@ -296,7 +296,7 @@ private struct RootView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemBackground))
+                .background(Color(DesignSystemConstants.Colors.background))
             case let .detectedPreviousFamily(family, profile, zoneID, isOwner):
                 // Pre-cache bootstrapping path: AppState holds the authoritative CloudKit domain models
                 // but we map them to Cache models to keep DetectedFamilyView decoupled from CloudKit structs.
@@ -312,13 +312,13 @@ private struct RootView: View {
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(.systemBackground))
+                        .background(Color(DesignSystemConstants.Colors.background))
                 }
             case .authenticated:
                 TabBarView(spending: spendingService, familyRecordName: appState.family?.id.recordName)
                     .id(appState.family?.id.recordName ?? "none")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(.systemBackground))
+                    .background(Color(DesignSystemConstants.Colors.background))
             case .offlineEmptyCache:
                 VStack(spacing: 16) {
                     Image(systemName: "wifi.slash")
@@ -332,7 +332,7 @@ private struct RootView: View {
                 }
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemBackground))
+                .background(Color(DesignSystemConstants.Colors.background))
             }
         }
         .task(id: appState.authStatus) {

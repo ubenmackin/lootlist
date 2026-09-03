@@ -260,8 +260,9 @@ struct TabBarView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .maxBannerWidth()
+        .frame(maxHeight: .infinity)
+        .background(Color(DesignSystemConstants.Colors.background))
     }
 }
 

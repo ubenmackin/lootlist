@@ -34,7 +34,7 @@ struct FamilyJoinView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15)],
+                colors: [Color(DesignSystemConstants.Colors.background), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.15)],
                 startPoint: .top, endPoint: .bottom
             )
         )

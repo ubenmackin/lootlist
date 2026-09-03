@@ -44,6 +44,7 @@ struct StatCard: View {
                              style: .continuous)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
+        .hoverEffect(.highlight)
         .accessibilityIdentifierIfSet(accessibilityID)
     }
 }

@@ -51,7 +51,7 @@ struct SpendingLogView: View {
             }
             .padding(.vertical)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
         .navigationTitle("Scroll of Spending")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: scope) { _, newScope in

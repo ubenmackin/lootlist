@@ -305,7 +305,7 @@ struct MyChoresView: View {
                 // Confetti celebration for auto-approved completions.
                 CelebrationOverlay(isPresented: showCelebration)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .navigationTitle("My Quests")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {

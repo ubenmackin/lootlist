@@ -134,6 +134,8 @@ Ingestion contract:
 
 **UI — decimal pad dismissal (cross-cutting write-time convention):** Every `TextField` using `.keyboardType(.decimalPad)` must provide a keyboard dismissal path. Pattern: `@FocusState private var isAmountFocused: Bool` on the view, `.focused($isAmountFocused)` on the `TextField`, and applying `View.decimalPadDoneToolbar(isFocused: $isAmountFocused)` from `Project/Views/Shared/DecimalPadDismissModifier.swift`. Implementation uses `.safeAreaInset(edge: .bottom)` anchored to `isFocused.wrappedValue` with `.scrollDismissesKeyboard(.interactively)` to host an interactive Done button. UIKit's `ToolbarItemGroup(placement: .keyboard)` / `inputAccessoryView` is intentionally avoided because it generates non-finite frame dimension layout runtime faults (`Invalid frame dimension`) during sheet animations and keyboard transitions. This is a write-time convention — apply `decimalPadDoneToolbar(isFocused:)` when adding any new decimalPad field.
 
+**UI — iCloud diagnostics visibility (prod-safe subset):** `iCloudStatusView` ships a prod-safe subset unconditionally in Release — cached record counts (all `*Cache` types scoped to the active family), `pendingUploadCount`, `lastSyncedAt` (relative), and sync status — so parents can self-triage sync health without Debug builds. Heavy diagnostics (engine state `private`/`shared`, per-scope freshness chips `✅/❌` per `CachedRecordType`, push/reconnect debounce ages, absolute timestamps, and `syncError` detail) remain gated behind `#if DEBUG` (`debugSyncHealthSection`). The `View` struct itself is unconditional, but the expensive debug overlay is compile-time excluded from Release. Do not re-wrap the entire view in `#if DEBUG`.
+
 ## 6. Agent Rules & Anti-Patterns
 
 DO:
