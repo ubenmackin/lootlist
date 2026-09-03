@@ -35,7 +35,7 @@ struct HeroDetailInlineView: View {
     }
 
     private var availableBalance: Double {
-        BucketService.ledgerBalance(for: heroLedgers, profileRecordName: hero.recordName)
+        heroLedgers.reduce(0) { $0 + $1.amount }
     }
 
     var body: some View {
@@ -93,22 +93,35 @@ struct HeroDetailInlineView: View {
 
     private var bucketTiles: some View {
         HStack(spacing: DesignSystemConstants.Padding.small) {
-            BucketTileView(
-                emoji: nil,
-                title: BucketKind.spend.shortName,
-                amountText: CurrencyFormatter.string(balances[.spend] ?? 0)
-            )
-            BucketTileView(
-                emoji: nil,
-                title: BucketKind.shortTermSave.shortName,
-                amountText: CurrencyFormatter.string(balances[.shortTermSave] ?? 0)
-            )
-            BucketTileView(
-                emoji: nil,
-                title: BucketKind.longTermSave.shortName,
-                amountText: CurrencyFormatter.string(balances[.longTermSave] ?? 0)
-            )
+            bucketTile(kind: .spend)
+            bucketTile(kind: .shortTermSave)
+            bucketTile(kind: .longTermSave)
         }
+    }
+
+    private func bucketTile(kind: BucketKind) -> some View {
+        VStack(spacing: 4) {
+            Text(kind.shortName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(CurrencyFormatter.string(balances[kind] ?? 0))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+        )
     }
 
     private var quickActions: some View {

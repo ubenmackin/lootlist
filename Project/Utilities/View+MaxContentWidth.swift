@@ -23,7 +23,7 @@ extension View {
 
 // MARK: - Adaptive split
 
-/// Collapses to compact when the regular split no longer fits 50/50.
+/// WHY ViewThatFits keeps the 50/50 split readable on narrow windows by falling back without duplicating size-class logic.
 struct ViewThatFitsSplit<RegularContent: View, CompactContent: View>: View {
     @ViewBuilder let regularContent: RegularContent
     @ViewBuilder let compactContent: CompactContent

@@ -146,3 +146,44 @@ struct FamilyDashboardWeeklySummaryHeader: View {
         }
     }
 }
+
+/// WHY split sidebar lifecycle into a typed modifier: the 13-deep chain stalls the type-checker.
+struct DashboardSidebarLifecycle: ViewModifier {
+    let cachedProfiles: [ProfileCache]
+    let cachedQuests: [QuestCache]
+    let cachedCompletions: [QuestCompletionCache]
+    let cachedLedgers: [LedgerEntryCache]
+    let cachedAllowancePeriods: [AllowancePeriodCache]
+    let cachedAchievements: [AchievementCache]
+    let cachedProfileAchievements: [ProfileAchievementCache]
+    let childCardID: String?
+    let onAppear: () async -> Void
+    let onRefresh: () async -> Void
+    let onProfilesChanged: () -> Void
+    let onCacheChanged: () -> Void
+    let onAutoSelect: () -> Void
+    let onDisappear: () -> Void
+
+    func body(content: Content) -> some View {
+        applyRemaining(to: applyCore(to: content))
+    }
+
+    private func applyCore(to content: Content) -> some View {
+        content
+            .refreshable { await onRefresh() }
+            .task { await onAppear() }
+            .onChange(of: childCardID) { _, _ in onAutoSelect() }
+            .onChange(of: cachedProfiles) { _, _ in onProfilesChanged() }
+            .onChange(of: cachedQuests) { _, _ in onCacheChanged() }
+    }
+
+    private func applyRemaining(to view: some View) -> some View {
+        view
+            .onChange(of: cachedCompletions) { _, _ in onCacheChanged() }
+            .onChange(of: cachedLedgers) { _, _ in onCacheChanged() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in onCacheChanged() }
+            .onChange(of: cachedAchievements) { _, _ in onCacheChanged() }
+            .onChange(of: cachedProfileAchievements) { _, _ in onCacheChanged() }
+            .onDisappear { onDisappear() }
+    }
+}

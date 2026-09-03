@@ -197,33 +197,40 @@ struct FamilyDashboardView: View {
     }
 
     private var regularSidebarColumn: some View {
+        regularSidebarScrollContent()
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+            .navigationTitle(appState.family?.name ?? "Guild")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar { pendingToggleToolbar }
+            .modifier(
+                DashboardSidebarLifecycle(
+                    cachedProfiles: cachedProfiles,
+                    cachedQuests: cachedQuests,
+                    cachedCompletions: cachedCompletions,
+                    cachedLedgers: cachedLedgers,
+                    cachedAllowancePeriods: cachedAllowancePeriods,
+                    cachedAchievements: cachedAchievements,
+                    cachedProfileAchievements: cachedProfileAchievements,
+                    childCardID: viewModel?.childAccountCards.first?.id,
+                    onAppear: { await handleRegularAppear() },
+                    onRefresh: {
+                        await lifecycleCoordinator?.performManualSync()
+                        await viewModel?.refresh()
+                    },
+                    onProfilesChanged: { scheduleRebuild(includingInvitations: true) },
+                    onCacheChanged: { scheduleRebuild() },
+                    onAutoSelect: { autoSelectFirstHero() },
+                    onDisappear: { handleSidebarDisappear() }
+                )
+            )
+    }
+
+    private func regularSidebarScrollContent() -> some View {
         ScrollViewReader { scrollProxy in
             ScrollView {
                 regularSidebarStack(scrollProxy: scrollProxy)
             }
         }
-        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-        .navigationTitle(appState.family?.name ?? "Guild")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar { pendingToggleToolbar }
-        .refreshable {
-            await lifecycleCoordinator?.performManualSync()
-            await viewModel?.refresh()
-        }
-        .task { await handleRegularAppear() }
-        .onChange(of: viewModel?.childAccountCards.first?.id) { _, _ in
-            autoSelectFirstHero()
-        }
-        .onChange(of: cachedProfiles) { _, _ in
-            scheduleRebuild(includingInvitations: true)
-        }
-        .onChange(of: cachedQuests) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedCompletions) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedLedgers) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedAllowancePeriods) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedAchievements) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedProfileAchievements) { _, _ in scheduleRebuild() }
-        .onDisappear { handleSidebarDisappear() }
     }
 
     private func regularSidebarStack(scrollProxy: ScrollViewProxy) -> some View {
@@ -339,6 +346,31 @@ struct FamilyDashboardView: View {
     }
 
     private var compactScrollContent: some View {
+        compactScrollBase
+            .modifier(
+                DashboardSidebarLifecycle(
+                    cachedProfiles: cachedProfiles,
+                    cachedQuests: cachedQuests,
+                    cachedCompletions: cachedCompletions,
+                    cachedLedgers: cachedLedgers,
+                    cachedAllowancePeriods: cachedAllowancePeriods,
+                    cachedAchievements: cachedAchievements,
+                    cachedProfileAchievements: cachedProfileAchievements,
+                    childCardID: nil,
+                    onAppear: { await handleCompactAppear() },
+                    onRefresh: {
+                        await lifecycleCoordinator?.performManualSync()
+                        await viewModel?.refresh()
+                    },
+                    onProfilesChanged: { scheduleRebuild(includingInvitations: true) },
+                    onCacheChanged: { scheduleRebuild() },
+                    onAutoSelect: {},
+                    onDisappear: { handleSidebarDisappear() }
+                )
+            )
+    }
+
+    private var compactScrollBase: some View {
         ScrollViewReader { scrollProxy in
             ScrollView {
                 compactStack(scrollProxy: scrollProxy)
@@ -347,21 +379,6 @@ struct FamilyDashboardView: View {
         .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
         .navigationTitle(appState.family?.name ?? "Guild")
         .navigationBarTitleDisplayMode(.large)
-        .refreshable {
-            await lifecycleCoordinator?.performManualSync()
-            await viewModel?.refresh()
-        }
-        .task { await handleCompactAppear() }
-        .onChange(of: cachedProfiles) { _, _ in
-            scheduleRebuild(includingInvitations: true)
-        }
-        .onChange(of: cachedQuests) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedCompletions) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedLedgers) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedAllowancePeriods) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedAchievements) { _, _ in scheduleRebuild() }
-        .onChange(of: cachedProfileAchievements) { _, _ in scheduleRebuild() }
-        .onDisappear { handleSidebarDisappear() }
     }
 
     private func compactStack(scrollProxy: ScrollViewProxy) -> some View {
