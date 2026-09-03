@@ -61,10 +61,11 @@ struct HeroDetailView: View {
 
                 navigationCardsSection
             }
-            .padding(.vertical, DesignSystemConstants.Padding.standard)
+            .maxContentWidth()
             .padding(.horizontal, DesignSystemConstants.Padding.standard)
+            .padding(.vertical, DesignSystemConstants.Padding.standard)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
         .navigationTitle(hero.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $activeDestination) { destination in
@@ -118,7 +119,7 @@ struct HeroDetailView: View {
                     Text(emoji)
                         .font(.system(size: 44))
                         .frame(width: 60, height: 60)
-                        .background(Circle().fill(Color(.tertiarySystemGroupedBackground)))
+                        .background(Circle().fill(Color(DesignSystemConstants.Colors.background)))
                 } else {
                     ProfileAvatarView(profileCache: hero)
                         .frame(width: 60, height: 60)
@@ -142,7 +143,7 @@ struct HeroDetailView: View {
 
             // Deposit / Withdraw Buttons
             HStack(spacing: 12) {
-                quickActionButton(
+                DashboardQuickActionButton(
                     title: "Deposit",
                     icon: "plus.circle.fill",
                     color: Color(DesignSystemConstants.Colors.primaryGreen),
@@ -151,7 +152,7 @@ struct HeroDetailView: View {
                     showDepositSheet = true
                 }
 
-                quickActionButton(
+                DashboardQuickActionButton(
                     title: "Withdraw",
                     icon: "minus.circle.fill",
                     color: Color(DesignSystemConstants.Colors.pendingAmber),
@@ -165,41 +166,12 @@ struct HeroDetailView: View {
         .padding(DesignSystemConstants.Padding.large)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
                 .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
         )
-    }
-
-    private func quickActionButton(
-        title: String,
-        icon: String,
-        color: Color,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                Text(title)
-                    .font(.subheadline.weight(.bold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(.tertiarySystemGroupedBackground))
-            )
-            .foregroundStyle(color)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(color.opacity(0.35), lineWidth: 1)
-            )
-        }
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(identifier)
     }
 
     // MARK: - Navigation Cards Section
@@ -320,7 +292,7 @@ struct HeroDetailView: View {
         .padding(DesignSystemConstants.Padding.medium)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)

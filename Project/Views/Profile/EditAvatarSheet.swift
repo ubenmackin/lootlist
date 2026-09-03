@@ -67,7 +67,7 @@ struct EditAvatarSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Color(DesignSystemConstants.Colors.background))
             .navigationTitle("Customize Avatar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

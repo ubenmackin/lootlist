@@ -23,11 +23,13 @@ struct QuestAssignmentView: View {
     @Query private var cachedCompletions: [QuestCompletionCache]
 
     private let familyRecordName: String?
+    var onCancel: (() -> Void)?
 
-    init(mode: Mode = .fromTemplate, viewModel: QuestManagerViewModel, familyRecordName: String? = nil) {
+    init(mode: Mode = .fromTemplate, viewModel: QuestManagerViewModel, familyRecordName: String? = nil, onCancel: (() -> Void)? = nil) {
         self.mode = mode
         self.viewModel = viewModel
         self.familyRecordName = familyRecordName
+        self.onCancel = onCancel
 
         let targetFamily = familyRecordName ?? ""
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
@@ -156,17 +158,33 @@ struct QuestAssignmentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: submit) {
-                        if isSubmitting {
-                            ProgressView()
+                    Button("Cancel") {
+                        if let onCancel {
+                            onCancel()
                         } else {
-                            Text(submitButtonLabel)
+                            dismiss()
                         }
                     }
-                    .disabled(isSubmitDisabled)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 12) {
+                        if onCancel != nil {
+                            Button {
+                                onCancel?()
+                            } label: {
+                                Image(systemName: "xmark")
+                            }
+                            .accessibilityLabel("Close inspector")
+                        }
+                        Button(action: submit) {
+                            if isSubmitting {
+                                ProgressView()
+                            } else {
+                                Text(submitButtonLabel)
+                            }
+                        }
+                        .disabled(isSubmitDisabled)
+                    }
                 }
             }
             .onAppear {
@@ -549,7 +567,11 @@ struct QuestAssignmentView: View {
                     weekOf: weekOf
                 )
                 isSubmitting = false
-                dismiss()
+                if let onCancel {
+                    onCancel()
+                } else {
+                    dismiss()
+                }
             } catch {
                 isSubmitting = false
                 logger.error("Failed to assign quest from template: \(error, privacy: .private)")
@@ -611,7 +633,11 @@ struct QuestAssignmentView: View {
             do {
                 try await viewModel.assignQuickQuest(input)
                 isSubmitting = false
-                dismiss()
+                if let onCancel {
+                    onCancel()
+                } else {
+                    dismiss()
+                }
             } catch {
                 isSubmitting = false
                 logger.error("Failed to create quest: \(error, privacy: .private)")
@@ -644,7 +670,11 @@ struct QuestAssignmentView: View {
                     approvalMode: quickApproval
                 )
                 isSubmitting = false
-                dismiss()
+                if let onCancel {
+                    onCancel()
+                } else {
+                    dismiss()
+                }
             } catch {
                 isSubmitting = false
                 logger.error("Failed to post quest to Hero Board: \(error, privacy: .private)")
@@ -710,7 +740,11 @@ struct QuestAssignmentView: View {
             do {
                 try await viewModel.updateQuest(quest, input: input)
                 isSubmitting = false
-                dismiss()
+                if let onCancel {
+                    onCancel()
+                } else {
+                    dismiss()
+                }
             } catch {
                 isSubmitting = false
                 logger.error("Failed to update quest: \(error, privacy: .private)")

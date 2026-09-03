@@ -57,7 +57,7 @@ struct CharacterSheetView: View {
         }
         .navigationTitle("Character Sheet")
         .navigationBarTitleDisplayMode(.inline)
-        .background(Color(.systemGroupedBackground))
+        .background(Color(DesignSystemConstants.Colors.background))
     }
 
     private func header() -> some View {

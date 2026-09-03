@@ -45,11 +45,53 @@ private enum AppIconLock: String, CaseIterable {
     }
 }
 
+private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
+    case guild
+    case roster
+    case payout
+    case preferences
+    case notifications
+    case appIcon
+    case icloudSync
+    case about
+
+    var id: String {
+        rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .guild: "Guild Settings"
+        case .roster: "Roster & Invites"
+        case .payout: "Payout Settings"
+        case .preferences: "Appearance"
+        case .notifications: "Notifications"
+        case .appIcon: "App Icon"
+        case .icloudSync: "iCloud Sync"
+        case .about: "About"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .guild: "house.fill"
+        case .roster: "person.3.fill"
+        case .payout: "calendar.badge.clock"
+        case .preferences: "paintbrush.fill"
+        case .notifications: "bell.badge.fill"
+        case .appIcon: "app.badge.fill"
+        case .icloudSync: "cloud.fill"
+        case .about: "info.circle.fill"
+        }
+    }
+}
+
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(NotificationService.self) private var notificationService
     @Environment(FamilyService.self) private var familyService
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @AppStorage("preferredAppearance") private var preferredAppearance: String = "system"
     @AppStorage("featureflags.rpgImmersive") private var rpgImmersive: Bool = false
@@ -59,6 +101,9 @@ struct SettingsView: View {
     @State private var selectedIcon: AppIconLock = .standard
     @State private var unlockedIconMilestones: Set<AppIconLock> = []
     @State private var activeIconName: String?
+    @State private var selectedSettingsSection: SettingsSection? = .guild
+    @State private var isPayoutPolicyExpanded: Bool = false
+    @State private var isSigningOut: Bool = false
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the query returns zero rows, which is
@@ -90,10 +135,336 @@ struct SettingsView: View {
         currentProfileRows.first
     }
 
+    private var isRegular: Bool {
+        horizontalSizeClass == .regular
+    }
+
     var body: some View {
+        Group {
+            // WHY: split keeps sidebar and detail visible on iPad; compact collapses to NavigationStack for 50/50 where split would clip. Outer 1040 cap is applied via maxContentWidth in child cards.
+            if isRegular {
+                NavigationSplitView {
+                    sidebarList
+                } detail: {
+                    NavigationStack {
+                        detailContent
+                    }
+                }
+            } else {
+                compactList
+            }
+        }
+        .preferredColorScheme(colorScheme)
+        .task {
+            // Default disclosure open on iPad so payout policy is visible without extra tap.
+            // Uses .task to avoid mutating @State during view update.
+            // Rotation never rewrites this afterwards so an explicit user collapse is respected.
+            if horizontalSizeClass == .regular {
+                isPayoutPolicyExpanded = true
+            }
+            refreshAppIconState()
+        }
+    }
+
+    // MARK: - Sidebar (iPad)
+
+    private var sidebarList: some View {
+        List(selection: $selectedSettingsSection) {
+            Section("Guild") {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Guild Settings")
+                            .font(.body.weight(.semibold))
+                        Text("Family name, roles, invitations, data reset")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "house.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                }
+                .tag(SettingsSection.guild)
+                .accessibilityIdentifier("settings.guildSettings")
+
+                Label("Roster & Invites", systemImage: "person.3.fill")
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .tag(SettingsSection.roster)
+                    .accessibilityIdentifier("settings.rosterInvites")
+            }
+
+            Section("Payout") {
+                Label("Payout Settings", systemImage: "calendar.badge.clock")
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .tag(SettingsSection.payout)
+                    .accessibilityIdentifier("settings.payoutSettings")
+            }
+
+            Section("Preferences") {
+                Label("Appearance", systemImage: "paintbrush.fill")
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .tag(SettingsSection.preferences)
+                    .accessibilityIdentifier("settings.appearance")
+
+                Label("Notifications", systemImage: "bell.badge.fill")
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .tag(SettingsSection.notifications)
+                    .accessibilityIdentifier("settings.notifications")
+
+                if UIApplication.shared.supportsAlternateIcons {
+                    Label("App Icon", systemImage: "app.badge.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                        .tag(SettingsSection.appIcon)
+                        .accessibilityIdentifier("settings.appIcon")
+                }
+            }
+
+            Section("System") {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("iCloud Sync")
+                            .font(.body.weight(.semibold))
+                        Text(syncStatusText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "cloud.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                }
+                .tag(SettingsSection.icloudSync)
+                .accessibilityIdentifier("settings.icloudSync")
+
+                Label("About", systemImage: "info.circle.fill")
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .tag(SettingsSection.about)
+                    .accessibilityIdentifier("settings.about")
+            }
+        }
+        .navigationTitle("Settings")
+    }
+
+    // MARK: - Detail (iPad)
+
+    @ViewBuilder
+    private var detailContent: some View {
+        switch selectedSettingsSection {
+        case .guild:
+            guildDetail
+                .navigationTitle("Guild Settings")
+        case .roster:
+            rosterDetail
+                .navigationTitle("Roster & Invites")
+        case .payout:
+            payoutDetail
+                .navigationTitle("Payout Settings")
+        case .preferences:
+            preferencesDetail
+                .navigationTitle("Appearance")
+        case .notifications:
+            notificationsDetail
+                .navigationTitle("Notifications")
+        case .appIcon:
+            appIconGridDetail
+                .navigationTitle("App Icon")
+        case .icloudSync:
+            icloudSyncDetail
+                .navigationTitle("iCloud Sync")
+        case .about:
+            aboutDetail
+                .navigationTitle("About")
+        case .none:
+            guildDetail
+                .navigationTitle("Guild Settings")
+        }
+    }
+
+    private var guildDetail: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                SettingsGuildHeaderHostView(familyRecordName: appState.family?.id.recordName)
+                GuildDangerZoneSectionView(isSigningOut: $isSigningOut)
+            }
+            .padding(.vertical, 14)
+        }
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+        .overlay {
+            if isSigningOut {
+                ProgressView("Signing out…")
+                    .padding(24)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+            }
+        }
+    }
+
+    private var rosterDetail: some View {
+        SettingsRosterHostView(familyRecordName: appState.family?.id.recordName)
+    }
+
+    private var payoutDetail: some View {
+        ScrollView {
+            GuildPayoutDefaultsSectionView(isPayoutPolicyExpanded: $isPayoutPolicyExpanded)
+                .padding(.vertical, 14)
+        }
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+    }
+
+    private var preferencesDetail: some View {
+        Form {
+            Section("Appearance") {
+                Picker(selection: $preferredAppearance) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                } label: {
+                    Label("Appearance", systemImage: "paintbrush.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                }
+            }
+
+            Section {
+                Toggle("RPG Immersive Mode", isOn: $rpgImmersive)
+                    .onChange(of: rpgImmersive) { _, newValue in
+                        FeatureFlags.rpgImmersive = newValue
+                    }
+            } header: {
+                Text("Classic Mode (Experimental)")
+            } footer: {
+                Text("""
+                Toggles the fantasy-RPG presentation layer: sprite avatars, \
+                Hero classes, leveling, quest rarity, journey path, mascots, \
+                gems, and more. Underlying services keep running — only the UI changes.
+                """)
+            }
+
+            if FeatureFlags.rpgImmersive {
+                Section("Developer") {
+                    NavigationLink {
+                        SpriteGalleryView()
+                    } label: {
+                        Label("Sprite Gallery", systemImage: "square.grid.2x2.fill")
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var notificationsDetail: some View {
+        if let row = currentProfileRow, appState.family != nil {
+            NotificationSettingsView(
+                notificationService: notificationService,
+                profileCache: row
+            )
+        } else {
+            ContentUnavailableView(
+                "Notifications Unavailable",
+                systemImage: "bell.slash.fill",
+                description: Text("Sign in to a family to manage notifications.")
+            )
+        }
+    }
+
+    private var appIconGridDetail: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
+                ForEach(AppIconLock.allCases, id: \.rawValue) { icon in
+                    let isUnlocked = icon == .standard || unlockedIconMilestones.contains(icon)
+                    Button {
+                        setAppIcon(icon)
+                    } label: {
+                        VStack(spacing: 8) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                                    .frame(height: 120)
+                                Image(systemName: isUnlocked ? "app.fill" : "lock.fill")
+                                    .font(.system(size: 48))
+                                    .foregroundStyle(isUnlocked ? Color(DesignSystemConstants.Colors.accentBlue) : .secondary)
+                                if icon == selectedIcon {
+                                    VStack {
+                                        HStack {
+                                            Spacer()
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                                                .background(Circle().fill(.white))
+                                                .padding(8)
+                                        }
+                                        Spacer()
+                                    }
+                                }
+                                if !isUnlocked {
+                                    VStack {
+                                        Spacer()
+                                        HStack {
+                                            Spacer()
+                                            Image(systemName: "lock.fill")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                                .padding(8)
+                                        }
+                                    }
+                                }
+                            }
+                            Text(icon.displayName)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(isUnlocked ? .primary : .secondary)
+                                .lineLimit(1)
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(icon == selectedIcon ? Color(DesignSystemConstants.Colors.accentBlue).opacity(0.8) : Color.clear, lineWidth: 1.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isUnlocked)
+                    .accessibilityIdentifier("settings.appIcon-\(icon.rawValue)")
+                }
+            }
+            .padding()
+        }
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+    }
+
+    private var icloudSyncDetail: some View {
+        iCloudStatusView(familyRecordName: appState.family?.id.recordName)
+    }
+
+    private var aboutDetail: some View {
+        Form {
+            Section("About") {
+                HStack {
+                    Label("Version", systemImage: "info.circle.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    Spacer()
+                    Text(appVersionString)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack {
+                    Label("Family", systemImage: "shield.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                    Spacer()
+                    Text("\(Bundle.main.infoDictionary?["CFBundleDisplayName"] as? String ?? "LootList") for Families")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    // MARK: - Compact (iPhone)
+
+    private var compactList: some View {
         NavigationStack {
             List {
-                // Section 1: Guild Management
                 Section("Guild Management") {
                     NavigationLink {
                         GuildSettingsView(familyRecordName: appState.family?.id.recordName)
@@ -113,30 +484,26 @@ struct SettingsView: View {
                     }
                 }
 
-                #if DEBUG
-                    Section("iCloud Sync") {
-                        NavigationLink {
-                            iCloudStatusView(familyRecordName: appState.family?.id.recordName)
-                        } label: {
-                            Label {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("iCloud Sync")
-                                        .font(.body.weight(.semibold))
-                                    Text(syncStatusText)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            } icon: {
-                                Image(systemName: "cloud.fill")
-                                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                Section("iCloud Sync") {
+                    NavigationLink {
+                        iCloudStatusView(familyRecordName: appState.family?.id.recordName)
+                    } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("iCloud Sync")
+                                    .font(.body.weight(.semibold))
+                                Text(syncStatusText)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
+                        } icon: {
+                            Image(systemName: "cloud.fill")
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                         }
                     }
-                #endif
+                }
 
-                // Section 3: Preferences
                 Section("Preferences") {
-                    // Appearance (Dark / Light / System)
                     Picker(selection: $preferredAppearance) {
                         Text("System").tag("system")
                         Text("Light").tag("light")
@@ -146,7 +513,6 @@ struct SettingsView: View {
                             .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
                     }
 
-                    // Notifications
                     if let row = currentProfileRow, appState.family != nil {
                         NavigationLink {
                             NotificationSettingsView(
@@ -160,7 +526,6 @@ struct SettingsView: View {
                     }
                 }
 
-                // Alternate App Icons unlocked by savings-streak milestones.
                 if UIApplication.shared.supportsAlternateIcons {
                     Section("App Icon") {
                         ForEach(AppIconLock.allCases, id: \.rawValue) { icon in
@@ -190,13 +555,11 @@ struct SettingsView: View {
                                 }
                             }
                             .disabled(!isUnlocked)
+                            .accessibilityIdentifier("settings.appIcon-\(icon.rawValue)")
                         }
                     }
                 }
 
-                // Classic Mode (Experimental) — RPG-era toggles gated behind
-                // the immersive feature flag. When the flag is off, none of
-                // these surfaces render.
                 if FeatureFlags.rpgImmersive {
                     Section {
                         Toggle("RPG Immersive Mode", isOn: $rpgImmersive)
@@ -214,7 +577,6 @@ struct SettingsView: View {
                     }
                 }
 
-                // Developer Tools: diagnostics, cache resets, and mock seeding.
                 if FeatureFlags.rpgImmersive {
                     Section("Developer") {
                         NavigationLink {
@@ -226,7 +588,6 @@ struct SettingsView: View {
                     }
                 }
 
-                // Section 4: App Information
                 Section("About") {
                     HStack {
                         Label("Version", systemImage: "info.circle.fill")
@@ -249,10 +610,6 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
-        }
-        .preferredColorScheme(colorScheme)
-        .task {
-            refreshAppIconState()
         }
     }
 

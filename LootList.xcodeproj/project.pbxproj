@@ -11,6 +11,7 @@
 		02BAED36804122341EDCED4B /* GemShopView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7524CAB4423538B7191015A0 /* GemShopView.swift */; };
 		0370ADCEF524F2B0D392255B /* VerificationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6333B737C7E26ABA1AFF02EE /* VerificationStatus.swift */; };
 		0527C262F4FF6F2BD21E23D9 /* CKSyncEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77ED22F2224016018806795B /* CKSyncEngineTests.swift */; };
+		053026DD8458E71B121B956F /* FamilyDashboardBranchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBB3BE921F991C80EFF58F3E /* FamilyDashboardBranchViews.swift */; };
 		061FE1E0B34B79D020E61575 /* FamilyDiscoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE3EFE5263E8210E2659D41D /* FamilyDiscoveryService.swift */; };
 		063C8490BC2528CA7FFBB5D8 /* OfflineAndSyncMatrixTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E8DAC47F670D122621488B /* OfflineAndSyncMatrixTests.swift */; };
 		0649CD2ABA326800F66DAA7A /* MockRecordStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F5D0DCF7DC5D866038A466 /* MockRecordStore.swift */; };
@@ -66,6 +67,7 @@
 		24D99B8D5C1336D44551756B /* EditAvatarSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5F0273316174C1826FE15C1 /* EditAvatarSheet.swift */; };
 		292CF28E35080847912CB1A4 /* ApprovalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F750555385910A36899A9BE /* ApprovalMode.swift */; };
 		2A00B0CD73498D56AE7C0EE5 /* TrophyRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C3E6FC5C9D55197733AA29 /* TrophyRoomView.swift */; };
+		2A0A0126FDDD47E37CF4A2A5 /* PayoutWeekCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68229402D50E94BE940EC38C /* PayoutWeekCalculator.swift */; };
 		2A910DDD532DBC562115C313 /* HeroLedgerViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 029D59AC3369CE8ADE425CFE /* HeroLedgerViewModelTests.swift */; };
 		2AD7FBB5C18CC6C68795389C /* BucketTileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C02C5B95CED04D567A0164 /* BucketTileView.swift */; };
 		2B30CA9F75994E6D1379D071 /* QuestManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8489EFF3404096B84A6A50E9 /* QuestManagerView.swift */; };
@@ -95,6 +97,7 @@
 		3BAFA13490A68A51609472C2 /* CKSyncEngineDelegateHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B6076B9096995404AD21385 /* CKSyncEngineDelegateHandler.swift */; };
 		3CD1D3266E5C898AB676AE43 /* BucketSplitEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5CB2F961343E801051F58D /* BucketSplitEntryRow.swift */; };
 		3D15240BE2A19C5E6BE4BC6C /* FamilyDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 975CB482406B3EB4588EC345 /* FamilyDashboardView.swift */; };
+		3DA8AC4D2618179D81E4C62F /* PayoutDetailContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF2ED03FA419C3E379E073EC /* PayoutDetailContentView.swift */; };
 		40646BE2CDF82664B3B2E032 /* ProfileAchievementCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A493B2D63AD2438369662C66 /* ProfileAchievementCache.swift */; };
 		408E6B8A230796F44E56144C /* HeroDashboardMyChoresTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86D2B9B0A831EE301529C801 /* HeroDashboardMyChoresTests.swift */; };
 		41081C28F4838B129AA6E6E1 /* FamilyService+OwnerDedupe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 594A3FD4CBF91B10B9A8AF29 /* FamilyService+OwnerDedupe.swift */; };
@@ -130,6 +133,7 @@
 		541165B4B56FB49890EC7709 /* QuestServiceTests+Withdrawal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0866C01AF70A428642CA539D /* QuestServiceTests+Withdrawal.swift */; };
 		55707878368E3DC8EC51B9E8 /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B02119865F6610D00BD4F2A /* TabBarView.swift */; };
 		5610437EA38B06E7BFAD2A73 /* QuestCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD4F535D727A65E8357A42F3 /* QuestCache.swift */; };
+		57087BB88EC883F781661EFB /* FamilyDashboardCardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81FB741873508F1F2A086B07 /* FamilyDashboardCardViews.swift */; };
 		5742740742847275A8446E5F /* BatchQuestFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F4D55A65A228EFD564F4BBC /* BatchQuestFetcher.swift */; };
 		57749E46F37B3AF67734097D /* FamilyShareReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A49B5A27C700FC780D0D78C1 /* FamilyShareReconcilerTests.swift */; };
 		57F90D53C2F1193ADDDE89E6 /* JourneyMapCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A678420802F60A989A37F555 /* JourneyMapCardView.swift */; };
@@ -196,7 +200,9 @@
 		7D38D0587BF4B55AC123DA6A /* AvatarCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C889F94A727717C18C246E9 /* AvatarCardView.swift */; };
 		7D504C659F2008C130F84BC6 /* DataMigrationsCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA8C10DB8B00F3CBF07A0F97 /* DataMigrationsCoordinator.swift */; };
 		8086658AFA85024A20A41CD8 /* TrophyRoomViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DD14675841D99B77530615 /* TrophyRoomViewModel.swift */; };
+		81C72021ADB28F7E282ABD70 /* PayoutChartHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF49548E0DC3E38AF9F79700 /* PayoutChartHeaderView.swift */; };
 		81F26D729E7F905C5121BC65 /* Goal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 887A2A9E9522DED6DFD50A1B /* Goal.swift */; };
+		836ECF53B7FAA68C7FA2B0B4 /* SettingsGuildHeaderHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F64B4E8269570A6E1EB073F8 /* SettingsGuildHeaderHostView.swift */; };
 		83DDDB0C37F2A8FCA97A4152 /* FamilyServiceTests+Concurrency.swift in Sources */ = {isa = PBXBuildFile; fileRef = A73A0E21D2FE5E3040E4299F /* FamilyServiceTests+Concurrency.swift */; };
 		843998266FDE8735965AEE0C /* QuestServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE146AF998123F6F9E4FB25B /* QuestServiceTests.swift */; };
 		844538A0A6D57FA5A48D67FE /* CheckmarkMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1963A5C399D6D7074A33D08 /* CheckmarkMenu.swift */; };
@@ -207,8 +213,10 @@
 		87B64478DD7444CDC7BF1CA4 /* Calendar+ISO8601UTC.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */; };
 		884315C38A5674D8E6320FA4 /* StaleDataBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 526F3E463FB4EEE8C464A423 /* StaleDataBanner.swift */; };
 		890FC79E0337FE1F1CF1E26C /* HeroAvatarSprites+PixelBases.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5305E136352F0F0000B0088A /* HeroAvatarSprites+PixelBases.swift */; };
+		8A4AE21E2B63B6E557A16994 /* FamilyDashboardView+Sections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADE7FFAD883A06D3962847F /* FamilyDashboardView+Sections.swift */; };
 		8BA26EB6C2E6425B81C827FC /* QuestRarity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */; };
 		8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8761871EDB01C4A39B494AA3 /* Profile.swift */; };
+		8CF0F691C4BA65D9E7E41B30 /* HeroDetailInlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CB1B3F830D3D9B05BD16F8 /* HeroDetailInlineView.swift */; };
 		8CFA5C8F74CC69D17C998222 /* CurrencyFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2525E26F314283FD00ED175 /* CurrencyFormatter.swift */; };
 		8D96EC37B3D9D14409727627 /* FamilyServiceTests+OwnerAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73C8BE8C58884EE28C25F335 /* FamilyServiceTests+OwnerAnchor.swift */; };
 		8EF7931F2B14AB2B90388AEE /* HeroDashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BD29C5382B850C0B63C0A7B /* HeroDashboardUITests.swift */; };
@@ -220,10 +228,12 @@
 		90F8DE0D979B95B9AA68DD68 /* DatabaseScopeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 665E1DAB6DB32BD69E443EB9 /* DatabaseScopeResolver.swift */; };
 		9194A36CE28E488711B64473 /* ParentDashboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6CA16B7055C5AEAD8C8C14A /* ParentDashboardUITests.swift */; };
 		91DD98F2DE17ABA97BD016B1 /* GoalServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0ECCD13E8A26ABF8A61ED3 /* GoalServiceTests.swift */; };
+		922B0B33E6DCEFB28C27E326 /* View+MaxContentWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67F6205C65D060A3DBFC8769 /* View+MaxContentWidth.swift */; };
 		92A1BCEE7F3A52E1A90168D7 /* PayoutDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D073AC3409B88891A13463 /* PayoutDay.swift */; };
 		94130D19BDEE8735B089FAE3 /* StatCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C2A9C6E9615A1156066FF5 /* StatCard.swift */; };
 		94B71768CC89A5AD03EEE749 /* Collection+Safe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB3B0D6953742016FB5F43B /* Collection+Safe.swift */; };
 		957052A8DCF34967984A5ECD /* TrophyRoomViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBB2FDDB10B0B4FAEDB5651 /* TrophyRoomViewModelTests.swift */; };
+		96144A9CB6994435897CEAB9 /* SettingsRosterHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DCD964828C1FDCC6AE4F475 /* SettingsRosterHostView.swift */; };
 		98381B84ADDBAD296D3D7373 /* ChildHubCardsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF96C050796BFCA261A61344 /* ChildHubCardsView.swift */; };
 		994A9516BC5CAB659C795FC6 /* StreakWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8EA0EE57055CC7B12551DD /* StreakWidget.swift */; };
 		99DE98B6440EB9713CD0F2EB /* HeroAvatarSprites+Equipment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3D6CF1C8AF221417C51FF9 /* HeroAvatarSprites+Equipment.swift */; };
@@ -237,6 +247,7 @@
 		9CA9A3AB32C5FF1DACEBC5AA /* TreasuryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5340AFA0EE98F0109EF27FE6 /* TreasuryServiceTests.swift */; };
 		9D5BD529CAF7305FCD5E3414 /* DecimalPadDismissModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 465DD171C3B2E669A7EA9987 /* DecimalPadDismissModifier.swift */; };
 		9D7A7F37C17B7950570DED66 /* WidgetDataBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = DBADA92A5A45EF0F3C5C24AD /* WidgetDataBridge.swift */; };
+		9DB16AC8F51B50638622E28E /* ExportChildPickerSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D88B6F370A39EE21F662AE9 /* ExportChildPickerSheetView.swift */; };
 		9E3953C5BA275D545B1772B9 /* RewardEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C330ACAE67922B0B30148B77 /* RewardEvent.swift */; };
 		A0A078F5FB5E392E26CF1CFD /* SpriteGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCE684DF487476858652A0E3 /* SpriteGalleryView.swift */; };
 		A0BA974108B526252089C3A0 /* InviteError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D92E8E4D26035A4AD79BA24 /* InviteError.swift */; };
@@ -319,7 +330,9 @@
 		CC15615BEAB36471C9EB15B4 /* CompleteQuestIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48927F8A21752DA1DF9D9AFA /* CompleteQuestIntent.swift */; };
 		CCDDCA3B0C69344A4BEC71D4 /* ToastView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5DFE9263D114B8E70D29C8 /* ToastView.swift */; };
 		CD95D50EB2893EE79312C6DA /* XPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ACB50C5AFC8745DF880FC82 /* XPService.swift */; };
+		CDE7EC07BD5A6C915C5D8FA5 /* ProcessPayoutButtonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA7F897D71A8B26BC5012B19 /* ProcessPayoutButtonView.swift */; };
 		CDF3B66C97E4BE042AB09CB4 /* ProfileViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43EE66D0D9D493BF47D10DA7 /* ProfileViewModelTests.swift */; };
+		CE36CF8D0672D0E9FE040F34 /* PayoutDetailSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FF7888FCB8BE6E54324BF3 /* PayoutDetailSheetView.swift */; };
 		CEE615BF73574AC3316572F3 /* SerialMutationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */; };
 		CF27BFEAA55B42F206D19BBB /* LedgerImportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B15421668F757E0673E4665 /* LedgerImportViewModel.swift */; };
 		CFEF25C925DFF69068BC8BD4 /* QuestLogViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76AF24E70BF63F8C3E4B014D /* QuestLogViewModelTests.swift */; };
@@ -516,6 +529,7 @@
 		3126E26209D8D54178D4E71A /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		3141F9AF86E936B9DC544324 /* FatalCacheErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FatalCacheErrorView.swift; sourceTree = "<group>"; };
 		31F582325272A691D81E0B13 /* AutoPayoutCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPayoutCoordinator.swift; sourceTree = "<group>"; };
+		31FF7888FCB8BE6E54324BF3 /* PayoutDetailSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutDetailSheetView.swift; sourceTree = "<group>"; };
 		334F0806849AF68243D2E6A6 /* LootListUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3358E19E128D97849CED8D7D /* RecordBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordBridgeTests.swift; sourceTree = "<group>"; };
 		35B40A26C97411D811F77F48 /* HeroBoardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroBoardViewModel.swift; sourceTree = "<group>"; };
@@ -559,6 +573,7 @@
 		48927F8A21752DA1DF9D9AFA /* CompleteQuestIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompleteQuestIntent.swift; sourceTree = "<group>"; };
 		494D0857208062129CA6B5B1 /* DashboardMetricsCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardMetricsCalculator.swift; sourceTree = "<group>"; };
 		49F5B9AB44CCF6853B519183 /* LootListTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4ADE7FFAD883A06D3962847F /* FamilyDashboardView+Sections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyDashboardView+Sections.swift"; sourceTree = "<group>"; };
 		4B2E8E5B2EA9796AAB28C2FC /* CacheConversionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheConversionsTests.swift; sourceTree = "<group>"; };
 		4BD9F758DECE9F7A2BBCDBC1 /* GoalEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalEditorSheet.swift; sourceTree = "<group>"; };
 		4C8F3DAB50B7B458DE5C1495 /* ProfileAchievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAchievement.swift; sourceTree = "<group>"; };
@@ -586,6 +601,7 @@
 		5BB377F4B753419F65732040 /* DailyLoginServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyLoginServiceTests.swift; sourceTree = "<group>"; };
 		5C3ABA1D09005EC293F24135 /* CloudKitService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitService.swift; sourceTree = "<group>"; };
 		5D1B1FD3B57212828779B372 /* GoalProgressCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalProgressCalculator.swift; sourceTree = "<group>"; };
+		5D88B6F370A39EE21F662AE9 /* ExportChildPickerSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportChildPickerSheetView.swift; sourceTree = "<group>"; };
 		5DF1B3D3EF0EE5EF8B89B9CA /* HeroDashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDashboardViewModel.swift; sourceTree = "<group>"; };
 		5E333212CD54B711A588DF82 /* LedgerEntryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerEntryCache.swift; sourceTree = "<group>"; };
 		5E53B49580742C8AB849A744 /* CKSyncEngineCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CKSyncEngineCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -601,6 +617,8 @@
 		665E1DAB6DB32BD69E443EB9 /* DatabaseScopeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseScopeResolver.swift; sourceTree = "<group>"; };
 		67019B9327EF0BF4251EBAF8 /* TreasuryViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryViewModel.swift; sourceTree = "<group>"; };
 		6731E784565F8A380CC08E2C /* HeroLedgerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroLedgerView.swift; sourceTree = "<group>"; };
+		67F6205C65D060A3DBFC8769 /* View+MaxContentWidth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+MaxContentWidth.swift"; sourceTree = "<group>"; };
+		68229402D50E94BE940EC38C /* PayoutWeekCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutWeekCalculator.swift; sourceTree = "<group>"; };
 		68346001171FD0C1F3D08B31 /* CacheConversions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheConversions.swift; sourceTree = "<group>"; };
 		68A6949336D9C6F5715F8A4A /* JourneyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyService.swift; sourceTree = "<group>"; };
 		69AEBEE98C0679819CAC1446 /* CalendarScopeFilterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScopeFilterView.swift; sourceTree = "<group>"; };
@@ -635,6 +653,7 @@
 		7D26DFB71A9E49F5FB0F331E /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		7D3BE16829C22EFEF849814C /* CloudSharingControllerWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSharingControllerWrapper.swift; sourceTree = "<group>"; };
 		7D92E8E4D26035A4AD79BA24 /* InviteError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteError.swift; sourceTree = "<group>"; };
+		7DCD964828C1FDCC6AE4F475 /* SettingsRosterHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRosterHostView.swift; sourceTree = "<group>"; };
 		7DFE664C97DE662F97840922 /* LedgerSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerSource.swift; sourceTree = "<group>"; };
 		7EA257916025679E0AA31706 /* ProgressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressBar.swift; sourceTree = "<group>"; };
 		7F6ED093009BC913BE9E15B2 /* BucketKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BucketKind.swift; sourceTree = "<group>"; };
@@ -642,6 +661,7 @@
 		80AA429949DE95170513B347 /* LootListSchema.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListSchema.swift; sourceTree = "<group>"; };
 		81528F8B356212A13CF346D9 /* LootListIntegrationTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = LootListIntegrationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		81E373C156981A67C46478F5 /* GemServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemServiceTests.swift; sourceTree = "<group>"; };
+		81FB741873508F1F2A086B07 /* FamilyDashboardCardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardCardViews.swift; sourceTree = "<group>"; };
 		825C2EED5B54A83A23803514 /* CacheMergeable+Grouping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CacheMergeable+Grouping.swift"; sourceTree = "<group>"; };
 		82C129EBFC1E4A24C907149C /* LedgerImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerImportView.swift; sourceTree = "<group>"; };
 		830400052B99000D040CC4A2 /* ChildLedgerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildLedgerView.swift; sourceTree = "<group>"; };
@@ -711,6 +731,7 @@
 		ABEF2FC4366881264C70BF9E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		ADCF93C3FA2FCF0F94FBA4EE /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
 		AEC44179BDF55FEEF8AE9EEA /* HeroAvatarSprites+Healer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Healer.swift"; sourceTree = "<group>"; };
+		AF49548E0DC3E38AF9F79700 /* PayoutChartHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutChartHeaderView.swift; sourceTree = "<group>"; };
 		AF96C050796BFCA261A61344 /* ChildHubCardsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildHubCardsView.swift; sourceTree = "<group>"; };
 		AF9B4CD12C1C887E6E21879A /* SavingsSplitView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavingsSplitView.swift; sourceTree = "<group>"; };
 		B038A722AE55C6658ACBD6B3 /* GuildPayoutDefaultsSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuildPayoutDefaultsSectionView.swift; sourceTree = "<group>"; };
@@ -724,14 +745,17 @@
 		B86FCD8DE053FCE5CF03E264 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B88BE82D0CEA435EDBA36936 /* GoalCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalCardView.swift; sourceTree = "<group>"; };
 		B89013EC78089F906DCD314F /* LootListApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListApp.swift; sourceTree = "<group>"; };
+		B9CB1B3F830D3D9B05BD16F8 /* HeroDetailInlineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroDetailInlineView.swift; sourceTree = "<group>"; };
 		B9DD53B4D93E5793A9BFB3A6 /* UserRole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserRole.swift; sourceTree = "<group>"; };
 		BA41DC7F41B89612D0328112 /* Calendar+ISO8601UTC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Calendar+ISO8601UTC.swift"; sourceTree = "<group>"; };
+		BA7F897D71A8B26BC5012B19 /* ProcessPayoutButtonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPayoutButtonView.swift; sourceTree = "<group>"; };
 		BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerialMutationQueue.swift; sourceTree = "<group>"; };
 		BCF1098F4E47B87A8FB7472D /* FamilyInvitationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyInvitationCoordinator.swift; sourceTree = "<group>"; };
 		BD8FDD3E9D17F1355BDC2C8B /* QuestTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestTemplate.swift; sourceTree = "<group>"; };
 		BDAFB843EA07EB30F81A8796 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		BE2A3DEE969995755BD41BCF /* AppLifecycleCoordinator+Reconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppLifecycleCoordinator+Reconciliation.swift"; sourceTree = "<group>"; };
 		BEA32A99EF7AD83493CB7E19 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
+		BF2ED03FA419C3E379E073EC /* PayoutDetailContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutDetailContentView.swift; sourceTree = "<group>"; };
 		BFBA39E16A8B1813AFDEF895 /* LootListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListTests.swift; sourceTree = "<group>"; };
 		C0168D33CAFC7EF9E0B61580 /* OnboardingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingUITests.swift; sourceTree = "<group>"; };
 		C18CEAF67B8C5FB11FF2E43D /* InterestServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterestServiceTests.swift; sourceTree = "<group>"; };
@@ -746,6 +770,7 @@
 		CA89DCFD795BA06D52FFDD99 /* Quest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Quest.swift; sourceTree = "<group>"; };
 		CB74BA7516355BF020EC5048 /* Achievement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Achievement.swift; sourceTree = "<group>"; };
 		CBA7C096148F8E1833CF1123 /* QuestSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestSchedule.swift; sourceTree = "<group>"; };
+		CBB3BE921F991C80EFF58F3E /* FamilyDashboardBranchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyDashboardBranchViews.swift; sourceTree = "<group>"; };
 		CC9C5B09945933E0C31DA59A /* CKSyncEngineTests+ConflictResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CKSyncEngineTests+ConflictResolver.swift"; sourceTree = "<group>"; };
 		CCB97BF352BC5ED47F52E775 /* GemLedgerCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemLedgerCache.swift; sourceTree = "<group>"; };
 		CD7309A7921898E5B1910AA9 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
@@ -811,6 +836,7 @@
 		F5F0273316174C1826FE15C1 /* EditAvatarSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditAvatarSheet.swift; sourceTree = "<group>"; };
 		F6190D7BD94613C76D46B13F /* MyChoresView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyChoresView.swift; sourceTree = "<group>"; };
 		F635A26F3759ECFCAF4644FB /* CloudKitService+Sharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudKitService+Sharing.swift"; sourceTree = "<group>"; };
+		F64B4E8269570A6E1EB073F8 /* SettingsGuildHeaderHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsGuildHeaderHostView.swift; sourceTree = "<group>"; };
 		F67E028A6DA6A257A4B1C96E /* HeroAvatarSprites+Guardian.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HeroAvatarSprites+Guardian.swift"; sourceTree = "<group>"; };
 		F74A4F7F6BED8FEC9092351F /* BackgroundCacheActor+SystemFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BackgroundCacheActor+SystemFields.swift"; sourceTree = "<group>"; };
 		F8F44EBCC2806837BA32D571 /* QuestServiceTests+Migrations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestServiceTests+Migrations.swift"; sourceTree = "<group>"; };
@@ -917,12 +943,17 @@
 		15395829770D69E96BEF951E /* Guild */ = {
 			isa = PBXGroup;
 			children = (
+				5D88B6F370A39EE21F662AE9 /* ExportChildPickerSheetView.swift */,
+				CBB3BE921F991C80EFF58F3E /* FamilyDashboardBranchViews.swift */,
+				81FB741873508F1F2A086B07 /* FamilyDashboardCardViews.swift */,
 				975CB482406B3EB4588EC345 /* FamilyDashboardView.swift */,
+				4ADE7FFAD883A06D3962847F /* FamilyDashboardView+Sections.swift */,
 				A7F4C8604DE90C4DB4E5AB22 /* GuildDangerZoneSectionView.swift */,
 				B038A722AE55C6658ACBD6B3 /* GuildPayoutDefaultsSectionView.swift */,
 				B52249FE484BE42702A41E09 /* GuildRosterSectionView.swift */,
 				94FB9A652DA4D837BED9282F /* GuildSettingsView.swift */,
 				7AA7E242F81BDF3C77F2C96D /* HeroDetail.swift */,
+				B9CB1B3F830D3D9B05BD16F8 /* HeroDetailInlineView.swift */,
 				8809BA2CCE4B470D8B8554F7 /* HeroDetailView.swift */,
 				0EC244B5D8CE50F6598C27D6 /* HeroInterestMatchView.swift */,
 				6731E784565F8A380CC08E2C /* HeroLedgerView.swift */,
@@ -931,7 +962,11 @@
 				45DF5E9CBB29FC6E6312FE81 /* HeroTransactionView.swift */,
 				59975E89F6BF79DB7841FABB /* InviteRolePickerView.swift */,
 				71FA40293C366D50FE89B4C9 /* KidsSavingsGoalsView.swift */,
+				AF49548E0DC3E38AF9F79700 /* PayoutChartHeaderView.swift */,
+				BF2ED03FA419C3E379E073EC /* PayoutDetailContentView.swift */,
+				31FF7888FCB8BE6E54324BF3 /* PayoutDetailSheetView.swift */,
 				A29AFF3513D151637BD6AD3B /* PayoutHistoryView.swift */,
+				BA7F897D71A8B26BC5012B19 /* ProcessPayoutButtonView.swift */,
 				D870526224A67A707B7E4A4D /* QuestAssignmentView.swift */,
 				2115EBAAEC5C1190BA62182E /* QuestLogView.swift */,
 				8489EFF3404096B84A6A50E9 /* QuestManagerView.swift */,
@@ -1031,6 +1066,7 @@
 				17F5D0DCF7DC5D866038A466 /* MockRecordStore.swift */,
 				7D26DFB71A9E49F5FB0F331E /* NetworkMonitor.swift */,
 				CD7309A7921898E5B1910AA9 /* NotificationService.swift */,
+				68229402D50E94BE940EC38C /* PayoutWeekCalculator.swift */,
 				0D49FD1EB8CBFBA07D298462 /* PriceExtractionService.swift */,
 				FCE034F3C9A2772273ABDC48 /* QuestCompletionHelper.swift */,
 				793AE042C54685940F7C3EF1 /* QuestService.swift */,
@@ -1337,6 +1373,8 @@
 				7EA257916025679E0AA31706 /* ProgressBar.swift */,
 				97B1C9FB5C6463078E45D345 /* QuestCompletionEffectView.swift */,
 				906DCB4251799C136B0E9B40 /* RarityBorderModifier.swift */,
+				F64B4E8269570A6E1EB073F8 /* SettingsGuildHeaderHostView.swift */,
+				7DCD964828C1FDCC6AE4F475 /* SettingsRosterHostView.swift */,
 				1D0BDA960AB6ACFCFD2CC92F /* SettingsView.swift */,
 				2F98296EAA473AB324F18004 /* ShareSheet.swift */,
 				FCE684DF487476858652A0E3 /* SpriteGalleryView.swift */,
@@ -1496,6 +1534,7 @@
 				DC4C7A00E79EFCE482A921A6 /* StreakCalculator.swift */,
 				CF9C9A669EA50B98696C391D /* TestEnvironment.swift */,
 				4504DC10FC68A4EC79A6C529 /* VerificationStatus+UI.swift */,
+				67F6205C65D060A3DBFC8769 /* View+MaxContentWidth.swift */,
 				29FB80B3B9BCA029E30E5585 /* ViewLifecycle.swift */,
 				3981A96F7316EF05BD95B2D9 /* WeekMath.swift */,
 				DBADA92A5A45EF0F3C5C24AD /* WidgetDataBridge.swift */,
@@ -1797,9 +1836,13 @@
 				24D99B8D5C1336D44551756B /* EditAvatarSheet.swift in Sources */,
 				D3BEF5587C4B06965E1A4C0B /* EmptyStateView.swift in Sources */,
 				4665D34D2B98EA6C45DBC915 /* EquipmentService.swift in Sources */,
+				9DB16AC8F51B50638622E28E /* ExportChildPickerSheetView.swift in Sources */,
 				10706C96ABEA5F8503744895 /* Family.swift in Sources */,
 				AB5994E89A958B1148A2AB5F /* FamilyCache.swift in Sources */,
 				3528655C56EF09ADBE7C4CF0 /* FamilyCreationView.swift in Sources */,
+				053026DD8458E71B121B956F /* FamilyDashboardBranchViews.swift in Sources */,
+				57087BB88EC883F781661EFB /* FamilyDashboardCardViews.swift in Sources */,
+				8A4AE21E2B63B6E557A16994 /* FamilyDashboardView+Sections.swift in Sources */,
 				3D15240BE2A19C5E6BE4BC6C /* FamilyDashboardView.swift in Sources */,
 				070483C4FCB36260086BAF4F /* FamilyDashboardViewModel.swift in Sources */,
 				061FE1E0B34B79D020E61575 /* FamilyDiscoveryService.swift in Sources */,
@@ -1850,6 +1893,7 @@
 				A6CC4F0896A3EFBBE8FF6653 /* HeroBoardViewModel.swift in Sources */,
 				E85CC461F3D68C44ED3B3599 /* HeroDashboardViewModel.swift in Sources */,
 				1BAB6BB273531D9A32B9D782 /* HeroDetail.swift in Sources */,
+				8CF0F691C4BA65D9E7E41B30 /* HeroDetailInlineView.swift in Sources */,
 				4F8EE68B268993280FAEC986 /* HeroDetailView.swift in Sources */,
 				588BABB0F61F00C411ED1C4E /* HeroHeaderCardView.swift in Sources */,
 				7CEDBB820DBDC83299115183 /* HeroHomeView.swift in Sources */,
@@ -1906,14 +1950,19 @@
 				9C00E3EE402D5426E41E1538 /* NotificationService.swift in Sources */,
 				16624C674DB74641C5EB4A7E /* NotificationSettingsView.swift in Sources */,
 				A9076D491EEFF5E99600A80F /* OnboardingViewModel.swift in Sources */,
+				81C72021ADB28F7E282ABD70 /* PayoutChartHeaderView.swift in Sources */,
 				92A1BCEE7F3A52E1A90168D7 /* PayoutDay.swift in Sources */,
 				0F6D5B334426A40C749B8161 /* PayoutDayResolver.swift in Sources */,
+				3DA8AC4D2618179D81E4C62F /* PayoutDetailContentView.swift in Sources */,
+				CE36CF8D0672D0E9FE040F34 /* PayoutDetailSheetView.swift in Sources */,
 				64790F88A96707750A7A15F7 /* PayoutHistoryView.swift in Sources */,
 				193DD1F3105070BD564FE956 /* PayoutPolicy.swift in Sources */,
 				A26F81266B230B02484B4AFA /* PayoutStatus.swift in Sources */,
+				2A0A0126FDDD47E37CF4A2A5 /* PayoutWeekCalculator.swift in Sources */,
 				48E727264C32D159F773884F /* PixelCanvasView.swift in Sources */,
 				5D6666E73023754792CE57F9 /* PresetPill.swift in Sources */,
 				61115E2FFA0FA3EAA909E907 /* PriceExtractionService.swift in Sources */,
+				CDE7EC07BD5A6C915C5D8FA5 /* ProcessPayoutButtonView.swift in Sources */,
 				8BB7D4BAAC565BEFA28EDA03 /* Profile.swift in Sources */,
 				2318B4CF200831070DF93D7C /* ProfileAchievement.swift in Sources */,
 				40646BE2CDF82664B3B2E032 /* ProfileAchievementCache.swift in Sources */,
@@ -1960,6 +2009,8 @@
 				E41D9EF972AC9DAF5FF8D434 /* ScopedRecordIdentity.swift in Sources */,
 				DB0A7BB32938897F61E0FE54 /* SectionHeader.swift in Sources */,
 				CEE615BF73574AC3316572F3 /* SerialMutationQueue.swift in Sources */,
+				836ECF53B7FAA68C7FA2B0B4 /* SettingsGuildHeaderHostView.swift in Sources */,
+				96144A9CB6994435897CEAB9 /* SettingsRosterHostView.swift in Sources */,
 				C9755D15F13609830FD24E6E /* SettingsView.swift in Sources */,
 				20B709BE101F5846C617809D /* ShareSheet.swift in Sources */,
 				C23FC8F96ADB7F292EA634CF /* ShopItem.swift in Sources */,
@@ -1988,6 +2039,7 @@
 				60574BA049549FCEA283D291 /* UserRole.swift in Sources */,
 				7CE735F439CA0C764E3CCFA0 /* VerificationStatus+UI.swift in Sources */,
 				0370ADCEF524F2B0D392255B /* VerificationStatus.swift in Sources */,
+				922B0B33E6DCEFB28C27E326 /* View+MaxContentWidth.swift in Sources */,
 				5E5D411B4202D03CBF030A0D /* ViewLifecycle.swift in Sources */,
 				B00DDA31664D934C04E1EBF0 /* WeekMath.swift in Sources */,
 				8FD5277E5128A3A4B53EEE71 /* WelcomeView.swift in Sources */,

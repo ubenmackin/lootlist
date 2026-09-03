@@ -24,6 +24,9 @@ struct FamilyDashboardView: View {
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var showRolePicker: Bool = false
     @State private var sharePresentation: CloudSharePresentation?
+    @State private var selectedChildRecordName: String?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .doubleColumn
+    @State private var showPendingInspector = false
 
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedQuests: [QuestCache]
@@ -106,130 +109,323 @@ struct FamilyDashboardView: View {
         familyRecordName ?? appState.family?.id.recordName ?? ""
     }
 
+    @ViewBuilder
+    private var questStaleBanner: some View {
+        if !targetFamilyForStale.isEmpty {
+            StaleDataBanner(
+                family: targetFamilyForStale,
+                type: .quest,
+                count: cachedQuests.count,
+                isSyncing: lifecycleCoordinator?.isSyncing == true
+            )
+        }
+    }
+
+    private var selectedChildProfile: ProfileCache? {
+        guard let name = selectedChildRecordName else { return nil }
+        return cachedProfiles.first { $0.recordName == name }
+    }
+
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { scrollProxy in
-                ScrollView {
-                    VStack(spacing: 18) {
-                        if !targetFamilyForStale.isEmpty {
-                            StaleDataBanner(
-                                family: targetFamilyForStale,
-                                type: .quest,
-                                count: cachedQuests.count,
-                                isSyncing: lifecycleCoordinator?.isSyncing == true
-                            )
-                            .padding(.horizontal)
-                        }
-                        if let vm = viewModel {
-                            dashboardContent(vm: vm, scrollProxy: scrollProxy)
-                        } else {
-                            loadingPlaceholder
-                        }
-                    }
-                    .padding(.vertical, 14)
-                }
+        Group {
+            if horizontalSizeClass == .regular {
+                regularSplitView
+            } else {
+                compactNavigationStack
             }
+        }
+        .sheet(isPresented: $showRolePicker) {
+            InviteRolePickerView { role in
+                await presentInviteShare(for: role)
+            }
+        }
+        .sheet(item: $sharePresentation) { presentation in
+            CloudSharingControllerWrapper(presentation: presentation)
+        }
+        .onChange(of: viewModel?.loadError) { _, newError in
+            if let error = newError {
+                toastManager.show(message: error, type: .error)
+            }
+        }
+        // Deposit sheet: child picker → transaction form.
+        .sheet(isPresented: $showDepositSheet) {
+            if let child = selectedChildForTransaction,
+               let vm = transactionVM
+            {
+                HeroTransactionView(mode: .deposit, viewModel: vm, heroName: child.displayName)
+            }
+        }
+        .onChange(of: selectedChildForTransaction) { _, child in
+            guard let child else { return }
+            transactionVM = HeroLedgerViewModel(
+                heroProfile: child,
+                spending: spending,
+                appState: appState
+            )
+        }
+        .sheet(isPresented: $showWithdrawSheet) {
+            if let child = selectedChildForTransaction,
+               let vm = transactionVM
+            {
+                HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: child.displayName)
+            }
+        }
+    }
+
+    // MARK: - Regular Split View
+
+    private var regularSplitView: some View {
+        ViewThatFitsSplit {
+            regularSplitContent
+        } compactContent: {
+            compactNavigationStack
+        }
+    }
+
+    private var regularSplitContent: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            regularSidebarColumn
+        } detail: {
+            regularDetailColumn
+        }
+        .inspector(isPresented: $showPendingInspector) {
+            pendingInspectorContent
+        }
+        .navigationSplitViewStyle(.balanced)
+        .toolbarRole(.editor)
+        .maxContentWidth()
+    }
+
+    private var regularSidebarColumn: some View {
+        regularSidebarScrollContent()
             .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .navigationTitle(appState.family?.name ?? "Guild")
             .navigationBarTitleDisplayMode(.large)
-            .refreshable {
-                await lifecycleCoordinator?.performManualSync()
-                await viewModel?.refresh()
-            }
-            .task {
-                ensureViewModel()
-                viewModel?.subscribeToSyncEvents(appSyncCoordinator)
-                await lifecycleCoordinator?.performManualSync()
-                await viewModel?.refresh()
-                await viewModel?.refreshInvitations()
-            }
-            .onChange(of: cachedProfiles) { _, _ in
-                scheduleRebuild(includingInvitations: true)
-            }
-            .onChange(of: cachedQuests) { _, _ in scheduleRebuild() }
-            .onChange(of: cachedCompletions) { _, _ in scheduleRebuild() }
-            .onChange(of: cachedLedgers) { _, _ in scheduleRebuild() }
-            .onChange(of: cachedAllowancePeriods) { _, _ in scheduleRebuild() }
-            .onChange(of: cachedAchievements) { _, _ in scheduleRebuild() }
-            .onChange(of: cachedProfileAchievements) { _, _ in scheduleRebuild() }
-            .onDisappear {
-                rebuildTask?.cancel()
-                rebuildTask = nil
-                viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
-            }
-            .sheet(isPresented: $showRolePicker) {
-                InviteRolePickerView { role in
-                    await presentInviteShare(for: role)
-                }
-            }
-            .sheet(item: $sharePresentation) { presentation in
-                CloudSharingControllerWrapper(presentation: presentation)
-            }
-            .onChange(of: viewModel?.loadError) { _, newError in
-                if let error = newError {
-                    toastManager.show(message: error, type: .error)
-                }
-            }
-            // Deposit sheet: child picker → transaction form.
-            .sheet(isPresented: $showDepositSheet) {
-                if let child = selectedChildForTransaction,
-                   let vm = transactionVM
-                {
-                    HeroTransactionView(mode: .deposit, viewModel: vm, heroName: child.displayName)
-                }
-            }
-            .onChange(of: selectedChildForTransaction) { _, child in
-                guard let child else { return }
-                transactionVM = HeroLedgerViewModel(
-                    heroProfile: child,
-                    spending: spending,
-                    appState: appState
+            .toolbar { pendingToggleToolbar }
+            .modifier(
+                DashboardSidebarLifecycle(
+                    cachedProfiles: cachedProfiles,
+                    cachedQuests: cachedQuests,
+                    cachedCompletions: cachedCompletions,
+                    cachedLedgers: cachedLedgers,
+                    cachedAllowancePeriods: cachedAllowancePeriods,
+                    cachedAchievements: cachedAchievements,
+                    cachedProfileAchievements: cachedProfileAchievements,
+                    childCardID: viewModel?.childAccountCards.first?.id,
+                    onAppear: { await handleRegularAppear() },
+                    onRefresh: {
+                        await lifecycleCoordinator?.performManualSync()
+                        await viewModel?.refresh()
+                    },
+                    onProfilesChanged: { scheduleRebuild(includingInvitations: true) },
+                    onCacheChanged: { scheduleRebuild() },
+                    onAutoSelect: { autoSelectFirstHero() },
+                    onDisappear: { handleSidebarDisappear() }
                 )
+            )
+    }
+
+    private func regularSidebarScrollContent() -> some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                regularSidebarStack(scrollProxy: scrollProxy)
             }
-            .sheet(isPresented: $showWithdrawSheet) {
-                if let child = selectedChildForTransaction,
-                   let vm = transactionVM
-                {
-                    HeroTransactionView(mode: .withdraw, viewModel: vm, heroName: child.displayName)
+        }
+    }
+
+    private func regularSidebarStack(scrollProxy: ScrollViewProxy) -> some View {
+        VStack(spacing: 18) {
+            questStaleBanner
+            regularSidebarBranch(scrollProxy: scrollProxy)
+        }
+        .maxContentWidth()
+        .padding(.horizontal)
+        .padding(.vertical, DesignSystemConstants.Padding.medium)
+    }
+
+    @ViewBuilder
+    private func regularSidebarBranch(scrollProxy: ScrollViewProxy) -> some View {
+        if let vm = viewModel {
+            FamilyDashboardContentView {
+                regularDashboardContent(vm: vm, scrollProxy: scrollProxy)
+            }
+        } else {
+            FamilyDashboardEmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var regularDetailColumn: some View {
+        if let hero = selectedChildProfile {
+            HeroDetailInlineView(
+                hero: hero,
+                familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+                ledgers: cachedLedgers,
+                spending: spending,
+                onDeposit: {
+                    selectedChildForTransaction = hero
+                    showDepositSheet = true
+                },
+                onWithdraw: {
+                    selectedChildForTransaction = hero
+                    showWithdrawSheet = true
                 }
+            )
+        } else {
+            ContentUnavailableView(
+                "Select a Hero",
+                systemImage: "person.2",
+                description: Text("Choose a child card to inspect balance, buckets, and recent ledger activity.")
+            )
+        }
+    }
+
+    private var pendingInspectorContent: some View {
+        ScrollView {
+            pendingApprovalQueueSection()
+                .padding(.vertical, 12)
+        }
+        // WHY: inspector width is a design token so 50/50 split and outer 1040 cap stay in sync.
+        .frame(width: DesignSystemConstants.Layout.inspectorWidth)
+        .background(Color(DesignSystemConstants.Colors.background))
+    }
+
+    @ToolbarContentBuilder
+    private var pendingToggleToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            pendingToggleButton
+        }
+    }
+
+    private var pendingToggleButton: some View {
+        let title = showPendingInspector ? "Hide pending queue" : "Show pending queue"
+        let icon = showPendingInspector ? "sidebar.right.slash" : "sidebar.right"
+        return Button {
+            withAnimation { showPendingInspector.toggle() }
+            HapticsService.lightImpact()
+        } label: {
+            Label(title, systemImage: icon)
+        }
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("dashboard.togglePendingInspectorButton")
+    }
+
+    private func handleRegularAppear() async {
+        ensureViewModel()
+        viewModel?.subscribeToSyncEvents(appSyncCoordinator)
+        await lifecycleCoordinator?.performManualSync()
+        await viewModel?.refresh()
+        await viewModel?.refreshInvitations()
+        autoSelectFirstHero()
+    }
+
+    private func handleCompactAppear() async {
+        ensureViewModel()
+        viewModel?.subscribeToSyncEvents(appSyncCoordinator)
+        await lifecycleCoordinator?.performManualSync()
+        await viewModel?.refresh()
+        await viewModel?.refreshInvitations()
+    }
+
+    private func autoSelectFirstHero() {
+        if selectedChildRecordName == nil {
+            selectedChildRecordName = viewModel?.childAccountCards.first?.profile.recordName
+        }
+    }
+
+    private func handleSidebarDisappear() {
+        rebuildTask?.cancel()
+        rebuildTask = nil
+        viewModel?.unsubscribeFromSyncEvents(appSyncCoordinator)
+    }
+
+    private var compactNavigationStack: some View {
+        NavigationStack {
+            compactScrollContent
+        }
+    }
+
+    private var compactScrollContent: some View {
+        compactScrollBase
+            .modifier(
+                DashboardSidebarLifecycle(
+                    cachedProfiles: cachedProfiles,
+                    cachedQuests: cachedQuests,
+                    cachedCompletions: cachedCompletions,
+                    cachedLedgers: cachedLedgers,
+                    cachedAllowancePeriods: cachedAllowancePeriods,
+                    cachedAchievements: cachedAchievements,
+                    cachedProfileAchievements: cachedProfileAchievements,
+                    childCardID: nil,
+                    onAppear: { await handleCompactAppear() },
+                    onRefresh: {
+                        await lifecycleCoordinator?.performManualSync()
+                        await viewModel?.refresh()
+                    },
+                    onProfilesChanged: { scheduleRebuild(includingInvitations: true) },
+                    onCacheChanged: { scheduleRebuild() },
+                    onAutoSelect: {},
+                    onDisappear: { handleSidebarDisappear() }
+                )
+            )
+    }
+
+    private var compactScrollBase: some View {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                compactStack(scrollProxy: scrollProxy)
+            }
+        }
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+        .navigationTitle(appState.family?.name ?? "Guild")
+        .navigationBarTitleDisplayMode(.large)
+    }
+
+    private func compactStack(scrollProxy: ScrollViewProxy) -> some View {
+        VStack(spacing: 18) {
+            questStaleBanner
+                .padding(.horizontal)
+            compactBranch(scrollProxy: scrollProxy)
+        }
+        .maxContentWidth()
+        .padding(.horizontal)
+        .padding(.vertical, DesignSystemConstants.Padding.medium)
+    }
+
+    @ViewBuilder
+    private func compactBranch(scrollProxy: ScrollViewProxy) -> some View {
+        if let vm = viewModel {
+            FamilyDashboardContentView {
+                compactDashboardContent(vm: vm, scrollProxy: scrollProxy)
+            }
+        } else {
+            FamilyDashboardEmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func regularDashboardContent(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
+        statCardsRow(vm: vm, scrollProxy: scrollProxy)
+        earningSparklineHeader
+        childAccountsSection(vm: vm)
+        depositWithdrawSection(vm: vm)
+        HStack(alignment: .top, spacing: 16) {
+            weeklySummarySection(summary: vm.weekSummary)
+                .frame(maxWidth: .infinity)
+            if showPendingInspector {
+                pendingApprovalQueueSection()
+                    .frame(maxWidth: .infinity)
             }
         }
     }
 
     @ViewBuilder
-    private func dashboardContent(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
-        switch horizontalSizeClass {
-        case .regular:
-            VStack(spacing: 18) {
-                statCardsRow(vm: vm, scrollProxy: scrollProxy)
-                childAccountsSection(vm: vm)
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(spacing: 18) {
-                        depositWithdrawSection(vm: vm)
-                        weeklySummarySection(summary: vm.weekSummary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    pendingApprovalQueueSection()
-                        .frame(maxWidth: .infinity)
-                }
-            }
-        case .compact, nil:
-            VStack(spacing: 18) {
-                statCardsRow(vm: vm, scrollProxy: scrollProxy)
-                childAccountsSection(vm: vm)
-                depositWithdrawSection(vm: vm)
-                pendingApprovalQueueSection()
-                weeklySummarySection(summary: vm.weekSummary)
-            }
-        @unknown default:
-            VStack(spacing: 18) {
-                statCardsRow(vm: vm, scrollProxy: scrollProxy)
-                childAccountsSection(vm: vm)
-                depositWithdrawSection(vm: vm)
-                pendingApprovalQueueSection()
-                weeklySummarySection(summary: vm.weekSummary)
-            }
-        }
+    private func compactDashboardContent(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
+        statCardsRow(vm: vm, scrollProxy: scrollProxy)
+        childAccountsSection(vm: vm)
+        depositWithdrawSection(vm: vm)
+        pendingApprovalQueueSection()
+        weeklySummarySection(summary: vm.weekSummary)
     }
 
     private func ensureViewModel() {
@@ -290,7 +486,7 @@ struct FamilyDashboardView: View {
     }
 }
 
-// MARK: - Sections
+// MARK: - Sections (consolidated here for file-scope isolation)
 
 private extension FamilyDashboardView {
     // MARK: - Stat Cards
@@ -322,7 +518,42 @@ private extension FamilyDashboardView {
             .buttonStyle(.plain)
             .hoverEffect(.highlight)
         }
-        .padding(.horizontal)
+    }
+
+    // MARK: - Earning Sparkline
+
+    @ViewBuilder
+    private var earningSparklineHeader: some View {
+        if horizontalSizeClass == .regular {
+            let points = sparklinePoints
+            let total = points.reduce(0) { $0 + $1.amount }
+            FamilyDashboardSparklineCard(points: points, total: total)
+        }
+    }
+
+    private var sparklinePoints: [WeeklyEarningPoint] {
+        let payoutDay = appState.family?.payoutDay ?? .sunday
+        let currentStart = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
+        var result: [WeeklyEarningPoint] = []
+        let sourcePeriods = cachedAllowancePeriods
+        for offset in 0 ..< 6 {
+            let weekStart = WeekMath.weekStart(byAddingWeeks: -(5 - offset), to: currentStart)
+            let weekRange = WeekMath.weekRange(starting: weekStart)
+            let total: Double = sourcePeriods.filter {
+                weekRange.contains($0.weekOf)
+            }.reduce(0) { $0 + $1.totalEarned }
+            let label = weekStart.formatted(.dateTime.month(.abbreviated).day())
+            let heroFiltered: Double
+            if let selected = selectedChildRecordName {
+                heroFiltered = sourcePeriods.filter {
+                    $0.profileRecordName == selected && weekRange.contains($0.weekOf)
+                }.reduce(0) { $0 + $1.totalEarned }
+                result.append(WeeklyEarningPoint(id: WeekMath.dayKey(for: weekStart), weekStart: weekStart, label: label, amount: heroFiltered))
+            } else {
+                result.append(WeeklyEarningPoint(id: WeekMath.dayKey(for: weekStart), weekStart: weekStart, label: label, amount: total))
+            }
+        }
+        return result
     }
 
     // MARK: - Child Accounts Grid
@@ -331,22 +562,21 @@ private extension FamilyDashboardView {
         VStack(spacing: 12) {
             SectionHeader("CHILD ACCOUNTS") {
                 if appState.currentProfile?.role == .guildMaster {
-                    inviteButton
+                    DashboardInviteButton(showRolePicker: $showRolePicker)
                 }
             }
-            .padding(.horizontal)
 
             if vm.childAccountCards.isEmpty {
-                emptyChildrenCard
+                DashboardEmptyChildrenCard(isGuildMaster: appState.currentProfile?.role == .guildMaster)
             } else {
                 LazyVGrid(
                     columns: [
-                        GridItem(.adaptive(minimum: 180, maximum: 280), spacing: 14)
+                        GridItem(.adaptive(minimum: 260, maximum: 360), spacing: 14)
                     ],
                     spacing: 14
                 ) {
                     ForEach(vm.childAccountCards) { card in
-                        childAccountCard(card, vm: vm)
+                        childAccountCardContainer(card: card, vm: vm)
                     }
                 }
                 .onPreferenceChange(ChildCardHeightPreferenceKey.self) { newHeight in
@@ -354,12 +584,41 @@ private extension FamilyDashboardView {
                         maxChildCardHeight = newHeight
                     }
                 }
-                .padding(.horizontal)
             }
         }
     }
 
-    private func childAccountCard(_ card: ChildAccountCard, vm _: FamilyDashboardViewModel) -> some View {
+    @ViewBuilder
+    private func childAccountCardContainer(card: ChildAccountCard, vm _: FamilyDashboardViewModel) -> some View {
+        let isRegular = horizontalSizeClass == .regular
+        if isRegular {
+            regularChildCardButton(card: card)
+        } else {
+            compactChildCardLink(card: card)
+        }
+    }
+
+    private func regularChildCardButton(card: ChildAccountCard) -> some View {
+        let isSelected = selectedChildRecordName == card.profile.recordName
+        let borderColor = isSelected ? Color(DesignSystemConstants.Colors.accentBlue) : Color.secondary.opacity(0.12)
+        let borderWidth: CGFloat = isSelected ? 2 : 1
+        return Button {
+            withAnimation { selectedChildRecordName = card.profile.recordName }
+            HapticsService.lightImpact()
+        } label: {
+            DashboardChildCardContent(card: card, minHeight: maxChildCardHeight, isRegular: true)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
+                        .strokeBorder(borderColor, lineWidth: borderWidth)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("View \(card.profile.displayName)'s account")
+        .accessibilityIdentifier("dashboard.childAccount-\(card.profile.recordName)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func compactChildCardLink(card: ChildAccountCard) -> some View {
         NavigationLink {
             HeroDetailView(
                 hero: card.profile,
@@ -371,126 +630,27 @@ private extension FamilyDashboardView {
             .environment(appState)
             .environment(appSyncCoordinator)
         } label: {
-            VStack(spacing: 8) {
-                // Emoji avatar with fallback to ProfileAvatarView.
-                if let emoji = card.profile.avatarEmoji, !emoji.isEmpty {
-                    Text(emoji)
-                        .font(.system(size: 36))
-                        .frame(width: 48, height: 48)
-                        .background(
-                            Circle()
-                                .fill(Color(DesignSystemConstants.Colors.cardSurface))
-                        )
-                } else {
-                    ProfileAvatarView(profileCache: card.profile)
-                        .frame(width: 48, height: 48)
-                }
-
-                Text(card.profile.displayName)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                Text("\(CurrencyFormatter.string(card.balance)) available")
-                    .font(.caption2.weight(.medium).monospacedDigit())
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-
-                if card.pendingReviewCount > 0 {
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock")
-                            .font(.caption2)
-                        Text("\(card.pendingReviewCount) pending")
-                            .font(.caption2.weight(.medium))
-                    }
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule()
-                            .fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.15))
-                    )
-                }
-
-                Spacer(minLength: 0)
-
-                Text("View Screen")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
-                    .padding(.top, 2)
-            }
-            .frame(maxWidth: .infinity)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: ChildCardHeightPreferenceKey.self,
-                        value: geo.size.height
-                    )
-                }
-            )
-            .frame(minHeight: maxChildCardHeight)
-            .padding(DesignSystemConstants.Padding.medium)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
-                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
-                    .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
-            )
-            .hoverEffect(.highlight)
+            DashboardChildCardContent(card: card, minHeight: maxChildCardHeight, isRegular: false)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small, style: .continuous)
+                        .strokeBorder(Color.secondary.opacity(0.12), lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("View \(card.profile.displayName)'s account")
         .accessibilityIdentifier("dashboard.childAccount-\(card.profile.recordName)")
     }
 
-    private var emptyChildrenCard: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.15))
-                    .frame(width: 64, height: 64)
-                Image(systemName: "person.badge.plus")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
-            }
-
-            VStack(spacing: 6) {
-                Text("Recruit Your Party!")
-                    .font(.title3.weight(.heavy))
-                Text(appState.currentProfile?.role == .guildMaster
-                    ? "Your guild needs heroes to embark on quests. Tap **Invite Members** above to invite a Hero to your guild."
-                    : "Your guild needs heroes to embark on quests. Ask the Guild Master to invite a Hero to your guild.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 12)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-        .padding(.horizontal, 16)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(DesignSystemConstants.Colors.cardSurface))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.35), lineWidth: 1.5)
-        )
-        .padding(.horizontal)
-    }
-
     // MARK: - Deposit / Withdraw Shortcut
 
     @ViewBuilder
-    private func depositWithdrawSection(vm: FamilyDashboardViewModel) -> some View {
+    func depositWithdrawSection(vm: FamilyDashboardViewModel) -> some View {
         if !vm.childAccountCards.isEmpty {
             VStack(spacing: 12) {
                 SectionHeader("QUICK ACTIONS")
 
                 HStack(spacing: 12) {
-                    quickActionButton(
+                    DashboardQuickActionButton(
                         title: "Deposit",
                         icon: "plus.circle.fill",
                         color: Color(DesignSystemConstants.Colors.primaryGreen),
@@ -500,7 +660,7 @@ private extension FamilyDashboardView {
                         showDepositSheet = true
                     }
 
-                    quickActionButton(
+                    DashboardQuickActionButton(
                         title: "Withdraw",
                         icon: "minus.circle.fill",
                         color: Color(DesignSystemConstants.Colors.pendingAmber),
@@ -511,43 +671,13 @@ private extension FamilyDashboardView {
                     }
                 }
             }
-            .padding(.horizontal)
         }
     }
 
-    private func quickActionButton(
-        title: String,
-        icon: String,
-        color: Color,
-        identifier: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                Text(title)
-                    .font(.subheadline.weight(.bold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
-            )
-            .foregroundStyle(color)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(color.opacity(0.4), lineWidth: 1)
-            )
-        }
-        .accessibilityLabel(title)
-        .accessibilityIdentifier(identifier)
-    }
-
-    // MARK: - Pending Approval Queue
+    // MARK: - Pending Approval Queue (file-private; consolidated for Swift 6 isolation)
 
     @ViewBuilder
-    private func pendingApprovalQueueSection() -> some View {
+    func pendingApprovalQueueSection() -> some View {
         let pending = pendingCompletions
         if !pending.isEmpty, appState.currentProfile?.role != .hero {
             VStack(alignment: .leading, spacing: 12) {
@@ -578,115 +708,120 @@ private extension FamilyDashboardView {
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
                     .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.40), lineWidth: 1.5)
             )
-            .padding(.horizontal)
             .id("pendingQueueAnchor")
         }
     }
 
-    private var pendingCompletions: [QuestCompletionCache] {
+    var pendingCompletions: [QuestCompletionCache] {
         cachedCompletions.filter { $0.verificationStatus == VerificationStatus.pending.rawValue }
     }
 
-    private var pendingCount: Int {
+    var pendingCount: Int {
         pendingCompletions.count
     }
 
     @ViewBuilder
-    private func pendingApprovalRow(_ completion: QuestCompletionCache) -> some View {
+    func pendingApprovalRow(_ completion: QuestCompletionCache) -> some View {
         let heroName = cachedProfiles.first { $0.recordName == completion.completerRecordName }?.displayName ?? "Hero"
         let quest = cachedQuests.first { $0.recordName == completion.questRecordName }
         let questName = quest?.questName ?? "Quest"
         let goldAmount = quest?.goldReward ?? 0
-        // Category chip uses schedule type as a lightweight tag.
         let scheduleLabel = quest?.scheduleTypeEnum?.displayName ?? ""
 
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(questName)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text("Submitted by \(heroName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                // Category chip using schedule type.
-                if !scheduleLabel.isEmpty {
-                    Text(scheduleLabel)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule()
-                                .fill(Color(DesignSystemConstants.Colors.cardSurface))
-                        )
-                        .overlay(
-                            Capsule()
-                                .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
-                        )
-                }
-            }
-
-            HStack(spacing: 10) {
-                Button {
-                    Task {
-                        await rejectCompletion(completion)
-                    }
-                } label: {
-                    Text("Reject")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.12))
-                        )
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Reject \(questName)")
-                .accessibilityIdentifier("dashboard.rejectButton-\(completion.recordName)")
-
-                Button {
-                    Task {
-                        await approveCompletion(completion)
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("Approve")
-                        if goldAmount > 0 {
-                            Text(CurrencyFormatter.string(goldAmount))
-                                .font(.caption.weight(.bold).monospacedDigit())
-                        }
-                    }
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(
-                        Capsule()
-                            .fill(Color(DesignSystemConstants.Colors.primaryGreen))
-                    )
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Approve \(questName) for \(CurrencyFormatter.string(goldAmount))")
-                .accessibilityIdentifier("dashboard.approveButton-\(completion.recordName)")
-            }
+            pendingRowHeader(questName: questName, heroName: heroName, scheduleLabel: scheduleLabel)
+            pendingRowActions(completion: completion, questName: questName, goldAmount: goldAmount)
         }
-        .padding(10)
+        .padding(DesignSystemConstants.Padding.small)
         .background(
             RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.small)
                 .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
+        .hoverEffect(.highlight)
+        .contextMenu {
+            pendingRowMenu(completion: completion)
+        }
     }
 
-    private func approveCompletion(_ completion: QuestCompletionCache) async {
+    private func pendingRowHeader(questName: String, heroName: String, scheduleLabel: String) -> some View {
+        FamilyDashboardPendingRowHeader(questName: questName, heroName: heroName, scheduleLabel: scheduleLabel)
+    }
+
+    private func pendingRowActions(completion: QuestCompletionCache, questName: String, goldAmount: Double) -> some View {
+        HStack(spacing: 10) {
+            pendingRejectButton(completion: completion, questName: questName)
+            pendingApproveButton(completion: completion, questName: questName, goldAmount: goldAmount)
+        }
+    }
+
+    private func pendingRejectButton(completion: QuestCompletionCache, questName: String) -> some View {
+        Button {
+            Task { @MainActor in
+                await rejectCompletion(completion)
+            }
+        } label: {
+            Text("Reject")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule()
+                        .fill(Color(DesignSystemConstants.Colors.dangerRed).opacity(0.12))
+                )
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Reject \(questName)")
+        .accessibilityIdentifier("dashboard.rejectButton-\(completion.recordName)")
+    }
+
+    private func pendingApproveButton(completion: QuestCompletionCache, questName: String, goldAmount: Double) -> some View {
+        let showsAmount = goldAmount > 0
+        let approvalLabel = CurrencyFormatter.string(goldAmount)
+        return Button {
+            Task { @MainActor in
+                await approveCompletion(completion)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("Approve")
+                if showsAmount {
+                    Text(approvalLabel)
+                        .font(.caption.weight(.bold).monospacedDigit())
+                }
+            }
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(Color(DesignSystemConstants.Colors.primaryGreen))
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Approve \(questName) for \(approvalLabel)")
+        .accessibilityIdentifier("dashboard.approveButton-\(completion.recordName)")
+    }
+
+    @ViewBuilder
+    private func pendingRowMenu(completion: QuestCompletionCache) -> some View {
+        Button {
+            Task { @MainActor in await approveCompletion(completion) }
+        } label: {
+            Label("Approve", systemImage: "checkmark.circle.fill")
+        }
+        Button(role: .destructive) {
+            Task { @MainActor in await rejectCompletion(completion) }
+        } label: {
+            Label("Reject", systemImage: "xmark.circle.fill")
+        }
+    }
+
+    @MainActor
+    func approveCompletion(_ completion: QuestCompletionCache) async {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
         let domainLog = completion.toQuestCompletion(zoneID: zoneID)
         guard let parent = appState.currentProfile else { return }
@@ -702,7 +837,8 @@ private extension FamilyDashboardView {
         }
     }
 
-    private func rejectCompletion(_ completion: QuestCompletionCache) async {
+    @MainActor
+    func rejectCompletion(_ completion: QuestCompletionCache) async {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
         let domainLog = completion.toQuestCompletion(zoneID: zoneID)
         guard let parent = appState.currentProfile else { return }
@@ -721,106 +857,62 @@ private extension FamilyDashboardView {
     // MARK: - Weekly Summary & Payout
 
     @ViewBuilder
-    private func weeklySummarySection(summary: WeekendSummary?) -> some View {
+    func weeklySummarySection(summary: WeekendSummary?) -> some View {
         if let summary {
             let lootDayTitle = appState.family?.payoutDay.lootDayTitle ?? "Sunday Allowance Day"
             let isPending = summary.pendingPayoutAmount > 0
             let allRealTime = summary.heroSummaries.allSatisfy {
                 ($0.profile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest) == .realTime
             }
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("This Week's Earnings")
-                            .font(.headline)
-                        if allRealTime, summary.totalEarned > 0 {
-                            Text("\(lootDayTitle) · Real-time Settled")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-                        } else {
-                            Text(isPending ? "\(lootDayTitle) · Pending Payout" : lootDayTitle)
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    Text(summary.weekOf, format: .dateTime.month().day())
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                totalsRow(summary: summary, isPending: isPending)
-
-                if isPending, appState.currentProfile?.role != .hero {
-                    ProcessPayoutButtonView(
-                        summary: summary,
-                        isProcessingPayout: isProcessingPayout,
-                        onConfirmPayout: processPayout
-                    )
-                    .padding(.top, 4)
-                }
-            }
-            .padding(DesignSystemConstants.Padding.standard)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
-            )
-            .padding(.horizontal)
+            weeklySummaryCard(summary: summary, lootDayTitle: lootDayTitle, isPending: isPending, allRealTime: allRealTime)
         }
     }
 
-    func totalsRow(summary: WeekendSummary, isPending: Bool) -> some View {
-        HStack(spacing: 12) {
-            statBlock(
-                icon: isPending ? "hourglass" : "banknote",
-                value: CurrencyFormatter.string(isPending ? summary.pendingPayoutAmount : summary.totalEarned),
-                label: isPending ? "Pending" : "Earned",
-                tint: isPending ? Color(DesignSystemConstants.Colors.pendingAmber) : Color(DesignSystemConstants.Colors.primaryGreen)
+    private func weeklySummaryCard(summary: WeekendSummary, lootDayTitle: String, isPending: Bool, allRealTime: Bool) -> some View {
+        let showsSettled = allRealTime && summary.totalEarned > 0
+        let subtitle = weeklySubtitle(lootDayTitle: lootDayTitle, isPending: isPending, showsSettled: showsSettled)
+        let subtitleColor = showsSettled ? Color(DesignSystemConstants.Colors.primaryGreen) : Color.secondary
+        let showsPayout = isPending && appState.currentProfile?.role != .hero
+        return VStack(alignment: .leading, spacing: 12) {
+            FamilyDashboardWeeklySummaryHeader(
+                title: "This Week's Earnings",
+                subtitle: subtitle,
+                subtitleColor: subtitleColor,
+                weekOf: summary.weekOf
             )
-            Divider()
-            statBlock(
-                icon: "checkmark.circle.fill",
-                value: "\(summary.totalQuestsCompleted)",
-                label: "Quests",
-                tint: Color(DesignSystemConstants.Colors.primaryGreen)
-            )
-            Divider()
-            statBlock(
-                icon: "person.2.fill",
-                value: "\(summary.heroSummaries.count)",
-                label: "Heroes",
-                tint: Color(DesignSystemConstants.Colors.accentBlue)
-            )
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func statBlock(icon: String, value: String, label: String, tint: Color) -> some View {
-        VStack(spacing: 4) {
-            Text(value)
-                .font(.title3.weight(.bold).monospacedDigit())
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.caption2)
-                    .foregroundStyle(tint)
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+            DashboardTotalsRow(summary: summary, isPending: isPending)
+            if showsPayout {
+                ProcessPayoutButtonView(
+                    summary: summary,
+                    isProcessingPayout: isProcessingPayout,
+                    onConfirmPayout: processPayout
+                )
+                .padding(.top, 4)
             }
         }
-        .frame(maxWidth: .infinity)
+        .padding(DesignSystemConstants.Padding.standard)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
+                .strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.30), lineWidth: 1)
+        )
     }
 
-    private func processPayout() async {
+    private func weeklySubtitle(lootDayTitle: String, isPending: Bool, showsSettled: Bool) -> String {
+        if showsSettled {
+            return "\(lootDayTitle) · Real-time Settled"
+        }
+        if isPending {
+            return "\(lootDayTitle) · Pending Payout"
+        }
+        return lootDayTitle
+    }
+
+    @MainActor
+    func processPayout() async {
         isProcessingPayout = true
         defer { isProcessingPayout = false }
         guard appState.family != nil else { return }
@@ -842,34 +934,8 @@ private extension FamilyDashboardView {
         }
     }
 
-    // MARK: - Invite
-
-    private var inviteButton: some View {
-        Button {
-            showRolePicker = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "person.badge.plus")
-                    .font(.caption.weight(.bold))
-                Text("Invite")
-                    .font(.caption.weight(.semibold))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
-                    .overlay(
-                        Capsule().strokeBorder(Color(DesignSystemConstants.Colors.pendingAmber).opacity(0.45), lineWidth: 1)
-                    )
-            )
-        }
-        .accessibilityLabel("Invite Members. Tap to invite a Hero or Co-Parent.")
-        .accessibilityIdentifier("dashboard.inviteButton")
-    }
-
     @MainActor
-    private func presentInviteShare(for role: UserRole) async {
+    func presentInviteShare(for role: UserRole) async {
         guard let presentation = await viewModel?.prepareInviteShare(for: role) else {
             toastManager.show(message: "Could not create an invitation. Please try again.", type: .error)
             return
@@ -879,65 +945,5 @@ private extension FamilyDashboardView {
             return
         }
         sharePresentation = presentation
-    }
-
-    // MARK: - Loading Placeholder
-
-    private var loadingPlaceholder: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "house")
-                .font(.system(size: 56))
-                .foregroundStyle(.tertiary)
-                .padding(.top, 120)
-            Text("Summoning your guild…")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
-// MARK: - Process Payout Button
-
-private struct ProcessPayoutButtonView: View {
-    let summary: WeekendSummary
-    let isProcessingPayout: Bool
-    let onConfirmPayout: () async -> Void
-
-    @State private var showEarlyPayoutConfirm: Bool = false
-
-    var body: some View {
-        Button {
-            showEarlyPayoutConfirm = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "banknote.fill")
-                Text("Process Payout Now 🎁")
-                    .font(.subheadline.weight(.bold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(Capsule().fill(Color(DesignSystemConstants.Colors.primaryGreen).opacity(0.20)))
-            .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-        }
-        .buttonStyle(.plain)
-        .disabled(isProcessingPayout)
-        .accessibilityIdentifier("dashboard.processPayoutButton")
-        .alert("Process Payout Now?", isPresented: $showEarlyPayoutConfirm) {
-            Button("Confirm Payout", role: .destructive) {
-                Task { await onConfirmPayout() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            let amountStr = CurrencyFormatter.string(summary.pendingPayoutAmount)
-            Text("Process payout of \(amountStr) across all heroes with completed quests? This will settle earnings for quests completed so far this week.")
-        }
-    }
-}
-
-private struct ChildCardHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }

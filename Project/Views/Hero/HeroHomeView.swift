@@ -101,7 +101,7 @@ struct HeroHomeView: View {
             ScrollView {
                 scrollContent
             }
-            .background(Color(.systemGroupedBackground))
+            .background(Color(DesignSystemConstants.Colors.background))
             .scrollContentBackground(.hidden)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)

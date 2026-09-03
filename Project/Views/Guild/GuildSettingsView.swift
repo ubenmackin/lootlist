@@ -100,7 +100,7 @@ struct GuildSettingsView: View {
     var body: some View {
         NavigationStack {
             scrollViewContent
-                .background(Color(.systemGroupedBackground).ignoresSafeArea())
+                .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
                 .navigationTitle("Guild Settings")
                 .navigationBarTitleDisplayMode(.large)
                 .refreshable {
@@ -307,7 +307,7 @@ struct GuildSettingsView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
         )
         .padding(.horizontal)
     }

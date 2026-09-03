@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import Charts
 import SwiftData
 import SwiftUI
 
@@ -16,6 +17,7 @@ struct PayoutHistoryView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(LedgerImportService.self) private var ledgerImportService
     @Environment(ToastManager.self) private var toastManager: ToastManager?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedProfiles: [ProfileCache]
@@ -26,6 +28,9 @@ struct PayoutHistoryView: View {
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var selectedPeriod: AllowancePeriodCache?
+    @State private var selectedHeroRecordName: String?
+    @AppStorage("payoutHistory.calendarScope") private var scope: CalendarScope = .allTime
+    @State private var searchText = ""
 
     @State private var showExportPicker = false
     @State private var showExportSheet = false
@@ -82,55 +87,91 @@ struct PayoutHistoryView: View {
     }
 
     var body: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                regularLayout
+            } else {
+                compactLayout
+            }
+        }
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+        .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
+            Button("Export as CSV") {
+                exportFormat = .csv
+                showExportSheet = true
+            }
+            Button("Export as JSON") {
+                exportFormat = .json
+                showExportSheet = true
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showExportSheet) {
+            ExportChildPickerSheet(
+                heroes: heroProfiles,
+                onExport: { child, startDate, endDate in
+                    performExport(for: child, startDate: startDate, endDate: endDate)
+                }
+            )
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let url = shareURL {
+                ShareSheet(items: [url])
+            }
+        }
+        .sheet(isPresented: $showImportSheet) {
+            LedgerImportView(
+                importService: ledgerImportService,
+                familyRecordName: familyRecordName ?? appState.family?.id.recordName
+            )
+        }
+        .task {
+            ensureViewModel()
+            await viewModel?.refresh()
+        }
+        .refreshable {
+            rebuildFromCache()
+        }
+        .onChange(of: cachedAllowancePeriods) { _, _ in rebuildFromCache() }
+        .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
+        .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
+        .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
+        .onChange(of: cachedLedgers) { _, _ in rebuildFromCache() }
+        .onChange(of: cachedGoals) { _, _ in }
+    }
+
+    // MARK: - Layouts
+
+    private var regularLayout: some View {
+        ViewThatFitsSplit {
+            NavigationSplitView {
+                sidebarContent
+                    .navigationSplitViewColumnWidth(min: 280, ideal: 340, max: 380)
+                    .searchable(text: $searchText, prompt: "Search payouts")
+                    .toolbar { payoutToolbar }
+                    .navigationTitle("Payout History")
+                    .navigationBarTitleDisplayMode(.large)
+            } detail: {
+                detailPane
+                    .toolbar { payoutToolbar }
+                    .navigationTitle(selectedPeriod != nil ? "Payout Detail" : "Payout History")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .background(Color(DesignSystemConstants.Colors.background))
+            }
+            .navigationSplitViewStyle(.balanced)
+        } compactContent: {
+            compactLayout
+        }
+    }
+
+    private var compactLayout: some View {
         NavigationStack {
-            contentList
+            compactContentList
                 .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
                 .navigationTitle("Payout History")
                 .navigationBarTitleDisplayMode(.large)
+                .searchable(text: $searchText, prompt: "Search payouts")
                 .toolbar { payoutToolbar }
-                .confirmationDialog("Export Ledger", isPresented: $showExportPicker) {
-                    Button("Export as CSV") {
-                        exportFormat = .csv
-                        showExportSheet = true
-                    }
-                    Button("Export as JSON") {
-                        exportFormat = .json
-                        showExportSheet = true
-                    }
-                    Button("Cancel", role: .cancel) {}
-                }
-                .sheet(isPresented: $showExportSheet) {
-                    ExportChildPickerSheet(
-                        heroes: heroProfiles,
-                        onExport: { child, startDate, endDate in
-                            performExport(for: child, startDate: startDate, endDate: endDate)
-                        }
-                    )
-                }
-                .sheet(isPresented: $showShareSheet) {
-                    if let url = shareURL {
-                        ShareSheet(items: [url])
-                    }
-                }
-                .sheet(isPresented: $showImportSheet) {
-                    LedgerImportView(
-                        importService: ledgerImportService,
-                        familyRecordName: familyRecordName ?? appState.family?.id.recordName
-                    )
-                }
-                .task {
-                    ensureViewModel()
-                    await viewModel?.refresh()
-                }
-                .refreshable {
-                    rebuildFromCache()
-                }
-                .onChange(of: cachedAllowancePeriods) { _, _ in rebuildFromCache() }
-                .onChange(of: cachedProfiles) { _, _ in rebuildFromCache() }
-                .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
-                .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
-                .onChange(of: cachedLedgers) { _, _ in rebuildFromCache() }
-                .onChange(of: cachedGoals) { _, _ in }
                 .sheet(item: $selectedPeriod) { period in
                     PayoutDetailSheet(
                         period: period,
@@ -197,37 +238,217 @@ struct PayoutHistoryView: View {
         )
     }
 
+    // MARK: - Sidebar (regular)
+
     @ViewBuilder
-    private var contentList: some View {
+    private var sidebarContent: some View {
         let payouts = filteredPayouts
-        if payouts.isEmpty {
+        if payouts.isEmpty, viewModel?.pastPayouts.isEmpty ?? true {
             emptyState
         } else {
-            List {
-                ForEach(payouts) { period in
-                    Button {
-                        selectedPeriod = period
-                    } label: {
-                        payoutRow(period)
+            VStack(spacing: 0) {
+                filterSection
+                Divider()
+                if payouts.isEmpty {
+                    noFilteredResultsView
+                } else {
+                    List {
+                        payoutRowsList(payouts: payouts, highlightSelection: true)
                     }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Color(DesignSystemConstants.Colors.cardSurface))
+                    .listStyle(.plain)
+                    .background(Color(DesignSystemConstants.Colors.background))
+                    .scrollContentBackground(.hidden)
                 }
             }
-            .listStyle(.insetGrouped)
             .background(Color(DesignSystemConstants.Colors.background))
-            .scrollContentBackground(.hidden)
+        }
+    }
+
+    private var payoutDay: PayoutDay {
+        appState.family?.payoutDay ?? .sunday
+    }
+
+    private var filterSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    heroChip(title: "All", isSelected: selectedHeroRecordName == nil) {
+                        selectedHeroRecordName = nil
+                    }
+                    ForEach(heroProfiles, id: \.recordName) { hero in
+                        heroChip(title: hero.displayName, isSelected: selectedHeroRecordName == hero.recordName) {
+                            selectedHeroRecordName = hero.recordName
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            CalendarScopeFilterView(scope: $scope, payoutDay: payoutDay)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 2)
+        }
+        .background(Color(DesignSystemConstants.Colors.background))
+    }
+
+    private func heroChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? Color(DesignSystemConstants.Colors.accentBlue) : Color(DesignSystemConstants.Colors.cardSurface))
+                )
+                // WHY white on selected chip: accentBlue fill needs white text for contrast in both modes.
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(isSelected ? Color(DesignSystemConstants.Colors.cardSurface).opacity(0) : Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("payoutHistory.heroChip.\(title)")
+    }
+
+    // MARK: - Shared payout list helpers (DRY — single source for filterSection, row, and filtered state)
+
+    private var noFilteredResultsView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text("No payouts match filters")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(DesignSystemConstants.Colors.background))
+    }
+
+    private func payoutRowsList(payouts: [AllowancePeriodCache], highlightSelection: Bool) -> some View {
+        ForEach(payouts) { period in
+            Button {
+                selectedPeriod = period
+            } label: {
+                payoutRow(period)
+            }
+            .buttonStyle(.plain)
+            .hoverEffect(.highlight)
+            .contextMenu {
+                Button {
+                    selectedPeriod = period
+                } label: {
+                    Label("View Detail", systemImage: "eye")
+                }
+            }
+            .listRowBackground(
+                highlightSelection && selectedPeriod?.recordName == period.recordName
+                    ? Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12)
+                    : Color(DesignSystemConstants.Colors.cardSurface)
+            )
+        }
+    }
+
+    // MARK: - Detail Pane (regular)
+
+    @ViewBuilder
+    private var detailPane: some View {
+        if let period = selectedPeriod {
+            PayoutDetailContent(
+                period: period,
+                heroName: heroName(for: period),
+                ledgerEntries: cachedLedgers.filter { $0.profileRecordName == period.profileRecordName },
+                goals: cachedGoals.filter { $0.profileRecordName == period.profileRecordName },
+                cachedLedgers: cachedLedgers,
+                chartData: chartData(for: period),
+                aggregatedChartData: aggregatedChartData
+            )
+        } else {
+            aggregatedPlaceholder
+        }
+    }
+
+    private var aggregatedPlaceholder: some View {
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    VStack(spacing: 8) {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.tertiary)
+                        Text("Select a payout")
+                            .font(.headline)
+                        Text("Choose a period from the list to view its ledger and bucket breakdown.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 24)
+                } header: {
+                    PayoutChartHeader(data: aggregatedChartData)
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+                        .background(Color(DesignSystemConstants.Colors.background))
+                }
+            }
+            .maxContentWidth()
+            .padding(.vertical, 8)
+        }
+        .background(Color(DesignSystemConstants.Colors.background))
+    }
+
+    // MARK: - Compact content
+
+    @ViewBuilder
+    private var compactContentList: some View {
+        let payouts = filteredPayouts
+        if payouts.isEmpty, viewModel?.pastPayouts.isEmpty ?? true {
+            emptyState
+        } else {
+            VStack(spacing: 0) {
+                filterSection
+                Divider()
+                if payouts.isEmpty {
+                    noFilteredResultsView
+                } else {
+                    List {
+                        payoutRowsList(payouts: payouts, highlightSelection: false)
+                    }
+                    .listStyle(.insetGrouped)
+                    .background(Color(DesignSystemConstants.Colors.background))
+                    .scrollContentBackground(.hidden)
+                }
+            }
         }
     }
 
     private var filteredPayouts: [AllowancePeriodCache] {
         guard let payouts = viewModel?.pastPayouts else { return [] }
-        return payouts.sorted { $0.weekOf > $1.weekOf }
+        var result = payouts
+        if let hero = selectedHeroRecordName {
+            result = result.filter { $0.profileRecordName == hero }
+        }
+        if scope != .allTime {
+            result = result.filter { scope.contains($0.weekOf, payoutDay: payoutDay) }
+        }
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            let lower = trimmed.lowercased()
+            result = result.filter {
+                heroName(for: $0).lowercased().contains(lower) ||
+                    $0.statusEnum?.displayName.lowercased().contains(lower) == true
+            }
+        }
+        return result.sorted { $0.weekOf > $1.weekOf }
     }
 
     private func payoutRow(_ period: AllowancePeriodCache) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: DesignSystemConstants.Padding.medium) {
+            VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
                 Text(period.weekOf, format: .dateTime.month().day().year())
                     .font(.subheadline.bold())
                     .monospacedDigit()
@@ -238,7 +459,7 @@ struct PayoutHistoryView: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: DesignSystemConstants.Padding.small) {
                 Text(CurrencyFormatter.string(period.totalEarned))
                     .font(.subheadline.weight(.bold).monospacedDigit())
 
@@ -246,7 +467,8 @@ struct PayoutHistoryView: View {
             }
         }
         .contentShape(Rectangle())
-        .padding(.vertical, 4)
+        .hoverEffect(.highlight)
+        .padding(.vertical, DesignSystemConstants.Padding.small)
     }
 
     private func statusBadge(for status: PayoutStatus) -> some View {
@@ -281,22 +503,62 @@ struct PayoutHistoryView: View {
 
     private var emptyState: some View {
         let payoutDayName = appState.family?.payoutDay.displayName ?? "Sunday"
-        return VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-            Text("No Payout History Yet")
-                .font(.headline)
-            Text("Payouts occur every \(payoutDayName) when quests are tallied.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Spacer()
+        return VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: DesignSystemConstants.Padding.medium) {
+                    PayoutChartHeader(data: [])
+                        .padding(.horizontal, DesignSystemConstants.Padding.standard)
+                        .padding(.top, DesignSystemConstants.Padding.standard)
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, DesignSystemConstants.Padding.xlarge)
+                    Text("No Payout History Yet")
+                        .font(.headline)
+                    Text("Payouts occur every \(payoutDayName) when quests are tallied.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, DesignSystemConstants.Padding.xlarge)
+                }
+                .maxBannerWidth()
+                .padding(.vertical, DesignSystemConstants.Padding.xlarge)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(DesignSystemConstants.Colors.background))
+    }
+
+    // MARK: - Chart data
+
+    private func chartData(for period: AllowancePeriodCache) -> [WeeklyEarningPoint] {
+        guard let all = viewModel?.pastPayouts else { return [] }
+        let filtered = all.filter { $0.profileRecordName == period.profileRecordName }
+            .sorted { $0.weekOf < $1.weekOf }
+        let last12 = Array(filtered.suffix(12))
+        return last12.map { payoutPeriod in
+            WeeklyEarningPoint(
+                id: payoutPeriod.recordName,
+                weekStart: payoutPeriod.weekOf,
+                label: payoutPeriod.weekOf.formatted(.dateTime.month(.abbreviated).day()),
+                amount: payoutPeriod.totalEarned,
+                isPaid: payoutPeriod.statusEnum == .paid
+            )
+        }
+    }
+
+    private var aggregatedChartData: [WeeklyEarningPoint] {
+        guard let all = viewModel?.pastPayouts, !all.isEmpty else { return [] }
+        // Group by normalized weekOf to combine multi-hero same-week payouts.
+        let grouped = Dictionary(grouping: all) { WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) }
+        let sortedWeeks = grouped.keys.sorted()
+        let last12Weeks = sortedWeeks.suffix(12)
+        return last12Weeks.map { week in
+            let periods = grouped[week] ?? []
+            let total = periods.reduce(0.0) { $0 + $1.totalEarned }
+            let isPaid = periods.allSatisfy { $0.statusEnum == .paid }
+            return WeeklyEarningPoint(id: WeekMath.dayKey(for: week), weekStart: week, label: week.formatted(.dateTime.month(.abbreviated).day()), amount: total, isPaid: isPaid)
+        }
     }
 
     // MARK: - Export
@@ -339,142 +601,6 @@ struct PayoutHistoryView: View {
             showShareSheet = true
         } catch {
             toastManager?.show(message: "Could not write export file.", type: .error)
-        }
-    }
-}
-
-private struct PayoutDetailSheet: View {
-    let period: AllowancePeriodCache
-    let heroName: String
-    var ledgerEntries: [LedgerEntryCache] = []
-    var goals: [GoalCache] = []
-    @Environment(\.dismiss) private var dismiss
-
-    private var weekBucketEntries: [LedgerEntryCache] {
-        let range = WeekMath.weekRange(starting: period.weekOf)
-        return ledgerEntries.filter { range.contains($0.date) }
-    }
-
-    private var goalContributions: [(goal: GoalCache, amount: Double)] {
-        goals.compactMap { goal in
-            let total = GoalProgressCalculator.contributionAmount(for: goal, in: weekBucketEntries)
-            return total > 0 ? (goal, total) : nil
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section("Summary") {
-                    LabeledContent("Hero", value: heroName)
-                    LabeledContent("Week Of", value: period.weekOf.formatted(.dateTime.month().day().year()))
-                    LabeledContent("Status", value: (period.statusEnum ?? .payoutPending).displayName)
-                    LabeledContent("Quests Completed", value: "\(period.questsCompleted) of \(period.questsTotal)")
-                    LabeledContent("Total Earned", value: CurrencyFormatter.string(period.totalEarned))
-                    if let paidDate = period.paidDate {
-                        LabeledContent("Paid Date", value: paidDate.formatted(.dateTime.month().day().year()))
-                    }
-                }
-
-                if !weekBucketEntries.isEmpty {
-                    Section("Bucket Split") {
-                        ForEach(BucketKind.allCases, id: \.self) { kind in
-                            let kindTotal = weekBucketEntries
-                                .filter { $0.bucketKind == kind.rawValue || $0.toBucket == kind.rawValue }
-                                .reduce(0.0) { $0 + $1.amount }
-                            if kindTotal != 0 {
-                                LabeledContent(kind.displayName, value: CurrencyFormatter.string(kindTotal))
-                            }
-                        }
-                    }
-                }
-
-                if !goalContributions.isEmpty {
-                    Section("Goal Contributions") {
-                        ForEach(goalContributions, id: \.goal.recordName) { item in
-                            LabeledContent(item.goal.name, value: CurrencyFormatter.string(item.amount))
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Payout Detail")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Export Child Picker
-
-/// Sheet that lets a parent pick a child, optionally set a date range, and
-/// confirm the export. All-time range is the default; a toggle reveals the
-/// start/end date pickers.
-private struct ExportChildPickerSheet: View {
-    let heroes: [ProfileCache]
-    let onExport: (ProfileCache, Date, Date) -> Void
-
-    @State private var selectedChild: ProfileCache?
-    @State private var useDateFilter = false
-    @State private var startDate = Date.distantPast
-    @State private var endDate = Date()
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Select Child") {
-                    if heroes.isEmpty {
-                        Text("No children in this family.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Picker("Child", selection: $selectedChild) {
-                            Text("Choose a child…").tag(nil as ProfileCache?)
-                            ForEach(heroes, id: \.recordName) { hero in
-                                Text(hero.displayName).tag(hero as ProfileCache?)
-                            }
-                        }
-                    }
-                }
-
-                Section("Date Range (Optional)") {
-                    Toggle("Filter by date range", isOn: $useDateFilter)
-                    if useDateFilter {
-                        DatePicker("Start", selection: $startDate, displayedComponents: .date)
-                        DatePicker("End", selection: $endDate, displayedComponents: .date)
-                    } else {
-                        Text("All-time (no date filtering)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .navigationTitle("Export Ledger")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Export") {
-                        guard let child = selectedChild else { return }
-                        dismiss()
-                        let effectiveStart = useDateFilter ? startDate : Date.distantPast
-                        let effectiveEnd = useDateFilter ? endDate : Date.distantFuture
-                        onExport(child, effectiveStart, effectiveEnd)
-                    }
-                    .disabled(selectedChild == nil)
-                }
-            }
-        }
-        .onAppear {
-            // Pre-select the first hero if none is chosen yet.
-            if selectedChild == nil, let first = heroes.first {
-                selectedChild = first
-            }
         }
     }
 }

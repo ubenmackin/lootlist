@@ -62,7 +62,7 @@ struct AvatarSelectionView: View {
         }
         .background(
             LinearGradient(
-                colors: [Color(.systemBackground), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.1)],
+                colors: [Color(DesignSystemConstants.Colors.background), Color(DesignSystemConstants.Colors.accentBlue).opacity(0.1)],
                 startPoint: .top, endPoint: .bottom
             )
             .ignoresSafeArea()

@@ -134,12 +134,12 @@ struct ChildLedgerView: View {
                 .padding(.top, DesignSystemConstants.Padding.small)
                 .padding(.bottom, DesignSystemConstants.Padding.large)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
             .safeAreaInset(edge: .bottom) {
                 moveMoneyBar
                     .padding(.horizontal, DesignSystemConstants.Padding.standard)
                     .padding(.vertical, DesignSystemConstants.Padding.small)
-                    .background(Color(.systemGroupedBackground))
+                    .background(Color(DesignSystemConstants.Colors.background))
             }
             .sheet(isPresented: $isShowingTransfer) {
                 BucketTransferView(familyRecordName: familyRecordName, profileRecordName: profileRecordName)
