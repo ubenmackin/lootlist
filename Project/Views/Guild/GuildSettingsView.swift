@@ -283,23 +283,31 @@ struct GuildSettingsView: View {
             Divider()
 
             if appState.currentProfile?.role == .guildMaster {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Guild Invitations")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Invite a Hero or Co-Parent to your guild")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Guild Invitations")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Pick a role, then add that person by email or phone in the share sheet")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            showRolePicker = true
+                        } label: {
+                            Label("Invite Members", systemImage: "person.badge.plus")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("settings.inviteMembers")
+                        .accessibilityHint("Pick a role, then add a person by email or phone in the share sheet")
                     }
-                    Spacer()
-                    Button {
-                        showRolePicker = true
-                    } label: {
-                        Label("Invite Members", systemImage: "person.badge.plus")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("settings.inviteMembers")
+                    // WHY invites stay private until a named participant is added, so the link alone must not read as access.
+                    Text("Invites are private — Copy Link alone grants no access. Tap Add People and enter a specific email or phone number.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)

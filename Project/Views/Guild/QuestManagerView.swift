@@ -202,9 +202,9 @@ struct QuestManagerView: View {
                         }
                     }
                     .tag(SidebarSelection.allHeroes)
-                    .dropDestination(for: String.self) { _, _ in
+                    .dropDestination(for: String.self) { (_: [String], _: CGPoint) -> Bool in
                         // Drop on All Heroes is ignored — need a specific hero target.
-                        false
+                        return false
                     }
 
                     ForEach(vm.heroes) { hero in
@@ -614,7 +614,7 @@ extension QuestManagerView {
             Button(role: .destructive) {
                 guard !isSubmitting else { return }
                 isSubmitting = true
-                Task { @MainActor in
+                Task {
                     defer { isSubmitting = false }
                     do {
                         try await vm.unassignQuest(quest.toQuest(zoneID: zoneID))
@@ -630,7 +630,7 @@ extension QuestManagerView {
             Button(role: .destructive) {
                 guard !isSubmitting else { return }
                 isSubmitting = true
-                Task { @MainActor in
+                Task {
                     defer { isSubmitting = false }
                     do {
                         try await vm.unassignQuest(quest.toQuest(zoneID: zoneID))
@@ -719,7 +719,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor in
+                    Task {
                         defer { isSubmitting = false }
                         do {
                             try await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
@@ -734,7 +734,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor in
+                    Task {
                         defer { isSubmitting = false }
                         do {
                             try await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
@@ -752,7 +752,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor in
+                    Task {
                         defer { isSubmitting = false }
                         do {
                             try await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
@@ -769,7 +769,7 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task { @MainActor in
+                    Task {
                         defer { isSubmitting = false }
                         do {
                             try await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID))

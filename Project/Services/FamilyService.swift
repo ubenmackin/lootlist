@@ -9,7 +9,6 @@ import CloudKit
 import Foundation
 import os
 import Synchronization
-import UIKit
 
 enum FamilyServiceError: Error, LocalizedError, Equatable, Sendable {
     case invalidInviteCode
@@ -61,9 +60,24 @@ protocol FamilyProfileFetching: Sendable {
     func fetchShareParticipantRoles(for family: Family) async throws -> [String: UserRole]
     func revokeInvitation(participant: CKShare.Participant, from family: Family) async throws
     func revokeInvitation(identityRecordName: String, from family: Family) async throws
+    func revokeInvitation(identityKey: String, from family: Family) async throws
 }
 
 extension FamilyProfileFetching {
+    /// WHY default identity-key revocation lives here: test doubles conforming to
+    /// this protocol inherit working behavior without spelling CloudKit types in
+    /// ViewModels, so this is the single revocation path.
+    func revokeInvitation(identityKey: String, from family: Family) async throws {
+        guard !identityKey.isEmpty else {
+            throw CloudKitServiceError.shareFailed("No participant identity to revoke — refresh invitations and try again")
+        }
+        let participants = try await fetchShareParticipants(for: family)
+        guard let match = participants.first(where: { ShareParticipantKey.key(for: $0) == identityKey }) else {
+            throw CloudKitServiceError.shareFailed("No role share contains a participant matching this identity — the revocation was not performed")
+        }
+        try await revokeInvitation(participant: match, from: family)
+    }
+
     func prepareInvitePresentation(for family: Family, role: UserRole) async throws -> CloudSharePresentation {
         let share = try await prepareInviteShare(for: family, role: role)
         if let service = self as? FamilyService {

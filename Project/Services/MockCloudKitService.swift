@@ -263,8 +263,9 @@ class MockCloudKitService: CloudKitServiceProtocol {
     }
 
     func fetchOrCreateShare(for rootRecordID: CKRecord.ID, role: UserRole) async throws -> CKShare {
+        // WHY: untitled shares still grant access as .hero so hero reuse finds them instead of minting a duplicate.
         if let existing = mockShares
-            .first(where: { share in share.recordID.zoneID == rootRecordID.zoneID && UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) == role })
+            .first(where: { share in share.recordID.zoneID == rootRecordID.zoneID && (UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero) == role })
         {
             return existing
         }
@@ -404,7 +405,8 @@ class MockCloudKitService: CloudKitServiceProtocol {
     func fetchShareParticipantRoles(for rootRecordID: CKRecord.ID) async throws -> [String: UserRole] {
         var rolesByIdentity: [String: UserRole] = [:]
         for share in mockShares where share.recordID.zoneID == rootRecordID.zoneID {
-            guard let title = share[CKShare.SystemFieldKey.title] as? String, let role = UserRole.fromShareTitle(title) else { continue }
+            // WHY: untitled/legacy shares still grant access, so role decode falls back to .hero instead of dropping the participant.
+            let role = UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero
             if let keys = mockShareMemberships[share.recordID] {
                 for key in keys {
                     rolesByIdentity[key] = role

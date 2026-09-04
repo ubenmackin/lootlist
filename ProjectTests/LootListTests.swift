@@ -425,10 +425,9 @@ struct LootListTests {
         await cache.upsertQuest(quest)
         mock.seedMockRecords([hero, quest])
 
-        do {
+        await #expect(throws: (any Error).self) {
             _ = try await qs.markComplete(quest: quest, by: hero)
-            Issue.record("Hard failure must throw")
-        } catch {}
+        }
 
         let completions = cache.fetchQuestCompletions(family: family.id.recordName)
         #expect(completions.isEmpty, "Hard failure must roll back cached completion")

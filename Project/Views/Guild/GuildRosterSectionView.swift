@@ -69,7 +69,7 @@ struct GuildRosterSectionView: View {
             )) {
                 Button("Remove", role: .destructive) {
                     if let member = memberToKick {
-                        Task { @MainActor in await kickMember(member) }
+                        Task { await kickMember(member) }
                     }
                 }
                 Button("Cancel", role: .cancel) {}
@@ -126,7 +126,7 @@ struct GuildRosterSectionView: View {
                )) {
             Button("Revoke", role: .destructive) {
                 if let invitation = invitationToRevoke {
-                    Task { @MainActor in await viewModel.revokeInvitation(invitation) }
+                    Task { await viewModel.revokeInvitation(invitation) }
                 }
             }
             Button("Cancel", role: .cancel) {}

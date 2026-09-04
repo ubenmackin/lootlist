@@ -50,6 +50,7 @@ targets:
         VERSIONING_SYSTEM: "apple-generic"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Loot List
+        INFOPLIST_KEY_CKSharingSupported: YES
         INFOPLIST_KEY_UIRequiredDeviceCapabilities: armv7
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown"

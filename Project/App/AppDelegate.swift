@@ -177,7 +177,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             case deadlineExpired
         }
 
-        Task { @MainActor in
+        Task {
             let syncNotifications = NotificationCenter.default.notifications(named: .syncDidComplete)
 
             let raceResult = await withTaskGroup(of: RemoteSyncRace.self) { group in
@@ -228,13 +228,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
+    @MainActor
     func application(
         _: UIApplication,
         userDidAcceptCloudKitShareWith cloudKitShareMetadata: CKShare.Metadata
     ) {
+        // WHY: scene owns acceptance when attached, so the app delegate forwards only with no window scene and one tap never double-enqueues.
+        guard !UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else { return }
+        let resolution = InvitationLinkResolution(metadata: cloudKitShareMetadata)
+        ShareAcceptanceBuffer.enqueue(resolution)
         NotificationCenter.default.post(
             name: .cloudKitShareAccepted,
-            object: cloudKitShareMetadata
+            object: resolution
         )
     }
 }

@@ -14,6 +14,8 @@
 			<string>Any</string>
 		</dict>
 	</dict>
+	<key>CKSharingSupported</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -111,33 +111,54 @@ final class FamilyInvitationCoordinator: FamilyInviting {
     }
 
     /// Revokes a pending invitation or departed member's share access.
+    /// Fail-closed: every guard throws so the panel never reports success when
+    /// revocation never ran.
     func revokeInvitation(_ invitation: FamilyInvitation) async throws {
-        guard appState.isZoneOwner, let family = appState.family else { return }
+        guard appState.isZoneOwner, let family = appState.family else {
+            throw FamilyServiceError.unauthorized
+        }
         if invitation.kind == .removedIdentity {
-            return
+            logger.error("Refusing to revoke an already-removed identity — nothing to revoke")
+            throw CloudKitServiceError.shareFailed("This invitation was already removed — refresh invitations and try again")
         }
         if invitation.isOwner {
-            return
+            logger.error("Refusing to revoke the share owner's access")
+            throw FamilyServiceError.unauthorized
         }
+        // WHY: record-backed rows still guard self-revocation by record name, then delegate to the stable identity-key path.
         if let identityRecordName = invitation.identityRecordName {
+            let currentUserRecordName: String
             do {
-                let currentUserRecordName = try await familyService.currentUserRecordName()
-                if identityRecordName == currentUserRecordName {
-                    logger.error("Refusing to revoke the current user's own share access")
-                    return
-                }
+                currentUserRecordName = try await familyService.currentUserRecordName()
             } catch {
                 logger.warning("Failed to resolve current user record ID for revocation guard: \(error, privacy: .private)")
-                return
+                throw CloudKitServiceError.shareFailed("Could not verify the current user — the revocation was not performed")
+            }
+            if identityRecordName == currentUserRecordName {
+                logger.error("Refusing to revoke the current user's own share access")
+                throw FamilyServiceError.unauthorized
             }
         }
 
-        if let identityRecordName = invitation.identityRecordName {
-            try await familyService.revokeInvitation(identityRecordName: identityRecordName, from: family)
-        } else {
-            logger.error("Failed to revoke invitation: no participant identity to revoke")
+        // WHY: key miss falls back to record name; any other key-path error rethrows so transient failures never mask behind a second fetch.
+        if let identityKey = invitation.identityKey, !identityKey.isEmpty {
+            do {
+                try await familyService.revokeInvitation(identityKey: identityKey, from: family)
+                return
+            } catch let error as CloudKitServiceError {
+                guard case let .shareFailed(message) = error, message.contains("No role share contains") else { throw error }
+                guard let recordName = invitation.identityRecordName, !recordName.isEmpty else { throw error }
+                try await familyService.revokeInvitation(identityRecordName: recordName, from: family)
+                return
+            }
+        }
+        // WHY: key-absent rows still revoke by record name when available.
+        if let recordName = invitation.identityRecordName, !recordName.isEmpty {
+            try await familyService.revokeInvitation(identityRecordName: recordName, from: family)
             return
         }
+        // WHY: no identity on the row — delegate to the key path so the single-source error surfaces.
+        try await familyService.revokeInvitation(identityKey: "", from: family)
     }
 
     // MARK: - Private helpers

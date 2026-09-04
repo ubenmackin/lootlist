@@ -98,21 +98,17 @@ extension CloudKitService {
             throw error
         }
         if let existing {
-            let nonOwnerParticipants = existing.participants.filter { $0.role != .owner }
-            if nonOwnerParticipants.isEmpty {
-                logger.info("Existing \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)' has no remaining participants. Deleting stale share...")
-                do {
-                    _ = try await pvtDB.deleteRecord(withID: existing.recordID)
-                } catch {
-                    logger.error("Failed to delete stale share: \(error, privacy: .private)")
-                    throw CloudKitServiceError.shareFailed(
-                        "Failed to manage the share. Please try again."
-                    )
-                }
-            } else {
-                logger.info("Found active \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'")
-                return existing
+            if existing.publicPermission != .none {
+                // Legacy bearer share would otherwise propagate as a public link — the URL is not a join grant.
+                logger.info("Correcting \(role.displayName) CKShare publicPermission to .none in zone '\(targetID.zoneID.zoneName, privacy: .private)'")
+                existing.publicPermission = .none
+                let root = try await serverRoot(for: rootRecordID, using: pvtDB)
+                _ = try await persistShare(existing, with: root, using: pvtDB)
+                return try await fetchSavedShare(forID: existing.recordID, using: pvtDB)
             }
+            // Reuse even with no non-owner participants — rotating the share would invalidate previously sent links.
+            logger.info("Found \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)' — reusing existing share")
+            return existing
         }
         logger.info("Minting new \(role.displayName) CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'...")
         return try await createShare(for: rootRecordID, role: role)
@@ -163,8 +159,8 @@ extension CloudKitService {
     private func roleMatchingShare(in zoneID: CKRecordZone.ID, role: UserRole, using pvtDB: CKDatabase) async throws -> CKShare? {
         let shares = try await allShares(in: zoneID, using: pvtDB)
         return shares.first { share in
-            guard let title = share[CKShare.SystemFieldKey.title] as? String else { return false }
-            return UserRole.fromShareTitle(title) == role
+            // WHY: untitled shares still grant access as .hero so hero reuse finds them instead of minting a duplicate.
+            (UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero) == role
         }
     }
 
@@ -272,20 +268,8 @@ extension CloudKitService {
             guard let participant = share.participants.first(where: { $0.userIdentity.userRecordID?.recordName == iCloudUserRecordName })
             else { continue }
             share.removeParticipant(participant)
-            let nonOwnerParticipants = share.participants.filter { $0.role != .owner }
-            if nonOwnerParticipants.isEmpty {
-                logger.info("All non-owner participants removed from CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'. Deleting empty share...")
-                do {
-                    _ = try await pvtDB.deleteRecord(withID: share.recordID)
-                } catch {
-                    logger.error("Failed to delete empty role share: \(error, privacy: .private)")
-                    throw CloudKitServiceError.shareFailed(
-                        "Failed to manage the share. Please try again."
-                    )
-                }
-            } else {
-                _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
-            }
+            // Keep empty role shares so previously sent invite links stay valid.
+            _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
             revokedAnyShare = true
         }
 
@@ -350,8 +334,8 @@ extension CloudKitService {
 
         var rolesByIdentity: [String: UserRole] = [:]
         for share in shares {
-            guard let title = share[CKShare.SystemFieldKey.title] as? String,
-                  let role = UserRole.fromShareTitle(title) else { continue }
+            // WHY: untitled/legacy shares still grant access, so role decode falls back to .hero instead of dropping the participant.
+            let role = UserRole.fromShareTitle(share[CKShare.SystemFieldKey.title] as? String) ?? .hero
             for participant in share.participants where participant.role != .owner {
                 if let key = ShareParticipantKey.key(for: participant) {
                     rolesByIdentity[key] = role
@@ -384,20 +368,8 @@ extension CloudKitService {
         for share in shares {
             guard let match = share.participants.first(where: { ShareParticipantKey.key(for: $0) == key }) else { continue }
             share.removeParticipant(match)
-            let nonOwnerParticipants = share.participants.filter { $0.role != .owner }
-            if nonOwnerParticipants.isEmpty {
-                logger.info("All non-owner participants removed from CKShare in zone '\(targetID.zoneID.zoneName, privacy: .private)'. Deleting empty share...")
-                do {
-                    _ = try await pvtDB.deleteRecord(withID: share.recordID)
-                } catch {
-                    logger.error("Failed to delete empty role share: \(error, privacy: .private)")
-                    throw CloudKitServiceError.shareFailed(
-                        "Failed to manage the share. Please try again."
-                    )
-                }
-            } else {
-                _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
-            }
+            // Keep empty role shares so previously sent invite links stay valid.
+            _ = try await persistShare(share, with: serverRoot(for: rootRecordID, using: pvtDB), using: pvtDB)
             revokedAnyShare = true
         }
 

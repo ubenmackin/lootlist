@@ -172,7 +172,7 @@ Code should be self-documenting: clear naming and structure over commentary. Com
 
 ## CloudKit Share Permission (load-bearing — do not change)
 
-`CKShare.publicPermission` is set to `.none` on every share-mint path — `CloudKitService.createShare(for:)`, `createShare(for:role:)`, and `fetchOrCreateShare(for:role:)`. This is **REQUIRED**, not a misconfiguration:
+`CKShare.publicPermission` is set to `.none` on every share-mint path — `CloudKitService.createShare(for:role:)` and `fetchOrCreateShare(for:role:)`. This is **REQUIRED**, not a misconfiguration:
 
 - The public share link is **not** a family-join mechanism; it carries no membership grant. A user joins only after the Guild Master adds them as an explicit `.readWrite` participant via `UICloudSharingController` (Apple Messages invite). The share URL is therefore not a bearer credential — there is no public link to leak or rotate.
 - Every added participant joins as `.readWrite`, so Hero/Ranger writes work identically to non-owner paths.

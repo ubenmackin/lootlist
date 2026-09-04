@@ -756,7 +756,7 @@ private extension FamilyDashboardView {
 
     private func pendingRejectButton(completion: QuestCompletionCache, questName: String) -> some View {
         Button {
-            Task { @MainActor in
+            Task {
                 await rejectCompletion(completion)
             }
         } label: {
@@ -780,7 +780,7 @@ private extension FamilyDashboardView {
         let showsAmount = goldAmount > 0
         let approvalLabel = CurrencyFormatter.string(goldAmount)
         return Button {
-            Task { @MainActor in
+            Task {
                 await approveCompletion(completion)
             }
         } label: {
@@ -809,12 +809,12 @@ private extension FamilyDashboardView {
     @ViewBuilder
     private func pendingRowMenu(completion: QuestCompletionCache) -> some View {
         Button {
-            Task { @MainActor in await approveCompletion(completion) }
+            Task { await approveCompletion(completion) }
         } label: {
             Label("Approve", systemImage: "checkmark.circle.fill")
         }
         Button(role: .destructive) {
-            Task { @MainActor in await rejectCompletion(completion) }
+            Task { await rejectCompletion(completion) }
         } label: {
             Label("Reject", systemImage: "xmark.circle.fill")
         }

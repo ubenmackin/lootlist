@@ -160,7 +160,7 @@ final class AppLifecycleCoordinator {
         // notification is needed and ordering is tied to the `@Observable` state
         // model (§4).
         appState.onFamilyZoneIDChange = { [weak self] in
-            Task { @MainActor in self?.invalidateScopeForZoneChange() }
+            self?.invalidateScopeForZoneChange()
         }
 
         // Trigger automatic catch-up sync when network connectivity returns.

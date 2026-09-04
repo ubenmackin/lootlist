@@ -41,23 +41,23 @@ enum ViewLifecycle {
 /// `onAppear { ensureViewModel(); rebuild() }` + `.task { ensureViewModel(); rebuild() }`
 /// pair with one `.task` that runs once per appearance.
 struct ViewModelLifecycleModifier: ViewModifier {
-    let ensure: () -> Void
+    let ensure: @MainActor () -> Void
 
     func body(content: Content) -> some View {
-        content.task { ensure() }
+        content.task { @MainActor in ensure() }
     }
 }
 
 /// Appearance modifier managing lifecycle subscription and single-flight rebuild.
 struct SyncedViewModelLifecycleModifier: ViewModifier {
-    let ensure: () -> Void
-    let subscribe: () -> Void
-    let unsubscribe: () -> Void
-    let sync: (() async -> Void)?
+    let ensure: @MainActor () -> Void
+    let subscribe: @MainActor () -> Void
+    let unsubscribe: @MainActor () -> Void
+    let sync: (@MainActor () async -> Void)?
 
     func body(content: Content) -> some View {
         content
-            .task {
+            .task { @MainActor in
                 ensure()
                 subscribe()
                 if let sync {
@@ -70,17 +70,17 @@ struct SyncedViewModelLifecycleModifier: ViewModifier {
 
 extension View {
     /// Replaces duplicated `onAppear` + `.task` ensure/rebuild boilerplate.
-    func viewModelLifecycle(ensure: @escaping () -> Void) -> some View {
+    func viewModelLifecycle(ensure: @MainActor @escaping () -> Void) -> some View {
         modifier(ViewModelLifecycleModifier(ensure: ensure))
     }
 
     /// For Views that need sync-event subscription. Keeps subscribe/unsubscribe
     /// paired and ensures only a single rebuild per appearance.
     func syncedViewModelLifecycle(
-        ensure: @escaping () -> Void,
-        subscribe: @escaping () -> Void,
-        unsubscribe: @escaping () -> Void,
-        sync: (() async -> Void)? = nil
+        ensure: @MainActor @escaping () -> Void,
+        subscribe: @MainActor @escaping () -> Void,
+        unsubscribe: @MainActor @escaping () -> Void,
+        sync: (@MainActor () async -> Void)? = nil
     ) -> some View {
         modifier(SyncedViewModelLifecycleModifier(
             ensure: ensure,
