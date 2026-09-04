@@ -230,6 +230,7 @@
 		91DD98F2DE17ABA97BD016B1 /* GoalServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0ECCD13E8A26ABF8A61ED3 /* GoalServiceTests.swift */; };
 		922B0B33E6DCEFB28C27E326 /* View+MaxContentWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67F6205C65D060A3DBFC8769 /* View+MaxContentWidth.swift */; };
 		92A1BCEE7F3A52E1A90168D7 /* PayoutDay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D073AC3409B88891A13463 /* PayoutDay.swift */; };
+		9314EBE38B469B0A98BB845B /* ShareAcceptanceBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A50DC4F0DE367884318ECB3 /* ShareAcceptanceBuffer.swift */; };
 		94130D19BDEE8735B089FAE3 /* StatCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C2A9C6E9615A1156066FF5 /* StatCard.swift */; };
 		94B71768CC89A5AD03EEE749 /* Collection+Safe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CB3B0D6953742016FB5F43B /* Collection+Safe.swift */; };
 		957052A8DCF34967984A5ECD /* TrophyRoomViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBB2FDDB10B0B4FAEDB5651 /* TrophyRoomViewModelTests.swift */; };
@@ -519,6 +520,7 @@
 		286FC47A1B54C6C06F6524FB /* HeroStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroStatusCard.swift; sourceTree = "<group>"; };
 		28BAE24C77964F845EE425D6 /* ChildHubViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildHubViewModel.swift; sourceTree = "<group>"; };
 		29FB80B3B9BCA029E30E5585 /* ViewLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewLifecycle.swift; sourceTree = "<group>"; };
+		2A50DC4F0DE367884318ECB3 /* ShareAcceptanceBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareAcceptanceBuffer.swift; sourceTree = "<group>"; };
 		2B80D9E2A60A733F696ADC70 /* ActiveFamilyScopeGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveFamilyScopeGuardTests.swift; sourceTree = "<group>"; };
 		2C47FAAAF5A2001034107C67 /* FamilyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyService.swift; sourceTree = "<group>"; };
 		2D4F84AFC2DAC6F06A2ACB69 /* SnapshotHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotHelper.swift; sourceTree = "<group>"; };
@@ -1157,6 +1159,7 @@
 				872C97F16BCA4BE07632C3D6 /* NotificationRouter.swift */,
 				2362EFD90344CB9A7507C8E7 /* QuickActionManager.swift */,
 				281093A949AEF87A830FFA15 /* SceneDelegate.swift */,
+				2A50DC4F0DE367884318ECB3 /* ShareAcceptanceBuffer.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -2012,6 +2015,7 @@
 				836ECF53B7FAA68C7FA2B0B4 /* SettingsGuildHeaderHostView.swift in Sources */,
 				96144A9CB6994435897CEAB9 /* SettingsRosterHostView.swift in Sources */,
 				C9755D15F13609830FD24E6E /* SettingsView.swift in Sources */,
+				9314EBE38B469B0A98BB845B /* ShareAcceptanceBuffer.swift in Sources */,
 				20B709BE101F5846C617809D /* ShareSheet.swift in Sources */,
 				C23FC8F96ADB7F292EA634CF /* ShopItem.swift in Sources */,
 				D1B0D5D34C80FFF0EA775E20 /* SoundManager.swift in Sources */,
@@ -2221,6 +2225,7 @@
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = Project/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Loot List";
+				INFOPLIST_KEY_CKSharingSupported = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -2372,6 +2377,7 @@
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = Project/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Loot List";
+				INFOPLIST_KEY_CKSharingSupported = YES;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

@@ -74,8 +74,9 @@ final class AppSyncCoordinator {
                     for await notification in NotificationCenter.default.notifications(named: .cloudKitShareAccepted) {
                         guard !Task.isCancelled else { break }
                         guard let self else { break }
-                        guard let metadata = notification.object as? CKShare.Metadata else { continue }
-                        self.handleShareAcceptance(shareMetadata: metadata)
+                        if let resolution = notification.object as? InvitationLinkResolution {
+                            self.handleShareAcceptance(resolution)
+                        }
                     }
                 } onCancel: {}
             }
@@ -200,8 +201,16 @@ final class AppSyncCoordinator {
         }
     }
 
-    func handleShareAcceptance(shareMetadata: CKShare.Metadata) {
-        let shareID = shareMetadata.share.recordID
+    func handleShareAcceptance(_ resolution: InvitationLinkResolution) {
+        // WHY: the share record lives in the family zone, so the snapshot's root zone rebuilds its identity without the acceptance object.
+        guard let zoneID = resolution.zoneID else {
+            logger
+                .warning(
+                    "Dropping share acceptance without zone identity for share: \(resolution.shareRecordName, privacy: .private) title: \(resolution.title ?? "unknown", privacy: .private)"
+                )
+            return
+        }
+        let shareID = CKRecord.ID(recordName: resolution.shareRecordName, zoneID: zoneID)
         logger.info("CKShare acceptance notification received for share: \(shareID.recordName, privacy: .private)")
 
         for (_, continuation) in continuations {

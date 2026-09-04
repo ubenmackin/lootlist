@@ -164,6 +164,19 @@ struct LootListApp: App {
                 .onOpenURL { url in
                     handleIncomingShareURL(url)
                 }
+                .task {
+                    // Replays cold-launch acceptances buffered before this
+                    // listener subscribed; live taps arrive via the stream below.
+                    let shareAccepted = NotificationCenter.default.notifications(named: .cloudKitShareAccepted)
+                    drainBufferedShareAcceptances()
+                    for await notification in shareAccepted {
+                        if let resolution = notification.object as? InvitationLinkResolution {
+                            // WHY: live taps buffer a replay copy before posting, so drop it now that the live path handles it and the buffer cannot outlive cold-launch replay.
+                            ShareAcceptanceBuffer.remove(resolution)
+                            handleAcceptedShare(resolution)
+                        }
+                    }
+                }
                 .task(id: "\(appState.authStatus)|\(appState.familyZoneID?.zoneName ?? "")") {
                     guard appState.authStatus == .authenticated,
                           appState.familyZoneID != nil,
@@ -184,6 +197,12 @@ struct LootListApp: App {
                 .preferredColorScheme(TestEnvironment.preferredAppearanceOverride)
                 .onChange(of: appState.familyAccessRevokedSignal) { _, _ in
                     toastManager.show(message: "You were removed from this Guild.", type: .warning)
+                }
+                .onChange(of: appState.authStatus) { _, newStatus in
+                    // WHY: cold-launch taps park while bootstrap restores, so convert them to guidance once the existing session resolves.
+                    guard newStatus == .authenticated, pendingShareMetadata != nil else { return }
+                    pendingShareMetadata = nil
+                    showAlreadyInGuildGuidance()
                 }
                 // Celebration fullscreen overlay sits above the toast layer so
                 // trophy unlocks and streak milestones take visual priority.
@@ -226,50 +245,68 @@ struct LootListApp: App {
         }
     }
 
-    private func checkCloudKitAvailability() async {
-        guard !TestEnvironment.isRunningUnitOrUITests else {
-            logger.info("Tests detected — skipping CloudKit availability check")
-            return
-        }
-        let container = CloudKitService.defaultContainer
-
-        do {
-            let status = try await container.accountStatus()
-            switch status {
-            case .available:
-                break
-            case .noAccount, .restricted, .couldNotDetermine, .temporarilyUnavailable:
-                logger.warning("CloudKit account status is \(String(describing: status))")
-            @unknown default:
-                break
-            }
-        } catch {
-            logger.error("CloudKit availability check failed: \(error, privacy: .private)")
+    @MainActor
+    private func drainBufferedShareAcceptances() {
+        for resolution in ShareAcceptanceBuffer.drain() {
+            handleAcceptedShare(resolution)
         }
     }
 
+    @MainActor
     private func handleIncomingShareURL(_ url: URL) {
         guard !TestEnvironment.isRunningUnitOrUITests else { return }
         logger.info("Handling incoming share URL: \(String(describing: url), privacy: .private)")
-        let container = cloudKitService.container
         Task {
             do {
-                let metadata = try await container.shareMetadata(for: url)
-                let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
-                let zoneName = metadata.hierarchicalRootRecordID?.zoneID.zoneName ?? "nil"
-                logger.info("Resolved share metadata for incoming share URL (title '\(title, privacy: .private)')")
-                pendingShareMetadata = InvitationLinkResolution(
-                    metadata: metadata,
-                    title: title,
-                    zoneName: zoneName
-                )
+                let resolution = try await familyService.resolveInvitationLink(url)
+                logger.info("Resolved share metadata for incoming share URL (title '\(resolution.title ?? "unknown", privacy: .private)')")
+                handleResolution(resolution)
             } catch {
                 logger.error("Share metadata fetch failed for incoming URL: \(error, privacy: .private)")
             }
         }
     }
 
+    @MainActor
+    private func handleAcceptedShare(_ resolution: InvitationLinkResolution) {
+        guard !TestEnvironment.isRunningUnitOrUITests else { return }
+        logger.info("Resolved share metadata for accepted share (title '\(resolution.title ?? "unknown", privacy: .private)')")
+        handleResolution(resolution)
+    }
+
+    @MainActor
+    private func handleResolution(_ resolution: InvitationLinkResolution) {
+        // Messages taps can surface the same invite through both the URL and acceptance paths.
+        if let existing = pendingShareMetadata, existing == resolution {
+            return
+        }
+        // WHY: authenticated invites clear with Guild-settings guidance instead of parking, so no invite waits unseen and the active family never auto-joins.
+        if appState.authStatus == .authenticated {
+            if pendingShareMetadata != nil {
+                pendingShareMetadata = nil
+            }
+            showAlreadyInGuildGuidance()
+            return
+        }
+        pendingShareMetadata = resolution
+    }
+
+    @MainActor
+    private func showAlreadyInGuildGuidance() {
+        let now = Date()
+        // WHY: system can redeliver the same acceptance through URL + delegate paths; debounce so one tap surfaces one guidance toast.
+        if let last = lastAlreadyInGuildToastAt, now.timeIntervalSince(last) < Self.alreadyInGuildToastDebounce {
+            return
+        }
+        lastAlreadyInGuildToastAt = now
+        toastManager.show(message: Self.alreadyInGuildMessage, type: .info)
+    }
+
+    private static let alreadyInGuildMessage = "You're already in a Guild — to join another family, leave from Guild settings first."
+    private static let alreadyInGuildToastDebounce: TimeInterval = 2
+
     @State private var pendingShareMetadata: InvitationLinkResolution?
+    @State private var lastAlreadyInGuildToastAt: Date?
 }
 
 private struct RootView: View {
@@ -303,7 +340,8 @@ private struct RootView: View {
                 DetectedFamilyView(
                     familyCache: FamilyCache(from: family),
                     profileCache: ProfileCache(from: profile),
-                    zoneID: zoneID,
+                    zoneName: zoneID.zoneName,
+                    zoneOwnerName: zoneID.ownerName,
                     isOwner: isOwner
                 )
             case .onboarding:
@@ -349,8 +387,9 @@ private struct RootView: View {
                 onboardingVM = nil
             }
         }
-        .onChange(of: pendingShareMetadata) { _, metadata in
-            onboardingVM?.pendingShareMetadata = metadata
+        // WHY: pendingShareMetadata is onboarding-only; authenticated invites clear with guidance at the source and never auto-join, so there is nothing to forward once onboardingVM is nil.
+        .onChange(of: pendingShareMetadata) { _, resolution in
+            onboardingVM?.pendingShareMetadata = resolution
         }
     }
 }

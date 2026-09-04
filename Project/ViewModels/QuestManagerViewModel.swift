@@ -47,9 +47,7 @@ final class QuestManagerViewModel {
         heroBoardService = HeroBoardService(questService: questService)
         sweepDeferred = questService.sweepDeferred
         questService.onSweepDeferred = { [weak self] deferred in
-            Task { @MainActor in
-                self?.sweepDeferred = deferred
-            }
+            self?.sweepDeferred = deferred
         }
     }
 

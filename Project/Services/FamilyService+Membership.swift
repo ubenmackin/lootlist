@@ -174,8 +174,15 @@ extension FamilyService {
         await appState.acceptDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
     }
 
-    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool) async {
-        await appState.acceptDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneIDString: zoneIDString, isOwner: isOwner, cloudKit: cloudKit)
+    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneName: String, zoneOwnerName: String, isOwner: Bool) async {
+        await appState.acceptDetectedFamily(
+            familyCache: familyCache,
+            profileCache: profileCache,
+            zoneName: zoneName,
+            zoneOwnerName: zoneOwnerName,
+            isOwner: isOwner,
+            cloudKit: cloudKit
+        )
     }
 
     func acceptDetectedFamily(family: Family, profile: Profile, zoneID: CKRecordZone.ID, isOwner: Bool) async {
@@ -190,8 +197,15 @@ extension FamilyService {
         await appState.rejectDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneID: zoneID, isOwner: isOwner, cloudKit: cloudKit)
     }
 
-    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool) async {
-        await appState.rejectDetectedFamily(familyCache: familyCache, profileCache: profileCache, zoneIDString: zoneIDString, isOwner: isOwner, cloudKit: cloudKit)
+    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneName: String, zoneOwnerName: String, isOwner: Bool) async {
+        await appState.rejectDetectedFamily(
+            familyCache: familyCache,
+            profileCache: profileCache,
+            zoneName: zoneName,
+            zoneOwnerName: zoneOwnerName,
+            isOwner: isOwner,
+            cloudKit: cloudKit
+        )
     }
 
     func signOutAndDiscover() async {

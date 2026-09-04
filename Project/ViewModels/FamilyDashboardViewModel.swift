@@ -333,6 +333,7 @@ struct FamilyInvitation: Identifiable {
     let identity: String
     let statusText: String
     let identityRecordName: String?
+    let identityKey: String?
     let kind: FamilyInvitationKind
     let targetRole: UserRole?
     let isOwner: Bool
@@ -344,12 +345,14 @@ struct FamilyInvitation: Identifiable {
         identityRecordName: String?,
         kind: FamilyInvitationKind,
         targetRole: UserRole? = nil,
-        isOwner: Bool = false
+        isOwner: Bool = false,
+        identityKey: String? = nil
     ) {
         self.id = id
         self.identity = identity
         self.statusText = statusText
         self.identityRecordName = identityRecordName
+        self.identityKey = identityKey
         self.kind = kind
         self.targetRole = targetRole
         self.isOwner = isOwner

@@ -135,7 +135,7 @@ struct JourneyMapView: View {
             let capturedSyncCoordinator = syncCoordinator
 
             progressionTask?.cancel()
-            progressionTask = Task { @MainActor in
+            progressionTask = Task {
                 do {
                     try await Task.sleep(nanoseconds: 500_000_000)
                     for stepLevel in (capturedStored + 1) ... capturedTarget {

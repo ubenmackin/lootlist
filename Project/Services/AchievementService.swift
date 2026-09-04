@@ -528,7 +528,7 @@ final class AchievementService {
 
         let stats = try await computeStats(for: profile, family: family)
         let statSummary = "quests=\(stats.questCount), goals=\(stats.goalsCreated), completed=\(stats.goalsCompleted), unearned=\(unearned.count)"
-        logger.info("Evaluating trophies for \(profile.displayName, privacy: .public): \(statSummary, privacy: .public)")
+        logger.info("Evaluating trophies for \(profile.displayName, privacy: .private): \(statSummary, privacy: .public)")
 
         var awarded: [Achievement] = []
         for definition in unearned where isRequirementMet(definition: definition, stats: stats) {
@@ -612,7 +612,7 @@ final class AchievementService {
         }
         logger
             .info(
-                "Successfully awarded trophy '\(achievement.name, privacy: .public)' (id: \(achievement.id.recordName, privacy: .public)) to profile \(profile.displayName, privacy: .public)"
+                "Successfully awarded trophy '\(achievement.name, privacy: .public)' (id: \(achievement.id.recordName, privacy: .private)) to profile \(profile.displayName, privacy: .private)"
             )
         return row
     }

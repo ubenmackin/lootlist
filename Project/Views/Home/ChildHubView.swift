@@ -491,7 +491,7 @@ struct ChildHubView: View {
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
 
-        Task { @MainActor in
+        Task {
             defer { submittingQuestIDs.remove(qID) }
             guard let profile = appState.currentProfile else { return }
             do {
@@ -508,7 +508,7 @@ struct ChildHubView: View {
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
 
-        Task { @MainActor in
+        Task {
             defer { submittingQuestIDs.remove(qID) }
             guard let profile = appState.currentProfile else { return }
 

@@ -100,7 +100,7 @@ struct SettingsRosterHostView: View {
         }
         .onChange(of: cachedProfiles) { _, _ in
             rebuildViewModel()
-            Task { @MainActor in await viewModel?.refreshInvitations() }
+            Task { await viewModel?.refreshInvitations() }
         }
         .onChange(of: cachedQuests) { _, _ in rebuildViewModel() }
         .onChange(of: cachedCompletions) { _, _ in rebuildViewModel() }
@@ -114,13 +114,13 @@ struct SettingsRosterHostView: View {
         .sheet(item: $heroToEdit) { hero in
             HeroSettingsView(hero: hero)
                 .onDisappear {
-                    Task { @MainActor in await viewModel?.refresh() }
+                    Task { await viewModel?.refresh() }
                 }
         }
         .alert("Transfer Guild Master Role?", isPresented: $isRoleTransferConfirmPresented) {
             Button("Transfer Ownership", role: .destructive) {
                 if let target = showRoleTransferConfirm {
-                    Task { @MainActor in await confirmTransferGuildMaster(to: target) }
+                    Task { await confirmTransferGuildMaster(to: target) }
                 }
             }
             Button("Cancel", role: .cancel) {}

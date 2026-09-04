@@ -7,20 +7,77 @@
 
 import CloudKit
 import Foundation
-import UIKit
+import Synchronization
 
-/// Container for resolved invitation link metadata and diagnostic fields.
-struct InvitationLinkResolution: Sendable {
-    let metadata: CKShare.Metadata
-    let title: String
-    let zoneName: String
+/// Sendable snapshot of an accepted invitation; View state holds only this.
+/// WHY snapshot: `CKShare.Metadata` is a non-Sendable NSObject, so the View
+/// layer keeps title/zone/share identity while the Service layer re-resolves
+/// acceptance from the stashed object at join time.
+struct InvitationLinkResolution: Sendable, Equatable, Hashable {
+    let title: String?
+    let zoneName: String?
+    let zoneOwnerName: String?
+    let rootRecordName: String?
+    let shareRecordName: String
+
+    // WHY: zone/owner/root rebuild the join target without keeping the acceptance object in View state.
+    var zoneID: CKRecordZone.ID? {
+        guard let zoneName, let zoneOwnerName else { return nil }
+        return CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
+    }
+
+    var rootRecordID: CKRecord.ID? {
+        guard let rootRecordName, let zoneID else { return nil }
+        return CKRecord.ID(recordName: rootRecordName, zoneID: zoneID)
+    }
 }
 
-extension InvitationLinkResolution: Equatable {
-    static func == (lhs: InvitationLinkResolution, rhs: InvitationLinkResolution) -> Bool {
-        lhs.title == rhs.title
-            && lhs.zoneName == rhs.zoneName
-            && lhs.metadata.share.recordID == rhs.metadata.share.recordID
+extension InvitationLinkResolution {
+    @MainActor
+    init(metadata: CKShare.Metadata) {
+        self.title = metadata.share[CKShare.SystemFieldKey.title] as? String
+        self.zoneName = metadata.hierarchicalRootRecordID?.zoneID.zoneName
+        self.zoneOwnerName = metadata.hierarchicalRootRecordID?.zoneID.ownerName
+        self.rootRecordName = metadata.hierarchicalRootRecordID?.recordName
+        self.shareRecordName = metadata.share.recordID.recordName
+        // WHY: stash the non-Sendable acceptance alongside its snapshot so join re-resolves it inside the Service layer.
+        InvitationMetadataStore.stash(metadata)
+    }
+}
+
+/// Service-side retention for acceptance objects keyed by share identity.
+@MainActor
+enum InvitationMetadataStore {
+    // WHY: Confined to @MainActor so non-Sendable CKShare.Metadata is safely stored without @unchecked Sendable or locks.
+    private static var order: [String] = []
+    private static var entries: [String: CKShare.Metadata] = [:]
+    private static let maxStashed = 5
+
+    static func stash(_ metadata: CKShare.Metadata) {
+        let key = metadata.share.recordID.recordName
+        // WHY: scene and app-delegate callbacks can deliver the same acceptance twice, so the replay fires once per share.
+        if entries[key] != nil {
+            order.removeAll { $0 == key }
+        } else if order.count >= maxStashed, let oldest = order.first {
+            // WHY: cap bounds cold-launch replay when repeated invite taps arrive before join consumes them.
+            order.removeFirst()
+            entries.removeValue(forKey: oldest)
+        }
+        order.append(key)
+        entries[key] = metadata
+    }
+
+    static func metadata(for resolution: InvitationLinkResolution) -> CKShare.Metadata? {
+        entries[resolution.shareRecordName]
+    }
+
+    static func remove(for resolution: InvitationLinkResolution) {
+        remove(shareRecordName: resolution.shareRecordName)
+    }
+
+    static func remove(shareRecordName key: String) {
+        entries.removeValue(forKey: key)
+        order.removeAll { $0 == key }
     }
 }
 
@@ -75,12 +132,14 @@ extension FamilyService {
         do {
             userID = try await cloudKit.currentUserRecordID()
         } catch {
+            logger.debug("Join hero detection aborted: unable to resolve currentUserRecordID: \(error, privacy: .private)")
             return nil
         }
         let sharedZones: [CKRecordZone]
         do {
             sharedZones = try await cloudKit.fetchSharedZones()
         } catch {
+            logger.debug("Join hero detection aborted: unable to fetchSharedZones: \(error, privacy: .private)")
             return nil
         }
         var matches: [(zoneID: CKRecordZone.ID, profile: Profile)] = []
@@ -128,9 +187,28 @@ extension FamilyService {
     /// Resolves a pasted invitation link into share acceptance metadata.
     func resolveInvitationLink(_ url: URL) async throws -> InvitationLinkResolution {
         let metadata = try await cloudKit.shareMetadata(for: url)
-        let title = metadata.share[CKShare.SystemFieldKey.title] as? String ?? "nil"
-        let zoneName = metadata.hierarchicalRootRecordID?.zoneID.zoneName ?? "nil"
-        return InvitationLinkResolution(metadata: metadata, title: title, zoneName: zoneName)
+        return InvitationLinkResolution(metadata: metadata)
+    }
+
+    /// Joins via a View-held snapshot, re-resolving the stashed acceptance inside the Service layer.
+    /// WHY snapshot join: View state never holds the non-Sendable acceptance object, so the snapshot carries
+    /// share identity and the Service layer maps it back to the stashed object at join time.
+    func joinFamilyViaAcceptedShare(resolution: InvitationLinkResolution?,
+                                    displayName: String?,
+                                    avatarClass: AvatarClass?,
+                                    progressHandler: ((String, Double) -> Void)? = nil) async throws -> JoinedFamilyResult
+    {
+        // WHY fail-closed on stash miss: falling back to the first shared zone could join the wrong family.
+        guard let resolution, let metadata = InvitationMetadataStore.metadata(for: resolution) else {
+            throw CloudKitServiceError.shareFailed("The invitation could not be found — ask the Guild Master for a new invite link")
+        }
+        let result = try await joinFamilyViaAcceptedShare(metadata: metadata,
+                                                          displayName: displayName,
+                                                          avatarClass: avatarClass,
+                                                          progressHandler: progressHandler)
+        // WHY: join consumed the stashed acceptance, so evict it to bound retention.
+        InvitationMetadataStore.remove(for: resolution)
+        return result
     }
 
     // MARK: Participant Queries
@@ -162,8 +240,8 @@ extension FamilyService {
         try await cloudKit.removeParticipant(participant, from: family.id)
     }
 
-    /// Removes a share participant by iCloud record name. Used when only the identity record name is
-    /// available (e.g.
+    /// Removes a share participant by iCloud record name when the full participant object was never
+    /// fetched (e.g. pending email/phone identity-key rows surfaced by the invitations panel).
     func revokeInvitation(identityRecordName: String, from family: Family) async throws {
         try await cloudKit.removeParticipant(iCloudUserRecordName: identityRecordName, from: family.id)
     }

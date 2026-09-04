@@ -229,7 +229,11 @@ extension QuestService {
             logger: logger,
             context: "QuestService.completeQuest.autoApproved.transient.reward"
         )
-        do { _ = try await xpService.addXP(totalXP, to: profile) } catch {}
+        do {
+            _ = try await xpService.addXP(totalXP, to: profile)
+        } catch {
+            logger.warning("QuestService.completeQuest autoApproved transient XP award failed: \(error, privacy: .private)")
+        }
         var stamped = log
         stamped.xpCredited = remaining
         await cacheService.upsertQuestCompletion(stamped)

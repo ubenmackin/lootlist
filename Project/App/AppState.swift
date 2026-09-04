@@ -680,8 +680,15 @@ final class AppState {
         )
     }
 
-    func acceptDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
-        let zoneID = CKRecordZone.ID(zoneName: zoneIDString, ownerName: CKCurrentUserDefaultName)
+    func acceptDetectedFamily(
+        familyCache: FamilyCache,
+        profileCache: ProfileCache,
+        zoneName: String,
+        zoneOwnerName: String,
+        isOwner: Bool,
+        cloudKit: any CloudKitServiceProtocol
+    ) async {
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
         await acceptDetectedFamily(
             familyCache: familyCache,
             profileCache: profileCache,
@@ -728,8 +735,15 @@ final class AppState {
         )
     }
 
-    func rejectDetectedFamily(familyCache: FamilyCache, profileCache: ProfileCache, zoneIDString: String, isOwner: Bool, cloudKit: any CloudKitServiceProtocol) async {
-        let zoneID = CKRecordZone.ID(zoneName: zoneIDString, ownerName: CKCurrentUserDefaultName)
+    func rejectDetectedFamily(
+        familyCache: FamilyCache,
+        profileCache: ProfileCache,
+        zoneName: String,
+        zoneOwnerName: String,
+        isOwner: Bool,
+        cloudKit: any CloudKitServiceProtocol
+    ) async {
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwnerName)
         await rejectDetectedFamily(
             familyCache: familyCache,
             profileCache: profileCache,

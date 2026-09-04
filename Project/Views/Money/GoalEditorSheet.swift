@@ -551,7 +551,7 @@ struct GoalEditorSheet: View {
         suggestedPrice = nil
         isExtractingPrice = false
         resolvedImageURL = nil
-        Task { @MainActor in
+        Task {
             if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
                 if let title = metadata.title, !title.isEmpty {
                     resolvedTitle = title
@@ -604,7 +604,7 @@ struct GoalEditorSheet: View {
         )
 
         isSaving = true
-        Task { @MainActor in
+        Task {
             do {
                 try await onSave(draft)
                 dismiss()
@@ -620,7 +620,7 @@ struct GoalEditorSheet: View {
     private func deleteGoal() {
         guard let onDelete else { return }
         isDeleting = true
-        Task { @MainActor in
+        Task {
             do {
                 try await onDelete()
                 dismiss()

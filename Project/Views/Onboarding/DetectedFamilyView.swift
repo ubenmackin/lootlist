@@ -5,13 +5,14 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
-import CloudKit
 import SwiftUI
 
 struct DetectedFamilyView: View {
     let familyCache: FamilyCache
     let profileCache: ProfileCache
-    let zoneID: CKRecordZone.ID
+    // WHY: shared zones reuse zone names across owners, so both names travel to FamilyService for zone resolution.
+    let zoneName: String
+    let zoneOwnerName: String
     let isOwner: Bool
 
     @Environment(FamilyService.self) private var familyService
@@ -56,7 +57,8 @@ struct DetectedFamilyView: View {
                     await familyService.rejectDetectedFamily(
                         familyCache: familyCache,
                         profileCache: profileCache,
-                        zoneID: zoneID,
+                        zoneName: zoneName,
+                        zoneOwnerName: zoneOwnerName,
                         isOwner: isOwner
                     )
                     isProcessing = false
@@ -159,7 +161,8 @@ struct DetectedFamilyView: View {
                     await familyService.acceptDetectedFamily(
                         familyCache: familyCache,
                         profileCache: profileCache,
-                        zoneID: zoneID,
+                        zoneName: zoneName,
+                        zoneOwnerName: zoneOwnerName,
                         isOwner: isOwner
                     )
                 }

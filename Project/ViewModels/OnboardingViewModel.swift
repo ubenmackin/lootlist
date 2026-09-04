@@ -229,7 +229,7 @@ final class OnboardingViewModel {
         logger.info("Calling familyService.joinFamilyViaAcceptedShare...")
         do {
             let result = try await familyService.joinFamilyViaAcceptedShare(
-                metadata: resolution.metadata,
+                resolution: resolution,
                 displayName: displayName,
                 avatarClass: avatarClass,
                 progressHandler: { [weak self] status, fraction in
@@ -263,7 +263,7 @@ final class OnboardingViewModel {
             do {
                 logger.info("Requesting share metadata for simulated invite URL...")
                 let resolved = try await familyService.resolveInvitationLink(url)
-                logger.info("Resolved share metadata: zone='\(resolved.zoneName, privacy: .private)' title='\(resolved.title, privacy: .private)'")
+                logger.info("Resolved share metadata: zone='\(resolved.zoneName ?? "unknown", privacy: .private)' title='\(resolved.title ?? "unknown", privacy: .private)'")
                 joinProgressStatus = "Invitation verified! Connecting to family..."
                 joinProgressFraction = 0.3
                 pendingShareMetadata = resolved

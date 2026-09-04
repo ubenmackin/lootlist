@@ -144,7 +144,7 @@ struct TrophyRoomView: View {
                 achievements = achievementService.cachedOrSeededAchievementCaches(for: family)
                 let capturedEarned = earned
                 let capturedProfiles = currentProfileRows
-                Task { @MainActor in
+                Task {
                     let seeded = await achievementService.ensureDefaultAchievements(for: family)
                     // If @Query still empty after ingest, push seeded to grid; otherwise @Query drives refresh.
                     if cachedAchievements.isEmpty {

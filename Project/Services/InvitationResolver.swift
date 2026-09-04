@@ -89,7 +89,8 @@ actor InvitationResolver {
                 statusText: "Removed",
                 identityRecordName: status.recordName,
                 kind: .removedIdentity,
-                targetRole: targetRole
+                targetRole: targetRole,
+                identityKey: key
             )
         }
         if let recordName = status.recordName, let displayName = inactiveIdentities[recordName] {
@@ -99,7 +100,8 @@ actor InvitationResolver {
                 statusText: "Left the guild — revoke share access",
                 identityRecordName: recordName,
                 kind: .departedMember,
-                targetRole: targetRole
+                targetRole: targetRole,
+                identityKey: key
             )
         }
         if let recordName = status.recordName {
@@ -109,7 +111,21 @@ actor InvitationResolver {
                 statusText: "Accepted",
                 identityRecordName: recordName,
                 kind: .pendingInvite,
-                targetRole: targetRole
+                targetRole: targetRole,
+                identityKey: key
+            )
+        }
+        // Email/phone invites carry no record name until accepted, yet remain
+        // revocable by identity key, so they surface here instead of dropping.
+        if status.identityKey != nil {
+            return await FamilyInvitation(
+                id: opaqueIdentityToken(key),
+                identity: redactedIdentity(for: key, recordName: nil),
+                statusText: "Invited",
+                identityRecordName: nil,
+                kind: .pendingInvite,
+                targetRole: targetRole,
+                identityKey: key
             )
         }
         return nil
