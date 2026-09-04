@@ -19,6 +19,7 @@ final class HeroLedgerViewModel {
     private let appState: AppState
 
     private(set) var balance: Double?
+    private(set) var spendBalance: Double = 0
     private(set) var pendingQuestGold: Double = 0.0
     private(set) var ledgerRows: [SpendingLogRow] = []
     private(set) var errorMessage: String?
@@ -30,14 +31,21 @@ final class HeroLedgerViewModel {
         self.appState = appState
     }
 
+    /// WHY instance shim: views hold @Query rows but should not reimplement bucket math.
+    func currentSpendBalance(from ledgers: [LedgerEntryCache]) -> Double {
+        BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: heroProfile.recordName)
+    }
+
     func rebuildLedger(
         ledgers: [LedgerEntryCache],
         quests: [QuestCache] = [],
         completions: [QuestCompletionCache] = [],
         allowancePeriods: [AllowancePeriodCache] = [],
+        templates: [QuestTemplateCache] = [],
         scope: CalendarScope
     ) {
         balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: heroProfile.recordName)
+        spendBalance = BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: heroProfile.recordName)
 
         let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
@@ -53,12 +61,15 @@ final class HeroLedgerViewModel {
         if hasPaidQuestThisWeek || payoutStatus == .paid || effectivePolicy == .realTime {
             pendingQuestGold = 0.0
         } else {
+            // WHY day count wins: stale targetCount under-counts specific-days split rewards.
+            let templatesByID = Dictionary(uniqueKeysWithValues: templates.map { ($0.recordName, $0) })
             pendingQuestGold = GoldCalculation.netWeeklyGold(
                 quests: quests,
                 logs: completions,
                 profileRecordName: heroProfile.recordName,
                 payoutPolicy: effectivePolicy,
-                weekRange: weekRange
+                weekRange: weekRange,
+                templatesByID: templatesByID
             )
         }
 
@@ -77,7 +88,8 @@ final class HeroLedgerViewModel {
         defer { isLoading = false }
 
         do {
-            _ = try await spending.deposit(
+            // WHY full-split: depositEntries sums to the exact deposit total across bucket shares.
+            _ = try await spending.depositEntries(
                 profile: profile,
                 family: family,
                 familyRecordName: family.id.recordName,

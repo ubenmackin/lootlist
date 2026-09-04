@@ -25,6 +25,7 @@ struct MyGoalsView: View {
     @State private var isShowingGoalEditor: Bool = false
     @State private var goalToEdit: GoalCache?
     @State private var goalToDelete: GoalCache?
+    @State private var goalToPurchase: GoalCache?
     @State private var errorMessage: String?
 
     private let familyRecordName: String?
@@ -58,8 +59,9 @@ struct MyGoalsView: View {
         )
     }
 
-    /// Goals belonging to the current hero profile, excluding archived goals.
+    /// Goals belonging to the current hero profile, excluding archived and purchased goals.
     private var activeGoals: [GoalCache] {
+        // WHY purchased hides here: purchase sets isArchived so one flag drops it from active lists.
         // WHY: defensive secondary guard — predicate is source of truth; filters stale identity when view not yet recreated.
         guard let name = appState.currentProfile?.id.recordName else { return [] }
         return cachedGoals.filter {
@@ -146,6 +148,9 @@ struct MyGoalsView: View {
                     },
                     onDelete: {
                         try await deleteGoal(goal)
+                    },
+                    onPurchase: {
+                        try await markPurchased(goal)
                     }
                 )
             }
@@ -176,6 +181,37 @@ struct MyGoalsView: View {
                 }
             } message: { goal in
                 Text("Are you sure you want to delete “\(goal.name)”?")
+            }
+            .alert(
+                "Mark Purchased?",
+                isPresented: Binding(
+                    get: { goalToPurchase != nil },
+                    set: {
+                        if !$0 {
+                            goalToPurchase = nil
+                        }
+                    }
+                ),
+                presenting: goalToPurchase
+            ) { goal in
+                Button("Mark Purchased") {
+                    Task {
+                        do {
+                            try await markPurchased(goal)
+                        } catch {
+                            Self.logger.error("Failed to purchase goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
+                            toastManager?.show(message: purchaseErrorMessage(for: goal, error: error), type: .error)
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    goalToPurchase = nil
+                }
+            } message: { goal in
+                // WHY region currency: amounts render through CurrencyFormatter so copy stays locale-correct.
+                Text(
+                    "This will deduct \(CurrencyFormatter.string(Double(goal.targetAmountPennies) / 100.0)) from your \(goal.bucketKindEnum?.shortName ?? "savings") bucket and archive “\(goal.name)”."
+                )
             }
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
@@ -227,6 +263,12 @@ struct MyGoalsView: View {
                             Label("Edit Goal", systemImage: "pencil")
                         }
 
+                        Button {
+                            goalToPurchase = goal
+                        } label: {
+                            Label("Mark Purchased", systemImage: "cart.fill")
+                        }
+
                         Button(role: .destructive) {
                             goalToDelete = goal
                         } label: {
@@ -239,6 +281,12 @@ struct MyGoalsView: View {
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
+                        Button {
+                            goalToPurchase = goal
+                        } label: {
+                            Label("Mark Purchased", systemImage: "cart.fill")
+                        }
+                        .tint(Color(DesignSystemConstants.Colors.primaryGreen))
                         Button {
                             goalToEdit = goal
                         } label: {
@@ -296,13 +344,13 @@ struct MyGoalsView: View {
     }
 
     private func goalCardHeader(for goal: GoalCache, pacing: GoalPacingCalculator.PacingSummary?, isCompleted: Bool, validURL: URL?, validImageURL: URL?) -> some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             goalCardIcon(for: goal, validImageURL: validImageURL)
             VStack(alignment: .leading, spacing: 2) {
                 Text(goal.name)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 if let pacing, pacing.status != .noDeadline {
                     HStack(spacing: 4) {
                         Image(systemName: pacing.status.iconSystemName)
@@ -469,6 +517,28 @@ struct MyGoalsView: View {
         guard let service = resolvedGoalService else { return }
         try await service.deleteGoal(goal, familyRecordName: familyRecordName)
         HapticsService.lightImpact()
+    }
+
+    private func markPurchased(_ goal: GoalCache) async throws {
+        guard let service = resolvedGoalService else { return }
+        do {
+            try await service.markPurchased(goal, familyRecordName: familyRecordName)
+            goalToPurchase = nil
+            HapticsService.success()
+        } catch {
+            goalToPurchase = nil
+            throw error
+        }
+    }
+
+    private func purchaseErrorMessage(for goal: GoalCache, error: any Error) -> String {
+        // WHY localized description: insufficient-funds copy already formats region currency via CurrencyFormatter.
+        if let goalError = error as? GoalServiceError,
+           let description = goalError.errorDescription
+        {
+            return description
+        }
+        return "Couldn’t mark “\(goal.name)” purchased. Please try again."
     }
 
     // MARK: - Empty State

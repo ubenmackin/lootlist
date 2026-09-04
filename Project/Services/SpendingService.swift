@@ -32,8 +32,8 @@ enum SpendingServiceError: Error, LocalizedError, Equatable, Sendable {
 @Observable
 class SpendingService {
     private let cloudKit: any CloudKitServiceProtocol
-    let cacheService: CacheService
-    let syncCoordinator: CKSyncEngineCoordinator
+    let cacheService: any CacheServicing
+    let syncCoordinator: any SyncEnqueuing
 
     var toastManager: ToastManager?
 
@@ -44,9 +44,9 @@ class SpendingService {
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService,
+        cacheService: any CacheServicing,
         appState: AppState,
-        syncCoordinator: CKSyncEngineCoordinator
+        syncCoordinator: any SyncEnqueuing
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
@@ -57,11 +57,11 @@ class SpendingService {
     @_disfavoredOverload
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
+        cacheService: (any CacheServicing)? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
-        let cache: CacheService
+        let cache: any CacheServicing
         if let cacheService {
             cache = cacheService
         } else {
@@ -69,14 +69,23 @@ class SpendingService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, toastManager: nil, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        let coord: any SyncEnqueuing
+        if let syncCoordinator {
+            coord = syncCoordinator
+        } else if let ck = cloudKit as? CloudKitService {
+            // WHY: delegate stack still needs the concrete cache for hydration;
+            // reuse the injected cache when it is concrete so reads and writes share one store.
+            let concreteCache = cache as? CacheService ?? CacheService.inMemoryFallback(logger: Self.staticLogger)
+            let delegate = CKSyncEngineDelegateHandler(
+                backgroundCache: nil,
+                conflictResolver: CKSyncConflictResolver(cacheService: concreteCache, backgroundCache: nil, toastManager: nil, appState: state),
+                cacheService: concreteCache,
+                appState: state
+            )
+            coord = CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        } else {
+            coord = NoopSyncEnqueuing()
+        }
         self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 
@@ -154,6 +163,22 @@ class SpendingService {
         return "\(source)-\(profile.id.recordName)-\(family.id.recordName)-\(ms)-\(cents)-\(descHash)"
     }
 
+    // WHY: CloudKit/cache round-trips quantize dates, so exact Date equality
+    // forks deterministic names for the same logical instant.
+    private func isSameMillisecond(_ lhs: Date, _ rhs: Date) -> Bool {
+        abs(lhs.timeIntervalSince1970 - rhs.timeIntervalSince1970) < 0.001
+    }
+
+    // WHY: collision suffixes must converge cross-device, so one helper owns
+    // the hex+msSuffix extension instead of duplicated inline blocks.
+    private func extendedRecordName(base: String, payload: String, date: Date) -> String {
+        let ms = Int(date.timeIntervalSince1970 * 1000)
+        let hash = SHA256.hash(data: Data(payload.utf8))
+        let hex = hash.prefix(4).map { String(format: "%02x", $0) }.joined()
+        let msSuffix = ms % 1000
+        return "\(base)-\(hex)-\(msSuffix)"
+    }
+
     private func validateScopeAllowingNewHero(family: Family) throws {
         do {
             try ActiveFamilyScopeGuard.requireActiveFamilyScope(family: family, cloudKit: cloudKit, appState: appState)
@@ -174,7 +199,7 @@ class SpendingService {
         if let existing = cacheService.fetchLedgerEntry(recordName: base, family: family.id.recordName),
            existing.source != source
            || existing.entryDescription != description
-           || existing.date != date
+           || !isSameMillisecond(existing.date, date)
            || existing.location != location
            || Int((abs(existing.amount) * 100).rounded()) != Int((abs(amount) * 100).rounded())
         {
@@ -188,10 +213,7 @@ class SpendingService {
             let normalizedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let trimmedLower = description.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let payload = "\(trimmedLower)|\(ms)|\(cents)|\(normalizedLocation)|\(source)"
-            let hash = SHA256.hash(data: Data(payload.utf8))
-            let hex = hash.prefix(4).map { String(format: "%02x", $0) }.joined()
-            let msSuffix = ms % 1000
-            recordName = "\(base)-\(hex)-\(msSuffix)"
+            recordName = extendedRecordName(base: base, payload: payload, date: date)
         }
         return CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
     }
@@ -223,6 +245,8 @@ class SpendingService {
             throw SpendingServiceError.invalidAmount
         }
 
+        // WHY: manual spends debit the spend bucket so BucketService.applyBucketAttribution
+        // keeps bucket balances consistent with the ledger total.
         let entry = LedgerEntry(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             amount: -abs(amount),
@@ -230,6 +254,7 @@ class SpendingService {
             location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
             source: LedgerSource.manual.rawValue,
+            bucketKind: BucketKind.spend.rawValue,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: makeLedgerID(
                 source: LedgerSource.manual.rawValue,
@@ -247,13 +272,14 @@ class SpendingService {
         return entry
     }
 
-    func deposit(profile: Profile,
-                 family: Family,
-                 familyRecordName: String,
-                 description: String,
-                 amount: Double,
-                 location: String? = nil,
-                 date: Date = Date()) async throws -> LedgerEntry
+    /// Mints one ledger entry per bucket share; the returned array sums to the full deposit total.
+    func depositEntries(profile: Profile,
+                        family: Family,
+                        familyRecordName: String,
+                        description: String,
+                        amount: Double,
+                        location: String? = nil,
+                        date: Date = Date()) async throws -> [LedgerEntry]
     {
         guard familyRecordName == family.id.recordName else {
             throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: familyRecordName)
@@ -272,28 +298,127 @@ class SpendingService {
             throw SpendingServiceError.invalidAmount
         }
 
-        let entry = LedgerEntry(
-            profile: CKRecord.Reference(recordID: profile.id, action: .none),
-            amount: abs(amount),
+        // WHY: whole-penny math keeps bucket shares summing to the exact deposit
+        // total regardless of how percentages round.
+        let totalPennies = Int((abs(amount) * 100).rounded())
+        guard totalPennies > 0 else {
+            throw SpendingServiceError.invalidAmount
+        }
+        let shares = BucketService.splitPennies(totalPennies, profile: profile)
+            .filter { $0.pennies > 0 }
+        guard !shares.isEmpty else {
+            throw SpendingServiceError.invalidAmount
+        }
+
+        let depositSource = LedgerSource.deposit.rawValue
+        let normalizedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = deterministicRecordName(
+            source: depositSource,
+            profile: profile,
+            family: family,
+            amount: amount,
             description: trimmedDesc,
-            location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
-            date: date,
-            source: "deposit",
-            family: CKRecord.Reference(recordID: family.id, action: .none),
-            id: makeLedgerID(
-                source: "deposit",
-                profile: profile,
-                family: family,
-                amount: amount,
-                description: trimmedDesc,
-                location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
-                date: date
-            )
+            date: date
         )
 
-        await cacheService.upsertLedgerEntry(entry)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "SpendingService.deposit")
-        return entry
+        var entries: [LedgerEntry] = []
+        entries.reserveCapacity(shares.count)
+        for share in shares {
+            let isSingle = shares.count == 1
+            let candidate = isSingle ? base : "\(base)-\(share.kind.rawValue)"
+            let bucketSuffix = isSingle ? "" : " · \(share.kind.displayName)"
+            let shareDescription = "\(trimmedDesc)\(bucketSuffix)"
+            let shareAmount = Double(share.pennies) / 100.0
+            var recordName = candidate
+            if let existing = cacheService.fetchLedgerEntry(recordName: candidate, family: family.id.recordName),
+               existing.source != depositSource
+               || existing.entryDescription != shareDescription
+               || !isSameMillisecond(existing.date, date)
+               || existing.location != normalizedLocation
+               || Int((abs(existing.amount) * 100).rounded()) != share.pennies
+            {
+                // WHY: extend deterministically so same divergent payload yields
+                // same recordName on any device, never a random UUID.
+                let ms = Int(date.timeIntervalSince1970 * 1000)
+                let trimmedLower = trimmedDesc.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let locationPart = normalizedLocation ?? ""
+                let payload = "\(trimmedLower)|\(ms)|\(share.pennies)|\(locationPart)|\(depositSource)|\(share.kind.rawValue)"
+                recordName = extendedRecordName(base: candidate, payload: payload, date: date)
+            }
+            let entry = LedgerEntry(
+                profile: CKRecord.Reference(recordID: profile.id, action: .none),
+                amount: shareAmount,
+                description: shareDescription,
+                location: normalizedLocation,
+                date: date,
+                source: depositSource,
+                bucketKind: share.kind.rawValue,
+                family: CKRecord.Reference(recordID: family.id, action: .none),
+                id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
+            )
+            entries.append(entry)
+        }
+
+        for entry in entries {
+            await cacheService.upsertLedgerEntry(entry)
+        }
+        ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(syncCoordinator, ids: entries.map(\.id), appState: appState, logger: logger, context: "SpendingService.deposit")
+
+        // WHY: save-bucket portions cascade into FIFO goals so bucket totals and
+        // goal progress stay consistent; surplus past all goals rests in the bucket.
+        let saveShares = shares.filter { $0.kind == .shortTermSave || $0.kind == .longTermSave }
+        if !saveShares.isEmpty {
+            let goalService = GoalService(
+                cloudKit: cloudKit,
+                cacheService: cacheService,
+                appState: appState,
+                syncCoordinator: syncCoordinator
+            )
+            for share in saveShares {
+                do {
+                    _ = try await goalService.contributeToBucket(
+                        amountPennies: Int64(share.pennies),
+                        profile: profile,
+                        family: family,
+                        bucketKind: share.kind,
+                        sourceEventID: base,
+                        contributionDate: date
+                    )
+                } catch {
+                    logger.warning("Goal allocation failed for deposit \(base, privacy: .private): \(error, privacy: .private)")
+                }
+            }
+        }
+
+        guard !entries.isEmpty else {
+            throw SpendingServiceError.persistenceFailed
+        }
+        return entries
+    }
+
+    /// Deprecated: persists the full split via `depositEntries` but returns the first share only.
+    @available(*, deprecated, message: "Use depositEntries and sum amounts; deposit returns only the first share when the split yields multiple entries.")
+    func deposit(profile: Profile,
+                 family: Family,
+                 familyRecordName: String,
+                 description: String,
+                 amount: Double,
+                 location: String? = nil,
+                 date: Date = Date()) async throws -> LedgerEntry
+    {
+        let entries = try await depositEntries(
+            profile: profile,
+            family: family,
+            familyRecordName: familyRecordName,
+            description: description,
+            amount: amount,
+            location: location,
+            date: date
+        )
+        guard let first = entries.first else {
+            throw SpendingServiceError.persistenceFailed
+        }
+        return first
     }
 
     func withdraw(profile: Profile,
@@ -327,10 +452,11 @@ class SpendingService {
             description: trimmedDesc,
             location: location?.trimmingCharacters(in: .whitespacesAndNewlines),
             date: date,
-            source: "withdrawal",
+            source: LedgerSource.withdrawal.rawValue,
+            bucketKind: BucketKind.spend.rawValue,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: makeLedgerID(
-                source: "withdrawal",
+                source: LedgerSource.withdrawal.rawValue,
                 profile: profile,
                 family: family,
                 amount: amount,
@@ -346,7 +472,7 @@ class SpendingService {
     }
 
     func delete(_ entry: LedgerEntry) async throws {
-        guard entry.source != "quest" else {
+        guard entry.sourceEnum != .quest else {
             throw SpendingServiceError.unsupported
         }
 

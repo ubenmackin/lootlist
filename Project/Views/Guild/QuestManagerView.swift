@@ -595,6 +595,9 @@ extension QuestManagerView {
                 }
                 Spacer()
             }
+            // WHY: List rows leave trailing dead space outside a tight HStack — stretching the label keeps every tap on the row on the Button.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())

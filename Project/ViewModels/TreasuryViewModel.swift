@@ -57,6 +57,8 @@ final class TreasuryViewModel {
 
     private(set) var balance: Double?
 
+    private(set) var spendBalance: Double = 0
+
     private(set) var pendingQuestGold: Double = 0.0
 
     private(set) var weeklyBreakdown: TreasuryService.WeeklyBreakdown?
@@ -84,6 +86,12 @@ final class TreasuryViewModel {
         appState.resolvedPayoutDay
     }
 
+    /// WHY instance shim: views hold @Query rows but should not reimplement bucket math.
+    func currentSpendBalance(from ledgers: [LedgerEntryCache]) -> Double {
+        guard let profile = appState.currentProfile else { return 0 }
+        return BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: profile.id.recordName)
+    }
+
     // MARK: - Weekly Breakdown (CloudKit-backed)
 
     func refreshWeeklyBreakdown() async {
@@ -104,13 +112,21 @@ final class TreasuryViewModel {
         }
     }
 
-    func rebuildLists(logs: [QuestCompletionCache], ledgers: [LedgerEntryCache], quests: [QuestCache], allowancePeriods: [AllowancePeriodCache], scope: CalendarScope) {
+    func rebuildLists(
+        logs: [QuestCompletionCache],
+        ledgers: [LedgerEntryCache],
+        quests: [QuestCache],
+        allowancePeriods: [AllowancePeriodCache],
+        scope: CalendarScope,
+        templates: [QuestTemplateCache] = []
+    ) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
 
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
         balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: profileName)
+        spendBalance = BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: profileName)
 
         let payoutDay = resolvedPayoutDay
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
@@ -130,11 +146,12 @@ final class TreasuryViewModel {
 
         let weekLedgers = profileLedgers.filter { weekRange.contains($0.date) }
         let hasPaidQuestThisWeek = weekLedgers.contains { $0.sourceEnum == .quest }
+        // WHY single-count: bonus counts new-money deposits only; spent counts all debits exhaustively.
         let weekBonusGold = weekLedgers
-            .filter { $0.source == "deposit" }
+            .filter { $0.sourceEnum == .deposit }
             .reduce(into: 0.0) { $0 += $1.amount }
         let weekSpent = weekLedgers
-            .filter { $0.sourceEnum == .manual || $0.source == "withdrawal" }
+            .filter { $0.sourceEnum == .manual || $0.sourceEnum == .withdrawal || $0.sourceEnum == .purchase }
             .reduce(into: 0.0) { $0 += $1.amount }
 
         let profileLogs = logs.filter { $0.completerRecordName == profileName }
@@ -144,12 +161,15 @@ final class TreasuryViewModel {
         let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate) }
 
         let effectivePolicy = profile.payoutPolicy ?? appState.family?.payoutPolicy ?? .perQuest
+        // WHY day count wins: stale targetCount under-counts specific-days split rewards.
+        let templatesByID = Dictionary(uniqueKeysWithValues: templates.map { ($0.recordName, $0) })
         let weekQuestsGold = GoldCalculation.netWeeklyGold(
             quests: quests,
             logs: logs,
             profileRecordName: profileName,
             payoutPolicy: effectivePolicy,
-            weekRange: weekRange
+            weekRange: weekRange,
+            templatesByID: templatesByID
         )
 
         let totalEarned = weekQuestsGold + weekBonusGold
@@ -178,6 +198,7 @@ final class TreasuryViewModel {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
         let payoutDay = resolvedPayoutDay
+        spendBalance = BucketService.resolvedSpendBalance(for: cachedLedgers, profileRecordName: profileName)
         spendingLog = LedgerRowFactory.spendingRows(from: cachedLedgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
     }
 
@@ -245,6 +266,7 @@ final class TreasuryViewModel {
 
     func reset() {
         balance = nil
+        spendBalance = 0
         weeklyBreakdown = nil
         allowancePeriod = nil
         spendingLog = []

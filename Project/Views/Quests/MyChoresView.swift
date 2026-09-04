@@ -99,7 +99,8 @@ struct MyChoresView: View {
 
     private func isFullyCompleted(for quest: QuestCache) -> Bool {
         let approved = profileLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
-        return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved)
+        let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved, effectiveTarget: target)
     }
 
     /// One-week carry-over includes inactive quests for visibility into missed items.
@@ -145,7 +146,8 @@ struct MyChoresView: View {
         for quest in weekQuests {
             let questLogs = profileLogs.filter { $0.questRecordName == quest.recordName }
             let approvedLogs = questLogs.filter(\.isApproved)
-            if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count),
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+            if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count, effectiveTarget: target),
                let latest = approvedLogs.sorted(by: { $0.completedDate > $1.completedDate }).first
             {
                 result.append((quest, latest))
@@ -183,11 +185,12 @@ struct MyChoresView: View {
                 continue
             }
             let approvedCount = profileLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
-            if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount) {
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+            if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount, effectiveTarget: target) {
                 continue
             }
             guard quest.scheduleTypeEnum == .specificDays else { continue }
-            let specDays = templatesByID[quest.templateRecordName]?.specificDays ?? []
+            let specDays = SpecificDaysHelper.specificDays(for: quest, templatesByID: templatesByID)
             guard !specDays.isEmpty else { continue }
             let allPast = specDays.allSatisfy { code in
                 guard let day = weekDays.first(where: { $0.weekdayCode == code }) else { return false }
@@ -211,9 +214,10 @@ struct MyChoresView: View {
                 !completedNames.contains(quest.recordName) &&
                 !overdueNames.contains(quest.recordName)
         }
+        let todayCode = WeekMath.weekdayCode(for: Date())
         return filtered.sorted(by: { lhs, rhs in
-            let lhsToday = isScheduledToday(lhs)
-            let rhsToday = isScheduledToday(rhs)
+            let lhsToday = SpecificDaysHelper.isScheduledToday(quest: lhs, templatesByID: templatesByID, todayCode: todayCode)
+            let rhsToday = SpecificDaysHelper.isScheduledToday(quest: rhs, templatesByID: templatesByID, todayCode: todayCode)
             if lhsToday != rhsToday {
                 return lhsToday
             }
@@ -226,26 +230,38 @@ struct MyChoresView: View {
         pendingReviewQuests.isEmpty && upcomingQuests.isEmpty && completedQuests.isEmpty && overdueThisWeek.isEmpty && missedLastWeek.isEmpty
     }
 
-    private func isScheduledToday(_ quest: QuestCache) -> Bool {
-        guard quest.scheduleTypeEnum == .specificDays,
-              let days = templatesByID[quest.templateRecordName]?.specificDays
-        else { return false }
-        let todayCode = WeekMath.weekdayCode(for: Date())
-        return days.contains(todayCode)
-    }
-
     private func approvedCount(for quest: QuestCache) -> Int {
         profileLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
     }
 
     private func progressSuffix(for quest: QuestCache) -> String? {
-        guard quest.targetCount > 1 else { return nil }
+        // WHY: day checklist splits reward per day, so denominator tracks day count for prorated credit.
+        let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        guard effectiveTarget > 1 else { return nil }
         let count = approvedCount(for: quest)
-        return "\(count)/\(quest.targetCount)"
+        return "\(count)/\(effectiveTarget)"
     }
 
     private func upcomingSubtitle(for quest: QuestCache) -> String? {
         let base = quest.descriptionText
+        // WHY: day state always shows so Due Today versus Due Wed is visible at a glance.
+        if SpecificDaysHelper.isDayChecklist(quest: quest, templatesByID: templatesByID) {
+            let state = SpecificDaysHelper.dueText(
+                for: quest,
+                templatesByID: templatesByID,
+                todayCode: WeekMath.weekdayCode(for: Date())
+            )
+            if let progress = progressSuffix(for: quest) {
+                if let base, !base.isEmpty {
+                    return "\(base) · \(state) · \(progress)"
+                }
+                return "\(state) · \(progress)"
+            }
+            if let base, !base.isEmpty {
+                return "\(base) · \(state)"
+            }
+            return state
+        }
         if let progress = progressSuffix(for: quest) {
             if let base, !base.isEmpty {
                 return "\(base) · \(progress)"
@@ -253,6 +269,19 @@ struct MyChoresView: View {
             return progress
         }
         return base
+    }
+
+    private func pendingSubtitle(for quest: QuestCache) -> String {
+        // WHY: day state always shows so queued day stays visible while awaiting review.
+        if SpecificDaysHelper.isDayChecklist(quest: quest, templatesByID: templatesByID) {
+            let state = SpecificDaysHelper.dueText(
+                for: quest,
+                templatesByID: templatesByID,
+                todayCode: WeekMath.weekdayCode(for: Date())
+            )
+            return "\(state) · Tap to Unsubmit"
+        }
+        return "Tap to Unsubmit"
     }
 
     private func overdueSubtitle(for quest: QuestCache) -> String {
@@ -375,7 +404,7 @@ struct MyChoresView: View {
                 } label: {
                     ChoreRowCard(
                         title: pair.quest.questName,
-                        subtitle: "Tap to Unsubmit",
+                        subtitle: pendingSubtitle(for: pair.quest),
                         amountText: "+\(CurrencyFormatter.string(pair.quest.goldReward))",
                         style: .pendingReview,
                         isSubmitting: submittingQuestIDs.contains(pair.quest.recordName),
@@ -399,10 +428,12 @@ struct MyChoresView: View {
 
             ForEach(overdueThisWeek) { quest in
                 let questLogs = profileLogs.filter { $0.questRecordName == quest.recordName }
-                if quest.targetCount > 1 {
+                // WHY: specific-days renders as day checklist so each approval ticks one weekday.
+                if SpecificDaysHelper.isMultiPart(quest: quest, templatesByID: templatesByID) {
                     MultiPartQuestCard(
                         quest: quest,
                         logs: questLogs,
+                        specificDays: SpecificDaysHelper.specificDays(for: quest, templatesByID: templatesByID),
                         subtitle: overdueSubtitle(for: quest),
                         amountText: "+\(CurrencyFormatter.string(quest.goldReward))",
                         isSubmitting: submittingQuestIDs.contains(quest.recordName),
@@ -447,10 +478,12 @@ struct MyChoresView: View {
 
             ForEach(upcomingQuests) { quest in
                 let questLogs = profileLogs.filter { $0.questRecordName == quest.recordName }
-                if quest.targetCount > 1 {
+                // WHY: specific-days renders as day checklist so each approval ticks one weekday.
+                if SpecificDaysHelper.isMultiPart(quest: quest, templatesByID: templatesByID) {
                     MultiPartQuestCard(
                         quest: quest,
                         logs: questLogs,
+                        specificDays: SpecificDaysHelper.specificDays(for: quest, templatesByID: templatesByID),
                         subtitle: upcomingSubtitle(for: quest),
                         amountText: "+\(CurrencyFormatter.string(quest.goldReward))",
                         isSubmitting: submittingQuestIDs.contains(quest.recordName),

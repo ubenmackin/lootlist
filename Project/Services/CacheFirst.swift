@@ -38,7 +38,7 @@ enum CacheFirst {
     static func cacheFirst<T: CloudKitRecord, C: FamilyScopedCache>(
         type: CachedRecordType,
         family: Family,
-        cacheService: CacheService,
+        cacheService: any CacheServicing,
         appState: AppState,
         fetchCache: (String) -> [C],
         map: (C) -> T,

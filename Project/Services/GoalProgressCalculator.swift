@@ -72,15 +72,16 @@ enum GoalProgressCalculator {
             guard let first = sorted.first else { continue }
             let profile = first.profileRecordName
             let bucket = first.bucketKind
-            let bucketEntries = ledgerEntries.filter { $0.profileRecordName == profile && $0.bucketKind == bucket }
+            // WHY single-count: goal entries mark allocation of already-counted bucket funds, not new money.
+            let bucketEntries = ledgerEntries.filter { $0.profileRecordName == profile && $0.bucketKind == bucket && $0.sourceEnum != .goal }
             let totalPennies = bucketEntries.reduce(into: Int64(0)) { acc, entry in
                 acc += pennies(for: entry)
             }
             var remaining = max(totalPennies, 0)
             for goal in sorted {
                 if goal.completedAt != nil {
+                    // WHY skip without charging: completed goals already hold their funds, so new money cascades past them.
                     result[goal.recordName] = goal.targetAmountPennies
-                    remaining = max(remaining - goal.targetAmountPennies, 0)
                     continue
                 }
                 let alloc = min(remaining, goal.targetAmountPennies)

@@ -198,31 +198,33 @@ struct GoalServiceFIFOTests {
     // MARK: - Completed Goals
 
     @Test
-    func `completed goal consumes target but no allocation returned`() {
+    func `completed goal is skipped entirely`() {
         let goals = [
             makeGoal(recordName: "done", targetPennies: 300, hoursAgo: 10,
                      completedAt: Date()),
             makeGoal(recordName: "active", targetPennies: 300, hoursAgo: 5)
         ]
-        // 500: done consumes 300 (no allocation), 200 cascades to active.
+        // WHY skip without charging: completed goals already hold their funds, so all 500 flows past done.
+        // Active fills to 300, remaining 200 is surplus — not allocated.
         let result = GoalService.allocate(amountPennies: 500, goals: goals)
         #expect(result.count == 1)
         #expect(result[0].goalRecordName == "active")
-        #expect(result[0].allocatedPennies == 200)
+        #expect(result[0].allocatedPennies == 300)
     }
 
     @Test
-    func `completed goal consumes all funds leaving nothing for next`() {
+    func `completed goal is skipped leaving funds for next`() {
         let goals = [
             makeGoal(recordName: "done", targetPennies: 600, hoursAgo: 10,
                      completedAt: Date()),
             makeGoal(recordName: "active", targetPennies: 300, hoursAgo: 5)
         ]
-        // 500: done consumes 500 (still needs 100 more "in theory"), but pool
-        // is exhausted so active gets nothing. Since done was already completed,
-        // the 500 consumed from the pool evaporates — no allocation produced.
+        // WHY skip without charging: completed goals already hold their funds, so active gets full 300
+        // and the 200 surplus sits unallocated in the bucket.
         let result = GoalService.allocate(amountPennies: 500, goals: goals)
-        #expect(result.isEmpty)
+        #expect(result.count == 1)
+        #expect(result[0].goalRecordName == "active")
+        #expect(result[0].allocatedPennies == 300)
     }
 
     // MARK: - All Archived = Surplus

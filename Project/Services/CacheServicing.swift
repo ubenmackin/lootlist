@@ -25,10 +25,17 @@ protocol CacheServicing: AnyObject {
     func fetchGoals(family: String?) -> [GoalCache]
     func fetchGoals(profileRecordName: String, bucketKind: String, familyRecordName: String) -> [GoalCache]
     func fetchGoal(recordName: String, family: String) -> GoalCache?
+    func fetchFamily(recordName: String) -> FamilyCache?
+    func fetchAllowancePeriod(recordName: String, family: String) -> AllowancePeriodCache?
+    func fetchAllowancePeriods(profileRecordName: String, family: String?) -> [AllowancePeriodCache]
+    func fetchAllowancePeriods(family: String?) -> [AllowancePeriodCache]
+    func fetchQuestCompletions(family: String?) -> [QuestCompletionCache]
+    func isCacheAuthoritative(familyRecordName: String, type: CachedRecordType, scope: CKDatabase.Scope) -> Bool
 
     // MARK: - Writes
 
     func upsertLedgerEntry(_ entry: LedgerEntry, family: String?, isServerSync: Bool) async
+    func upsertAllowancePeriod(_ period: AllowancePeriod, family: String?, isServerSync: Bool) async
     func upsertGoal(_ goal: Goal, family: String?, isServerSync: Bool) async
     func upsertProfile(_ profile: Profile, family: String?, isServerSync: Bool) async
     func batchUpsertLedgerEntriesAndGoals(ledgerEntries: [LedgerEntry], goals: [Goal], familyRecordName: String?) async
@@ -65,6 +72,18 @@ extension CacheServicing {
 
     func upsertProfile(_ profile: Profile, family: String?) async {
         await upsertProfile(profile, family: family, isServerSync: false)
+    }
+
+    func upsertAllowancePeriod(_ period: AllowancePeriod) async {
+        await upsertAllowancePeriod(period, family: nil, isServerSync: false)
+    }
+
+    func upsertAllowancePeriod(_ period: AllowancePeriod, family: String?) async {
+        await upsertAllowancePeriod(period, family: family, isServerSync: false)
+    }
+
+    func upsertAllowancePeriod(_ period: AllowancePeriod, isServerSync: Bool) async {
+        await upsertAllowancePeriod(period, family: nil, isServerSync: isServerSync)
     }
 
     func batchUpsertLedgerEntriesAndGoals(ledgerEntries: [LedgerEntry], goals: [Goal]) async {

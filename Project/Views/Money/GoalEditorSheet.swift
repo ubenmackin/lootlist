@@ -14,6 +14,7 @@ struct GoalEditorSheet: View {
     private let initialGoal: GoalCache?
     private let onSave: (GoalDraft) async throws -> Void
     private let onDelete: (() async throws -> Void)?
+    private let onPurchase: (() async throws -> Void)?
 
     // MARK: - State
 
@@ -33,17 +34,21 @@ struct GoalEditorSheet: View {
     @FocusState private var isAmountFocused: Bool
     @State private var isSaving: Bool = false
     @State private var isDeleting: Bool = false
+    @State private var isPurchasing: Bool = false
     @State private var showDeleteConfirmation: Bool = false
+    @State private var showPurchaseConfirmation: Bool = false
     @State private var parsingError: String?
 
     init(
         goal: GoalCache? = nil,
         onSave: @escaping (GoalDraft) async throws -> Void,
-        onDelete: (() async throws -> Void)? = nil
+        onDelete: (() async throws -> Void)? = nil,
+        onPurchase: (() async throws -> Void)? = nil
     ) {
         self.initialGoal = goal
         self.onSave = onSave
         self.onDelete = onDelete
+        self.onPurchase = onPurchase
         _selectedEmoji = State(initialValue: goal?.emojiIcon ?? "🎯")
         _nameText = State(initialValue: goal?.name ?? "")
         _categoryText = State(initialValue: goal?.category ?? "")
@@ -90,6 +95,10 @@ struct GoalEditorSheet: View {
                     targetDateSection
                     wishlistLinkSection
 
+                    if shouldShowPurchase {
+                        purchaseSection
+                    }
+
                     if onDelete != nil {
                         deleteSection
                     }
@@ -103,12 +112,12 @@ struct GoalEditorSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .disabled(isSaving || isDeleting)
+                        .disabled(isSaving || isDeleting || isPurchasing)
                         .accessibilityIdentifier("goalEditor.cancelButton")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { saveGoal() }
-                        .disabled(!isValid || isSaving || isDeleting)
+                        .disabled(!isValid || isSaving || isDeleting || isPurchasing)
                         .accessibilityIdentifier("goalEditor.saveButton")
                 }
             }
@@ -121,7 +130,31 @@ struct GoalEditorSheet: View {
             } message: {
                 Text("Are you sure you want to delete “\(nameText)”? This action cannot be undone.")
             }
+            .alert("Mark Purchased?", isPresented: $showPurchaseConfirmation) {
+                Button("Mark Purchased") {
+                    purchaseGoal()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                // WHY region currency: purchase copy renders the target through CurrencyFormatter.
+                Text("This will deduct \(purchaseAmountText) from your savings bucket and archive this goal.")
+            }
         }
+    }
+
+    /// Purchase is available when editing an unarchived, incomplete goal with a purchase handler.
+    private var shouldShowPurchase: Bool {
+        // WHY gate on flags: purchased goals set both flags and hide from active lists, so the button never reappears.
+        guard onPurchase != nil, let goal = initialGoal else { return false }
+        return goal.completedAt == nil && !goal.isArchived
+    }
+
+    /// Target formatted for purchase confirmation copy.
+    private var purchaseAmountText: String {
+        // WHY stored target: purchase deducts the saved target,
+        // so unsaved edits never mismatch the confirmation copy.
+        guard let goal = initialGoal else { return CurrencyFormatter.string(0.0) }
+        return CurrencyFormatter.string(Double(goal.targetAmountPennies) / 100.0)
     }
 
     // MARK: - Card Background Helper
@@ -476,6 +509,29 @@ struct GoalEditorSheet: View {
         }
     }
 
+    // MARK: - Purchase Section
+
+    private var purchaseSection: some View {
+        Button {
+            showPurchaseConfirmation = true
+        } label: {
+            HStack {
+                Spacer()
+                if isPurchasing {
+                    ProgressView()
+                } else {
+                    Label("Mark Purchased (\(purchaseAmountText))", systemImage: "cart.fill")
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
+                }
+                Spacer()
+            }
+            .padding(DesignSystemConstants.Padding.medium)
+            .background(cardBackground)
+        }
+        .disabled(isSaving || isDeleting || isPurchasing)
+        .accessibilityIdentifier("goalEditor.purchaseButton")
+    }
+
     // MARK: - Delete Section
 
     private var deleteSection: some View {
@@ -495,7 +551,7 @@ struct GoalEditorSheet: View {
             .padding(DesignSystemConstants.Padding.medium)
             .background(cardBackground)
         }
-        .disabled(isSaving || isDeleting)
+        .disabled(isSaving || isDeleting || isPurchasing)
         .accessibilityIdentifier("goalEditor.deleteButton")
     }
 
@@ -628,6 +684,22 @@ struct GoalEditorSheet: View {
                 parsingError = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription
                 isDeleting = false
+            }
+        }
+    }
+
+    private func purchaseGoal() {
+        guard let onPurchase else { return }
+        isPurchasing = true
+        Task {
+            do {
+                try await onPurchase()
+                dismiss()
+            } catch {
+                // Keep sheet open on failure so the balance error stays visible.
+                parsingError = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                isPurchasing = false
             }
         }
     }

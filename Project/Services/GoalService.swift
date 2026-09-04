@@ -28,6 +28,7 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
     case notFound
     case unauthorized
     case invalidConfig
+    case insufficientFunds(available: Double, requested: Double)
 
     var errorDescription: String? {
         switch self {
@@ -37,6 +38,8 @@ enum GoalServiceError: Error, LocalizedError, Equatable {
             "You don't have permission to modify this goal."
         case .invalidConfig:
             "Goal configuration is invalid."
+        case let .insufficientFunds(available, requested):
+            "You only have \(CurrencyFormatter.string(available)) saved — that goal needs \(CurrencyFormatter.string(requested))."
         }
     }
 }
@@ -89,11 +92,6 @@ final class GoalService {
         achievementService: AchievementService? = nil,
         celebrationManager: CelebrationManager? = nil
     ) {
-        final class NoopSync: SyncEnqueuing {
-            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
-        }
         let cache: any CacheServicing
         if let cacheService {
             cache = cacheService
@@ -102,7 +100,7 @@ final class GoalService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSync()
+        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSyncEnqueuing()
         self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord, achievementService: achievementService, celebrationManager: celebrationManager)
     }
 
@@ -112,6 +110,12 @@ final class GoalService {
     /// name across devices, making every contribution double-run safe.
     static func contributionRecordName(goalRecordName: String, sourceEventID: String) -> String {
         DeterministicRecordID.contribution(goalRecordName: goalRecordName, sourceEventID: sourceEventID)
+    }
+
+    /// `purchase-{goalRecordName}` — CloudKit dedupes the record name across
+    /// devices, making the purchase debit double-run safe.
+    static func purchaseRecordName(goalRecordName: String) -> String {
+        DeterministicRecordID.purchase(goalRecordName: goalRecordName)
     }
 
     // MARK: - FIFO Allocator (pure, no side effects)
@@ -139,10 +143,7 @@ final class GoalService {
             }
 
             if goal.completedAt != nil {
-                // Already completed — consume its target from the pool so
-                // the cascade moves past it. The funds were credited when
-                // the goal was marked complete.
-                remaining = max(remaining - goal.targetAmountPennies, 0)
+                // WHY skip without charging: completed goals already hold their funds, so new money cascades past them.
                 continue
             }
 
@@ -464,6 +465,135 @@ final class GoalService {
         return updatedGoal
     }
 
+    // MARK: - Mark Purchased (deduct-and-archive)
+
+    /// Deducts the goal target from its bucket, then completes and archives the
+    /// goal. Heroes purchase their own goals without parent approval; parents
+    /// may purchase any goal.
+    @discardableResult
+    func markPurchased(_ goal: Goal, family: Family, date: Date = Date()) async throws -> Goal {
+        guard let acting = appState.currentProfile else {
+            throw GoalServiceError.unauthorized
+        }
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            family: family,
+            cloudKit: cloudKit,
+            appState: appState
+        )
+
+        if acting.role == .hero {
+            guard acting.id.recordName == goal.profile.recordID.recordName else {
+                throw GoalServiceError.unauthorized
+            }
+        } else {
+            guard acting.role.isParent else {
+                throw GoalServiceError.unauthorized
+            }
+        }
+
+        guard goal.targetAmountPennies > 0 else {
+            throw GoalServiceError.invalidConfig
+        }
+        guard let bucket = BucketKind(rawValue: goal.bucketKind) else {
+            throw GoalServiceError.invalidConfig
+        }
+
+        let profileRecordName = goal.profile.recordID.recordName
+        let balances = BucketService(
+            cacheService: cacheService,
+            syncCoordinator: syncCoordinator,
+            appState: appState
+        ).bucketBalances(
+            profileRecordName: profileRecordName,
+            familyRecordName: family.id.recordName
+        )
+        let available = balances[bucket] ?? 0
+        let requested = Double(goal.targetAmountPennies) / 100.0
+        // WHY pennies comparison: Double sums drift by fractions of a cent, so the gate stays exact.
+        let availablePennies = Int((available * 100).rounded())
+        guard availablePennies >= goal.targetAmountPennies else {
+            throw GoalServiceError.insufficientFunds(available: available, requested: requested)
+        }
+
+        let recordName = Self.purchaseRecordName(goalRecordName: goal.id.recordName)
+        let cachedEntries = cacheService.fetchLedgerEntries(
+            profileRecordName: profileRecordName,
+            family: family.id.recordName
+        )
+        // WHY converge on replay: the deterministic ID already debited, so a second tap only ensures the archive flags.
+        if IdempotencyGuard.containsDeterministicID(recordName, in: cachedEntries) {
+            if goal.completedAt != nil, goal.isArchived {
+                return goal
+            }
+            var converged = goal
+            converged.completedAt = converged.completedAt ?? date
+            converged.isArchived = true
+            await cacheService.upsertGoal(converged)
+            ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: converged.id, appState: appState, logger: logger, context: "GoalService.markPurchased")
+            return converged
+        }
+
+        let entry = LedgerEntry(
+            profile: goal.profile,
+            amount: -requested,
+            description: "Purchased \(goal.name)",
+            date: date,
+            source: LedgerSource.purchase.rawValue,
+            bucketKind: bucket.rawValue,
+            family: CKRecord.Reference(recordID: family.id, action: .none),
+            id: CKRecord.ID(recordName: recordName, zoneID: family.id.zoneID)
+        )
+        var updated = goal
+        updated.completedAt = updated.completedAt ?? date
+        updated.isArchived = true
+
+        // WHY one batch: the debit and the archive flags converge atomically so @Query never shows a deducted-but-visible goal.
+        await cacheService.batchUpsertLedgerEntriesAndGoals(
+            ledgerEntries: [entry],
+            goals: [updated],
+            familyRecordName: family.id.recordName
+        )
+        ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
+            syncCoordinator,
+            ids: [entry.id, updated.id],
+            appState: appState,
+            logger: logger,
+            context: "GoalService.markPurchased"
+        )
+
+        triggerGoalCompletionFeedback(goalName: goal.name, profile: goal.profile, family: family)
+
+        let formattedAmount = CurrencyFormatter.string(requested)
+        logger.info("Purchased goal \"\(goal.name, privacy: .private)\" for \(formattedAmount, privacy: .public)")
+
+        return updated
+    }
+
+    /// Alias keeping the purchase verb discoverable alongside `markPurchased`.
+    @discardableResult
+    func purchaseGoal(_ goal: Goal, family: Family, date: Date = Date()) async throws -> Goal {
+        try await markPurchased(goal, family: family, date: date)
+    }
+
+    /// Marks purchased straight from a `GoalCache` row.
+    @discardableResult
+    func markPurchased(_ goalCache: GoalCache, familyRecordName: String?, date: Date = Date()) async throws -> Goal {
+        guard let family = appState.family else {
+            throw ScopeViolation.noActiveFamily
+        }
+        if let supplied = familyRecordName, supplied != family.id.recordName {
+            throw ScopeViolation.familyMismatch(active: family.id.recordName, supplied: supplied)
+        }
+        let zoneID = appState.resolvedFamilyZoneID()
+        return try await markPurchased(goalCache.toGoal(zoneID: zoneID), family: family, date: date)
+    }
+
+    /// Cache-row alias for the purchase verb.
+    @discardableResult
+    func purchaseGoal(_ goalCache: GoalCache, familyRecordName: String?, date: Date = Date()) async throws -> Goal {
+        try await markPurchased(goalCache, familyRecordName: familyRecordName, date: date)
+    }
+
     // MARK: - Contribute Funds to Goals (FIFO)
 
     /// Allocates deposit across active goals FIFO, returning created contribution events.
@@ -495,6 +625,7 @@ final class GoalService {
         // Collect all ledger entries first — deterministic IDs preserved via
         // `contrib-{goalRecordName}-{sourceEventID}`; FIFO cascade already
         // resolved by `allocate()` above.
+        // WHY single-count: bucketKind stays for goal-progress attribution; balances skip source goal.
         var ledgerEntries: [LedgerEntry] = []
         ledgerEntries.reserveCapacity(allocations.count)
         for alloc in allocations {

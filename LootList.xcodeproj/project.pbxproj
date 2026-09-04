@@ -399,6 +399,7 @@
 		F6B9BD5159EA2E224F01BC09 /* CKSyncConflictResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C0EF642175C65AA3CA23808 /* CKSyncConflictResolver.swift */; };
 		F9956331B011AFB9F0403F9B /* CKSyncEngineDelegateHandler+Hydration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA88E0D7A71024989CEC405C /* CKSyncEngineDelegateHandler+Hydration.swift */; };
 		F9970659F14C8EFAA2F9C357 /* HeroAvatarSprites+Mage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79DDEB46A227911AA2752C76 /* HeroAvatarSprites+Mage.swift */; };
+		F9D9EC812EA06D0088F203D5 /* SpecificDaysHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6395742E36605DA45EA269 /* SpecificDaysHelper.swift */; };
 		FA448DF3087C205C5C912D29 /* CloudKitService+Query.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0D1C2C7EE76549042B2034 /* CloudKitService+Query.swift */; };
 		FB30481299FA04BF629CAE22 /* FamilyServiceTests+IdentityDedupe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909FB1F2378D5841120AEE35 /* FamilyServiceTests+IdentityDedupe.swift */; };
 		FBD789CA3D89EA115EF4C53F /* FamilyServiceTests+Authorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831CA0373D9645FB1500A84B /* FamilyServiceTests+Authorization.swift */; };
@@ -843,6 +844,7 @@
 		F74A4F7F6BED8FEC9092351F /* BackgroundCacheActor+SystemFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BackgroundCacheActor+SystemFields.swift"; sourceTree = "<group>"; };
 		F8F44EBCC2806837BA32D571 /* QuestServiceTests+Migrations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestServiceTests+Migrations.swift"; sourceTree = "<group>"; };
 		F9CDF1B3CCF6974CB463FB5D /* LootListScreenshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootListScreenshotTests.swift; sourceTree = "<group>"; };
+		FA6395742E36605DA45EA269 /* SpecificDaysHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecificDaysHelper.swift; sourceTree = "<group>"; };
 		FA88E0D7A71024989CEC405C /* CKSyncEngineDelegateHandler+Hydration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CKSyncEngineDelegateHandler+Hydration.swift"; sourceTree = "<group>"; };
 		FB33F9A9BD38103395FBA22F /* GoalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalService.swift; sourceTree = "<group>"; };
 		FBBB7F2C5ECA4C8F03E9F422 /* DeterministicRecordID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicRecordID.swift; sourceTree = "<group>"; };
@@ -1534,6 +1536,7 @@
 				E6314877B16E1931B8DFC213 /* PayoutDayResolver.swift */,
 				BEA32A99EF7AD83493CB7E19 /* SampleData.swift */,
 				FC7893018C0628EC0C02B355 /* SHA256+Hex.swift */,
+				FA6395742E36605DA45EA269 /* SpecificDaysHelper.swift */,
 				DC4C7A00E79EFCE482A921A6 /* StreakCalculator.swift */,
 				CF9C9A669EA50B98696C391D /* TestEnvironment.swift */,
 				4504DC10FC68A4EC79A6C529 /* VerificationStatus+UI.swift */,
@@ -2019,6 +2022,7 @@
 				20B709BE101F5846C617809D /* ShareSheet.swift in Sources */,
 				C23FC8F96ADB7F292EA634CF /* ShopItem.swift in Sources */,
 				D1B0D5D34C80FFF0EA775E20 /* SoundManager.swift in Sources */,
+				F9D9EC812EA06D0088F203D5 /* SpecificDaysHelper.swift in Sources */,
 				9BBD7D10551290D9847A1D4F /* SpendingLogView.swift in Sources */,
 				C631317D746E8FA61D9FFD57 /* SpendingService.swift in Sources */,
 				A0A078F5FB5E392E26CF1CFD /* SpriteGalleryView.swift in Sources */,

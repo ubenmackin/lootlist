@@ -178,14 +178,18 @@ final class QuestService {
             appState: appState
         )
 
+        let sanitizedDays = schedule.requiresSpecificDays ? specificDays : []
+        // WHY: day checklist splits reward per day, so target tracks day count for prorated credit.
+        let resolvedTarget = schedule.requiresSpecificDays && !sanitizedDays.isEmpty ? sanitizedDays.count : max(1, targetCount)
+
         let template = QuestTemplate(
             name: name,
             description: description,
             defaultGold: defaultGold,
             xpReward: xpReward,
             scheduleType: schedule,
-            specificDays: schedule.requiresSpecificDays ? specificDays : [],
-            targetCount: max(1, targetCount),
+            specificDays: sanitizedDays,
+            targetCount: resolvedTarget,
             isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
@@ -212,9 +216,18 @@ final class QuestService {
             cloudKit: cloudKit
         )
 
-        await cacheService.upsertQuestTemplate(template)
-        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: template.id, appState: appState, logger: logger, context: "QuestService.updateTemplate")
-        return template
+        var normalized = template
+        // WHY: day checklist splits reward per day, so target tracks day count for prorated credit.
+        if normalized.scheduleType.requiresSpecificDays {
+            normalized.targetCount = normalized.specificDays.isEmpty ? max(1, normalized.targetCount) : normalized.specificDays.count
+        } else {
+            normalized.specificDays = []
+            normalized.targetCount = max(1, normalized.targetCount)
+        }
+
+        await cacheService.upsertQuestTemplate(normalized)
+        ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: normalized.id, appState: appState, logger: logger, context: "QuestService.updateTemplate")
+        return normalized
     }
 
     @discardableResult
@@ -325,6 +338,10 @@ final class QuestService {
         let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
         let questName = nameOverride.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
             ?? template.name
+        // WHY: day checklist splits reward per day, so target tracks day count for prorated credit.
+        let resolvedQuestTarget = template.scheduleType.requiresSpecificDays && !template.specificDays.isEmpty
+            ? template.specificDays.count
+            : max(1, template.targetCount)
 
         let quest = Quest(
             template: CKRecord.Reference(recordID: template.id, action: .none),
@@ -332,7 +349,7 @@ final class QuestService {
             goldReward: goldOverride ?? template.defaultGold,
             xpReward: xpOverride ?? template.xpReward,
             scheduleType: template.scheduleType,
-            targetCount: template.targetCount,
+            targetCount: resolvedQuestTarget,
             isAllOrNothing: isAllOrNothingOverride ?? template.isAllOrNothing,
             approvalMode: approvalOverride ?? template.approvalMode,
             weekOf: normalizedWeek,
@@ -366,6 +383,16 @@ final class QuestService {
         var updatedQuest = quest
         if let newAssigneeRecordName {
             updatedQuest.assignee = CKRecord.Reference(recordID: CKRecord.ID(recordName: newAssigneeRecordName, zoneID: quest.id.zoneID), action: .none)
+        }
+        // WHY: day checklist splits reward per day, so target tracks day count for prorated credit.
+        if updatedQuest.scheduleType.requiresSpecificDays {
+            let templateDays = cacheService.fetchQuestTemplate(
+                recordName: updatedQuest.template.recordID.recordName,
+                family: updatedQuest.family.recordID.recordName
+            )?.specificDays ?? []
+            updatedQuest.targetCount = templateDays.isEmpty ? max(1, updatedQuest.targetCount) : templateDays.count
+        } else {
+            updatedQuest.targetCount = max(1, updatedQuest.targetCount)
         }
 
         await cacheService.upsertQuest(updatedQuest)
@@ -407,14 +434,20 @@ final class QuestService {
             appState: appState
         )
 
+        let sanitizedQuickDays = scheduleType.requiresSpecificDays ? specificDays : []
+        // WHY: day checklist splits reward per day, so target tracks day count for prorated credit.
+        let resolvedQuickTarget = scheduleType.requiresSpecificDays && !sanitizedQuickDays.isEmpty
+            ? sanitizedQuickDays.count
+            : max(1, targetCount)
+
         let adhocTemplate = QuestTemplate(
             name: name,
             description: description,
             defaultGold: goldReward,
             xpReward: xpReward,
             scheduleType: scheduleType,
-            specificDays: scheduleType.requiresSpecificDays ? specificDays : [],
-            targetCount: max(1, targetCount),
+            specificDays: sanitizedQuickDays,
+            targetCount: resolvedQuickTarget,
             isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             createdBy: CKRecord.Reference(recordID: createdBy.id, action: .none),
@@ -441,7 +474,7 @@ final class QuestService {
             goldReward: goldReward,
             xpReward: xpReward,
             scheduleType: scheduleType,
-            targetCount: max(1, targetCount),
+            targetCount: resolvedQuickTarget,
             isAllOrNothing: isAllOrNothing,
             approvalMode: approvalMode,
             weekOf: normalizedWeek,
