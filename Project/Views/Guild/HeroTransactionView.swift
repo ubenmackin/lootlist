@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 8/13/26.
 //
 
+import SwiftData
 import SwiftUI
 
 enum HeroTransactionMode: Sendable {
@@ -76,10 +77,39 @@ struct HeroTransactionView: View {
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
 
+    @Query private var cachedLedgers: [LedgerEntryCache]
+
     @State private var description: String = ""
     @State private var amountText: String = ""
     @State private var date: Date = .init()
+    @State private var showOverdrawConfirm: Bool = false
     @FocusState private var isAmountFocused: Bool
+
+    init(mode: HeroTransactionMode, viewModel: HeroLedgerViewModel, heroName: String) {
+        self.mode = mode
+        self.viewModel = viewModel
+        self.heroName = heroName
+        // WHY predicate pushdown: the sheet only needs this hero's rows to price the Spend warning.
+        let targetFamily = viewModel.heroProfile.familyRecordName
+        let targetProfile = viewModel.heroProfile.recordName
+        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
+    }
+
+    private var parsedAmount: Double? {
+        guard let value = Self.parseAmount(amountText), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    private var spendBalance: Double {
+        viewModel.currentSpendBalance(from: cachedLedgers)
+    }
+
+    /// WHY permit override: a withdrawal may intentionally take Spend negative, so warn inline plus confirm instead of blocking.
+    private var isOverdrawn: Bool {
+        guard mode == .withdraw, let amount = parsedAmount else { return false }
+        return amount > spendBalance
+    }
 
     var body: some View {
         NavigationStack {
@@ -105,7 +135,26 @@ struct HeroTransactionView: View {
                 } header: {
                     Text("Amount")
                 } footer: {
-                    Text(mode.amountFooter)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(mode.amountFooter)
+                        if mode == .withdraw {
+                            Text("Available in Spend: \(CurrencyFormatter.string(spendBalance))")
+                            if isOverdrawn, let amount = parsedAmount {
+                                Label {
+                                    Text(
+                                        "This withdrawal of \(CurrencyFormatter.string(amount)) exceeds "
+                                            + "the Spend balance of \(CurrencyFormatter.string(spendBalance)). "
+                                            + "Spend will go negative if you continue."
+                                    )
+                                } icon: {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                }
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
+                                .accessibilityIdentifier("transaction.overdrawWarning")
+                            }
+                        }
+                    }
                 }
 
                 Section("When") {
@@ -132,7 +181,9 @@ struct HeroTransactionView: View {
                     .disabled(viewModel.isLoading)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(action: save) {
+                    Button {
+                        tappedConfirm()
+                    } label: {
                         if viewModel.isLoading {
                             ProgressView()
                         } else {
@@ -148,7 +199,26 @@ struct HeroTransactionView: View {
             }
             .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             .interactiveDismissDisabled(viewModel.isLoading)
+            .alert("Spend Will Go Negative", isPresented: $showOverdrawConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Withdraw Anyway", role: .destructive) {
+                    save()
+                }
+                .accessibilityIdentifier("transaction.overdrawConfirmButton")
+            } message: {
+                if let amount = parsedAmount {
+                    Text("Withdrawing \(CurrencyFormatter.string(amount)) exceeds the Spend balance of \(CurrencyFormatter.string(spendBalance)). Continue anyway?")
+                }
+            }
             .toastOverlay()
+        }
+    }
+
+    private func tappedConfirm() {
+        if isOverdrawn {
+            showOverdrawConfirm = true
+        } else {
+            save()
         }
     }
 

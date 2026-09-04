@@ -408,7 +408,6 @@ struct FamilyDashboardView: View {
         statCardsRow(vm: vm, scrollProxy: scrollProxy)
         earningSparklineHeader
         childAccountsSection(vm: vm)
-        depositWithdrawSection(vm: vm)
         HStack(alignment: .top, spacing: 16) {
             weeklySummarySection(summary: vm.weekSummary)
                 .frame(maxWidth: .infinity)
@@ -423,7 +422,6 @@ struct FamilyDashboardView: View {
     private func compactDashboardContent(vm: FamilyDashboardViewModel, scrollProxy: ScrollViewProxy) -> some View {
         statCardsRow(vm: vm, scrollProxy: scrollProxy)
         childAccountsSection(vm: vm)
-        depositWithdrawSection(vm: vm)
         pendingApprovalQueueSection()
         weeklySummarySection(summary: vm.weekSummary)
     }
@@ -639,39 +637,6 @@ private extension FamilyDashboardView {
         .buttonStyle(.plain)
         .accessibilityLabel("View \(card.profile.displayName)'s account")
         .accessibilityIdentifier("dashboard.childAccount-\(card.profile.recordName)")
-    }
-
-    // MARK: - Deposit / Withdraw Shortcut
-
-    @ViewBuilder
-    func depositWithdrawSection(vm: FamilyDashboardViewModel) -> some View {
-        if !vm.childAccountCards.isEmpty {
-            VStack(spacing: 12) {
-                SectionHeader("QUICK ACTIONS")
-
-                HStack(spacing: 12) {
-                    DashboardQuickActionButton(
-                        title: "Deposit",
-                        icon: "plus.circle.fill",
-                        color: Color(DesignSystemConstants.Colors.primaryGreen),
-                        identifier: "dashboard.depositButton"
-                    ) {
-                        selectedChildForTransaction = vm.childAccountCards.first?.profile
-                        showDepositSheet = true
-                    }
-
-                    DashboardQuickActionButton(
-                        title: "Withdraw",
-                        icon: "minus.circle.fill",
-                        color: Color(DesignSystemConstants.Colors.pendingAmber),
-                        identifier: "dashboard.withdrawButton"
-                    ) {
-                        selectedChildForTransaction = vm.childAccountCards.first?.profile
-                        showWithdrawSheet = true
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - Pending Approval Queue (file-private; consolidated for Swift 6 isolation)

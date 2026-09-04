@@ -507,7 +507,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     }
 
     private func handleLedgerEntryNotification(_ entry: LedgerEntry, currentProfile: Profile, notificationService: NotificationService) async {
-        guard entry.source == "manual_spend", currentProfile.role.isParent, entry.profile.recordID.recordName != currentProfile.id.recordName else { return }
+        guard entry.sourceEnum == .manual, currentProfile.role.isParent, entry.profile.recordID.recordName != currentProfile.id.recordName else { return }
         do {
             try await notificationService.deliverSyncNotification(
                 eventType: .spendingLogged,

@@ -10,6 +10,7 @@ import SwiftUI
 struct MultiPartQuestCard: View {
     let quest: QuestCache
     var logs: [QuestCompletionCache] = []
+    var specificDays: [String] = []
     var subtitle: String?
     let amountText: String
     var isSubmitting: Bool = false
@@ -19,8 +20,32 @@ struct MultiPartQuestCard: View {
 
     @State private var isExpanded: Bool = true
 
+    // WHY: shared so per-row time labels avoid per-evaluation allocation.
+    private static let completionTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private var orderedDays: [String] {
+        SpecificDaysHelper.orderedDays(specificDays)
+    }
+
+    private var isDayChecklist: Bool {
+        SpecificDaysHelper.isDayChecklist(quest: quest, specificDays: specificDays)
+    }
+
+    private var todayCode: String {
+        WeekMath.todayWeekdayCode()
+    }
+
     private var targetCount: Int {
-        max(1, quest.targetCount)
+        SpecificDaysHelper.effectiveTarget(for: quest, specificDays: specificDays)
+    }
+
+    private var headerDayState: String {
+        SpecificDaysHelper.headerDayState(orderedDays: orderedDays, todayCode: todayCode)
     }
 
     private var approvedLogs: [QuestCompletionCache] {
@@ -32,7 +57,7 @@ struct MultiPartQuestCard: View {
     }
 
     private var isFullyCompleted: Bool {
-        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
+        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount, effectiveTarget: targetCount)
     }
 
     private var pendingLog: QuestCompletionCache? {
@@ -52,10 +77,11 @@ struct MultiPartQuestCard: View {
     }
 
     private func partName(for index: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .ordinal
-        let ordinal = formatter.string(from: NSNumber(value: index + 1)) ?? "\(index + 1)"
-        return "\(ordinal) Time"
+        // WHY: day checklist ticks one weekday per approval, so rows read as days not ordinals.
+        if isDayChecklist, index < orderedDays.count {
+            return WeekMath.shortName(for: orderedDays[index])
+        }
+        return "\(FlavorTextProvider.ordinal(index + 1)) Time"
     }
 
     var body: some View {
@@ -93,16 +119,16 @@ struct MultiPartQuestCard: View {
                 isExpanded.toggle()
             }
         } label: {
-            HStack(spacing: DesignSystemConstants.Padding.medium) {
+            HStack(alignment: .top, spacing: DesignSystemConstants.Padding.medium) {
                 headerLeadingIcon
 
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
+                    HStack(alignment: .top, spacing: 6) {
                         Text(quest.questName)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(isFullyCompleted ? .secondary : .primary)
                             .strikethrough(isFullyCompleted, color: .secondary.opacity(0.5))
-                            .lineLimit(1)
+                            .lineLimit(2)
 
                         progressBadge
                     }
@@ -111,7 +137,7 @@ struct MultiPartQuestCard: View {
                         Text(headerSubtitle)
                             .font(.caption)
                             .foregroundStyle(subtitleColor)
-                            .lineLimit(1)
+                            .lineLimit(2)
                     }
                 }
 
@@ -184,7 +210,18 @@ struct MultiPartQuestCard: View {
             return "Completed"
         }
         if isPendingReview {
+            // WHY: day state stays visible while awaiting review so hero knows which day is queued.
+            if isDayChecklist {
+                return "\(headerDayState) · Waiting for Parent Review"
+            }
             return "All times done · Waiting for Parent Review"
+        }
+        // WHY: day state always shows so Due Today versus Due Wed is visible at a glance.
+        if isDayChecklist {
+            if let subtitle, !subtitle.isEmpty {
+                return "\(subtitle) · \(headerDayState) · \(completedSubParts) of \(targetCount) days done"
+            }
+            return "\(headerDayState) · \(completedSubParts) of \(targetCount) days done"
         }
         if let subtitle {
             return "\(subtitle) · \(completedSubParts) of \(targetCount) times done"
@@ -351,14 +388,30 @@ struct MultiPartQuestCard: View {
         }
     }
 
+    private func dayState(for code: String) -> String {
+        SpecificDaysHelper.dayState(for: code, todayCode: todayCode)
+    }
+
     private func subPartSubtitle(index: Int, isDone: Bool, isNext: Bool, isPending: Bool) -> String {
+        // WHY: every day row keeps its due state so makeup days stay actionable within the week.
+        if isDayChecklist, index < orderedDays.count {
+            let state = dayState(for: orderedDays[index])
+            if isDone {
+                if index < approvedLogs.count {
+                    let date = approvedLogs[index].completedDate
+                    return "\(state) · Completed \(Self.completionTimeFormatter.string(from: date))"
+                }
+                return "\(state) · Completed"
+            }
+            if isPending {
+                return "\(state) · Sent to Parent for Review"
+            }
+            return state
+        }
         if isDone {
             if index < approvedLogs.count {
                 let date = approvedLogs[index].completedDate
-                let formatter = DateFormatter()
-                formatter.dateStyle = .none
-                formatter.timeStyle = .short
-                return "Completed \(formatter.string(from: date))"
+                return "Completed \(Self.completionTimeFormatter.string(from: date))"
             }
             return "Completed"
         }

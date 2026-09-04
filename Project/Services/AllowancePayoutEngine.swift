@@ -36,10 +36,13 @@ extension TreasuryService {
             profileRecordName: profile.id.recordName,
             family: family.recordID.recordName
         )
-        if cachedEntries.contains(where: { $0.recordName == baseRecordName }) {
+        // Symmetric twin of the real-time guard: either settlement already credited
+        // this week, so the other must not double-count it. Suffix-aware so split
+        // shares (`-{bucket}`) also trip the guard when the payout policy flips mid-week.
+        if cachedEntries.contains(where: { $0.recordName == baseRecordName || $0.recordName.hasPrefix("\(baseRecordName)-") }) {
             return
         }
-        if cachedEntries.contains(where: { $0.recordName == rtRecordName }) {
+        if cachedEntries.contains(where: { $0.recordName == rtRecordName || $0.recordName.hasPrefix("\(rtRecordName)-") }) {
             // Defense-in-depth twin of the legacy payout guard: a real-time
             // settlement already credited this week, so the batch split
             // must not double-count it.
@@ -53,77 +56,108 @@ extension TreasuryService {
             }
         }
 
-        // Whole-penny math keeps the bucket entries summing to the exact
-        // payout total regardless of how percentages round.
-        let totalPennies = Int((amount * 100).rounded())
-        let receiving = BucketService.splitPennies(totalPennies, profile: profile)
+        await mintSplitLedgerEntries(
+            SplitMintContext(
+                baseRecordName: baseRecordName,
+                periodRecordName: periodRecordName,
+                amount: amount,
+                weekOf: weekOf,
+                profile: profile,
+                family: family,
+                date: date,
+                isOwner: isOwner,
+                isRealTime: false
+            )
+        )
+    }
+
+    /// WHY context bundle: batch and real-time splits share one mint path; grouping the
+    /// inputs keeps the helper signature small while deterministic IDs derive from the same fields.
+    struct SplitMintContext {
+        let baseRecordName: String
+        let periodRecordName: String
+        let amount: Double
+        let weekOf: Date
+        let profile: Profile
+        let family: CKRecord.Reference
+        let date: Date
+        let isOwner: Bool
+        let isRealTime: Bool
+    }
+
+    /// WHY single helper: batch and real-time splits share one splitPennies mint plus FIFO cascade.
+    func mintSplitLedgerEntries(_ context: SplitMintContext) async {
+        // WHY whole-penny math: shares sum to the exact settlement total regardless of rounding.
+        let totalPennies = Int((context.amount * 100).rounded())
+        let receiving = BucketService.splitPennies(totalPennies, profile: context.profile)
             .filter { $0.pennies > 0 }
         guard !receiving.isEmpty else { return }
 
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
-        let zoneID = family.recordID.zoneID
+        let zoneID = context.family.recordID.zoneID
+        let weekLabel = formatter.string(from: context.weekOf)
 
         for share in receiving {
-            let recordName = receiving.count == 1 ? baseRecordName : "\(baseRecordName)-\(share.kind.rawValue)"
+            let recordName = receiving.count == 1 ? context.baseRecordName : "\(context.baseRecordName)-\(share.kind.rawValue)"
             let bucketSuffix = receiving.count > 1 ? " · \(share.kind.displayName)" : ""
-            let entryDescription = "Quest earnings (week of \(formatter.string(from: weekOf)))\(bucketSuffix)"
+            let entryDescription = context.isRealTime
+                ? "Quest earnings — real-time (week of \(weekLabel))\(bucketSuffix)"
+                : "Quest earnings (week of \(weekLabel))\(bucketSuffix)"
             let entry = LedgerEntry(
-                profile: CKRecord.Reference(recordID: profile.id, action: .none),
+                profile: CKRecord.Reference(recordID: context.profile.id, action: .none),
                 amount: Double(share.pennies) / 100.0,
                 description: entryDescription,
-                date: date,
+                date: context.date,
                 source: LedgerSource.quest.rawValue,
                 bucketKind: share.kind.rawValue,
-                family: family,
+                family: context.family,
                 id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
             )
             await cacheService.upsertLedgerEntry(entry)
-            syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
+            syncCoordinator.enqueueSave(recordID: entry.id, isOwner: context.isOwner)
         }
 
-        // Fan out save-bucket portions to FIFO goals concurrently. Each
-        // contributeToBucket call coalesces its N allocations + M completions
-        // into a single saveContext, so withThrowingTaskGroup avoids serial
-        // N+M saves across buckets.
+        // WHY cascade: save-bucket portions flow into FIFO goals so bucket totals and goal progress agree.
         let saveShares = receiving.filter { $0.kind == .shortTermSave || $0.kind == .longTermSave }
-        guard !saveShares.isEmpty else { return }
-        guard let cachedFamily = cacheService.fetchFamily(recordName: family.recordID.recordName) else { return }
+        guard !saveShares.isEmpty else {
+            let formatted = CurrencyFormatter.string(context.amount)
+            let label = context.isRealTime ? "real-time earnings" : "payout earnings"
+            logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
+            return
+        }
+        guard let cachedFamily = cacheService.fetchFamily(recordName: context.family.recordID.recordName) else {
+            let formatted = CurrencyFormatter.string(context.amount)
+            let label = context.isRealTime ? "real-time earnings" : "payout earnings"
+            logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
+            return
+        }
         let familyDomain = cachedFamily.toFamily(zoneID: zoneID)
 
-        // Captured MainActor-isolated dependencies before fan-out: child tasks run
-        // off the MainActor and GoalService's initializer is MainActor-isolated,
-        // so both the property reads and the init require await inside the group.
-        let capturedCloudKit = self.cloudKit
-        let capturedCacheService = self.cacheService
-        let capturedAppState = self.appState
-        let capturedSyncCoordinator = self.syncCoordinator
-
-        await withThrowingTaskGroup(of: Void.self) { group in
-            for share in saveShares {
-                group.addTask {
-                    let goalService = await GoalService(
-                        cloudKit: capturedCloudKit,
-                        cacheService: capturedCacheService,
-                        appState: capturedAppState,
-                        syncCoordinator: capturedSyncCoordinator
-                    )
-                    _ = try await goalService.contributeToBucket(
-                        amountPennies: Int64(share.pennies),
-                        profile: profile,
-                        family: familyDomain,
-                        bucketKind: share.kind,
-                        sourceEventID: periodRecordName,
-                        contributionDate: date
-                    )
-                }
-            }
+        // WHY sequential fan-out stays on the MainActor so non-Sendable cache never crosses isolation.
+        let goalService = GoalService(
+            cloudKit: cloudKit,
+            cacheService: cacheService,
+            appState: appState,
+            syncCoordinator: syncCoordinator
+        )
+        for share in saveShares {
             do {
-                try await group.waitForAll()
+                _ = try await goalService.contributeToBucket(
+                    amountPennies: Int64(share.pennies),
+                    profile: context.profile,
+                    family: familyDomain,
+                    bucketKind: share.kind,
+                    sourceEventID: context.periodRecordName,
+                    contributionDate: context.date
+                )
             } catch {
-                logger.warning("Goal allocation failed during payout \(periodRecordName, privacy: .private): \(error, privacy: .private)")
+                logger.warning("Goal allocation failed during payout \(context.periodRecordName, privacy: .private): \(error, privacy: .private)")
             }
         }
+        let formatted = CurrencyFormatter.string(context.amount)
+        let label = context.isRealTime ? "real-time earnings" : "payout earnings"
+        logger.info("Minted \(label) \(formatted, privacy: .public) for period \(context.periodRecordName, privacy: .private)")
     }
 }

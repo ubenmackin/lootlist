@@ -41,13 +41,6 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
-@MainActor
-private final class NoopSync: SyncEnqueuing {
-    func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
-    func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
-    func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
-}
-
 /// Computes bucket balances and payout splits across the three `BucketKind` buckets.
 @MainActor
 @Observable
@@ -78,7 +71,7 @@ final class BucketService {
     /// Convenience for read-only callers that only need balance attribution.
     /// Uses the same container-backed cache instance but a no-op coordinator.
     convenience init(cacheService: any CacheServicing) {
-        self.init(cacheService: cacheService, syncCoordinator: NoopSync(), appState: AppState())
+        self.init(cacheService: cacheService, syncCoordinator: NoopSyncEnqueuing(), appState: AppState())
     }
 
     /// Legacy optional shim for call sites that have not yet migrated.
@@ -87,7 +80,7 @@ final class BucketService {
     }
 
     convenience init(cacheService: any CacheServicing, syncCoordinator: (any SyncEnqueuing)?, appState: AppState) {
-        self.init(cacheService: cacheService, syncCoordinator: syncCoordinator ?? NoopSync(), appState: appState)
+        self.init(cacheService: cacheService, syncCoordinator: syncCoordinator ?? NoopSyncEnqueuing(), appState: appState)
     }
 
     /// Optional-cache shim that also forwards an optional sync coordinator.
@@ -155,6 +148,10 @@ final class BucketService {
     /// Single-source attribution formula for bucket balances: an entry credits its `bucketKind`, and a
     /// transfer entry ALSO debits its `fromBucket` — keeping ONE ledger row per transfer while both sides
     nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Double]) {
+        // WHY single-count: goal entries mark allocation of already-counted deposit/quest funds, not new money.
+        if entry.sourceEnum == .goal {
+            return
+        }
         if entry.sourceEnum == .transfer,
            let fromRaw = entry.fromBucket,
            let fromKind = BucketKind(rawValue: fromRaw)
@@ -166,7 +163,8 @@ final class BucketService {
     }
 
     nonisolated static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
-        ledgers.filter { $0.profileRecordName == profileRecordName }.reduce(0) { $0 + $1.amount }
+        // WHY single-count: goal entries reuse deposit/quest pennies already summed above.
+        ledgers.filter { $0.profileRecordName == profileRecordName && $0.sourceEnum != .goal }.reduce(0) { $0 + $1.amount }
     }
 
     nonisolated static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
@@ -175,6 +173,12 @@ final class BucketService {
             applyBucketAttribution(entry, to: &balances)
         }
         return balances
+    }
+
+    /// WHY cache-first: Spend warnings read already-fetched @Query rows via
+    /// attribution so sheets never wait on CloudKit.
+    nonisolated static func resolvedSpendBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
+        bucketBalances(for: ledgers, profileRecordName: profileRecordName)[.spend] ?? 0
     }
 
     // Balance per bucket via `applyBucketAttribution` over ledger entries with `bucketKind`.

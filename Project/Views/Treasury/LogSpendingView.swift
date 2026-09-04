@@ -22,12 +22,29 @@ struct LogSpendingView: View {
     @FocusState private var isAmountFocused: Bool
     @State private var date: Date = .init()
     @State private var isSaving: Bool = false
+    @State private var showOverdrawConfirm: Bool = false
 
-    init(viewModel: TreasuryViewModel, familyRecordName: String? = nil) {
+    private let familyRecordName: String?
+    private let profileRecordName: String?
+
+    init(
+        viewModel: TreasuryViewModel,
+        familyRecordName: String? = nil,
+        profileRecordName: String? = nil
+    ) {
         self.viewModel = viewModel
+        self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         let targetFamily = familyRecordName ?? ""
-        let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
-        _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
+        let targetProfile = profileRecordName ?? ""
+        // WHY predicate pushdown: the sheet only needs this hero's rows to price the Spend warning.
+        if targetProfile.isEmpty {
+            let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+            _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
+        } else {
+            let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            _cachedLedgers = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
+        }
     }
 
     var body: some View {
@@ -94,7 +111,24 @@ struct LogSpendingView: View {
                 } header: {
                     Text("Amount")
                 } footer: {
-                    Text("Enter a positive number — this becomes a debit against your balance.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enter a positive number — this becomes a debit against your balance.")
+                        Text("Available in Spend: \(CurrencyFormatter.string(spendBalance))")
+                        if isOverdrawn, let amount = parsedAmount {
+                            Label {
+                                Text(
+                                    "This spending of \(CurrencyFormatter.string(amount)) exceeds "
+                                        + "the Spend balance of \(CurrencyFormatter.string(spendBalance)). "
+                                        + "Spend will go negative if you continue."
+                                )
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
+                            .accessibilityIdentifier("logSpending.overdrawWarning")
+                        }
+                    }
                 }
 
                 Section("When") {
@@ -120,7 +154,9 @@ struct LogSpendingView: View {
                     .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(action: save) {
+                    Button {
+                        tappedSave()
+                    } label: {
                         if isSaving {
                             ProgressView()
                         } else {
@@ -136,8 +172,40 @@ struct LogSpendingView: View {
             }
             .decimalPadDoneToolbar(isFocused: $isAmountFocused)
             .interactiveDismissDisabled(isSaving)
+            .alert("Spend Will Go Negative", isPresented: $showOverdrawConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Log Anyway", role: .destructive) {
+                    executeSave()
+                }
+                .accessibilityIdentifier("logSpending.overdrawConfirmButton")
+            } message: {
+                if let amount = parsedAmount {
+                    Text("Logging \(CurrencyFormatter.string(amount)) exceeds the Spend balance of \(CurrencyFormatter.string(spendBalance)). Continue anyway?")
+                }
+            }
             .toastOverlay()
         }
+    }
+
+    private var parsedAmount: Double? {
+        guard let value = CurrencyFormatter.decimalDouble(from: amountText), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    private var spendBalance: Double {
+        viewModel.currentSpendBalance(from: cachedLedgers)
+    }
+
+    /// WHY permit override: a purchase may intentionally take Spend negative, so warn inline plus confirm instead of blocking.
+    private var isOverdrawn: Bool {
+        guard isScopeResolved, let amount = parsedAmount else { return false }
+        return amount > spendBalance
+    }
+
+    /// WHY fail-closed scope: an unresolved family fetches zero rows, so suppress the warning rather than flag every amount.
+    private var isScopeResolved: Bool {
+        guard let family = familyRecordName, !family.isEmpty else { return false }
+        return true
     }
 
     private var matchingLocations: [String] {
@@ -151,13 +219,30 @@ struct LogSpendingView: View {
         }
     }
 
-    private func save() {
+    private func tappedSave() {
         let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDescription.isEmpty else {
             toastManager.show(message: "Please enter a description of what you bought.", type: .warning)
             return
         }
-        guard let amount = Double(amountText), amount.isFinite, amount > 0 else {
+        guard parsedAmount != nil else {
+            toastManager.show(message: "Please enter a valid positive amount.", type: .warning)
+            return
+        }
+        if isOverdrawn {
+            showOverdrawConfirm = true
+        } else {
+            executeSave()
+        }
+    }
+
+    private func executeSave() {
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDescription.isEmpty else {
+            toastManager.show(message: "Please enter a description of what you bought.", type: .warning)
+            return
+        }
+        guard let amount = parsedAmount else {
             toastManager.show(message: "Please enter a valid positive amount.", type: .warning)
             return
         }

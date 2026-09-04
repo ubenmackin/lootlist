@@ -310,7 +310,7 @@ struct KidsSavingsGoalsView: View {
                 }
                 .foregroundStyle(pacing.status.tintColor)
             } else {
-                Text(bucketLabel(for: goal.bucketKindEnum))
+                Text(goal.bucketKindEnum?.displayName ?? "Save")
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -335,15 +335,6 @@ struct KidsSavingsGoalsView: View {
             Label("Delete Goal", systemImage: "trash")
         }
         .disabled(!canModifyGoals)
-    }
-
-    private func bucketLabel(for kind: BucketKind?) -> String {
-        switch kind {
-        case .shortTermSave: "Short-Term Save"
-        case .longTermSave: "Long-Term Save"
-        case .spend: "Spend"
-        case .none: "Save"
-        }
     }
 
     private func goalsCount(for profileRecordName: String) -> Int {
