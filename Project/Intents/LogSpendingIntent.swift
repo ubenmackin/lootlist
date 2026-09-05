@@ -41,7 +41,7 @@ struct LogSpendingIntent: AppIntent, Sendable {
         }
 
         let trimmedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let locationValue = (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil
+        let locationValue = trimmedLocation.flatMap { $0.isEmpty ? nil : $0 }
 
         do {
             _ = try await dep.spendingService.logManual(

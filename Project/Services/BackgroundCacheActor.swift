@@ -287,7 +287,7 @@ actor BackgroundCacheActor {
         // Quest — active only, never synced.
         do {
             let quests = try modelContext.fetch(FetchDescriptor<QuestCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in quests where row.isActive && (row.changeTag == nil || row.changeTag?.isEmpty == true) {
+            for row in quests where row.isActive && (row.changeTag ?? "").isEmpty {
                 ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
             }
         } catch {
@@ -297,7 +297,7 @@ actor BackgroundCacheActor {
         // QuestTemplate — active only, never synced.
         do {
             let templates = try modelContext.fetch(FetchDescriptor<QuestTemplateCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in templates where row.isActive && (row.changeTag == nil || row.changeTag?.isEmpty == true) {
+            for row in templates where row.isActive && (row.changeTag ?? "").isEmpty {
                 ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
             }
         } catch {
@@ -307,7 +307,7 @@ actor BackgroundCacheActor {
         // Goal — non-archived only, never synced.
         do {
             let goals = try modelContext.fetch(FetchDescriptor<GoalCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in goals where !row.isArchived && (row.changeTag == nil || row.changeTag?.isEmpty == true) {
+            for row in goals where !row.isArchived && (row.changeTag ?? "").isEmpty {
                 ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
             }
         } catch {
@@ -317,7 +317,7 @@ actor BackgroundCacheActor {
         // QuestCompletion — never synced.
         do {
             let completions = try modelContext.fetch(FetchDescriptor<QuestCompletionCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in completions where row.changeTag == nil || row.changeTag?.isEmpty == true {
+            for row in completions where (row.changeTag ?? "").isEmpty {
                 ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
             }
         } catch {
@@ -328,7 +328,7 @@ actor BackgroundCacheActor {
         // contrib-*, interest-*, match-*, transfer-*, import-*).
         do {
             let entries = try modelContext.fetch(FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
-            for row in entries where row.changeTag == nil || row.changeTag?.isEmpty == true {
+            for row in entries where (row.changeTag ?? "").isEmpty {
                 ids.append(CKRecord.ID(recordName: row.recordName, zoneID: zoneID))
             }
         } catch {

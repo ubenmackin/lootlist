@@ -71,7 +71,7 @@ final class LinkMetadataService {
         do {
             let metadata = try await provider.startFetchingMetadata(for: url)
             let rawTitle = metadata.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-            title = (rawTitle?.isEmpty == false) ? rawTitle : nil
+            title = rawTitle.flatMap { $0.isEmpty ? nil : $0 }
 
             if let imageProvider = metadata.imageProvider,
                let loaded = await loadImageURL(from: imageProvider)

@@ -674,7 +674,13 @@ final class GoalService {
         allRecordIDs.append(contentsOf: ledgerEntries.map(\.id))
         allRecordIDs.append(contentsOf: completedGoals.map(\.id))
         if !allRecordIDs.isEmpty {
-            ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(syncCoordinator, ids: allRecordIDs, appState: appState, logger: logger, context: "GoalService.contributeToBucket")
+            ActiveFamilyScopeGuard.batchEnqueueWithCorrectedOwner(
+                syncCoordinator,
+                ids: allRecordIDs,
+                appState: appState,
+                logger: logger,
+                context: "GoalService.contributeToBucket"
+            )
         }
 
         for completed in completedGoals {

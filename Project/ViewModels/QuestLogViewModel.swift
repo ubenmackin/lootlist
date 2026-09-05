@@ -137,7 +137,7 @@ final class QuestLogViewModel {
                 .notStarted
             } else if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count, effectiveTarget: target) {
                 .completed
-            } else if approvedLogs.count > 0 {
+            } else if !approvedLogs.isEmpty {
                 .inProgress(completedCount: approvedLogs.count, targetCount: target)
             } else if hasRejectedLog {
                 .rejected

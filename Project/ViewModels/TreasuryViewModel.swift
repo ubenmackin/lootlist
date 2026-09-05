@@ -242,7 +242,7 @@ final class TreasuryViewModel {
         }
         let familyRecordName = family.id.recordName
         let trimmedLocation = location?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let locationValue = (trimmedLocation?.isEmpty == false) ? trimmedLocation : nil
+        let locationValue = trimmedLocation.flatMap { $0.isEmpty ? nil : $0 }
 
         do {
             _ = try await spending.logManual(
