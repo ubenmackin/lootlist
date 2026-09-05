@@ -298,32 +298,33 @@ struct GoalServiceFIFOTests {
         #expect(result[0].allocatedPennies == 3000)
     }
 
-    // MARK: - Completed Full Display (Legacy Bucket Path)
+    // MARK: - Completed Full Display (Bucket Path)
 
     @Test
-    func `legacy bucket path shows completed goal full without charging remaining`() {
+    func `bucket path shows completed full while open gets remainder`() {
         let goals = [
-            makeGoal(recordName: "done", targetPennies: 10000, hoursAgo: 10, completedAt: Date()),
-            makeGoal(recordName: "active", targetPennies: 10000, hoursAgo: 5)
+            makeGoal(recordName: "done", targetPennies: 6000, hoursAgo: 10, completedAt: Date()),
+            makeGoal(recordName: "active", targetPennies: 5000, hoursAgo: 5)
         ]
         let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 100.0)]
-        // WHY display full: completed already holds its funds, so it renders whole while the full bucket still funds the open goal.
+        // WHY subtract held funds: completed 60 still sits in bucket 100, so open gets min(40, 50).
         let allocations = GoalProgressCalculator.allocations(goals: goals, ledgerEntries: ledgers)
-        #expect(allocations["done"] == 10000)
-        #expect(allocations["active"] == 10000)
+        #expect(allocations["done"] == 6000)
+        #expect(allocations["active"] == 4000)
+        #expect((allocations["done"] ?? 0) + (allocations["active"] ?? 0) == 10000)
     }
 
     @Test
-    func `legacy bucket path keeps completed full when bucket is short`() {
+    func `bucket path keeps completed full when bucket is short`() {
         let goals = [
             makeGoal(recordName: "done", targetPennies: 10000, hoursAgo: 10, completedAt: Date()),
             makeGoal(recordName: "active", targetPennies: 10000, hoursAgo: 5)
         ]
         let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 40.0)]
-        // WHY display full: completed renders whole from prior funding even when new bucket money only partly fills the open goal.
+        // WHY clamp at zero: completed already exceeds bucket 40, so open gets nothing but completed still renders full.
         let allocations = GoalProgressCalculator.allocations(goals: goals, ledgerEntries: ledgers)
         #expect(allocations["done"] == 10000)
-        #expect(allocations["active"] == 4000)
+        #expect(allocations["active"] == 0)
     }
 
     // MARK: - Mixed Buckets

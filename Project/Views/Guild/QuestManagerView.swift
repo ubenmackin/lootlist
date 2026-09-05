@@ -204,7 +204,7 @@ struct QuestManagerView: View {
                     .tag(SidebarSelection.allHeroes)
                     .dropDestination(for: String.self) { (_: [String], _: CGPoint) -> Bool in
                         // Drop on All Heroes is ignored — need a specific hero target.
-                        return false
+                        false
                     }
 
                     ForEach(vm.heroes) { hero in

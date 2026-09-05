@@ -494,9 +494,9 @@ final class AchievementService {
 
         let newlyAwardedStreakThresholds = awarded.compactMap { achievement -> Int? in
             switch achievement.requirementType {
-            case .streak7: return 7
-            case .streak30: return 30
-            default: return nil
+            case .streak7: 7
+            case .streak30: 30
+            default: nil
             }
         }
         for streakDays in newlyAwardedStreakThresholds.sorted() {

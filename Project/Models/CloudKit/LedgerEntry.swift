@@ -43,14 +43,6 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         return LedgerSource(rawValue: source)
     }
 
-    var isCountedMoney: Bool {
-        isCounted
-    }
-
-    var isCountedBonus: Bool {
-        isBonusCounted
-    }
-
     // MARK: - Bucket attribution (V8)
 
     /// Raw value of `BucketKind` the entry credited; nil for pre-bucket rows

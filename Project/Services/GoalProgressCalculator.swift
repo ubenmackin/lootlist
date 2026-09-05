@@ -70,10 +70,14 @@ enum GoalProgressCalculator {
         for goal in goals where goal.completedAt != nil && !goal.isArchived {
             result[goal.recordName] = goal.targetAmountPennies
         }
+        // WHY subtract held funds: completed targets still sit in the bucket total, so open goals split only what remains.
+        let completedSums = Dictionary(grouping: goals.filter { !$0.isArchived && $0.completedAt != nil }) {
+            "\($0.profileRecordName)|\($0.bucketKind)"
+        }.mapValues { $0.reduce(into: Int64(0)) { $0 += $1.targetAmountPennies } }
         // WHY open only: completed goals already hold their funds and clear via purchase, so new money cascades past them.
         let open = goals.filter { !$0.isArchived && $0.completedAt == nil }
         let grouped = Dictionary(grouping: open) { "\($0.profileRecordName)|\($0.bucketKind)" }
-        for (_, bucketGoals) in grouped {
+        for (key, bucketGoals) in grouped {
             let sorted = bucketGoals.sorted {
                 if $0.createdAt != $1.createdAt {
                     return $0.createdAt < $1.createdAt
@@ -88,7 +92,8 @@ enum GoalProgressCalculator {
             let totalPennies = bucketEntries.reduce(into: Int64(0)) { acc, entry in
                 acc += pennies(for: entry)
             }
-            var remaining = max(totalPennies, 0)
+            let completedSum = completedSums[key] ?? 0
+            var remaining = max(totalPennies - completedSum, 0)
             for goal in sorted {
                 let alloc = min(remaining, goal.targetAmountPennies)
                 result[goal.recordName] = alloc

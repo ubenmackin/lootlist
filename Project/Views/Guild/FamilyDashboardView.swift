@@ -711,8 +711,11 @@ private extension FamilyDashboardView {
 
     private func pendingRejectButton(completion: QuestCompletionCache, questName: String) -> some View {
         Button {
-            Task {
-                await rejectCompletion(completion)
+            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
+            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+            Task { @MainActor @Sendable [domainLog] in
+                await rejectCompletion(domainLog)
             }
         } label: {
             Text("Reject")
@@ -735,8 +738,11 @@ private extension FamilyDashboardView {
         let showsAmount = goldAmount > 0
         let approvalLabel = CurrencyFormatter.string(goldAmount)
         return Button {
-            Task {
-                await approveCompletion(completion)
+            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
+            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+            Task { @MainActor @Sendable [domainLog] in
+                await approveCompletion(domainLog)
             }
         } label: {
             HStack(spacing: 4) {
@@ -764,21 +770,25 @@ private extension FamilyDashboardView {
     @ViewBuilder
     private func pendingRowMenu(completion: QuestCompletionCache) -> some View {
         Button {
-            Task { await approveCompletion(completion) }
+            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
+            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+            Task { @MainActor @Sendable [domainLog] in await approveCompletion(domainLog) }
         } label: {
             Label("Approve", systemImage: "checkmark.circle.fill")
         }
         Button(role: .destructive) {
-            Task { await rejectCompletion(completion) }
+            let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
+            // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+            let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+            Task { @MainActor @Sendable [domainLog] in await rejectCompletion(domainLog) }
         } label: {
             Label("Reject", systemImage: "xmark.circle.fill")
         }
     }
 
     @MainActor
-    func approveCompletion(_ completion: QuestCompletionCache) async {
-        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-        let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+    func approveCompletion(_ domainLog: QuestCompletion) async {
         guard let parent = appState.currentProfile else { return }
         do {
             _ = try await questService.verify(questLog: domainLog, by: parent)
@@ -793,9 +803,7 @@ private extension FamilyDashboardView {
     }
 
     @MainActor
-    func rejectCompletion(_ completion: QuestCompletionCache) async {
-        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: completion)
-        let domainLog = completion.toQuestCompletion(zoneID: zoneID)
+    func rejectCompletion(_ domainLog: QuestCompletion) async {
         guard let parent = appState.currentProfile else { return }
         do {
             _ = try await questService.reject(questLog: domainLog, by: parent)

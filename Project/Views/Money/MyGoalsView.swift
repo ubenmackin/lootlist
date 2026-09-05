@@ -167,12 +167,14 @@ struct MyGoalsView: View {
                 presenting: goalToDelete
             ) { goal in
                 Button("Delete", role: .destructive) {
-                    // WHY snapshot: @Model row stays on MainActor; Sendable copies ride the Task.
+                    // WHY snapshot: @Model row stays on MainActor; Sendable struct rides the Task.
+                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: goal)
+                    let goalSnapshot = goal.toGoal(zoneID: zoneID)
                     let goalRecordName = goal.recordName
                     let goalName = goal.name
-                    Task { @MainActor @Sendable [goal, goalRecordName, goalName] in
+                    Task { @MainActor @Sendable [goalSnapshot, goalRecordName, goalName] in
                         do {
-                            try await deleteGoal(goal)
+                            try await deleteGoal(goalSnapshot)
                         } catch {
                             Self.logger.error("Failed to delete goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
                             toastManager?.show(message: "Couldn’t delete “\(goalName)”. Please try again.", type: .error)
@@ -198,14 +200,16 @@ struct MyGoalsView: View {
                 presenting: goalToPurchase
             ) { goal in
                 Button("Mark Purchased") {
-                    // WHY snapshot: @Model row stays on MainActor; Sendable copies ride the Task.
+                    // WHY snapshot: @Model row stays on MainActor; Sendable struct rides the Task.
+                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: goal)
+                    let goalSnapshot = goal.toGoal(zoneID: zoneID)
                     let goalRecordName = goal.recordName
-                    Task { @MainActor @Sendable [goal, goalRecordName] in
+                    Task { @MainActor @Sendable [goalSnapshot, goalRecordName] in
                         do {
-                            try await markPurchased(goal)
+                            try await markPurchased(goalSnapshot)
                         } catch {
                             Self.logger.error("Failed to purchase goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
-                            toastManager?.show(message: purchaseErrorMessage(for: goal, error: error), type: .error)
+                            toastManager?.show(message: purchaseErrorMessage(for: goalSnapshot, error: error), type: .error)
                         }
                     }
                 }
@@ -529,6 +533,12 @@ struct MyGoalsView: View {
         HapticsService.lightImpact()
     }
 
+    private func deleteGoal(_ goal: Goal) async throws {
+        guard let service = resolvedGoalService, let family = appState.family else { return }
+        try await service.deleteGoal(goal, family: family)
+        HapticsService.lightImpact()
+    }
+
     private func markPurchased(_ goal: GoalCache) async throws {
         guard let service = resolvedGoalService else { return }
         do {
@@ -541,7 +551,29 @@ struct MyGoalsView: View {
         }
     }
 
+    private func markPurchased(_ goal: Goal) async throws {
+        guard let service = resolvedGoalService, let family = appState.family else { return }
+        do {
+            try await service.markPurchased(goal, family: family)
+            goalToPurchase = nil
+            HapticsService.success()
+        } catch {
+            goalToPurchase = nil
+            throw error
+        }
+    }
+
     private func purchaseErrorMessage(for goal: GoalCache, error: any Error) -> String {
+        // WHY localized description: insufficient-funds copy already formats region currency via CurrencyFormatter.
+        if let goalError = error as? GoalServiceError,
+           let description = goalError.errorDescription
+        {
+            return description
+        }
+        return "Couldn’t mark “\(goal.name)” purchased. Please try again."
+    }
+
+    private func purchaseErrorMessage(for goal: Goal, error: any Error) -> String {
         // WHY localized description: insufficient-funds copy already formats region currency via CurrencyFormatter.
         if let goalError = error as? GoalServiceError,
            let description = goalError.errorDescription

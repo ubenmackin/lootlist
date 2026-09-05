@@ -47,7 +47,7 @@ final class SpendDigestService {
 
     // MARK: - Due Checks
 
-    /// WHY wall-clock: the rollup reads as "yesterday" on the parent's device, so due follows the local hour, not UTC buckets.
+    /// WHY wall-clock: the rollup covers the last 24h on the parent's device, so due follows the local hour, not UTC buckets.
     nonisolated static func isDue(now: Date = Date(), calendar: Calendar = .current) -> Bool {
         calendar.component(.hour, from: now) >= digestHour
     }
@@ -75,7 +75,7 @@ final class SpendDigestService {
 
     // MARK: - Summary
 
-    /// Last-24h counted spend debits per hero, e.g. "Yesterday: Maya $4.50 in 2 spends, Leo $2.00 in 1 spend".
+    /// Last-24h counted spend debits per hero, e.g. "Last 24 hours: Maya $4.50 in 2 spends, Leo $2.00 in 1 spend".
     func buildDigestSummary(now: Date = Date()) -> String? {
         guard let family = appState.family else { return nil }
         let familyName = family.id.recordName
@@ -96,7 +96,8 @@ final class SpendDigestService {
             lines.append("\(hero.displayName) \(CurrencyFormatter.string(total)) in \(spends.count) \(noun)")
         }
         guard !lines.isEmpty else { return nil }
-        return "Yesterday: " + lines.joined(separator: ", ")
+        // WHY sliding label: the window spans two calendar days, so copy names the interval, not yesterday.
+        return "Last 24 hours: " + lines.joined(separator: ", ")
     }
 
     // MARK: - Delivery
