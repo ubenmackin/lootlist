@@ -358,7 +358,7 @@ final class LedgerImportService {
         ].joined(separator: "|")
         let digest = SHA256.hash(data: Data(canonical.utf8))
         let hex = digest.shortHex
-        return "import-\(hex)"
+        return DeterministicRecordID.import(hex: hex)
     }
 
     /// Rows that would still block finalization: unassigned children or

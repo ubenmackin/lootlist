@@ -325,7 +325,7 @@ actor BackgroundCacheActor {
         }
 
         // LedgerEntry — never synced (covers deterministic money flows:
-        // contrib-*, interest-*, match-*, transfer-*, import-*).
+        // contrib-*, purchase-*, interest-*, match-*, transfer-*, payout-*, rt-*, reward-*, import-*).
         do {
             let entries = try modelContext.fetch(FetchDescriptor<LedgerEntryCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName }))
             for row in entries where (row.changeTag ?? "").isEmpty {

@@ -634,9 +634,15 @@ final class GoalService {
                 goalRecordName: alloc.goalRecordName,
                 sourceEventID: sourceEventID
             )
+            // WHY cumulative-aware: same event reuses one ID across settlements, so shortfall adds to prior total instead of regressing.
+            let existingPennies: Int64 = {
+                guard let existing = cacheService.fetchLedgerEntry(recordName: recordName, family: family.id.recordName) else { return 0 }
+                return Int64((existing.amount * 100).rounded())
+            }()
+            let cumulativePennies = existingPennies + alloc.allocatedPennies
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(recordID: profile.id, action: .none),
-                amount: Double(alloc.allocatedPennies) / 100.0,
+                amount: Double(cumulativePennies) / 100.0,
                 description: "Goal Contribution",
                 date: contributionDate,
                 source: LedgerSource.goal.rawValue,

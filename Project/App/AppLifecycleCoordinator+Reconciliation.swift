@@ -238,8 +238,8 @@ extension AppLifecycleCoordinator {
     /// commits or payout transactions. Enqueue is linearized through the same
     /// queue and uses deterministic recordName ordering with a 50-item paging
     /// cap; overflow is truncated deterministically from the sorted tail and
-    /// picked up on the next debounce window. Deterministic IDs (contrib-*,
-    /// interest-*, match-*, transfer-*, import-*, plus stable quest/template
+    /// picked up on the next debounce window. Deterministic IDs (contrib-*, purchase-*,
+    /// interest-*, match-*, transfer-*, payout-*, rt-*, reward-*, import-*, plus stable quest/template
     /// recordNames) ensure CloudKit dedupes re-enqueued saves across devices.
     func enqueueUnsyncedLocalRecords(family: Family, zoneID: CKRecordZone.ID) async {
         let now = Date()

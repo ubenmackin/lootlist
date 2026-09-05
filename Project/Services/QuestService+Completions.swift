@@ -265,7 +265,7 @@ extension QuestService {
         awardedXPCredited: Int?,
         error _: Error
     ) async throws {
-        let rewardRecordName = "reward-\(log.id.recordName)"
+        let rewardRecordName = DeterministicRecordID.reward(completionID: log.id.recordName)
         await cacheService.invalidate(recordName: log.id.recordName, family: quest.family.recordID.recordName, type: .questCompletion)
         await cacheService.invalidate(recordName: rewardRecordName, family: quest.family.recordID.recordName, type: .rewardEvent)
         if awardApplied || awardedXPCredited != nil {

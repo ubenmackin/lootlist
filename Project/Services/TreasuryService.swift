@@ -543,7 +543,8 @@ final class TreasuryService {
         let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         var updated = period
-        updated.paidAmount = max(period.paidAmount ?? 0, questGold)
+        let priorPaid = period.paidAmount ?? 0
+        updated.paidAmount = max(priorPaid, questGold)
         updated.paidDate = Date()
         // Single persistence point — totalEarned / questsCompleted are always
         // reconciled from the live quest snapshot regardless of whether
@@ -552,10 +553,15 @@ final class TreasuryService {
                                               totalEarned: questGold,
                                               questsCompleted: questsCount)
 
+        // WHY future-only: splits credit new money at current percentages, never rebase prior attribution.
+        let totalPennies = Int((questGold * 100).rounded())
+        let priorPennies = Int((priorPaid * 100).rounded())
+        let deltaPennies = totalPennies - priorPennies
+        guard deltaPennies > 0 else { return saved }
         let rtIsOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "TreasuryService.processRealTimeSettlement")
         await mintRealTimeLedgerEntry(
             periodRecordName: period.id.recordName,
-            amount: questGold,
+            amount: Double(deltaPennies) / 100.0,
             weekOf: weekOf,
             profile: profile,
             family: CKRecord.Reference(recordID: family.id, action: .none),
@@ -584,19 +590,14 @@ final class TreasuryService {
             logger.warning("Skipping real-time bucket split for \(periodRecordName, privacy: .private): hero profile unresolved")
             return
         }
-        let baseRecordName = "rt-\(periodRecordName)"
-        let payoutRecordName = "payout-\(periodRecordName)"
+        let baseRecordName = DeterministicRecordID.realtimePayout(periodRecordName: periodRecordName)
+        let payoutRecordName = DeterministicRecordID.payout(periodRecordName: periodRecordName)
 
         let cachedEntries = cacheService.fetchLedgerEntries(
             profileRecordName: profile.id.recordName,
             family: family.recordID.recordName
         )
-        // Symmetric twin of the batch guard: either settlement already credited
-        // this week, so the other must not double-count it. Suffix-aware so split
-        // shares (`-{bucket}`) also trip the guard when the payout policy flips mid-week.
-        if cachedEntries.contains(where: { $0.recordName == baseRecordName || $0.recordName.hasPrefix("\(baseRecordName)-") }) {
-            return
-        }
+        // WHY batch twin blocks: weekly payout already credited this week, so real-time must not double-count on policy flip.
         if cachedEntries.contains(where: { $0.recordName == payoutRecordName || $0.recordName.hasPrefix("\(payoutRecordName)-") }) {
             return
         }
