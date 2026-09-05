@@ -9,16 +9,13 @@ import Foundation
 
 /// Encouraging celebration and reward copy for quest completions.
 enum FlavorTextProvider {
-    /// WHY shared: ordinal labels render per row, so one formatter avoids per-call allocation.
-    @MainActor private static let ordinalFormatter: NumberFormatter = {
+    /// Locale-aware ordinal label ("1st", "2nd") for repeat counts.
+    static func ordinal(_ value: Int) -> String {
+        // WHY per-call formatter: NumberFormatter is not Sendable, so a thread-safe local keeps i18n without shared mutable state.
         let formatter = NumberFormatter()
         formatter.numberStyle = .ordinal
-        return formatter
-    }()
-
-    /// Locale-aware ordinal label ("1st", "2nd") for repeat counts.
-    @MainActor static func ordinal(_ value: Int) -> String {
-        ordinalFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+        formatter.locale = .current
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
     /// Legacy rarity tiers still size rewards internally, so parents need a way

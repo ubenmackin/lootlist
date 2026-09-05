@@ -98,11 +98,13 @@ struct KidsSavingsGoalsView: View {
             presenting: goalToDelete
         ) { goal in
             Button("Delete", role: .destructive) {
-                Task {
+                // WHY snapshot: @Model row stays on MainActor; Sendable copy rides the Task.
+                let goalRecordName = goal.recordName
+                Task { @MainActor @Sendable [goal, goalRecordName] in
                     do {
                         try await deleteGoal(goal)
                     } catch {
-                        Self.logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
+                        Self.logger.error("Failed to delete goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
                     }
                 }
             }

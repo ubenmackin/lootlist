@@ -193,7 +193,12 @@ struct LogSpendingView: View {
     }
 
     private var spendBalance: Double {
-        viewModel.currentSpendBalance(from: cachedLedgers)
+        // WHY passed-profile scope: the sheet's @Query rows are scoped by profileRecordName, so balance resolves by that profile instead of the ambient currentProfile.
+        if let profileRecordName, !profileRecordName.isEmpty {
+            BucketService.resolvedSpendBalance(for: cachedLedgers, profileRecordName: profileRecordName)
+        } else {
+            viewModel.currentSpendBalance(from: cachedLedgers)
+        }
     }
 
     /// WHY permit override: a purchase may intentionally take Spend negative, so warn inline plus confirm instead of blocking.
@@ -204,7 +209,7 @@ struct LogSpendingView: View {
 
     /// WHY fail-closed scope: an unresolved family fetches zero rows, so suppress the warning rather than flag every amount.
     private var isScopeResolved: Bool {
-        guard let family = familyRecordName, !family.isEmpty else { return false }
+        guard let familyRecordName, !familyRecordName.isEmpty else { return false }
         return true
     }
 
@@ -247,12 +252,17 @@ struct LogSpendingView: View {
             return
         }
         isSaving = true
-        Task {
+        // WHY snapshot: @State values cross suspension; Sendable copies ride the Task.
+        let descriptionSnapshot = trimmedDescription
+        let amountSnapshot = amount
+        let locationSnapshot = location
+        let dateSnapshot = date
+        Task { @MainActor @Sendable [viewModel, descriptionSnapshot, amountSnapshot, locationSnapshot, dateSnapshot] in
             let success = await viewModel.logSpending(
-                description: trimmedDescription,
-                amount: amount,
-                location: location,
-                date: date
+                description: descriptionSnapshot,
+                amount: amountSnapshot,
+                location: locationSnapshot,
+                date: dateSnapshot
             )
             isSaving = false
             if success {

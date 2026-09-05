@@ -167,7 +167,8 @@ final class FamilyDashboardViewModel {
         ledgers: [LedgerEntryCache],
         allowancePeriods: [AllowancePeriodCache],
         profileAchievements: [ProfileAchievementCache],
-        achievements _: [AchievementCache]
+        achievements _: [AchievementCache],
+        templates: [QuestTemplateCache]
     ) {
         let roster = RosterViewState(profiles: profiles)
         heroes = roster.heroes
@@ -186,7 +187,8 @@ final class FamilyDashboardViewModel {
             ledgers: ledgers,
             allowancePeriods: allowancePeriods,
             profileAchievements: profileAchievements,
-            familyContext: familyContext
+            familyContext: familyContext,
+            templates: templates
         )
 
         weekSummary = metrics.weekSummary

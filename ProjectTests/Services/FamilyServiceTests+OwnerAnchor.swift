@@ -131,7 +131,7 @@ extension FamilyServiceTests {
         appState.currentProfile = hero
 
         do {
-            _ = try await spending.deposit(
+            _ = try await spending.depositEntries(
                 profile: hero,
                 family: family,
                 familyRecordName: family.id.recordName,

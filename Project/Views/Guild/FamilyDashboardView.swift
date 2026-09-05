@@ -35,6 +35,7 @@ struct FamilyDashboardView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -60,6 +61,7 @@ struct FamilyDashboardView: View {
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
         let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
         _cachedProfiles = Query(
             filter: profileFilter,
             sort: \ProfileCache.displayName
@@ -93,6 +95,7 @@ struct FamilyDashboardView: View {
             sort: \ProfileAchievementCache.earnedDate,
             order: .reverse
         )
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     // MARK: - Transaction Sheet State
@@ -448,38 +451,25 @@ struct FamilyDashboardView: View {
             ledgers: cachedLedgers,
             allowancePeriods: cachedAllowancePeriods,
             profileAchievements: cachedProfileAchievements,
-            achievements: cachedAchievements
+            achievements: cachedAchievements,
+            templates: cachedTemplates
         )
     }
 
     @MainActor
     private func scheduleRebuild(includingInvitations: Bool = false) {
-        // Coalesce multi-query updates into a single task to prevent torn UI state.
-        let profiles = cachedProfiles
-        let quests = cachedQuests
-        let logs = cachedCompletions
-        let ledgers = cachedLedgers
-        let periods = cachedAllowancePeriods
-        let profileAchievements = cachedProfileAchievements
-        let achievements = cachedAchievements
-        let targetVM = viewModel
+        // WHY no Task capture: @Model rows cannot cross isolation, so rebuild runs synchronously on MainActor.
         maxChildCardHeight = nil
         rebuildTask?.cancel()
-        rebuildTask = Task { [targetVM, profiles, quests, logs, ledgers, periods, profileAchievements, achievements] in
+        rebuild()
+        guard includingInvitations else {
+            rebuildTask = nil
+            return
+        }
+        let targetVM = viewModel
+        rebuildTask = Task { @MainActor @Sendable [targetVM] in
             guard !Task.isCancelled else { return }
-            targetVM?.rebuildLists(
-                profiles: profiles,
-                quests: quests,
-                logs: logs,
-                ledgers: ledgers,
-                allowancePeriods: periods,
-                profileAchievements: profileAchievements,
-                achievements: achievements
-            )
-            if includingInvitations {
-                guard !Task.isCancelled else { return }
-                await targetVM?.refreshInvitations()
-            }
+            await targetVM?.refreshInvitations()
         }
     }
 }

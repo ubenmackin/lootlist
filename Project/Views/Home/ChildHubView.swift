@@ -183,7 +183,8 @@ struct ChildHubView: View {
                 onCompleteQuest: { quest in completeQuest(quest) },
                 onWithdraw: handleWithdraw,
                 recentLedgers: ledgers,
-                streak: streakValue
+                streak: streakValue,
+                cachedTemplates: cachedTemplates
             )
         }
     }
@@ -479,7 +480,8 @@ struct ChildHubView: View {
                 ledgers: ledgers,
                 quests: quests,
                 allowancePeriods: periods,
-                scope: .thisWeek
+                scope: .thisWeek,
+                templates: cachedTemplates
             )
         }
     }
@@ -516,6 +518,7 @@ struct ChildHubView: View {
             let domain = quest.toQuest(zoneID: zoneID)
 
             let priorApproved = cachedCompletions.filter { $0.questRecordName == qID && $0.isApproved }.count
+            let templatesByID = SpecificDaysHelper.templatesByID(cachedTemplates)
 
             do {
                 let completion = try await questService.markComplete(
@@ -526,6 +529,7 @@ struct ChildHubView: View {
                     completion,
                     quest: quest,
                     priorApproved: priorApproved,
+                    templatesByID: templatesByID,
                     toastManager: toastManager,
                     showCelebration: $showCelebration
                 )

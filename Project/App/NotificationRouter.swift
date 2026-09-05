@@ -136,9 +136,9 @@ final class NotificationRouter: NSObject, @preconcurrency UNUserNotificationCent
             // The spender owns the content — require the peer to route.
             guard let profileID else { return nil }
             return .heroLedger(heroRecordName: profileID)
-        case .levelUp, .goldEarned, .questMissed, .trophyEarned, .streakMilestone:
-            // Informational banners (weekly loot, progress) have no dedicated
-            // destination beyond acknowledgment.
+        case .levelUp, .goldEarned, .questMissed, .trophyEarned, .streakMilestone, .spendDailyDigest:
+            // Informational banners (weekly loot, progress, daily spend rollup) have no dedicated
+            // destination beyond acknowledgment — the digest spans heroes, so no single ledger owns it.
             return nil
         }
     }

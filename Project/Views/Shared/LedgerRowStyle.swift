@@ -11,13 +11,8 @@ import SwiftUI
 /// Shared visual identity for ledger entry rows (source tile / label / date),
 /// used by both the treasury ledger and the per-hero ledger.
 enum LedgerRowStyle {
-    /// WHY static formatter: per-cell DateFormatter alloc caused scroll jank; reuse single instance confined to MainActor.
-    @MainActor private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter
-    }()
+    /// WHY Sendable style: per-cell labels reuse value type without shared mutable formatter.
+    private static let dateStyle = Date.FormatStyle(date: .abbreviated, time: .shortened)
 
     /// Resolves the SF Symbol and tint for a ledger entry's source.
     /// Unknown sources fall back to the caller-supplied tint so each ledger
@@ -45,8 +40,7 @@ enum LedgerRowStyle {
     }
 
     /// Shared medium-date + short-time rendering for ledger timestamps.
-    @MainActor static func dateText(for date: Date) -> String {
-        // WHY static formatter: reused MainActor-confined formatter avoids per-cell alloc during scrolling.
-        dateFormatter.string(from: date)
+    static func dateText(for date: Date) -> String {
+        date.formatted(dateStyle)
     }
 }

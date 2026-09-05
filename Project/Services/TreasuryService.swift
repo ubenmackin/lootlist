@@ -10,29 +10,47 @@ import Foundation
 import os
 import Synchronization
 
-// WHY: hydration still rides the concrete coordinator; enqueue rides the seam.
 @MainActor
-extension SyncEnqueuing {
-    var delegateHandler: CKSyncEngineDelegateHandler {
-        if let concrete = self as? CKSyncEngineCoordinator {
-            return concrete.delegateHandler
-        }
+protocol HydrationHandling: AnyObject {
+    func hydrateFromQuery(models: [some CloudKitRecord], databaseScope: CKDatabase.Scope, zoneID: CKRecordZone.ID) async
+}
+
+@MainActor
+extension CKSyncEngineDelegateHandler: HydrationHandling {}
+
+@MainActor
+final class NoopHydrationHandler: HydrationHandling {
+    static let shared = NoopHydrationHandler()
+    private static var hasLogged = false
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SyncEnqueuing")
+    func hydrateFromQuery(models _: [some CloudKitRecord], databaseScope _: CKDatabase.Scope, zoneID _: CKRecordZone.ID) async {
         // WHY: doubles carry no engine so hydration has nowhere to ingest; cache writes and enqueues still apply.
-        // WHY logger-only: hydration no-op is expected on doubles, never a debug fault.
-        NoopHydrationHandler.logger.warning("SyncEnqueuing.delegateHandler synthesized no-op handler; hydration will no-op")
-        return NoopHydrationHandler.shared
+        if !Self.hasLogged {
+            Self.hasLogged = true
+            Self.logger.warning("Hydration no-op: no engine backing this coordinator; continuing cache-only")
+        }
     }
 }
 
-// WHY: single shared no-op handler keeps identity stable across accesses instead of fabricating a fresh handler per access.
 @MainActor
-private enum NoopHydrationHandler {
-    static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SyncEnqueuing")
-    static let shared = CKSyncEngineDelegateHandler(
-        conflictResolver: CKSyncConflictResolver(),
-        cacheService: nil,
-        appState: nil
-    )
+extension CKSyncEngineCoordinator: HydrationHandling {
+    func hydrateFromQuery(models: [some CloudKitRecord], databaseScope: CKDatabase.Scope, zoneID: CKRecordZone.ID) async {
+        await delegateHandler.hydrateFromQuery(models: models, databaseScope: databaseScope, zoneID: zoneID)
+    }
+}
+
+@MainActor
+extension NoopSyncEnqueuing: HydrationHandling {
+    func hydrateFromQuery(models: [some CloudKitRecord], databaseScope: CKDatabase.Scope, zoneID: CKRecordZone.ID) async {
+        await NoopHydrationHandler.shared.hydrateFromQuery(models: models, databaseScope: databaseScope, zoneID: zoneID)
+    }
+}
+
+@MainActor
+extension SyncEnqueuing {
+    var hydrationHandler: any HydrationHandling {
+        (self as? any HydrationHandling) ?? NoopHydrationHandler.shared
+    }
 }
 
 @MainActor
@@ -115,8 +133,8 @@ final class TreasuryService {
 
     func currentBalance(for profile: Profile) async throws -> Double {
         let ledgerEntries = try await fetchAllLedgerEntries(profile: profile)
-        // WHY single-count: goal entries mark allocation of already-counted funds, not new money.
-        return ledgerEntries.filter { $0.sourceEnum != .goal }.reduce(0.0) { $0 + $1.amount }
+        // WHY single-count: goal entries reuse counted funds and transfers net to zero across buckets.
+        return ledgerEntries.filter { BucketService.isCounted($0) }.reduce(0.0) { $0 + $1.amount }
     }
 
     struct WeeklyBreakdown: Equatable, Sendable {
@@ -136,7 +154,6 @@ final class TreasuryService {
         var paidAmount: Double?
     }
 
-    /// Calculates wallet-week gold breakdown for a hero with cache-first reads.
     func weeklyBreakdown(profile: Profile,
                          family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown
@@ -147,7 +164,7 @@ final class TreasuryService {
                                             weekEnding: weekRange.upperBound)
         let quests = try await fetchQuestsForGold(family: family, logs: logs)
         // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
-        let templatesByID = questTemplateMap(family: family)
+        let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
         var goldFromQuests = GoldCalculation.totalCredit(for: quests, logs: logs, templatesByID: templatesByID)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
@@ -193,7 +210,7 @@ final class TreasuryService {
                 return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
             },
             hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
@@ -202,10 +219,11 @@ final class TreasuryService {
         )
         let bonusGold = ledgerEntries
             // WHY single-count: goal markers reuse quest/deposit pennies and transfers move between buckets.
-            .filter { $0.amount > 0 && $0.sourceEnum != .quest && $0.sourceEnum != .goal && $0.sourceEnum != .transfer }
+            .filter { BucketService.isBonusCounted($0) }
             .reduce(0.0) { $0 + $1.amount }
         let spent = ledgerEntries
-            .filter { $0.amount < 0 }
+            // WHY counted only: nil-bucket residue would count in spent but not ledgerBalance.
+            .filter { $0.amount < 0 && BucketService.isCounted($0) }
             .reduce(0.0) { $0 + $1.amount }
 
         let totalEarned = goldFromQuests + bonusGold
@@ -274,7 +292,7 @@ final class TreasuryService {
                     return try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
                 },
                 hydrate: { [syncCoordinator, appState, profile] models in
-                    await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
                         models: models,
                         databaseScope: appState.activeDatabaseScope,
                         zoneID: profile.id.zoneID
@@ -457,24 +475,17 @@ final class TreasuryService {
         }
 
         if let notificationService {
-            Task { [logger] in
+            Task { @MainActor @Sendable [weak self, logger, notificationService, period] in
                 do {
-                    let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
-                    let family = try await resolveFamily(recordID: period.family.recordID)
+                    guard let self else { return }
+                    let profile = try await self.resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
+                    let family = try await self.resolveFamily(recordID: period.family.recordID)
                     try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
                 } catch {
                     logger.error("Failed to send weekly summary notification: \(error, privacy: .private)")
                 }
             }
         }
-    }
-
-    /// WHY cache-only template map: payout math stays cache-first so offline settlements still resolve day counts.
-    private func questTemplateMap(family: Family) -> [String: QuestTemplate] {
-        guard let concrete = cacheService as? CacheService else { return [:] }
-        let caches = concrete.fetchQuestTemplates(family: family.id.recordName)
-        let zoneID = family.id.zoneID
-        return Dictionary(uniqueKeysWithValues: caches.map { ($0.recordName, $0.toQuestTemplate(zoneID: zoneID)) })
     }
 
     /// Processes immediate settlement for heroes with real-time payout policy.
@@ -524,7 +535,11 @@ final class TreasuryService {
                                             weekEnding: weekRange.upperBound)
         let quests = try await fetchQuestsForGold(family: family, logs: logs)
         // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
-        let questGold = GoldCalculation.totalCredit(for: quests, logs: logs, templatesByID: questTemplateMap(family: family))
+        let questGold = GoldCalculation.totalCredit(
+            for: quests,
+            logs: logs,
+            templatesByID: SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
+        )
         let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         var updated = period

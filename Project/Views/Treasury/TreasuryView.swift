@@ -29,6 +29,7 @@ struct TreasuryView: View {
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -55,6 +56,7 @@ struct TreasuryView: View {
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
         _cachedCompletions = Query(
             filter: completionFilter,
             sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
@@ -71,6 +73,7 @@ struct TreasuryView: View {
             filter: allowanceFilter,
             sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     var body: some View {
@@ -133,6 +136,7 @@ struct TreasuryView: View {
             .onChange(of: cachedLedgers) { _, _ in rebuild() }
             .onChange(of: cachedQuests) { _, _ in rebuild() }
             .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
+            .onChange(of: cachedTemplates) { _, _ in rebuild() }
             .onChange(of: scope) { _, _ in rebuild() }
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
@@ -156,14 +160,13 @@ struct TreasuryView: View {
     private func rebuild(_ vm: TreasuryViewModel? = nil) {
         guard appState.currentProfile?.id.recordName != nil else { return }
 
-        // Cached arrays are already profile-scoped via predicate pushdown; ViewModel keeps
-        // defensive filtering internally but no main-thread filtering is needed here.
         (vm ?? viewModel)?.rebuildLists(
             logs: cachedCompletions,
             ledgers: cachedLedgers,
             quests: cachedQuests,
             allowancePeriods: cachedAllowancePeriods,
-            scope: scope
+            scope: scope,
+            templates: cachedTemplates
         )
     }
 

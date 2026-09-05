@@ -169,14 +169,12 @@ final class MatchService {
         // Derive month-to-date matched by scanning existing match
         // entries whose date falls in the same calendar month.
         let month = Self.monthKey(for: date)
-        let monthStart = monthStart(for: date)
-        let monthEnd = monthEnd(for: date)
+        let monthStart = WeekMath.monthStart(for: date)
+        let monthEnd = WeekMath.monthEnd(for: date)
         let mtdPennies = cachedEntries
             .filter { entry in
                 guard entry.sourceEnum == .match else { return false }
-                guard let entryDate = Calendar.iso8601UTC.date(
-                    from: Calendar.iso8601UTC.dateComponents([.year, .month, .day], from: entry.date)
-                ) else { return false }
+                let entryDate = WeekMath.startOfDay(for: entry.date)
                 return entryDate >= monthStart && entryDate < monthEnd
             }
             .reduce(into: 0) { $0 += Int(($1.amount * 100).rounded()) }
@@ -218,33 +216,4 @@ final class MatchService {
 
     static let ledgerSource = LedgerSource.match.rawValue
     static let entryDescription = "Parent Match"
-
-    // MARK: - Helpers
-
-    private func monthStart(for date: Date) -> Date {
-        let parts = Calendar.iso8601UTC.dateComponents([.year, .month], from: date)
-        var comps = DateComponents()
-        comps.year = parts.year
-        comps.month = parts.month
-        comps.day = 1
-        comps.hour = 0
-        comps.minute = 0
-        comps.second = 0
-        return Calendar.iso8601UTC.date(from: comps) ?? date
-    }
-
-    private func monthEnd(for date: Date) -> Date {
-        let parts = Calendar.iso8601UTC.dateComponents([.year, .month], from: date)
-        var startComps = DateComponents()
-        startComps.year = parts.year
-        startComps.month = parts.month
-        startComps.day = 1
-        startComps.hour = 0
-        startComps.minute = 0
-        startComps.second = 0
-        guard let start = Calendar.iso8601UTC.date(from: startComps),
-              let end = Calendar.iso8601UTC.date(byAdding: .month, value: 1, to: start)
-        else { return date }
-        return end
-    }
 }

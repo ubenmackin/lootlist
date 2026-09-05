@@ -640,16 +640,14 @@ struct SettingsView: View {
         let name: String? = icon == .standard ? nil : icon.rawValue
         let currentName = UIApplication.shared.alternateIconName
         guard name != currentName else { return }
-        UIApplication.shared.setAlternateIconName(name) { error in
-            // Completion runs off the main actor; hop back to mutate @State.
-            Task { @MainActor in
-                if error != nil {
-                    // Icon change failed — silently ignore; the picker stays on the
-                    // last successfully set icon.
-                    return
-                }
+        // WHY: setAlternateIconName suspends, so the continuation can resume off-main; isolating the Task keeps @State writes race-free.
+        Task { @MainActor in
+            do {
+                try await UIApplication.shared.setAlternateIconName(name)
                 activeIconName = name
                 selectedIcon = icon
+            } catch {
+                // Icon change failed — picker stays on last successfully set icon.
             }
         }
     }

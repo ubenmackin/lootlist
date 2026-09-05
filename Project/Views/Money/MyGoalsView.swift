@@ -167,12 +167,15 @@ struct MyGoalsView: View {
                 presenting: goalToDelete
             ) { goal in
                 Button("Delete", role: .destructive) {
-                    Task {
+                    // WHY snapshot: @Model row stays on MainActor; Sendable copies ride the Task.
+                    let goalRecordName = goal.recordName
+                    let goalName = goal.name
+                    Task { @MainActor @Sendable [goal, goalRecordName, goalName] in
                         do {
                             try await deleteGoal(goal)
                         } catch {
-                            Self.logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
-                            toastManager?.show(message: "Couldn’t delete “\(goal.name)”. Please try again.", type: .error)
+                            Self.logger.error("Failed to delete goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
+                            toastManager?.show(message: "Couldn’t delete “\(goalName)”. Please try again.", type: .error)
                         }
                     }
                 }
@@ -195,11 +198,13 @@ struct MyGoalsView: View {
                 presenting: goalToPurchase
             ) { goal in
                 Button("Mark Purchased") {
-                    Task {
+                    // WHY snapshot: @Model row stays on MainActor; Sendable copies ride the Task.
+                    let goalRecordName = goal.recordName
+                    Task { @MainActor @Sendable [goal, goalRecordName] in
                         do {
                             try await markPurchased(goal)
                         } catch {
-                            Self.logger.error("Failed to purchase goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
+                            Self.logger.error("Failed to purchase goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
                             toastManager?.show(message: purchaseErrorMessage(for: goal, error: error), type: .error)
                         }
                     }
@@ -220,7 +225,8 @@ struct MyGoalsView: View {
                 // The toast overlay is available via the root view; errors
                 // surface as a validation message stored in parsing-error state.
                 if msg != nil {
-                    Task {
+                    // WHY MainActor hop: auto-dismiss mutates @State after suspension.
+                    Task { @MainActor @Sendable in
                         do {
                             try await Task.sleep(for: .seconds(4))
                         } catch {
@@ -263,10 +269,12 @@ struct MyGoalsView: View {
                             Label("Edit Goal", systemImage: "pencil")
                         }
 
-                        Button {
-                            goalToPurchase = goal
-                        } label: {
-                            Label("Mark Purchased", systemImage: "cart.fill")
+                        if !goal.isArchived {
+                            Button {
+                                goalToPurchase = goal
+                            } label: {
+                                Label("Mark Purchased", systemImage: "cart.fill")
+                            }
                         }
 
                         Button(role: .destructive) {
@@ -281,12 +289,14 @@ struct MyGoalsView: View {
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
-                        Button {
-                            goalToPurchase = goal
-                        } label: {
-                            Label("Mark Purchased", systemImage: "cart.fill")
+                        if !goal.isArchived {
+                            Button {
+                                goalToPurchase = goal
+                            } label: {
+                                Label("Mark Purchased", systemImage: "cart.fill")
+                            }
+                            .tint(Color(DesignSystemConstants.Colors.primaryGreen))
                         }
-                        .tint(Color(DesignSystemConstants.Colors.primaryGreen))
                         Button {
                             goalToEdit = goal
                         } label: {

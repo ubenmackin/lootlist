@@ -123,13 +123,15 @@ final class GoalService {
     /// FIFO allocation within a single bucket. Callers must filter to one
     /// profile + bucket via `fetchGoals(profile:bucket:)`; surplus past all
     /// goals sits unallocated in the bucket.
-    static func allocate(amountPennies: Int64, goals: [GoalCache]) -> [GoalAllocation] {
+    static func allocate(amountPennies: Int64, goals: [GoalCache], priorContributedPennies: [String: Int64] = [:]) -> [GoalAllocation] {
         guard amountPennies > 0 else { return [] }
-        guard !goals.isEmpty else { return [] }
+        // WHY open only: completed goals already hold their funds and clear via purchase, so new money cascades past them.
+        let open = goals.filter { !$0.isArchived && $0.completedAt == nil }
+        guard !open.isEmpty else { return [] }
         var remaining = amountPennies
         var result: [GoalAllocation] = []
 
-        let sorted = goals.sorted {
+        let sorted = open.sorted {
             if $0.createdAt != $1.createdAt {
                 return $0.createdAt < $1.createdAt
             }
@@ -138,16 +140,11 @@ final class GoalService {
 
         for goal in sorted {
             guard remaining > 0 else { break }
-            if goal.isArchived {
-                continue
-            }
-
-            if goal.completedAt != nil {
-                // WHY skip without charging: completed goals already hold their funds, so new money cascades past them.
-                continue
-            }
-
-            let alloc = min(remaining, goal.targetAmountPennies)
+            // WHY remaining need: earlier payouts already funded part of the target, so only the shortfall draws from new money.
+            let prior = priorContributedPennies[goal.recordName] ?? 0
+            let remainingNeed = max(goal.targetAmountPennies - prior, 0)
+            guard remainingNeed > 0 else { continue }
+            let alloc = min(remaining, remainingNeed)
             result.append(GoalAllocation(
                 goalRecordName: goal.recordName,
                 profileRecordName: goal.profileRecordName,
@@ -499,29 +496,13 @@ final class GoalService {
         }
 
         let profileRecordName = goal.profile.recordID.recordName
-        let balances = BucketService(
-            cacheService: cacheService,
-            syncCoordinator: syncCoordinator,
-            appState: appState
-        ).bucketBalances(
-            profileRecordName: profileRecordName,
-            familyRecordName: family.id.recordName
-        )
-        let available = balances[bucket] ?? 0
-        let requested = Double(goal.targetAmountPennies) / 100.0
-        // WHY pennies comparison: Double sums drift by fractions of a cent, so the gate stays exact.
-        let availablePennies = Int((available * 100).rounded())
-        guard availablePennies >= goal.targetAmountPennies else {
-            throw GoalServiceError.insufficientFunds(available: available, requested: requested)
-        }
-
-        let recordName = Self.purchaseRecordName(goalRecordName: goal.id.recordName)
-        let cachedEntries = cacheService.fetchLedgerEntries(
+        let purchaseLedgers = cacheService.fetchLedgerEntries(
             profileRecordName: profileRecordName,
             family: family.id.recordName
         )
+        let recordName = Self.purchaseRecordName(goalRecordName: goal.id.recordName)
         // WHY converge on replay: the deterministic ID already debited, so a second tap only ensures the archive flags.
-        if IdempotencyGuard.containsDeterministicID(recordName, in: cachedEntries) {
+        if IdempotencyGuard.containsDeterministicID(recordName, in: purchaseLedgers) {
             if goal.completedAt != nil, goal.isArchived {
                 return goal
             }
@@ -531,6 +512,18 @@ final class GoalService {
             await cacheService.upsertGoal(converged)
             ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: converged.id, appState: appState, logger: logger, context: "GoalService.markPurchased")
             return converged
+        }
+        // WHY archive gate: purchase is only valid on open goals, so an archived goal must not mint a second debit.
+        guard !goal.isArchived else {
+            throw GoalServiceError.invalidConfig
+        }
+        let balances = BucketService.bucketBalances(for: purchaseLedgers, profileRecordName: profileRecordName)
+        let available = balances[bucket] ?? 0
+        let requested = Double(goal.targetAmountPennies) / 100.0
+        // WHY pennies comparison: Double sums drift by fractions of a cent, so the gate stays exact.
+        let availablePennies = Int((available * 100).rounded())
+        guard availablePennies >= goal.targetAmountPennies else {
+            throw GoalServiceError.insufficientFunds(available: available, requested: requested)
         }
 
         let entry = LedgerEntry(
@@ -619,7 +612,15 @@ final class GoalService {
             familyRecordName: family.id.recordName
         )
 
-        let allocations = Self.allocate(amountPennies: amountPennies, goals: activeGoals)
+        // WHY remaining need: earlier payouts already funded part of each target, so the cascade tops up only the shortfall.
+        var priorMap: [String: Int64] = [:]
+        priorMap.reserveCapacity(activeGoals.count)
+        for goal in activeGoals {
+            priorMap[goal.recordName] = priorContributedPennies(goalRecordName: goal.recordName,
+                                                                profileRecordName: profile.id.recordName,
+                                                                familyRecordName: family.id.recordName)
+        }
+        let allocations = Self.allocate(amountPennies: amountPennies, goals: activeGoals, priorContributedPennies: priorMap)
         guard !allocations.isEmpty else { return [] }
 
         // Collect all ledger entries first — deterministic IDs preserved via
@@ -758,7 +759,7 @@ final class GoalService {
                 family: family.id.recordName
             ) {
                 let domainProfile = cached.toProfile(zoneID: family.id.zoneID)
-                Task {
+                Task { @MainActor @Sendable [achievementService, domainProfile, family, logger] in
                     do {
                         try await achievementService.handleGoalCompleted(
                             for: domainProfile,

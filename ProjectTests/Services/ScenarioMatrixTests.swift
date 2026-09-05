@@ -205,7 +205,8 @@ struct ScenarioMatrixTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         #expect(vm.heroes.isEmpty)
@@ -285,7 +286,8 @@ struct ScenarioMatrixTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         #expect(vm.heroes.count == 3)

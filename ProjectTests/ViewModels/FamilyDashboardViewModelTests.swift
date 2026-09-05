@@ -211,7 +211,8 @@ struct FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [trophy1, trophy2],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         let summary = try #require(sut.vm.weekSummary?.heroSummaries.first)
@@ -313,7 +314,8 @@ struct FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         let hero1Summary = try #require(sut.vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero1" }))
@@ -383,7 +385,8 @@ struct FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         let summary = try #require(sut.vm.weekSummary?.heroSummaries.first(where: { $0.profile.recordName == "hero1" }))
@@ -454,7 +457,8 @@ struct FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         let summary = try #require(sut.vm.weekSummary)
@@ -581,7 +585,8 @@ struct FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         let summary = try #require(sut.vm.weekSummary)
@@ -669,7 +674,8 @@ struct FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [paidPeriod],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         let summary = try #require(sut.vm.weekSummary)
@@ -723,20 +729,24 @@ struct FamilyDashboardViewModelTests {
         let ledgers = [
             LedgerEntryCache(
                 recordName: "l_ava_quest", profileRecordName: "hero1", familyRecordName: "fam1",
-                amount: 12.25, entryDescription: "Quest reward", date: Date(), source: "quest"
+                amount: 12.25, entryDescription: "Quest reward", date: Date(), source: "quest",
+                bucketKind: BucketKind.spend.rawValue
             ),
             LedgerEntryCache(
                 recordName: "l_ava_snack", profileRecordName: "hero1", familyRecordName: "fam1",
-                amount: -4.00, entryDescription: "Snack", date: Date(), source: "manual"
+                amount: -4.00, entryDescription: "Snack", date: Date(), source: "manual",
+                bucketKind: BucketKind.spend.rawValue
             ),
             LedgerEntryCache(
                 recordName: "l_ben_deposit", profileRecordName: "hero2", familyRecordName: "fam1",
-                amount: 8.50, entryDescription: "Deposit", date: Date(), source: "deposit"
+                amount: 8.50, entryDescription: "Deposit", date: Date(), source: "deposit",
+                bucketKind: BucketKind.spend.rawValue
             ),
             // Parent wallet rows are not child outflow.
             LedgerEntryCache(
                 recordName: "l_dad_wallet", profileRecordName: "parent1", familyRecordName: "fam1",
-                amount: 500.00, entryDescription: "Parent wallet", date: Date(), source: "deposit"
+                amount: 500.00, entryDescription: "Parent wallet", date: Date(), source: "deposit",
+                bucketKind: BucketKind.spend.rawValue
             )
         ]
 
@@ -747,7 +757,8 @@ struct FamilyDashboardViewModelTests {
             ledgers: ledgers,
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         // 12.25 - 4.00 + 8.50, parent's 500.00 excluded
@@ -785,22 +796,60 @@ struct FamilyDashboardViewModelTests {
         let ledgers = [
             LedgerEntryCache(
                 recordName: "l_ava", profileRecordName: "hero1", familyRecordName: "fam1",
-                amount: 10.00, entryDescription: "Quest reward", date: Date(), source: "quest"
+                amount: 10.00, entryDescription: "Quest reward", date: Date(), source: "quest",
+                bucketKind: BucketKind.spend.rawValue
             ),
             LedgerEntryCache(
                 recordName: "l_ben", profileRecordName: "hero2", familyRecordName: "fam1",
-                amount: 2.50, entryDescription: "Deposit", date: Date(), source: "deposit"
+                amount: 2.50, entryDescription: "Deposit", date: Date(), source: "deposit",
+                bucketKind: BucketKind.spend.rawValue
             )
         ]
 
+        // WHY resolved quest: approved completions without a matching quest log a missing-quest warning and earn nothing.
+        let questA1 = QuestCache(
+            recordName: "quest_a1",
+            familyRecordName: "fam1",
+            assigneeRecordName: "hero1",
+            templateRecordName: "tmpl_a1",
+            weekOf: currentWeek,
+            questName: "Ava Quest",
+            isActive: true,
+            goldReward: 10.0,
+            xpReward: 50,
+            rarity: "common",
+            scheduleType: "daily",
+            targetCount: 1,
+            isAllOrNothing: false,
+            approvalMode: "autoApprove",
+            descriptionText: nil,
+            createdByRecordName: "parent1"
+        )
+        let templateA1 = QuestTemplateCache(
+            recordName: "tmpl_a1",
+            familyRecordName: "fam1",
+            name: "Ava Template",
+            isActive: true,
+            goldReward: 10.0,
+            xpReward: 50,
+            rarity: "common",
+            specificDays: nil,
+            templateDescription: "",
+            scheduleType: "daily",
+            isAllOrNothing: false,
+            approvalMode: "autoApprove",
+            createdByRecordName: "parent1"
+        )
+
         sut.vm.rebuildLists(
             profiles: [ava, ben],
-            quests: [],
+            quests: [questA1],
             logs: logs,
             ledgers: ledgers,
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: [templateA1]
         )
 
         #expect(sut.vm.pendingReviewCount == 3)

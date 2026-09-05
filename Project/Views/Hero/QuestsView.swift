@@ -103,6 +103,10 @@ struct QuestsView: View {
         return cachedCompletions.filter { $0.completerRecordName == name }
     }
 
+    private var templatesByID: [String: QuestTemplateCache] {
+        SpecificDaysHelper.templatesByID(cachedTemplates)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -163,6 +167,7 @@ struct QuestsView: View {
             profileCache: row,
             quests: profileQuests,
             completions: profileLogs,
+            templatesByID: templatesByID,
             showBonusCard: false
         )
     }
@@ -366,6 +371,7 @@ struct QuestsView: View {
             QuestCardView(
                 quest: quest,
                 logs: questLogs,
+                specificDays: SpecificDaysHelper.specificDays(for: quest, templatesByID: templatesByID),
                 isOverdue: isOverdue,
                 onComplete: {
                     handleComplete(quest: quest)

@@ -34,7 +34,7 @@ struct HeroDashboardViewModelTests {
         let appState = AppState()
 
         let viewModel = HeroDashboardViewModel(appState: appState)
-        viewModel.rebuildLists(quests: [], logs: [], templates: [])
+        viewModel.rebuildLists(quests: [], logs: [], templates: [], allowancePeriods: [])
 
         #expect(viewModel.todaysQuests.isEmpty)
         #expect(viewModel.streak == 0)
@@ -127,7 +127,7 @@ struct HeroDashboardViewModelTests {
             verifiedDate: nil
         )
 
-        viewModel.rebuildLists(quests: [quest], logs: [log], templates: [])
+        viewModel.rebuildLists(quests: [quest], logs: [log], templates: [], allowancePeriods: [])
 
         #expect(viewModel.earnedThisWeek == 15.0)
         #expect(viewModel.isFullyCompleted(for: quest))
@@ -201,7 +201,8 @@ struct HeroDashboardViewModelTests {
         viewModel.rebuildLists(
             quests: [quest, approvedQuest],
             logs: [pendingLog, approvedLog],
-            templates: []
+            templates: [],
+            allowancePeriods: []
         )
 
         #expect(viewModel.earnedThisWeek == 15.0)
@@ -281,7 +282,8 @@ struct HeroDashboardViewModelTests {
         viewModel.rebuildLists(
             quests: [questToday, questYesterday],
             logs: [logToday, logYesterday],
-            templates: []
+            templates: [],
+            allowancePeriods: []
         )
 
         #expect(viewModel.streak == 2)

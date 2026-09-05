@@ -20,13 +20,8 @@ struct MultiPartQuestCard: View {
 
     @State private var isExpanded: Bool = true
 
-    // WHY: shared so per-row time labels avoid per-evaluation allocation.
-    private static let completionTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter
-    }()
+    /// WHY Sendable style: per-row time labels reuse value type without shared mutable formatter.
+    private static let completionTimeStyle = Date.FormatStyle(date: .omitted, time: .shortened)
 
     private var orderedDays: [String] {
         SpecificDaysHelper.orderedDays(specificDays)
@@ -399,7 +394,7 @@ struct MultiPartQuestCard: View {
             if isDone {
                 if index < approvedLogs.count {
                     let date = approvedLogs[index].completedDate
-                    return "\(state) · Completed \(Self.completionTimeFormatter.string(from: date))"
+                    return "\(state) · Completed \(date.formatted(Self.completionTimeStyle))"
                 }
                 return "\(state) · Completed"
             }
@@ -411,7 +406,7 @@ struct MultiPartQuestCard: View {
         if isDone {
             if index < approvedLogs.count {
                 let date = approvedLogs[index].completedDate
-                return "Completed \(Self.completionTimeFormatter.string(from: date))"
+                return "Completed \(date.formatted(Self.completionTimeStyle))"
             }
             return "Completed"
         }

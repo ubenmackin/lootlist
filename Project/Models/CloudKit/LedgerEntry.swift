@@ -43,6 +43,14 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         return LedgerSource(rawValue: source)
     }
 
+    var isCountedMoney: Bool {
+        isCounted
+    }
+
+    var isCountedBonus: Bool {
+        isBonusCounted
+    }
+
     // MARK: - Bucket attribution (V8)
 
     /// Raw value of `BucketKind` the entry credited; nil for pre-bucket rows
@@ -134,3 +142,26 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         self.family = family
     }
 }
+
+/// Single-count contract (bucket-only): counted = bucketKind != nil && source != goal && source != transfer; bonus = counted && source != quest.
+/// WHY bucket-only: nil-bucket rows are wiped residue, never live money.
+protocol LedgerEntryProtocol {
+    var sourceEnum: LedgerSource? { get }
+    var amount: Double { get }
+    var bucketKind: String? { get }
+}
+
+extension LedgerEntryProtocol {
+    /// WHY single-count: goal entries reuse counted funds; transfers net zero via debit+credit but stay excluded for parity.
+    var isCounted: Bool {
+        bucketKind != nil && sourceEnum != .goal && sourceEnum != .transfer
+    }
+
+    /// WHY single-count: bonus counts counted new money only, excluding quest payouts.
+    var isBonusCounted: Bool {
+        amount > 0 && sourceEnum != .quest && isCounted
+    }
+}
+
+extension LedgerEntry: LedgerEntryProtocol {}
+extension LedgerEntryCache: LedgerEntryProtocol {}

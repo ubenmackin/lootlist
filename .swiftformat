@@ -13,7 +13,7 @@
 # Disable Allman brace formatting
 --allman false
 
-# Ignore derived data
+# WHY excluded: generated sprite grids are machine-written, so linting them churns output and desyncs file counts.
 --exclude DerivedData,.derivedData,Build,build,.build,Project/Resources/SpriteData/HeroAvatarSprites+PixelBases.swift,Project/Resources/SpriteData/HeroAvatarSprites+PixelGear.swift,Project/Resources/SpriteData/MascotSpriteGrids.swift
 
 # Disable redundantSelf rule to keep explicit self required by Swift 6 closure capture semantics

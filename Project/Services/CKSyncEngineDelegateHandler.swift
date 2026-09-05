@@ -506,19 +506,8 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
         }
     }
 
-    private func handleLedgerEntryNotification(_ entry: LedgerEntry, currentProfile: Profile, notificationService: NotificationService) async {
-        guard entry.sourceEnum == .manual, currentProfile.role.isParent, entry.profile.recordID.recordName != currentProfile.id.recordName else { return }
-        do {
-            try await notificationService.deliverSyncNotification(
-                eventType: .spendingLogged,
-                title: "🪙 Spending Logged",
-                body: "A hero logged spending: \(entry.description)",
-                profileID: entry.profile.recordID.recordName
-            )
-        } catch {
-            logger.error("Failed to send spendingLogged notification: \(error, privacy: .private)")
-        }
-    }
+    /// WHY daily-rollup: per-spend buzz is retired — spends batch into the 9am digest so parents get one rollup, not a buzz per purchase.
+    private func handleLedgerEntryNotification(_: LedgerEntry, currentProfile _: Profile, notificationService _: NotificationService) async {}
 
     /// CKSyncEngine fetchedRecordZoneChanges entry point → handleIncomingRecordsDirectly → ingest.
     private func handleIncomingZoneChanges(

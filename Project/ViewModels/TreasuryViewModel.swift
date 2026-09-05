@@ -118,14 +118,15 @@ final class TreasuryViewModel {
         quests: [QuestCache],
         allowancePeriods: [AllowancePeriodCache],
         scope: CalendarScope,
-        templates: [QuestTemplateCache] = []
+        templates: [QuestTemplateCache]
     ) {
         guard let profile = appState.currentProfile else { return }
         let profileName = profile.id.recordName
 
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
-        balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: profileName)
+        // WHY one helper: bucket sum is the total on every surface.
+        balance = BucketService.totalBalance(for: ledgers, profileRecordName: profileName)
         spendBalance = BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: profileName)
 
         let payoutDay = resolvedPayoutDay
@@ -145,13 +146,15 @@ final class TreasuryViewModel {
         }
 
         let weekLedgers = profileLedgers.filter { weekRange.contains($0.date) }
-        let hasPaidQuestThisWeek = weekLedgers.contains { $0.sourceEnum == .quest }
-        // WHY single-count: bonus counts new-money deposits only; spent counts all debits exhaustively.
+        // WHY bucket-only: nil-bucket rows are wiped residue, never paid quest gold.
+        let hasPaidQuestThisWeek = weekLedgers.contains { $0.sourceEnum == .quest && BucketService.isCounted($0) }
+        // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
         let weekBonusGold = weekLedgers
-            .filter { $0.sourceEnum == .deposit }
+            .filter { BucketService.isBonusCounted($0) }
             .reduce(into: 0.0) { $0 += $1.amount }
         let weekSpent = weekLedgers
-            .filter { $0.sourceEnum == .manual || $0.sourceEnum == .withdrawal || $0.sourceEnum == .purchase }
+            // WHY counted only: nil-bucket residue would count in spent but not ledgerBalance.
+            .filter { $0.amount < 0 && BucketService.isCounted($0) }
             .reduce(into: 0.0) { $0 += $1.amount }
 
         let profileLogs = logs.filter { $0.completerRecordName == profileName }
@@ -162,7 +165,7 @@ final class TreasuryViewModel {
 
         let effectivePolicy = profile.payoutPolicy ?? appState.family?.payoutPolicy ?? .perQuest
         // WHY day count wins: stale targetCount under-counts specific-days split rewards.
-        let templatesByID = Dictionary(uniqueKeysWithValues: templates.map { ($0.recordName, $0) })
+        let templatesByID = SpecificDaysHelper.templatesByID(templates)
         let weekQuestsGold = GoldCalculation.netWeeklyGold(
             quests: quests,
             logs: logs,

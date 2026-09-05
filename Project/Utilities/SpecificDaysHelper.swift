@@ -5,24 +5,30 @@
 //  Created by Ben Mackin on 9/04/26.
 //
 
+import CloudKit
 import Foundation
 
-/// Single source for day-checklist derivation so hub, chores, and cards agree on slots.
 enum SpecificDaysHelper: Sendable {
-    /// Template days for a quest, empty when no template row or no scheduled days.
+    /// WHY cache-only template map: payout math stays cache-first so offline settlements still resolve day counts.
+    @MainActor
+    static func templatesByID(cache: any CacheServicing, familyName: String, zoneID: CKRecordZone.ID) -> [String: QuestTemplate] {
+        let caches = cache.fetchQuestTemplates(family: familyName)
+        return Dictionary(uniqueKeysWithValues: caches.map { ($0.recordName, $0.toQuestTemplate(zoneID: zoneID)) })
+    }
+
+    static func templatesByID(_ caches: [QuestTemplateCache]) -> [String: QuestTemplateCache] {
+        Dictionary(uniqueKeysWithValues: caches.map { ($0.recordName, $0) })
+    }
+
     static func specificDays(for quest: QuestCache, templatesByID: [String: QuestTemplateCache]) -> [String] {
         templatesByID[quest.templateRecordName]?.specificDays ?? []
     }
 
-    /// Weekday-ordered days using the canonical weekday cycle.
     static func orderedDays(_ days: [String]) -> [String] {
-        let order = AppConstants.weekdayCodes
-        return days.sorted {
-            (order.firstIndex(of: $0) ?? Int.max) < (order.firstIndex(of: $1) ?? Int.max)
-        }
+        // WHY WeekMath owns the weekday cycle: week ordering routes via WeekMath so day sorting cannot diverge.
+        WeekMath.orderedDays(days)
     }
 
-    /// Checklist when the quest runs on specific days with at least one scheduled day.
     static func isDayChecklist(quest: QuestCache, specificDays: [String]) -> Bool {
         quest.scheduleTypeEnum == .specificDays && !specificDays.isEmpty
     }
@@ -31,7 +37,6 @@ enum SpecificDaysHelper: Sendable {
         isDayChecklist(quest: quest, specificDays: specificDays(for: quest, templatesByID: templatesByID))
     }
 
-    /// Slot count for progress and credit; day count wins so stale targetCount cannot under-count.
     static func effectiveTarget(for quest: QuestCache, specificDays: [String]) -> Int {
         if isDayChecklist(quest: quest, specificDays: specificDays) {
             return specificDays.count
@@ -43,7 +48,6 @@ enum SpecificDaysHelper: Sendable {
         effectiveTarget(for: quest, specificDays: specificDays(for: quest, templatesByID: templatesByID))
     }
 
-    /// Template days for a domain quest, empty when no template row or no scheduled days.
     static func specificDays(for quest: Quest, templatesByID: [String: QuestTemplate]) -> [String] {
         templatesByID[quest.template.recordID.recordName]?.specificDays ?? []
     }
@@ -60,7 +64,6 @@ enum SpecificDaysHelper: Sendable {
         effectiveTarget(for: quest, specificDays: specificDays(for: quest, templatesByID: templatesByID))
     }
 
-    /// Segmented card when repeat count or day checklist needs per-part rows.
     static func isMultiPart(quest: QuestCache, specificDays: [String]) -> Bool {
         quest.targetCount > 1 || isDayChecklist(quest: quest, specificDays: specificDays)
     }
@@ -82,7 +85,6 @@ enum SpecificDaysHelper: Sendable {
         )
     }
 
-    /// Due copy for hub rows; past days stay actionable as makeup within the week.
     static func dueText(for quest: QuestCache, templatesByID: [String: QuestTemplateCache], todayCode: String) -> String {
         guard quest.scheduleTypeEnum == .specificDays else { return "This Week" }
         return dueText(specificDays: specificDays(for: quest, templatesByID: templatesByID), todayCode: todayCode)
@@ -92,24 +94,22 @@ enum SpecificDaysHelper: Sendable {
         if days.isEmpty {
             return "This Week"
         }
+        return dayState(orderedDays: orderedDays(days), todayCode: todayCode)
+    }
+
+    static func headerDayState(orderedDays days: [String], todayCode: String) -> String {
+        dayState(orderedDays: days, todayCode: todayCode)
+    }
+
+    static func dayState(orderedDays days: [String], todayCode: String) -> String {
         if days.contains(todayCode) {
             return "Due Today"
         }
         if let next = WeekMath.nextWeekdayCode(after: todayCode, candidates: days) {
             return "Due \(WeekMath.shortName(for: next))"
         }
-        return "Due \(WeekMath.shortName(for: orderedDays(days).last ?? todayCode))"
-    }
-
-    /// Day state for checklist headers; mirrors dueText without the non-checklist fallback.
-    static func headerDayState(orderedDays: [String], todayCode: String) -> String {
-        if orderedDays.contains(todayCode) {
-            return "Due Today"
-        }
-        if let next = WeekMath.nextWeekdayCode(after: todayCode, candidates: orderedDays) {
-            return "Due \(WeekMath.shortName(for: next))"
-        }
-        return "Due \(WeekMath.shortName(for: orderedDays.last ?? todayCode))"
+        // WHY wrap: no future day this week, show next week's first scheduled day.
+        return "Due \(WeekMath.shortName(for: WeekMath.orderedDays(days).first ?? todayCode))"
     }
 
     static func dayState(for code: String, todayCode: String) -> String {

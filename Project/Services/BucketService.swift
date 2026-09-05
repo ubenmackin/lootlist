@@ -42,6 +42,9 @@ enum BucketServiceError: Error, LocalizedError, Equatable, Sendable {
 }
 
 /// Computes bucket balances and payout splits across the three `BucketKind` buckets.
+///
+/// Single-count contract (bucket-only): counted = bucketKind != nil && source != goal && source != transfer; bonus = counted && source != quest.
+/// WHY parity: transfers net zero via debit+credit in bucket math but stay excluded from ledger/total.
 @MainActor
 @Observable
 final class BucketService {
@@ -145,10 +148,21 @@ final class BucketService {
 
     // MARK: - Balance Attribution
 
-    /// Single-source attribution formula for bucket balances: an entry credits its `bucketKind`, and a
-    /// transfer entry ALSO debits its `fromBucket` — keeping ONE ledger row per transfer while both sides
+    /// WHY single source: every balance shares one counted predicate; check via this, never source directly.
+    nonisolated static func isCounted(_ entry: some LedgerEntryProtocol) -> Bool {
+        entry.isCounted
+    }
+
+    /// WHY single source: bonus totals share one quest-excluding predicate; check via this, never source directly.
+    nonisolated static func isBonusCounted(_ entry: some LedgerEntryProtocol) -> Bool {
+        entry.isBonusCounted
+    }
+
+    /// Single-source attribution: credits bucketKind; transfers also debit fromBucket so one row moves both sides.
     nonisolated static func applyBucketAttribution(_ entry: LedgerEntryCache, to balances: inout [BucketKind: Double]) {
-        // WHY single-count: goal entries mark allocation of already-counted deposit/quest funds, not new money.
+        // WHY bucket-only: nil-bucket rows are wiped residue, never live money.
+        guard let kind = entry.bucketKindEnum else { return }
+        // WHY single-count: goal entries reuse counted funds, not new money.
         if entry.sourceEnum == .goal {
             return
         }
@@ -158,13 +172,12 @@ final class BucketService {
         {
             balances[fromKind, default: 0] -= entry.amount
         }
-        guard let kind = entry.bucketKindEnum else { return }
         balances[kind, default: 0] += entry.amount
     }
 
+    /// WHY parity: counted excludes goal/transfer/nil-bucket so ledger total matches bucket total; transfers net zero via debit+credit.
     nonisolated static func ledgerBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
-        // WHY single-count: goal entries reuse deposit/quest pennies already summed above.
-        ledgers.filter { $0.profileRecordName == profileRecordName && $0.sourceEnum != .goal }.reduce(0) { $0 + $1.amount }
+        ledgers.filter { $0.profileRecordName == profileRecordName && Self.isCounted($0) }.reduce(0) { $0 + $1.amount }
     }
 
     nonisolated static func bucketBalances(for ledgers: [LedgerEntryCache], profileRecordName: String) -> [BucketKind: Double] {
@@ -179,6 +192,16 @@ final class BucketService {
     /// attribution so sheets never wait on CloudKit.
     nonisolated static func resolvedSpendBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
         bucketBalances(for: ledgers, profileRecordName: profileRecordName)[.spend] ?? 0
+    }
+
+    /// WHY one helper: bucket sum is the total on every surface; matches ledgerBalance (transfers net zero).
+    nonisolated static func totalBalance(for ledgers: [LedgerEntryCache], profileRecordName: String) -> Double {
+        bucketBalances(for: ledgers, profileRecordName: profileRecordName).values.reduce(0, +)
+    }
+
+    /// WHY one sum: precomputed bucket parts combine identically on every surface.
+    nonisolated static func totalBalance(bucketBalances: [BucketKind: Double]) -> Double {
+        bucketBalances.values.reduce(0, +)
     }
 
     // Balance per bucket via `applyBucketAttribution` over ledger entries with `bucketKind`.
@@ -287,10 +310,11 @@ final class BucketService {
         )
 
         // Check available balance in the source bucket.
-        let balances = bucketBalances(
+        let entries = cacheService.fetchLedgerEntries(
             profileRecordName: profile.id.recordName,
-            familyRecordName: family.id.recordName
+            family: family.id.recordName
         )
+        let balances = Self.bucketBalances(for: entries, profileRecordName: profile.id.recordName)
         let available = balances[from] ?? 0
         guard available >= amount else {
             throw BucketServiceError.insufficientFunds(available: available, requested: amount)

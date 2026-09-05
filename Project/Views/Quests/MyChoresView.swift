@@ -110,7 +110,7 @@ struct MyChoresView: View {
             .filter { $0.assigneeRecordName == name }
             .filter { WeekMath.isQuestInCurrentWeek($0.weekOf, range: previousRange) }
             .filter { !isFullyCompleted(for: $0) }
-            .filter { $0.targetCount > 1 || templatesByID[$0.templateRecordName]?.scheduleTypeEnum == .specificDays }
+            .filter { SpecificDaysHelper.isMultiPart(quest: $0, templatesByID: templatesByID) }
             .sorted(by: { $0.weekOf < $1.weekOf })
     }
 
@@ -571,12 +571,17 @@ struct MyChoresView: View {
         let qID = quest.recordName
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
-
-        Task {
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: log)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+        let logSnapshot = log.toQuestCompletion(zoneID: zoneID)
+        guard let profile = appState.currentProfile else {
+            submittingQuestIDs.remove(qID)
+            return
+        }
+        Task { @MainActor @Sendable [logSnapshot, profile, qID] in
             defer { submittingQuestIDs.remove(qID) }
-            guard let profile = appState.currentProfile else { return }
             do {
-                try await questService.withdrawCompletion(questLog: log, by: profile)
+                try await questService.withdrawCompletion(questLog: logSnapshot, by: profile)
                 HapticsService.lightImpact()
             } catch {
                 Self.logger.error("Failed to unsubmit quest: \(error, privacy: .private)")
@@ -588,29 +593,57 @@ struct MyChoresView: View {
         let qID = quest.recordName
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
-
-        Task {
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: quest)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
+        let questSnapshot = quest.toQuest(zoneID: zoneID)
+        let priorApproved = profileLogs.filter { $0.questRecordName == qID && $0.isApproved }.count
+        // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+        let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        guard let profile = appState.currentProfile else {
+            submittingQuestIDs.remove(qID)
+            return
+        }
+        let celebration = $showCelebration
+        Task { @MainActor @Sendable [questSnapshot, profile, priorApproved, effectiveTarget, qID, celebration] in
             defer { submittingQuestIDs.remove(qID) }
-            guard let profile = appState.currentProfile
-            else { return }
-
-            let zoneID = appState.resolvedFamilyZoneID()
-            let domain = quest.toQuest(zoneID: zoneID)
-
-            let priorApproved = profileLogs.filter { $0.questRecordName == qID && $0.isApproved }.count
-
             do {
                 let completion = try await questService.markComplete(
-                    quest: domain,
+                    quest: questSnapshot,
                     by: profile
                 )
-                QuestCompletionHelper.handleCompletionResult(
-                    completion,
-                    quest: quest,
-                    priorApproved: priorApproved,
-                    toastManager: toastManager,
-                    showCelebration: $showCelebration
-                )
+                if completion.verificationStatus == .autoApproved {
+                    let isFinal = GoldCalculation.isFullyCompleted(
+                        quest: questSnapshot,
+                        approvedCount: priorApproved + 1,
+                        effectiveTarget: effectiveTarget
+                    )
+                    if isFinal {
+                        HapticsService.success()
+                        celebration.wrappedValue = true
+                        Task { @MainActor @Sendable [celebration] in
+                            do {
+                                try await Task.sleep(
+                                    for: .seconds(DesignSystemConstants.Celebration.confettiLifetime)
+                                )
+                            } catch {
+                                Self.logger.debug("Celebration dismiss sleep interrupted: \(error, privacy: .private)")
+                            }
+                            celebration.wrappedValue = false
+                        }
+                    } else {
+                        HapticsService.lightImpact()
+                        toastManager?.show(
+                            message: "Part \(priorApproved + 1) of \(effectiveTarget) complete! 🎯",
+                            type: .success
+                        )
+                    }
+                } else if completion.verificationStatus == .pending {
+                    HapticsService.lightImpact()
+                    toastManager?.show(
+                        message: "Quest sent to Parent for review! ⏳",
+                        type: .info
+                    )
+                }
             } catch {
                 Self.logger.error("Failed to mark chore complete: \(error, privacy: .private)")
             }

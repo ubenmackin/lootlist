@@ -10,6 +10,7 @@ import SwiftUI
 struct QuestCardView: View {
     let quest: QuestCache
     var logs: [QuestCompletionCache] = []
+    var specificDays: [String] = []
     var isOverdue: Bool = false
     var onComplete: (() -> Void)?
 
@@ -23,11 +24,11 @@ struct QuestCardView: View {
     }
 
     private var targetCount: Int {
-        max(1, quest.targetCount)
+        SpecificDaysHelper.effectiveTarget(for: quest, specificDays: specificDays)
     }
 
     private var isFullyCompleted: Bool {
-        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
+        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount, effectiveTarget: targetCount)
     }
 
     private var isPendingReview: Bool {

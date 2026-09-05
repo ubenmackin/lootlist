@@ -31,8 +31,6 @@ struct TemplateManagerView: View {
     @State private var isSaving: Bool = false
     @FocusState private var isAmountFocused: Bool
 
-    private static let weekdayCodes: [String] = AppConstants.weekdayCodes
-
     var body: some View {
         NavigationStack {
             Form {
@@ -108,8 +106,8 @@ struct TemplateManagerView: View {
                             Text("Repeat On")
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 8) {
-                                    ForEach(Self.weekdayCodes.indices, id: \.self) { idx in
-                                        let code = Self.weekdayCodes[idx]
+                                    ForEach(WeekMath.weekdayOrder.indices, id: \.self) { idx in
+                                        let code = WeekMath.weekdayOrder[idx]
                                         PresetPill(
                                             text: AppConstants.weekdayAbbreviated[idx],
                                             isSelected: specificDays.contains(code),
@@ -218,7 +216,7 @@ struct TemplateManagerView: View {
             toastManager.show(message: "Name is required.", type: .error)
             return
         }
-        guard let gold = Double(defaultGoldText.trimmingCharacters(in: .whitespaces)),
+        guard let gold = CurrencyFormatter.decimalDouble(from: defaultGoldText),
               gold >= 0
         else {
             toastManager.show(message: "Reward must be a non-negative number.", type: .error)

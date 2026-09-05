@@ -11,6 +11,9 @@ import Foundation
 /// Bucket-attributed payout settlement for `TreasuryService`. Called from `runPayout` after quest
 /// rewards settle: the week's net payout is split by the hero's CURRENT split percentages — read at
 extension TreasuryService {
+    /// WHY Sendable style: per-payout week labels reuse a value type without shared mutable formatter.
+    private static let weekLabelStyle = Date.FormatStyle(date: .abbreviated, time: .omitted).locale(Locale.current)
+
     /// Idempotently mints the ledger entries for one closed weekly payout, split across buckets via
     /// `BucketService.splitPennies`.
     func mintBucketSplitPayout(
@@ -93,11 +96,8 @@ extension TreasuryService {
             .filter { $0.pennies > 0 }
         guard !receiving.isEmpty else { return }
 
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
         let zoneID = context.family.recordID.zoneID
-        let weekLabel = formatter.string(from: context.weekOf)
+        let weekLabel = context.weekOf.formatted(Self.weekLabelStyle)
 
         for share in receiving {
             let recordName = receiving.count == 1 ? context.baseRecordName : "\(context.baseRecordName)-\(share.kind.rawValue)"

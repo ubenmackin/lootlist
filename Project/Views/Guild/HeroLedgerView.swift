@@ -32,6 +32,7 @@ struct HeroLedgerView: View {
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     init(hero: ProfileCache, familyRecordName: String?, spending: SpendingService) {
         self.hero = hero
@@ -43,6 +44,7 @@ struct HeroLedgerView: View {
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
         let allowancePeriodFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
 
         _cachedLedgers = Query(
             filter: ledgerFilter,
@@ -64,6 +66,7 @@ struct HeroLedgerView: View {
             sort: \AllowancePeriodCache.weekOf,
             order: .reverse
         )
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     var body: some View {
@@ -101,6 +104,7 @@ struct HeroLedgerView: View {
         .onChange(of: cachedQuests) { _, _ in rebuild() }
         .onChange(of: cachedCompletions) { _, _ in rebuild() }
         .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
+        .onChange(of: cachedTemplates) { _, _ in rebuild() }
         .onChange(of: scope) { _, _ in rebuild() }
         .sheet(isPresented: $isShowingDeposit) {
             if let vm = viewModel {
@@ -147,6 +151,7 @@ struct HeroLedgerView: View {
             quests: cachedQuests,
             completions: cachedCompletions,
             allowancePeriods: cachedAllowancePeriods,
+            templates: cachedTemplates,
             scope: scope
         )
     }

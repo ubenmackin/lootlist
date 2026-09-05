@@ -95,6 +95,7 @@
 		3B2464646AC2862B4DEDEC29 /* JourneyZone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1839C89AA82B389CF7466AF9 /* JourneyZone.swift */; };
 		3B3890A05E057C1856045FE6 /* GuildRosterSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B52249FE484BE42702A41E09 /* GuildRosterSectionView.swift */; };
 		3BAFA13490A68A51609472C2 /* CKSyncEngineDelegateHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B6076B9096995404AD21385 /* CKSyncEngineDelegateHandler.swift */; };
+		3BFE1AE15A96C22994E53425 /* SpendDigestServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36E3CF9BA2A6EB9C5DDEEB6A /* SpendDigestServiceTests.swift */; };
 		3CD1D3266E5C898AB676AE43 /* BucketSplitEntryRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5CB2F961343E801051F58D /* BucketSplitEntryRow.swift */; };
 		3D15240BE2A19C5E6BE4BC6C /* FamilyDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 975CB482406B3EB4588EC345 /* FamilyDashboardView.swift */; };
 		3DA8AC4D2618179D81E4C62F /* PayoutDetailContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF2ED03FA419C3E379E073EC /* PayoutDetailContentView.swift */; };
@@ -186,6 +187,7 @@
 		7159EF2FD2B5ED78E437733C /* DailyLoginBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1575EBBEF8423AD2BF534798 /* DailyLoginBannerView.swift */; };
 		72CF23B55240E40988F7149E /* FamilyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C47FAAAF5A2001034107C67 /* FamilyService.swift */; };
 		72D4C00D8E7A0E4DDB43547C /* FamilyDashboardViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4485D5B4DFB8574E1DF1D9C3 /* FamilyDashboardViewModelTests.swift */; };
+		7638E6988EF1D41FBB7C9B5E /* SpendDigestService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01E47E3C8F0E7621310CD632 /* SpendDigestService.swift */; };
 		76C1348393E43ECA4CEAE7F1 /* QuestServiceTests+ActiveQuests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24F3F8CC0DD0E4E540306D55 /* QuestServiceTests+ActiveQuests.swift */; };
 		773530024D1B1E916C27170E /* CKSyncEngineCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6CA29BADC966FA94689CD7 /* CKSyncEngineCoordinator.swift */; };
 		78322B5B9BA954D97BF5ABC2 /* JourneyMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36092757E94B117081454909 /* JourneyMapView.swift */; };
@@ -457,6 +459,7 @@
 		00505E32BB70366929FCB3D8 /* JourneyZoneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyZoneTests.swift; sourceTree = "<group>"; };
 		009A59B0DDD922F4BD7E0919 /* QuestRarity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestRarity.swift; sourceTree = "<group>"; };
 		0197AFDAF18C8E124E4CE964 /* AppDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDependencies.swift; sourceTree = "<group>"; };
+		01E47E3C8F0E7621310CD632 /* SpendDigestService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendDigestService.swift; sourceTree = "<group>"; };
 		026B781537DB7624C07CE555 /* QuestServiceTests+Queries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "QuestServiceTests+Queries.swift"; sourceTree = "<group>"; };
 		028B3D08A58ABE973309E8A0 /* CacheServicing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheServicing.swift; sourceTree = "<group>"; };
 		029D59AC3369CE8ADE425CFE /* HeroLedgerViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroLedgerViewModelTests.swift; sourceTree = "<group>"; };
@@ -537,6 +540,7 @@
 		3358E19E128D97849CED8D7D /* RecordBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordBridgeTests.swift; sourceTree = "<group>"; };
 		35B40A26C97411D811F77F48 /* HeroBoardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeroBoardViewModel.swift; sourceTree = "<group>"; };
 		36092757E94B117081454909 /* JourneyMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyMapView.swift; sourceTree = "<group>"; };
+		36E3CF9BA2A6EB9C5DDEEB6A /* SpendDigestServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendDigestServiceTests.swift; sourceTree = "<group>"; };
 		36EA737A10B28750AD5AE459 /* MatchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchService.swift; sourceTree = "<group>"; };
 		3712F24C11131B452BA2E078 /* WidgetDataBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetDataBridgeTests.swift; sourceTree = "<group>"; };
 		3733A863E64E1CB664EF4452 /* AvatarService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarService.swift; sourceTree = "<group>"; };
@@ -1080,6 +1084,7 @@
 				9162B55882719C5378F48EF6 /* RecordBridge.swift */,
 				BC9C4466DB59F4507EA1C764 /* SerialMutationQueue.swift */,
 				A8DCAC9147DBA316A1D95311 /* SoundManager.swift */,
+				01E47E3C8F0E7621310CD632 /* SpendDigestService.swift */,
 				73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */,
 				382FD3ED18619EF8B1FEE10E /* SyncEnqueuing.swift */,
 				7A14BE30AA14E1BBF5A71E4C /* ToastManager.swift */,
@@ -1231,6 +1236,7 @@
 				7B986BBD3A997105FDAFC36B /* ScenarioMatrixTests.swift */,
 				F1A9A7101EBC70CA783F90FC /* ScopedIdentityTests.swift */,
 				F15873D499621B5275204719 /* SerialMutationQueueTests.swift */,
+				36E3CF9BA2A6EB9C5DDEEB6A /* SpendDigestServiceTests.swift */,
 				60E8122888D7243A795D93C5 /* SpendingServiceTests.swift */,
 				57E6DF9A305C00115C614D6E /* SpriteSnapshotRenderingTests.swift */,
 				713F91483330CBE92F807137 /* TreasuryServiceRealTimeTests.swift */,
@@ -2023,6 +2029,7 @@
 				C23FC8F96ADB7F292EA634CF /* ShopItem.swift in Sources */,
 				D1B0D5D34C80FFF0EA775E20 /* SoundManager.swift in Sources */,
 				F9D9EC812EA06D0088F203D5 /* SpecificDaysHelper.swift in Sources */,
+				7638E6988EF1D41FBB7C9B5E /* SpendDigestService.swift in Sources */,
 				9BBD7D10551290D9847A1D4F /* SpendingLogView.swift in Sources */,
 				C631317D746E8FA61D9FFD57 /* SpendingService.swift in Sources */,
 				A0A078F5FB5E392E26CF1CFD /* SpriteGalleryView.swift in Sources */,
@@ -2157,6 +2164,7 @@
 				C33DCB3037CB75202C0E828F /* ScenarioMatrixTests.swift in Sources */,
 				15F8E71427319512CC71C5EF /* ScopedIdentityTests.swift in Sources */,
 				5371C6B963C8F7253A05EB88 /* SerialMutationQueueTests.swift in Sources */,
+				3BFE1AE15A96C22994E53425 /* SpendDigestServiceTests.swift in Sources */,
 				35BD1002602CDCCF73F7965B /* SpendingServiceTests.swift in Sources */,
 				B332C3390E94185975D736AF /* SpriteSnapshotRenderingTests.swift in Sources */,
 				DCD15CF9101BFF6BA73DBBE7 /* StreakCalculatorTests.swift in Sources */,

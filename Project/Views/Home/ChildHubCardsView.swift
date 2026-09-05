@@ -24,7 +24,6 @@ struct ChildHubCardsView: View {
     /// Lightweight ledger slice for sparkline; optional to keep init compatible.
     let recentLedgers: [LedgerEntryCache]
     let streak: Int
-    /// Family templates for day-checklist labels; optional so existing callers keep compiling.
     let cachedTemplates: [QuestTemplateCache]
 
     init(
@@ -37,7 +36,7 @@ struct ChildHubCardsView: View {
         onWithdraw: @escaping (QuestCache, QuestCompletionCache) -> Void,
         recentLedgers: [LedgerEntryCache] = [],
         streak: Int = 0,
-        cachedTemplates: [QuestTemplateCache] = []
+        cachedTemplates: [QuestTemplateCache]
     ) {
         self.viewModel = viewModel
         self.cachedQuests = cachedQuests
@@ -52,7 +51,7 @@ struct ChildHubCardsView: View {
     }
 
     private var templatesByID: [String: QuestTemplateCache] {
-        Dictionary(uniqueKeysWithValues: cachedTemplates.map { ($0.recordName, $0) })
+        SpecificDaysHelper.templatesByID(cachedTemplates)
     }
 
     var body: some View {
@@ -282,7 +281,8 @@ struct ChildHubCardsView: View {
         return grouped.keys.sorted().suffix(7).compactMap { key in
             guard let entries = grouped[key] else { return nil }
             let bucketDate = WeekMath.date(fromDayKey: key) ?? entries.map(\.date).min() ?? Date()
-            let total = entries.reduce(0) { $0 + $1.amount }
+            // WHY single-count: goal markers reuse deposit/quest pennies and transfers move between buckets.
+            let total = entries.filter { BucketService.isCounted($0) }.reduce(0) { $0 + $1.amount }
             let label = bucketDate.formatted(.dateTime.month(.abbreviated).day())
             return WeeklyEarningPoint(id: key, weekStart: bucketDate, label: label, amount: total)
         }

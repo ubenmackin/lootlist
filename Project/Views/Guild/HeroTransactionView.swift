@@ -236,13 +236,18 @@ struct HeroTransactionView: View {
             toastManager.show(message: "Please enter a valid positive amount.", type: .warning)
             return
         }
-        Task {
-            let success = (mode == .deposit)
-                ? await viewModel.deposit(description: trimmedDescription, amount: amount, date: date)
-                : await viewModel.withdraw(description: trimmedDescription, amount: amount, date: date)
+        // WHY snapshot: @State values cross suspension; Sendable copies ride the Task.
+        let descriptionSnapshot = trimmedDescription
+        let amountSnapshot = amount
+        let dateSnapshot = date
+        let modeSnapshot = mode
+        Task { @MainActor @Sendable [viewModel, descriptionSnapshot, amountSnapshot, dateSnapshot, modeSnapshot] in
+            let success = (modeSnapshot == .deposit)
+                ? await viewModel.deposit(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)
+                : await viewModel.withdraw(description: descriptionSnapshot, amount: amountSnapshot, date: dateSnapshot)
             if success {
                 toastManager.show(
-                    message: mode == .deposit ? "Deposit added!" : "Withdrawal saved!",
+                    message: modeSnapshot == .deposit ? "Deposit added!" : "Withdrawal saved!",
                     type: .success
                 )
                 dismiss()

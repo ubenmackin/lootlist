@@ -47,6 +47,7 @@ struct BucketAttributionParityTests {
                 fromBucket: BucketKind.spend.rawValue,
                 toBucket: BucketKind.shortTermSave.rawValue
             ),
+            makeLedger(recordName: "l_goal", amount: 5, source: "goal", bucketKind: BucketKind.shortTermSave.rawValue),
             makeLedger(recordName: "l_other_hero", profileRecordName: "hero2", amount: 99, source: "quest", bucketKind: BucketKind.spend.rawValue)
         ]
 
@@ -56,11 +57,17 @@ struct BucketAttributionParityTests {
         #expect(directBalances[.longTermSave] == nil || directBalances[.longTermSave] == 0)
 
         let directLedgerBalance = BucketService.ledgerBalance(for: ledgers, profileRecordName: "hero1")
-        #expect(directLedgerBalance == 13)
+        // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
+        #expect(directLedgerBalance == 10)
+
+        let directTotal = BucketService.totalBalance(for: ledgers, profileRecordName: "hero1")
+        #expect(directTotal == 10)
+        #expect(directTotal == directBalances.values.reduce(0, +))
+        #expect(BucketService.totalBalance(bucketBalances: directBalances) == 10)
 
         let heroRows = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: "hero1", scope: .allTime, payoutDay: .sunday)
-        #expect(heroRows.count == 2)
-        #expect(Set(heroRows.map(\.id)) == Set(["l_spend", "l_transfer"]))
+        #expect(heroRows.count == 3)
+        #expect(Set(heroRows.map(\.id)) == Set(["l_spend", "l_transfer", "l_goal"]))
 
         let hero = ProfileCache(
             recordName: "hero1",
@@ -94,7 +101,8 @@ struct BucketAttributionParityTests {
             logs: [],
             ledgers: ledgers,
             allowancePeriods: [],
-            profileAchievements: []
+            profileAchievements: [],
+            templates: []
         )
         let heroCard = metrics.childAccountCards.first { $0.profile.recordName == "hero1" }
         #expect(heroCard?.balance == 10)

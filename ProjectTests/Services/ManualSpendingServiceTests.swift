@@ -410,14 +410,16 @@ struct SpendingServiceTests {
         let family = makeFamily(zoneID)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: parent)
 
-        let entry = try await service.deposit(
+        let entries = try await service.depositEntries(
             profile: hero,
             family: family,
             familyRecordName: family.id.recordName,
             description: "Birthday gift from Grandpa",
             amount: 25.0
         )
+        let entry = try #require(entries.first)
 
+        #expect(entries.count == 1)
         #expect(entry.amount == 25.0)
         #expect(entry.source == "deposit")
         #expect(entry.description == "Birthday gift from Grandpa")

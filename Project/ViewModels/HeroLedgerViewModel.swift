@@ -38,13 +38,14 @@ final class HeroLedgerViewModel {
 
     func rebuildLedger(
         ledgers: [LedgerEntryCache],
-        quests: [QuestCache] = [],
-        completions: [QuestCompletionCache] = [],
-        allowancePeriods: [AllowancePeriodCache] = [],
-        templates: [QuestTemplateCache] = [],
+        quests: [QuestCache],
+        completions: [QuestCompletionCache],
+        allowancePeriods: [AllowancePeriodCache],
+        templates: [QuestTemplateCache],
         scope: CalendarScope
     ) {
-        balance = BucketService.ledgerBalance(for: ledgers, profileRecordName: heroProfile.recordName)
+        // WHY one helper: bucket sum is the total on every surface.
+        balance = BucketService.totalBalance(for: ledgers, profileRecordName: heroProfile.recordName)
         spendBalance = BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: heroProfile.recordName)
 
         let payoutDay = heroProfile.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
@@ -52,7 +53,9 @@ final class HeroLedgerViewModel {
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
         let effectivePolicy = heroProfile.payoutPolicyEnum ?? appState.family?.payoutPolicy ?? .perQuest
-        let hasPaidQuestThisWeek = ledgers.filter { $0.profileRecordName == heroProfile.recordName }.contains { $0.sourceEnum == .quest && weekRange.contains($0.date) }
+        // WHY bucket-only: nil-bucket rows are wiped residue, never paid quest gold.
+        let hasPaidQuestThisWeek = ledgers.filter { $0.profileRecordName == heroProfile.recordName }
+            .contains { $0.sourceEnum == .quest && BucketService.isCounted($0) && weekRange.contains($0.date) }
         let currentAllowance = allowancePeriods.first {
             $0.profileRecordName == heroProfile.recordName &&
                 WeekMath.startOfWeek(for: $0.weekOf, payoutDay: payoutDay) == weekOf
@@ -62,7 +65,7 @@ final class HeroLedgerViewModel {
             pendingQuestGold = 0.0
         } else {
             // WHY day count wins: stale targetCount under-counts specific-days split rewards.
-            let templatesByID = Dictionary(uniqueKeysWithValues: templates.map { ($0.recordName, $0) })
+            let templatesByID = SpecificDaysHelper.templatesByID(templates)
             pendingQuestGold = GoldCalculation.netWeeklyGold(
                 quests: quests,
                 logs: completions,

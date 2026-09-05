@@ -138,7 +138,7 @@ class SpendingService {
                 )
             },
             hydrate: { [syncCoordinator, scopeForHydrate, targetZoneID] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: models,
                     databaseScope: scopeForHydrate,
                     zoneID: targetZoneID

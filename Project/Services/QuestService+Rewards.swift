@@ -20,7 +20,10 @@ extension QuestService {
             throw FamilyServiceError.unauthorized
         }
         let approvedCount = try await calculateApprovedCount(for: quest, completion: completion)
-        let creditedGold = GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
+        // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+        let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
+        let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        let creditedGold = GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)
         if completion.xpCredited == nil {
             let handled = try await handleXPCredit(
                 quest: quest,

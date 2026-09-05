@@ -47,10 +47,13 @@ enum DashboardMetricsCalculator {
         ledgers: [LedgerEntryCache],
         allowancePeriods: [AllowancePeriodCache],
         profileAchievements: [ProfileAchievementCache],
-        familyContext: FamilyContext
+        familyContext: FamilyContext,
+        templates: [QuestTemplateCache]
     ) -> Metrics {
         let roster = RosterViewState(profiles: profiles)
         let computedHeroes = roster.heroes
+        // WHY day count wins: legacy quest rows keep stale targetCount after template gains days.
+        let templatesByID = SpecificDaysHelper.templatesByID(templates)
 
         var heroSummaries: [HeroSummary] = []
         heroSummaries.reserveCapacity(computedHeroes.count)
@@ -69,7 +72,9 @@ enum DashboardMetricsCalculator {
 
             let fullyCompletedQuestsCount = heroQuests.filter { quest in
                 let qApprovedLogs = approvedLogs.filter { $0.questRecordName == quest.recordName }
-                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: qApprovedLogs.count)
+                // WHY day count wins: stale targetCount would under-count specific-days checklists.
+                let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: qApprovedLogs.count, effectiveTarget: target)
             }.count
 
             let heroPeriod = allowancePeriods.first {
@@ -90,14 +95,16 @@ enum DashboardMetricsCalculator {
                     logs: logs,
                     profileRecordName: hero.recordName,
                     payoutPolicy: effectivePolicy,
-                    weekRange: heroWeekRange
+                    weekRange: heroWeekRange,
+                    templatesByID: templatesByID
                 )
 
                 let heroLedgers = ledgers.filter {
                     $0.profileRecordName == hero.recordName && heroWeekRange.contains($0.date)
                 }
                 bonusGold = heroLedgers
-                    .filter { $0.amount > 0 && $0.sourceEnum != .quest }
+                    // WHY single-count: goal markers reuse already-counted funds and transfers move between buckets.
+                    .filter { BucketService.isBonusCounted($0) }
                     .reduce(0.0) { $0 + $1.amount }
             }
             let earned = questGold + bonusGold
@@ -161,16 +168,14 @@ enum DashboardMetricsCalculator {
         )
     }
 
-    /// Convenience pure entry point matching the canonical 6-array tuple described in
-    /// the decomposition task. Defaults family context to nil/.sunday so pure unit
-    /// tests can exercise metric logic without CloudKit family scaffolding.
     static func calculate(
         profiles: [ProfileCache],
         quests: [QuestCache],
         logs: [QuestCompletionCache],
         ledgers: [LedgerEntryCache],
         allowancePeriods: [AllowancePeriodCache],
-        profileAchievements: [ProfileAchievementCache]
+        profileAchievements: [ProfileAchievementCache],
+        templates: [QuestTemplateCache]
     ) -> Metrics {
         calculate(
             profiles: profiles,
@@ -179,14 +184,13 @@ enum DashboardMetricsCalculator {
             ledgers: ledgers,
             allowancePeriods: allowancePeriods,
             profileAchievements: profileAchievements,
-            familyContext: FamilyContext()
+            familyContext: FamilyContext(),
+            templates: templates
         )
     }
 
-    /// WHY one helper: bucketed plus pre-bucket legacy totals must match on every surface.
+    /// WHY one helper: bucket sum is the total on every surface.
     private static func heroTotalBalance(heroEntries: [LedgerEntryCache], profileRecordName: String) -> Double {
-        let balances = BucketService.bucketBalances(for: heroEntries, profileRecordName: profileRecordName)
-        let legacyUnattributed = heroEntries.filter { $0.bucketKindEnum == nil && $0.sourceEnum != .transfer }.reduce(0) { $0 + $1.amount }
-        return balances.values.reduce(0, +) + legacyUnattributed
+        BucketService.totalBalance(for: heroEntries, profileRecordName: profileRecordName)
     }
 }

@@ -22,6 +22,7 @@ protocol CacheServicing: AnyObject {
     func fetchProfiles(family: String?) -> [ProfileCache]
     func fetchProfile(recordName: String, family: String) -> ProfileCache?
     func fetchQuests(family: String?) -> [QuestCache]
+    func fetchQuestTemplates(family: String?) -> [QuestTemplateCache]
     func fetchGoals(family: String?) -> [GoalCache]
     func fetchGoals(profileRecordName: String, bucketKind: String, familyRecordName: String) -> [GoalCache]
     func fetchGoal(recordName: String, family: String) -> GoalCache?

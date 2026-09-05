@@ -54,8 +54,7 @@ final class HeroDashboardViewModel {
 
     // MARK: - List Building
 
-    /// Synchronous rebuild from SwiftData `@Query` rows using pure cache math.
-    func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache] = [], allowancePeriods: [AllowancePeriodCache] = []) {
+    func rebuildLists(quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache], allowancePeriods: [AllowancePeriodCache]) {
         guard let profileName = appState.currentProfile?.id.recordName,
               appState.family != nil
         else { return }
@@ -64,11 +63,7 @@ final class HeroDashboardViewModel {
         weekDays = HeroDashboardViewModel.currentWeekDays(payoutDay: payoutDay)
         let todayCode = HeroDashboardViewModel.todayWeekdayCode()
 
-        if !templates.isEmpty {
-            templatesByID = Dictionary(
-                uniqueKeysWithValues: templates.map { ($0.recordName, $0) }
-            )
-        }
+        templatesByID = SpecificDaysHelper.templatesByID(templates)
 
         var multiLogs: [String: [QuestCompletionCache]] = [:]
         for log in logs {
@@ -148,7 +143,8 @@ final class HeroDashboardViewModel {
             allowancePeriods: allowancePeriods,
             profileRecordName: profileRecordName,
             payoutPolicy: payoutPolicy,
-            payoutDay: payoutDay
+            payoutDay: payoutDay,
+            templatesByID: templatesByID
         )
 
         completedQuestCount = quests.reduce(0) { count, quest in
@@ -169,7 +165,9 @@ final class HeroDashboardViewModel {
     }
 
     func isFullyCompleted(for quest: QuestCache) -> Bool {
-        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount(for: quest))
+        // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+        let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount(for: quest), effectiveTarget: target)
     }
 
     // MARK: - Weekly Earnings
@@ -177,10 +175,11 @@ final class HeroDashboardViewModel {
     nonisolated static func earnedThisWeek(
         logs: [QuestCompletionCache],
         quests: [QuestCache],
-        allowancePeriods: [AllowancePeriodCache] = [],
+        allowancePeriods: [AllowancePeriodCache],
         profileRecordName: String,
         payoutPolicy: PayoutPolicy?,
-        payoutDay: PayoutDay = .sunday
+        payoutDay: PayoutDay,
+        templatesByID: [String: QuestTemplateCache]
     ) -> Double {
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
         // Compare normalized week starts rather than isDate(inSameDayAs:) to
@@ -200,7 +199,8 @@ final class HeroDashboardViewModel {
             logs: logs,
             profileRecordName: profileRecordName,
             payoutPolicy: payoutPolicy,
-            weekRange: weekRange
+            weekRange: weekRange,
+            templatesByID: templatesByID
         )
     }
 
@@ -251,7 +251,9 @@ final class HeroDashboardViewModel {
             let approvedLogs = logs(for: quest).filter {
                 $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
             }
-            return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count)
+            // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+            return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count, effectiveTarget: target)
         }
     }
 

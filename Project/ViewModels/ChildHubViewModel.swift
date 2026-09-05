@@ -54,7 +54,6 @@ struct ActiveGoalSummary: Identifiable {
 @Observable
 final class ChildHubViewModel {
     private(set) var bucketBalances: [BucketKind: Double] = [:]
-    private(set) var legacyUnattributedBalance: Double = 0
     private(set) var choreRows: [ChoreRowItem] = []
     private(set) var weeklyCompleted: Int = 0
     private(set) var weeklyGoal: Int = 0
@@ -71,10 +70,9 @@ final class ChildHubViewModel {
 
     // MARK: - Derived Figures
 
-    /// WHY parity: pre-bucket legacy rows carry nil bucketKind, so bucket sum alone omits them; include to match dashboard totals.
+    /// WHY one helper: bucket sum is the total on every surface.
     var availableBalance: Double {
-        BucketKind.allCases.reduce(0) { $0 + (bucketBalances[$1] ?? 0) }
-            + legacyUnattributedBalance
+        BucketService.totalBalance(bucketBalances: bucketBalances)
     }
 
     func bucketBalance(_ kind: BucketKind) -> Double {
@@ -117,7 +115,6 @@ final class ChildHubViewModel {
               let familyName = appState.family?.id.recordName
         else {
             bucketBalances = [:]
-            legacyUnattributedBalance = 0
             choreRows = []
             weeklyCompleted = 0
             weeklyGoal = 0
@@ -131,7 +128,6 @@ final class ChildHubViewModel {
         let cache = bucketService.cacheService
         if cache.fetchProfile(recordName: profileName, family: familyName) == nil {
             bucketBalances = [:]
-            legacyUnattributedBalance = 0
             choreRows = []
             weeklyCompleted = 0
             weeklyGoal = 0
@@ -143,10 +139,6 @@ final class ChildHubViewModel {
         let ledgerEntries = bucketService.cacheService
             .fetchLedgerEntries(profileRecordName: profileName, family: familyName)
         bucketBalances = BucketService.bucketBalances(for: ledgerEntries, profileRecordName: profileName)
-        // WHY parity: bucketKind nil marks pre-bucket legacy funds dashboard totals include.
-        legacyUnattributedBalance = ledgerEntries
-            .filter { $0.bucketKindEnum == nil && $0.sourceEnum != .transfer }
-            .reduce(0) { $0 + $1.amount }
 
         let myQuests = quests.filter { $0.assigneeRecordName == profileName && $0.isActive }
         let myLogs = logs.filter { $0.completerRecordName == profileName }
@@ -197,10 +189,17 @@ final class ChildHubViewModel {
         let savingsStreak = StreakCalculator.computeSavingsStreak(from: ledgerEntries, profileRecordName: profileName, payoutDay: payoutDay)
         let nextChore = choreRows.first(where: { !$0.isPendingReview })?.title
 
-        let weekTargetTotal = weekQuests.reduce(0) { $0 + SpecificDaysHelper.effectiveTarget(for: $1, templatesByID: templatesByID) }
+        let todayCodeValue = todayCode
+        // WHY today denominator: week sum inflates widget fraction, so only today's scheduled day counts.
+        let todayScheduledTotal = weekQuests.reduce(0) { partial, quest in
+            if quest.scheduleTypeEnum == .specificDays {
+                return partial + (SpecificDaysHelper.isScheduledToday(quest: quest, templatesByID: templatesByID, todayCode: todayCodeValue) ? 1 : 0)
+            }
+            return partial + SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        }
         let snapshot = WidgetSnapshot(
             todayCompletedQuests: todayLogs.count,
-            todayTotalQuests: max(todayLogs.count, weekTargetTotal),
+            todayTotalQuests: max(todayLogs.count, todayScheduledTotal),
             dailyQuestStreak: streak,
             weeklySavingsStreak: savingsStreak,
             activeGoalName: activeGoal?.goal.name,

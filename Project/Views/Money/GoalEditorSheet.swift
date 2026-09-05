@@ -54,7 +54,7 @@ struct GoalEditorSheet: View {
         _categoryText = State(initialValue: goal?.category ?? "")
         if let goal {
             let dollars = Double(goal.targetAmountPennies) / 100.0
-            _targetAmountText = State(initialValue: String(format: "%.2f", dollars))
+            _targetAmountText = State(initialValue: CurrencyFormatter.editingString(dollars))
             _hasTargetDate = State(initialValue: goal.targetDate != nil)
             _targetDate = State(initialValue: goal.targetDate ?? Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
             _linkURLText = State(initialValue: goal.linkURL ?? "")
@@ -142,11 +142,11 @@ struct GoalEditorSheet: View {
         }
     }
 
-    /// Purchase is available when editing an unarchived, incomplete goal with a purchase handler.
+    /// Purchase is available when editing an unarchived goal with a purchase handler.
     private var shouldShowPurchase: Bool {
-        // WHY gate on flags: purchased goals set both flags and hide from active lists, so the button never reappears.
+        // WHY gate on archive only: purchased goals set both flags, while FIFO-completed goals stay purchasable to resolve.
         guard onPurchase != nil, let goal = initialGoal else { return false }
-        return goal.completedAt == nil && !goal.isArchived
+        return !goal.isArchived
     }
 
     /// Target formatted for purchase confirmation copy.
@@ -493,7 +493,7 @@ struct GoalEditorSheet: View {
                     }
                 } else if let suggested = suggestedPrice {
                     Button {
-                        targetAmountText = String(format: "%.2f", suggested.amount)
+                        targetAmountText = CurrencyFormatter.editingString(suggested.amount)
                         validateAmount(targetAmountText)
                     } label: {
                         Label("Use suggested price \(CurrencyFormatter.string(suggested.amount))", systemImage: "dollarsign.circle.fill")
@@ -607,7 +607,8 @@ struct GoalEditorSheet: View {
         suggestedPrice = nil
         isExtractingPrice = false
         resolvedImageURL = nil
-        Task {
+        // WHY snapshot: link fetch suspends; Sendable URL rides the Task while @State stays on MainActor.
+        Task { @MainActor @Sendable [url] in
             if let metadata = await LinkMetadataService.fetchMetadata(for: url) {
                 if let title = metadata.title, !title.isEmpty {
                     resolvedTitle = title
@@ -660,7 +661,8 @@ struct GoalEditorSheet: View {
         )
 
         isSaving = true
-        Task {
+        // WHY snapshot: draft crosses suspension; Sendable copy rides the Task.
+        Task { @MainActor @Sendable [draft] in
             do {
                 try await onSave(draft)
                 dismiss()
@@ -676,7 +678,8 @@ struct GoalEditorSheet: View {
     private func deleteGoal() {
         guard let onDelete else { return }
         isDeleting = true
-        Task {
+        // WHY MainActor hop: @State mutations resume on MainActor after suspension.
+        Task { @MainActor @Sendable in
             do {
                 try await onDelete()
                 dismiss()
@@ -691,7 +694,8 @@ struct GoalEditorSheet: View {
     private func purchaseGoal() {
         guard let onPurchase else { return }
         isPurchasing = true
-        Task {
+        // WHY MainActor hop: @State mutations resume on MainActor after suspension.
+        Task { @MainActor @Sendable in
             do {
                 try await onPurchase()
                 dismiss()

@@ -81,7 +81,10 @@ extension QuestService {
 
         let existingLogs = cachedQuestLogs(forQuest: quest)
         let priorCount = existingLogs.filter(\.verificationStatus.countsTowardCompletion).count
-        let isFinalSubPart = priorCount + 1 >= quest.targetCount
+        // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+        let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
+        let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        let isFinalSubPart = GoldCalculation.isFullyCompleted(quest: quest, approvedCount: priorCount + 1, effectiveTarget: effectiveTarget)
 
         switch quest.approvalMode {
         case .autoApprove:
@@ -89,7 +92,7 @@ extension QuestService {
         case .parentVerify:
             log = try await completeParentVerify(log: log, quest: quest, isFinalSubPart: isFinalSubPart, resolvedZoneID: resolvedZoneID)
         }
-        Task { await syncCoordinator.sendPendingChanges() }
+        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return log
     }
 
@@ -161,7 +164,7 @@ extension QuestService {
             try await applyTransientFallbackCredit(log: &mutableLog, quest: quest, profile: profile, resolvedZoneID: resolvedZoneID)
         }
         toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
-        Task { await syncCoordinator.sendPendingChanges() }
+        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return mutableLog
     }
 
@@ -212,11 +215,14 @@ extension QuestService {
             .toProfile(zoneID: resolvedZoneID) else { return }
         let (totalXP, _) = xpService.calculatedXP(baseXP: remaining, profile: heroProfile)
         let rewardID = RewardEvent.recordID(completionRecordName: log.id.recordName, zoneID: resolvedZoneID)
+        // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+        let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
+        let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
         let rewardEvent = RewardEvent(
             profile: CKRecord.Reference(recordID: profile.id, action: .none),
             questCompletion: CKRecord.Reference(recordID: log.id, action: .none),
             xpAmount: totalXP,
-            goldAmount: GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount),
+            goldAmount: GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget),
             timestamp: log.completedDate,
             family: log.family,
             id: rewardID
@@ -345,7 +351,7 @@ extension QuestService {
                 )
                 toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
                 dispatchParentReviewNotification(for: mutableLog, quest: quest)
-                Task { await syncCoordinator.sendPendingChanges() }
+                Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
                 return mutableLog
             }
             await cacheService.invalidate(recordName: mutableLog.id.recordName, family: quest.family.recordID.recordName, type: .questCompletion)
@@ -384,9 +390,7 @@ extension QuestService {
         updated.verificationStatus = .withdrawn
         await cacheService.upsertQuestCompletion(updated)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: updated.id, appState: appState, logger: logger, context: "QuestService.withdrawCompletion")
-        Task {
-            await syncCoordinator.sendPendingChanges()
-        }
+        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
     }
 
     func withdrawCompletion(questLog: QuestCompletionCache, by profile: Profile) async throws {
@@ -505,7 +509,10 @@ extension QuestService {
         // Local validation against cached completions to prevent double completion.
         let logs = cachedQuestLogs(forQuest: quest)
         let nonRejectedCount = logs.filter(\.verificationStatus.countsTowardCompletion).count
-        if GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejectedCount) {
+        // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+        let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: quest.family.recordID.recordName, zoneID: quest.id.zoneID)
+        let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        if GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejectedCount, effectiveTarget: effectiveTarget) {
             throw QuestServiceError.alreadyCompleted
         }
         if quest.approvalMode == .parentVerify, logs.contains(where: { $0.verificationStatus == .pending }) {
@@ -637,9 +644,7 @@ extension QuestService {
         } else {
             logger.warning("Cache miss during verify for quest/hero; skipping reward settlement — cache will sync via CKSyncEngine")
             toastManager?.show(message: "Syncing latest quest data. Please try again.", type: .info)
-            Task {
-                await syncCoordinator.fetchChanges()
-            }
+            Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.fetchChanges() }
             throw QuestServiceError.missingRecord(questLog.quest.recordID.recordName)
         }
 
@@ -647,7 +652,7 @@ extension QuestService {
 
         if let achievementService, let family = appState.family {
             let achService = achievementService
-            Task {
+            Task { @MainActor @Sendable [achService, hero, family, logger] in
                 do {
                     _ = try await achService.evaluateAll(for: hero, family: family)
                 } catch {

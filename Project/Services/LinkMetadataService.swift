@@ -102,6 +102,7 @@ final class LinkMetadataService {
     // MARK: - Image URL Loading
 
     private nonisolated static func loadImageURL(from provider: NSItemProvider) async -> URL? {
+        // WHY: NSItemProvider does not offer native async/await overloads for loadObject/loadItem in the iOS SDK; withCheckedContinuation bridges the legacy completion handler safely.
         if provider.canLoadObject(ofClass: URL.self) {
             return await withCheckedContinuation { continuation in
                 _ = provider.loadObject(ofClass: URL.self) { object, _ in

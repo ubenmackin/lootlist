@@ -132,6 +132,7 @@ final class BonusObjectiveService {
         objective: BonusObjective,
         todayQuests: [QuestCache],
         completions: [QuestCompletionCache],
+        templatesByID: [String: QuestTemplateCache],
         date: Date = Date()
     ) -> (isComplete: Bool, progressText: String) {
         let calendar = Calendar.iso8601UTC
@@ -146,7 +147,9 @@ final class BonusObjectiveService {
             }
             let completionsByQuest = Dictionary(grouping: approvedCompletions, by: \.questRecordName)
             let completedCount = todayQuests.reduce(into: 0) { count, quest in
-                if completionsByQuest[quest.recordName, default: []].count >= quest.targetCount {
+                // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+                let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+                if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: completionsByQuest[quest.recordName, default: []].count, effectiveTarget: effectiveTarget) {
                     count += 1
                 }
             }
@@ -295,6 +298,7 @@ final class BonusObjectiveService {
             objective: canonicalObjective,
             todayQuests: todayQuests,
             completions: completions,
+            templatesByID: templatesByID,
             date: now
         )
         guard progress.isComplete else {

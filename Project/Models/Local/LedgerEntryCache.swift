@@ -54,6 +54,14 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
         return LedgerSource(rawValue: source)
     }
 
+    var isCountedMoney: Bool {
+        isCounted
+    }
+
+    var isCountedBonus: Bool {
+        isBonusCounted
+    }
+
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,

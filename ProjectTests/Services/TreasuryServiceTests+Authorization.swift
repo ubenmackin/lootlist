@@ -636,6 +636,7 @@ extension TreasuryServiceTests {
             description: "Bonus",
             date: monday,
             source: "manual",
+            bucketKind: BucketKind.spend.rawValue,
             family: familyRef,
             id: CKRecord.ID(recordName: "bonus1", zoneID: zoneID)
         )
@@ -753,6 +754,7 @@ extension TreasuryServiceTests {
             description: "Bonus",
             date: monday,
             source: "manual",
+            bucketKind: BucketKind.spend.rawValue,
             family: familyRef,
             id: CKRecord.ID(recordName: "bonus1", zoneID: zoneID)
         )

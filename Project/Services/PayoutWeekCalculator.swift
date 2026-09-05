@@ -49,35 +49,32 @@ enum PayoutWeekCalculator {
     }
 
     /// Total amount for a single `BucketKind` within the week's entries.
-    /// An entry contributes when `bucketKind == kind` or `toBucket == kind`,
-    /// mirroring the single-ledger-row transfer attribution.
+    /// WHY single-source: routes via `BucketService.applyBucketAttribution` so transfers debit `fromBucket` and goal markers stay excluded, matching hub/dashboard.
     static func bucketTotal(
         for kind: BucketKind,
         in weekBucketEntries: [LedgerEntryCache]
     ) -> Double {
-        let filtered = weekBucketEntries.filter { entry in
-            let bucketMatches = entry.bucketKind == kind.rawValue
-            let transferMatches = entry.toBucket == kind.rawValue
-            return bucketMatches || transferMatches
-        }
-        return filtered.reduce(0.0) { partial, entry in
-            let amount = entry.amount
-            return partial + amount
-        }
+        weekBalances(in: weekBucketEntries)[kind, default: 0]
     }
 
     /// Totals for all buckets that have non-zero activity, keyed by kind.
     static func totalsByBucket(
         in weekBucketEntries: [LedgerEntryCache]
     ) -> [BucketKind: Double] {
-        var totals: [BucketKind: Double] = [:]
-        for kind in BucketKind.allCases {
-            let total = bucketTotal(for: kind, in: weekBucketEntries)
-            if total != 0 {
-                totals[kind] = total
-            }
+        weekBalances(in: weekBucketEntries).filter { $0.value != 0 }
+    }
+
+    /// WHY single-source: counted money plus transfer moves ride one attribution so week sheet matches hub balances.
+    private static func weekBalances(
+        in weekBucketEntries: [LedgerEntryCache]
+    ) -> [BucketKind: Double] {
+        var balances: [BucketKind: Double] = [:]
+        for entry in weekBucketEntries {
+            // WHY counted-plus-transfer: `isCounted` covers new money while transfers move between buckets.
+            guard BucketService.isCounted(entry) || entry.sourceEnum == .transfer else { continue }
+            BucketService.applyBucketAttribution(entry, to: &balances)
         }
-        return totals
+        return balances
     }
 
     /// Week-filtered ledger entries for a profile's payout week.
