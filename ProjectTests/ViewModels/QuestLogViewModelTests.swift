@@ -93,7 +93,8 @@ struct QuestLogViewModelTests {
         viewModel.rebuildLists(
             profiles: [hero],
             quests: [quest],
-            logs: [approvedLog, rejectedLog]
+            logs: [approvedLog, rejectedLog],
+            templates: []
         )
 
         #expect(viewModel.displayedQuests.count == 1)
@@ -155,7 +156,8 @@ struct QuestLogViewModelTests {
         viewModel.rebuildLists(
             profiles: [hero],
             quests: [quest],
-            logs: [rejectedLog]
+            logs: [rejectedLog],
+            templates: []
         )
 
         #expect(viewModel.displayedQuests.count == 1)

@@ -11,13 +11,56 @@ import os
 import Synchronization
 
 @MainActor
+protocol HydrationHandling: AnyObject {
+    func hydrateFromQuery(models: [some CloudKitRecord], databaseScope: CKDatabase.Scope, zoneID: CKRecordZone.ID) async
+}
+
+@MainActor
+extension CKSyncEngineDelegateHandler: HydrationHandling {}
+
+@MainActor
+final class NoopHydrationHandler: HydrationHandling {
+    static let shared = NoopHydrationHandler()
+    private static var hasLogged = false
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SyncEnqueuing")
+    func hydrateFromQuery(models _: [some CloudKitRecord], databaseScope _: CKDatabase.Scope, zoneID _: CKRecordZone.ID) async {
+        // WHY: doubles carry no engine so hydration has nowhere to ingest; cache writes and enqueues still apply.
+        if !Self.hasLogged {
+            Self.hasLogged = true
+            Self.logger.warning("Hydration no-op: no engine backing this coordinator; continuing cache-only")
+        }
+    }
+}
+
+@MainActor
+extension CKSyncEngineCoordinator: HydrationHandling {
+    func hydrateFromQuery(models: [some CloudKitRecord], databaseScope: CKDatabase.Scope, zoneID: CKRecordZone.ID) async {
+        await delegateHandler.hydrateFromQuery(models: models, databaseScope: databaseScope, zoneID: zoneID)
+    }
+}
+
+@MainActor
+extension NoopSyncEnqueuing: HydrationHandling {
+    func hydrateFromQuery(models: [some CloudKitRecord], databaseScope: CKDatabase.Scope, zoneID: CKRecordZone.ID) async {
+        await NoopHydrationHandler.shared.hydrateFromQuery(models: models, databaseScope: databaseScope, zoneID: zoneID)
+    }
+}
+
+@MainActor
+extension SyncEnqueuing {
+    var hydrationHandler: any HydrationHandling {
+        (self as? any HydrationHandling) ?? NoopHydrationHandler.shared
+    }
+}
+
+@MainActor
 @Observable
 final class TreasuryService {
     let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TreasuryService")
     let cloudKit: any CloudKitServiceProtocol
     let notificationService: NotificationService?
-    var cacheService: CacheService
-    let syncCoordinator: CKSyncEngineCoordinator
+    var cacheService: any CacheServicing
+    let syncCoordinator: any SyncEnqueuing
 
     /// Guards against concurrent settlement of the same period.
     private let inFlightSettlements = Mutex<Set<String>>([])
@@ -34,10 +77,10 @@ final class TreasuryService {
     init(
         cloudKit: any CloudKitServiceProtocol,
         notificationService: NotificationService? = nil,
-        cacheService: CacheService,
+        cacheService: any CacheServicing,
         toastManager: ToastManager? = nil,
         appState: AppState,
-        syncCoordinator: CKSyncEngineCoordinator
+        syncCoordinator: any SyncEnqueuing
     ) {
         self.cloudKit = cloudKit
         self.notificationService = notificationService
@@ -53,12 +96,12 @@ final class TreasuryService {
     convenience init(
         cloudKit: any CloudKitServiceProtocol,
         notificationService: NotificationService? = nil,
-        cacheService: CacheService? = nil,
+        cacheService: (any CacheServicing)? = nil,
         toastManager: ToastManager? = nil,
         appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
-        let cache: CacheService
+        let cache: any CacheServicing
         if let cacheService {
             cache = cacheService
         } else {
@@ -66,14 +109,23 @@ final class TreasuryService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let ck = cloudKit as? CloudKitService ?? CloudKitService()
-        let delegate = CKSyncEngineDelegateHandler(
-            backgroundCache: nil,
-            conflictResolver: CKSyncConflictResolver(cacheService: cache, backgroundCache: nil, toastManager: toastManager, appState: state),
-            cacheService: cache,
-            appState: state
-        )
-        let coord = syncCoordinator ?? CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        let coord: any SyncEnqueuing
+        if let syncCoordinator {
+            coord = syncCoordinator
+        } else if let ck = cloudKit as? CloudKitService {
+            // WHY: delegate stack still needs the concrete cache for hydration;
+            // reuse the injected cache when it is concrete so reads and writes share one store.
+            let concreteCache = cache as? CacheService ?? CacheService.inMemoryFallback(logger: Self.staticLogger)
+            let delegate = CKSyncEngineDelegateHandler(
+                backgroundCache: nil,
+                conflictResolver: CKSyncConflictResolver(cacheService: concreteCache, backgroundCache: nil, toastManager: toastManager, appState: state),
+                cacheService: concreteCache,
+                appState: state
+            )
+            coord = CKSyncEngineCoordinator(cloudKitService: ck, delegateHandler: delegate, appState: state)
+        } else {
+            coord = NoopSyncEnqueuing()
+        }
         self.init(cloudKit: cloudKit, notificationService: notificationService, cacheService: cache, toastManager: toastManager, appState: state, syncCoordinator: coord)
     }
 
@@ -81,7 +133,8 @@ final class TreasuryService {
 
     func currentBalance(for profile: Profile) async throws -> Double {
         let ledgerEntries = try await fetchAllLedgerEntries(profile: profile)
-        return ledgerEntries.reduce(0.0) { $0 + $1.amount }
+        // WHY single-count: goal entries reuse counted funds and transfers net to zero across buckets.
+        return ledgerEntries.filter { BucketService.isCounted($0) }.reduce(0.0) { $0 + $1.amount }
     }
 
     struct WeeklyBreakdown: Equatable, Sendable {
@@ -101,7 +154,6 @@ final class TreasuryService {
         var paidAmount: Double?
     }
 
-    /// Calculates wallet-week gold breakdown for a hero with cache-first reads.
     func weeklyBreakdown(profile: Profile,
                          family: Family,
                          weekOf: Date) async throws -> WeeklyBreakdown
@@ -111,7 +163,9 @@ final class TreasuryService {
                                             weekStarting: startOfWeek,
                                             weekEnding: weekRange.upperBound)
         let quests = try await fetchQuestsForGold(family: family, logs: logs)
-        var goldFromQuests = sumGold(for: logs, quests: quests)
+        // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
+        let templatesByID = SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
+        var goldFromQuests = GoldCalculation.totalCredit(for: quests, logs: logs, templatesByID: templatesByID)
         let completedCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         let effectivePolicy = effectivePayoutPolicy(for: profile, family: family)
@@ -124,7 +178,8 @@ final class TreasuryService {
                 // fail the comparison and incorrectly zero the all-or-nothing payout.
                 let fullyCompletedCount = assigned.filter { quest in
                     let questLogs = approvedLogsScoped.filter { $0.quest.recordID.recordName == quest.id.recordName }
-                    return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: questLogs.count)
+                    let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+                    return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: questLogs.count, effectiveTarget: target)
                 }.count
                 if fullyCompletedCount < assigned.count {
                     goldFromQuests = 0.0
@@ -155,7 +210,7 @@ final class TreasuryService {
                 return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
             },
             hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
@@ -163,10 +218,12 @@ final class TreasuryService {
             }
         )
         let bonusGold = ledgerEntries
-            .filter { $0.amount > 0 && $0.sourceEnum != .quest }
+            // WHY single-count: goal markers reuse quest/deposit pennies and transfers move between buckets.
+            .filter { BucketService.isBonusCounted($0) }
             .reduce(0.0) { $0 + $1.amount }
         let spent = ledgerEntries
-            .filter { $0.amount < 0 }
+            // WHY counted only: nil-bucket residue would count in spent but not ledgerBalance.
+            .filter { $0.amount < 0 && BucketService.isCounted($0) }
             .reduce(0.0) { $0 + $1.amount }
 
         let totalEarned = goldFromQuests + bonusGold
@@ -235,7 +292,7 @@ final class TreasuryService {
                     return try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
                 },
                 hydrate: { [syncCoordinator, appState, profile] models in
-                    await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
                         models: models,
                         databaseScope: appState.activeDatabaseScope,
                         zoneID: profile.id.zoneID
@@ -418,10 +475,11 @@ final class TreasuryService {
         }
 
         if let notificationService {
-            Task { [logger] in
+            Task { @MainActor @Sendable [weak self, logger, notificationService, period] in
                 do {
-                    let profile = try await resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
-                    let family = try await resolveFamily(recordID: period.family.recordID)
+                    guard let self else { return }
+                    let profile = try await self.resolveProfile(recordID: period.profile.recordID, familyRecordName: period.family.recordID.recordName)
+                    let family = try await self.resolveFamily(recordID: period.family.recordID)
                     try await notificationService.sendWeeklySummary(to: profile, family: family, weekOf: period.weekOf)
                 } catch {
                     logger.error("Failed to send weekly summary notification: \(error, privacy: .private)")
@@ -476,11 +534,17 @@ final class TreasuryService {
                                             weekStarting: weekOf,
                                             weekEnding: weekRange.upperBound)
         let quests = try await fetchQuestsForGold(family: family, logs: logs)
-        let questGold = sumGold(for: logs, quests: quests)
+        // WHY day count wins: stale targetCount under-counts specific-days split rewards on payout paths.
+        let questGold = GoldCalculation.totalCredit(
+            for: quests,
+            logs: logs,
+            templatesByID: SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
+        )
         let questsCount = logs.filter { TreasuryService.isCompleted($0) }.count
 
         var updated = period
-        updated.paidAmount = max(period.paidAmount ?? 0, questGold)
+        let priorPaid = period.paidAmount ?? 0
+        updated.paidAmount = max(priorPaid, questGold)
         updated.paidDate = Date()
         // Single persistence point — totalEarned / questsCompleted are always
         // reconciled from the live quest snapshot regardless of whether
@@ -489,12 +553,17 @@ final class TreasuryService {
                                               totalEarned: questGold,
                                               questsCompleted: questsCount)
 
+        // WHY future-only: splits credit new money at current percentages, never rebase prior attribution.
+        let totalPennies = Int((questGold * 100).rounded())
+        let priorPennies = Int((priorPaid * 100).rounded())
+        let deltaPennies = totalPennies - priorPennies
+        guard deltaPennies > 0 else { return saved }
         let rtIsOwner = ActiveFamilyScopeGuard.correctedIsOwner(appState: appState, logger: logger, context: "TreasuryService.processRealTimeSettlement")
         await mintRealTimeLedgerEntry(
             periodRecordName: period.id.recordName,
-            amount: questGold,
+            amount: Double(deltaPennies) / 100.0,
             weekOf: weekOf,
-            profile: period.profile,
+            profile: profile,
             family: CKRecord.Reference(recordID: family.id, action: .none),
             date: Date(),
             isOwner: rtIsOwner
@@ -509,28 +578,43 @@ final class TreasuryService {
         periodRecordName: String,
         amount: Double,
         weekOf: Date,
-        profile: CKRecord.Reference,
+        profile: Profile?,
         family: CKRecord.Reference,
         date: Date,
         isOwner: Bool
     ) async {
         guard amount > 0 else { return }
-        let entryRecordName = "rt-\(periodRecordName)"
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        let entry = LedgerEntry(
-            profile: profile,
-            amount: abs(amount),
-            description: "Quest earnings — real-time (week of \(formatter.string(from: weekOf)))",
-            date: date,
-            source: LedgerSource.quest.rawValue,
-            family: family,
-            id: CKRecord.ID(recordName: entryRecordName, zoneID: family.recordID.zoneID)
+        // The split snapshot lives on the hero record; without it there is
+        // nothing to attribute against, so fail closed rather than guessing.
+        guard let profile else {
+            logger.warning("Skipping real-time bucket split for \(periodRecordName, privacy: .private): hero profile unresolved")
+            return
+        }
+        let baseRecordName = DeterministicRecordID.realtimePayout(periodRecordName: periodRecordName)
+        let payoutRecordName = DeterministicRecordID.payout(periodRecordName: periodRecordName)
+
+        let cachedEntries = cacheService.fetchLedgerEntries(
+            profileRecordName: profile.id.recordName,
+            family: family.recordID.recordName
         )
-        await cacheService.upsertLedgerEntry(entry)
-        syncCoordinator.enqueueSave(recordID: entry.id, isOwner: isOwner)
-        let formatted = CurrencyFormatter.string(amount)
-        logger.info("Minted real-time earnings \(formatted, privacy: .public) for period \(periodRecordName, privacy: .private)")
+        // WHY batch twin blocks: weekly payout already credited this week, so real-time must not double-count on policy flip.
+        if cachedEntries.contains(where: { $0.recordName == payoutRecordName || $0.recordName.hasPrefix("\(payoutRecordName)-") }) {
+            return
+        }
+
+        // WHY single helper: batch and real-time share one splitPennies mint plus FIFO cascade.
+        await mintSplitLedgerEntries(
+            SplitMintContext(
+                baseRecordName: baseRecordName,
+                periodRecordName: periodRecordName,
+                amount: amount,
+                weekOf: weekOf,
+                profile: profile,
+                family: family,
+                date: date,
+                isOwner: isOwner,
+                isRealTime: true
+            )
+        )
     }
 }

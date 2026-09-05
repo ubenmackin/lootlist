@@ -158,7 +158,8 @@ struct CloudKitModelTests {
             description: "Bought Toy Sword",
             date: Date(),
             source: "manual",
-            family: familyRef
+            family: familyRef,
+            id: CKRecord.ID(recordName: "test-ledger-spending", zoneID: zoneID)
         )
         #expect(spending.amount < 0)
         #expect(spending.description == "Bought Toy Sword")
@@ -169,7 +170,8 @@ struct CloudKitModelTests {
             description: "Loot Drop Bonus",
             date: Date(),
             source: "manual",
-            family: familyRef
+            family: familyRef,
+            id: CKRecord.ID(recordName: "test-ledger-bonus", zoneID: zoneID)
         )
         #expect(bonus.amount > 0)
     }

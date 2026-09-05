@@ -12,20 +12,10 @@ import SwiftUI
 /// Read-only transaction history for a child profile, grouped by date into daily sections.
 struct ChildLedgerView: View {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "ChildLedgerView")
-    /// WHY static formatters: per-cell DateFormatter alloc caused scroll jank on large ledgers; reuse single instance confined to MainActor.
-    @MainActor private static let shortTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter
-    }()
+    /// WHY Sendable styles: per-cell labels reuse value types without shared mutable formatters.
+    private static let shortTimeStyle = Date.FormatStyle(date: .omitted, time: .shortened)
 
-    @MainActor private static let mediumDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter
-    }()
+    private static let mediumDateStyle = Date.FormatStyle(date: .abbreviated, time: .omitted)
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(AppState.self) private var appState
@@ -353,12 +343,11 @@ struct ChildLedgerView: View {
 
     /// Returns a human-readable date label. Today/Yesterday buckets show the
     /// time; older entries show the abbreviated date.
-    @MainActor private func formattedDate(_ date: Date) -> String {
-        // WHY static formatter: reused MainActor-confined formatter avoids per-cell alloc during scrolling.
+    private func formattedDate(_ date: Date) -> String {
         if WeekMath.isToday(date) || WeekMath.isYesterday(date) {
-            Self.shortTimeFormatter.string(from: date)
+            date.formatted(Self.shortTimeStyle)
         } else {
-            Self.mediumDateFormatter.string(from: date)
+            date.formatted(Self.mediumDateStyle)
         }
     }
 }

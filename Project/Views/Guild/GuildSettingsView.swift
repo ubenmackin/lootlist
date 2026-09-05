@@ -33,6 +33,7 @@ struct GuildSettingsView: View {
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedGemLedgers: [GemLedgerCache]
     @Query private var cachedRewardEvents: [RewardEventCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var draftFamilyName: String = ""
     @State private var isEditingFamilyName: Bool = false
@@ -63,6 +64,7 @@ struct GuildSettingsView: View {
         let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
         let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
         let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
 
         // WHY stable sorts: all caches feed ForEach(id: \.recordName); secondary recordName tie-breaker keeps ordering deterministic across CloudKit merge reorders.
         _cachedProfiles = Query(filter: profileFilter, sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)])
@@ -84,6 +86,7 @@ struct GuildSettingsView: View {
         _cachedGoals = Query(filter: goalFilter, sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)])
         _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)])
         _cachedRewardEvents = Query(filter: rewardEventFilter, sort: [SortDescriptor(\RewardEventCache.timestamp, order: .reverse), SortDescriptor(\RewardEventCache.recordName)])
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     private var isRevokeAlertPresented: Binding<Bool> {
@@ -227,7 +230,8 @@ struct GuildSettingsView: View {
             ledgers: cachedLedgers,
             allowancePeriods: cachedAllowancePeriods,
             profileAchievements: cachedProfileAchievements,
-            achievements: cachedAchievements
+            achievements: cachedAchievements,
+            templates: cachedTemplates
         )
     }
 

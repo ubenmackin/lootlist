@@ -95,6 +95,25 @@ enum WeekMath {
         return String(format: "%04d-%02d", components.year ?? 0, components.month ?? 0)
     }
 
+    /// WHY single source: interest/match month windows share one UTC derivation so cap accounting cannot drift by timezone.
+    static func monthStart(for date: Date, calendar: Calendar = .iso8601UTC) -> Date {
+        let parts = calendar.dateComponents([.year, .month], from: date)
+        var comps = DateComponents()
+        comps.year = parts.year
+        comps.month = parts.month
+        comps.day = 1
+        comps.hour = 0
+        comps.minute = 0
+        comps.second = 0
+        return calendar.date(from: comps) ?? date
+    }
+
+    /// WHY half-open end: next month's start bounds MTD scans so entries on the boundary belong to one month only.
+    static func monthEnd(for date: Date, calendar: Calendar = .iso8601UTC) -> Date {
+        let start = monthStart(for: date, calendar: calendar)
+        return calendar.date(byAdding: .month, value: 1, to: start) ?? date
+    }
+
     /// UTC `yyyy-MM-dd` day key for daily-login deterministic dedupe.
     /// WHY single-source UTC: the same instant must resolve to the same
     /// `daily-{yyyy-MM-dd}` GemLedger eventKey on every device/timezone, so
@@ -199,8 +218,21 @@ enum WeekMath {
         return short[idx]
     }
 
+    /// Canonical weekday cycle order — single source so day sorting never reads `AppConstants.weekdayCodes` outside `WeekMath`.
+    static var weekdayOrder: [String] {
+        AppConstants.weekdayCodes
+    }
+
+    /// Weekday-ordered sort shared by day-checklist surfaces so ordering stays inside `WeekMath`.
+    static func orderedDays(_ days: [String]) -> [String] {
+        let order = weekdayOrder
+        return days.sorted {
+            (order.firstIndex(of: $0) ?? Int.max) < (order.firstIndex(of: $1) ?? Int.max)
+        }
+    }
+
     static func nextWeekdayCode(after todayCode: String, candidates: [String]) -> String? {
-        let codes = AppConstants.weekdayCodes
+        let codes = weekdayOrder
         let todayIndex = codes.firstIndex(of: todayCode) ?? -1
         return codes.first(where: { candidates.contains($0) && (codes.firstIndex(of: $0) ?? -1) > todayIndex })
     }

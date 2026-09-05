@@ -24,6 +24,7 @@ struct ChildHubCardsView: View {
     /// Lightweight ledger slice for sparkline; optional to keep init compatible.
     let recentLedgers: [LedgerEntryCache]
     let streak: Int
+    let cachedTemplates: [QuestTemplateCache]
 
     init(
         viewModel: ChildHubViewModel,
@@ -34,7 +35,8 @@ struct ChildHubCardsView: View {
         onCompleteQuest: @escaping (QuestCache) -> Void,
         onWithdraw: @escaping (QuestCache, QuestCompletionCache) -> Void,
         recentLedgers: [LedgerEntryCache] = [],
-        streak: Int = 0
+        streak: Int = 0,
+        cachedTemplates: [QuestTemplateCache]
     ) {
         self.viewModel = viewModel
         self.cachedQuests = cachedQuests
@@ -45,6 +47,11 @@ struct ChildHubCardsView: View {
         self.onWithdraw = onWithdraw
         self.recentLedgers = recentLedgers
         self.streak = streak
+        self.cachedTemplates = cachedTemplates
+    }
+
+    private var templatesByID: [String: QuestTemplateCache] {
+        SpecificDaysHelper.templatesByID(cachedTemplates)
     }
 
     var body: some View {
@@ -94,7 +101,7 @@ struct ChildHubCardsView: View {
                         Button { onWithdraw(quest, log) } label: {
                             ChoreRowCard(
                                 title: row.title,
-                                subtitle: "Tap to Unsubmit",
+                                subtitle: row.subtitle,
                                 amountText: "+\(CurrencyFormatter.string(row.amount))",
                                 style: .pendingReview,
                                 isSubmitting: isSubmitting,
@@ -106,17 +113,33 @@ struct ChildHubCardsView: View {
                         .hoverEffect(.highlight)
                         .accessibilityHint("Awaiting parent verification. Tap to unsubmit.")
                     } else if let quest {
-                        ChoreRowCard(
-                            title: row.title,
-                            subtitle: row.subtitle,
-                            amountText: "+\(CurrencyFormatter.string(row.amount))",
-                            style: .upcoming,
-                            isSubmitting: isSubmitting,
-                            isMultiPart: quest.targetCount > 1,
-                            onLeadingAction: { onCompleteQuest(quest) },
-                            accessibilityID: "hub.choreRow-\(row.id)"
-                        )
-                        .hoverEffect(.highlight)
+                        let questLogs = cachedCompletions.filter { $0.questRecordName == quest.recordName }
+                        // WHY: specific-days renders as day checklist so each approval ticks one weekday.
+                        if SpecificDaysHelper.isMultiPart(quest: quest, templatesByID: templatesByID) {
+                            MultiPartQuestCard(
+                                quest: quest,
+                                logs: questLogs,
+                                specificDays: SpecificDaysHelper.specificDays(for: quest, templatesByID: templatesByID),
+                                subtitle: row.subtitle,
+                                amountText: "+\(CurrencyFormatter.string(row.amount))",
+                                isSubmitting: isSubmitting,
+                                onCompleteSubPart: { _ in onCompleteQuest(quest) },
+                                onWithdraw: { completionLog in onWithdraw(quest, completionLog) },
+                                accessibilityID: "hub.choreRow-\(row.id)"
+                            )
+                        } else {
+                            ChoreRowCard(
+                                title: row.title,
+                                subtitle: row.subtitle,
+                                amountText: "+\(CurrencyFormatter.string(row.amount))",
+                                style: .upcoming,
+                                isSubmitting: isSubmitting,
+                                isMultiPart: false,
+                                onLeadingAction: { onCompleteQuest(quest) },
+                                accessibilityID: "hub.choreRow-\(row.id)"
+                            )
+                            .hoverEffect(.highlight)
+                        }
                     }
                 }
             }
@@ -146,10 +169,10 @@ struct ChildHubCardsView: View {
                 )
 
                 VStack(alignment: .leading, spacing: DesignSystemConstants.Padding.small) {
-                    HStack(spacing: DesignSystemConstants.Padding.small) {
+                    HStack(alignment: .top, spacing: DesignSystemConstants.Padding.small) {
                         Text(summary.goal.emojiIcon ?? "🎯").font(.title3)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(summary.goal.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(1)
+                            Text(summary.goal.name).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
                             if let pacing, pacing.status != .noDeadline {
                                 HStack(spacing: 3) {
                                     Image(systemName: pacing.status.iconSystemName)
@@ -258,7 +281,8 @@ struct ChildHubCardsView: View {
         return grouped.keys.sorted().suffix(7).compactMap { key in
             guard let entries = grouped[key] else { return nil }
             let bucketDate = WeekMath.date(fromDayKey: key) ?? entries.map(\.date).min() ?? Date()
-            let total = entries.reduce(0) { $0 + $1.amount }
+            // WHY single-count: goal markers reuse deposit/quest pennies and transfers move between buckets.
+            let total = entries.filter { BucketService.isCounted($0) }.reduce(0) { $0 + $1.amount }
             let label = bucketDate.formatted(.dateTime.month(.abbreviated).day())
             return WeeklyEarningPoint(id: key, weekStart: bucketDate, label: label, amount: total)
         }

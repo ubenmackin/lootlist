@@ -65,16 +65,16 @@ struct FamilyJoinView: View {
         }
         #if DEBUG
         .alert("Simulate Invite Link", isPresented: $showDebugSharePrompt) {
-                TextField("https://www.icloud.com/share/…", text: $debugShareURLText)
-                Button("Accept Link") {
-                    Task {
-                        await simulateShareLink()
-                    }
+            TextField("https://www.icloud.com/share/…", text: $debugShareURLText)
+            Button("Accept Link") {
+                Task {
+                    await simulateShareLink()
                 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Paste a CloudKit share URL to run the accept flow as if the invite were tapped in Messages.")
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Paste a CloudKit share URL to run the accept flow as if the invite were tapped in Messages.")
+        }
         #endif
     }
 

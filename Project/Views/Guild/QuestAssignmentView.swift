@@ -121,8 +121,6 @@ struct QuestAssignmentView: View {
         }
     }
 
-    private static let weekdayCodes: [String] = AppConstants.weekdayCodes
-
     var body: some View {
         NavigationStack {
             Form {
@@ -382,8 +380,8 @@ struct QuestAssignmentView: View {
                         .foregroundStyle(editHasLogs ? .secondary : .primary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(Array(Self.weekdayCodes.indices), id: \.self) { idx in
-                                let code = Self.weekdayCodes[idx]
+                            ForEach(Array(WeekMath.weekdayOrder.indices), id: \.self) { idx in
+                                let code = WeekMath.weekdayOrder[idx]
                                 PresetPill(
                                     text: AppConstants.weekdayAbbreviated[idx],
                                     isSelected: editSpecificDays.contains(code),
@@ -533,7 +531,12 @@ struct QuestAssignmentView: View {
             return
         }
 
-        let gold: Double? = Double(goldOverrideText.trimmingCharacters(in: .whitespaces))
+        // WHY shared parser: comma decimals must parse in every locale.
+        let gold: Double? = {
+            guard let value = CurrencyFormatter.decimalDouble(from: goldOverrideText),
+                  value.isFinite, value >= 0 else { return nil }
+            return value
+        }()
         // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
         let xp: Int? = FeatureFlags.rpgImmersive ? Int(xpOverrideText.trimmingCharacters(in: .whitespaces)) : nil
         let approval: ApprovalMode? = switch approvalOverride {
@@ -594,7 +597,7 @@ struct QuestAssignmentView: View {
             toastManager.show(message: "Quest name is required.", type: .error)
             return
         }
-        guard let gold = Double(quickGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
+        guard let gold = CurrencyFormatter.decimalDouble(from: quickGoldText), gold.isFinite, gold >= 0 else {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
@@ -654,7 +657,7 @@ struct QuestAssignmentView: View {
             toastManager.show(message: "Quest name is required.", type: .error)
             return
         }
-        guard let gold = Double(quickGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
+        guard let gold = CurrencyFormatter.decimalDouble(from: quickGoldText), gold.isFinite, gold >= 0 else {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }
@@ -693,7 +696,7 @@ struct QuestAssignmentView: View {
             return
         }
 
-        guard let gold = Double(editGoldText.trimmingCharacters(in: .whitespaces)), gold >= 0 else {
+        guard let gold = CurrencyFormatter.decimalDouble(from: editGoldText), gold.isFinite, gold >= 0 else {
             toastManager.show(message: "Reward must be a valid non-negative number.", type: .error)
             return
         }

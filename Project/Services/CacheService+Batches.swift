@@ -103,7 +103,7 @@ extension CacheService {
         guard !validRecordNames.isEmpty else { return }
         guard let context else { return }
         let family: String? = (T.self == FamilyCache.self) ? nil : familyRecordName
-        if T.self != FamilyCache.self, family == nil || family?.isEmpty == true {
+        if T.self != FamilyCache.self, (family ?? "").isEmpty {
             return
         }
         do {

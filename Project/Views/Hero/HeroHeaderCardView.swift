@@ -50,9 +50,12 @@ struct HeroHeaderCardView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
 
-                Text(XPService.title(forLevel: profileCache?.level ?? 1))
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                // Legacy RPG chrome hidden when FeatureFlags.rpgImmersive is false.
+                if FeatureFlags.rpgImmersive {
+                    Text(XPService.title(forLevel: profileCache?.level ?? 1))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                }
             }
 
             Spacer(minLength: 8)

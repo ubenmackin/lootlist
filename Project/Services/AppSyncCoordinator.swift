@@ -50,6 +50,10 @@ final class AppSyncCoordinator {
     @ObservationIgnored private var cloudKitNotificationTask: Task<Void, Never>?
     @ObservationIgnored private var shareAcceptedTask: Task<Void, Never>?
 
+    /// Daily 9am spend rollup service. Injected in tests; lazily resolved from
+    /// the shared container in prod so sync-event tests stay hermetic.
+    var spendDigestService: SpendDigestService?
+
     init() {
         startNotificationListeners()
     }
@@ -239,6 +243,33 @@ final class AppSyncCoordinator {
         for (_, continuation) in continuations {
             continuation.yield(.zoneReset)
         }
+    }
+
+    /// Foreground entry — invoked from the scenePhase.active path alongside the
+    /// foreground sync so the rollup fires on open.
+    func handleForegroundActive() async {
+        _ = await resolvedDigestService()?.maybeDeliverDailyDigest()
+    }
+
+    /// Background entry — invoked from the spend-digest BGAppRefreshTask handler;
+    /// the caller reschedules the next run.
+    func handleSpendDigestBackgroundRefresh() async -> Bool {
+        _ = await resolvedDigestService()?.maybeDeliverDailyDigest()
+        return true
+    }
+
+    private func resolvedDigestService() -> SpendDigestService? {
+        if let spendDigestService {
+            return spendDigestService
+        }
+        guard let shared = AppDependencies.shared else { return nil }
+        let service = SpendDigestService(
+            cacheService: shared.cacheService,
+            appState: shared.appState,
+            notificationService: shared.notificationService
+        )
+        spendDigestService = service
+        return service
     }
 
     /// Test-only helper that injects a `.shareAccepted` event directly

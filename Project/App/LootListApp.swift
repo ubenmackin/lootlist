@@ -187,6 +187,8 @@ struct LootListApp: App {
                 .task(id: scenePhase) {
                     guard scenePhase == .active, !TestEnvironment.isRunningUnitOrUITests else { return }
                     await lifecycleCoordinator.performForegroundSync()
+                    await appSyncCoordinator.handleForegroundActive()
+                    AppDelegate.scheduleSpendDigestRefresh()
                 }
                 // Toast banner overlay sits above all RootView states (splash,
                 // onboarding, authenticated) so services can surface errors

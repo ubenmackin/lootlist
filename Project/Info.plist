@@ -30,6 +30,7 @@
 	<array>
 		<string>com.volcrypt.lootlist.weeklypayout</string>
 		<string>com.volcrypt.lootlist.sync</string>
+		<string>com.volcrypt.lootlist.spenddigest</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

@@ -29,6 +29,7 @@ struct TreasuryView: View {
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -55,6 +56,7 @@ struct TreasuryView: View {
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
         _cachedCompletions = Query(
             filter: completionFilter,
             sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
@@ -71,76 +73,106 @@ struct TreasuryView: View {
             filter: allowanceFilter,
             sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    if let viewModel {
-                        loadedContent(viewModel)
-                    } else {
-                        ProgressView("Summoning your treasury…")
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 40)
-                    }
-                }
-                .padding(.vertical)
+            scrollBody
+        }
+        .navigationTitle("Money")
+        .toolbar { ledgerToolbar }
+        .navigationDestination(for: String.self, destination: spendingLogDestination)
+        .sheet(isPresented: $isShowingLogSpending) {
+            logSpendingSheetContent
+        }
+        .task {
+            ensureViewModel()
+            checkPendingQuickAction(appState.pendingQuickAction)
+            await lifecycleCoordinator?.performManualSync()
+        }
+        .modifier(
+            TreasuryCacheObservers(
+                cachedCompletions: cachedCompletions,
+                cachedLedgers: cachedLedgers,
+                cachedQuests: cachedQuests,
+                cachedAllowancePeriods: cachedAllowancePeriods,
+                cachedTemplates: cachedTemplates,
+                scope: scope,
+                onCacheChanged: { rebuild() }
+            )
+        )
+        .onChange(of: appState.pendingQuickAction) { _, action in
+            checkPendingQuickAction(action)
+        }
+        .onChange(of: viewModel?.errorMessage) { _, newError in
+            if let newError, !newError.isEmpty {
+                toastManager?.show(message: newError, type: .error)
             }
-            .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink(value: "spendingLog") {
-                        Label("Ledger", systemImage: "scroll.fill")
-                    }
-                }
-            }
-            .navigationTitle("Money")
-            .navigationDestination(for: String.self) { destination in
-                switch destination {
-                case "spendingLog" where viewModel != nil:
-                    if let viewModel {
-                        SpendingLogView(
-                            viewModel: viewModel,
-                            familyRecordName: familyRecordName,
-                            profileRecordName: profileRecordName,
-                            scope: $scope
-                        )
-                    }
-                default:
-                    EmptyView()
-                }
-            }
-            .sheet(isPresented: $isShowingLogSpending) {
-                if let viewModel {
-                    LogSpendingView(viewModel: viewModel, familyRecordName: familyRecordName)
-                }
-            }
-            .task {
-                ensureViewModel()
-                checkPendingQuickAction(appState.pendingQuickAction)
-                await lifecycleCoordinator?.performManualSync()
-            }
-            .onChange(of: appState.pendingQuickAction) { _, action in
-                checkPendingQuickAction(action)
-            }
-            .onChange(of: viewModel?.errorMessage) { _, newError in
-                if let newError, !newError.isEmpty {
-                    toastManager?.show(message: newError, type: .error)
-                }
-            }
-            .onChange(of: cachedCompletions) { _, _ in rebuild() }
-            .onChange(of: cachedLedgers) { _, _ in rebuild() }
-            .onChange(of: cachedQuests) { _, _ in rebuild() }
-            .onChange(of: cachedAllowancePeriods) { _, _ in rebuild() }
-            .onChange(of: scope) { _, _ in rebuild() }
-            .refreshable {
-                await lifecycleCoordinator?.performManualSync()
-                rebuild()
-            }
+        }
+        .refreshable {
+            await lifecycleCoordinator?.performManualSync()
+            rebuild()
         }
         // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch.
         .id(profileRecordName)
+    }
+
+    private var scrollBody: some View {
+        ScrollView {
+            contentStack
+        }
+        .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
+    }
+
+    private var contentStack: some View {
+        VStack(spacing: 20) {
+            if let viewModel {
+                loadedContent(viewModel)
+            } else {
+                loadingPlaceholder
+            }
+        }
+        .padding(.vertical)
+    }
+
+    private var loadingPlaceholder: some View {
+        ProgressView("Summoning your treasury…")
+            .frame(maxWidth: .infinity)
+            .padding(.top, 40)
+    }
+
+    @ToolbarContentBuilder
+    private var ledgerToolbar: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            NavigationLink(value: "spendingLog") {
+                Label("Ledger", systemImage: "scroll.fill")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func spendingLogDestination(for destination: String) -> some View {
+        switch destination {
+        case "spendingLog" where viewModel != nil:
+            if let viewModel {
+                SpendingLogView(
+                    viewModel: viewModel,
+                    familyRecordName: familyRecordName,
+                    profileRecordName: profileRecordName,
+                    scope: $scope
+                )
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var logSpendingSheetContent: some View {
+        if let viewModel {
+            LogSpendingView(viewModel: viewModel, familyRecordName: familyRecordName)
+        }
     }
 
     private func ensureViewModel() {
@@ -156,14 +188,13 @@ struct TreasuryView: View {
     private func rebuild(_ vm: TreasuryViewModel? = nil) {
         guard appState.currentProfile?.id.recordName != nil else { return }
 
-        // Cached arrays are already profile-scoped via predicate pushdown; ViewModel keeps
-        // defensive filtering internally but no main-thread filtering is needed here.
         (vm ?? viewModel)?.rebuildLists(
             logs: cachedCompletions,
             ledgers: cachedLedgers,
             quests: cachedQuests,
             allowancePeriods: cachedAllowancePeriods,
-            scope: scope
+            scope: scope,
+            templates: cachedTemplates
         )
     }
 
@@ -219,6 +250,26 @@ struct TreasuryView: View {
         }
         .disabled(viewModel?.canLogManually == false)
         .accessibilityHint("Add a new entry to your Scroll of Spending")
+    }
+}
+
+private struct TreasuryCacheObservers: ViewModifier {
+    let cachedCompletions: [QuestCompletionCache]
+    let cachedLedgers: [LedgerEntryCache]
+    let cachedQuests: [QuestCache]
+    let cachedAllowancePeriods: [AllowancePeriodCache]
+    let cachedTemplates: [QuestTemplateCache]
+    let scope: CalendarScope
+    let onCacheChanged: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: cachedCompletions) { _, _ in onCacheChanged() }
+            .onChange(of: cachedLedgers) { _, _ in onCacheChanged() }
+            .onChange(of: cachedQuests) { _, _ in onCacheChanged() }
+            .onChange(of: cachedAllowancePeriods) { _, _ in onCacheChanged() }
+            .onChange(of: cachedTemplates) { _, _ in onCacheChanged() }
+            .onChange(of: scope) { _, _ in onCacheChanged() }
     }
 }
 

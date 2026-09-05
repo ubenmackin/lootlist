@@ -50,11 +50,6 @@ final class InterestService {
         appState: AppState? = nil,
         syncCoordinator: (any SyncEnqueuing)? = nil
     ) {
-        final class NoopSync: SyncEnqueuing {
-            func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
-            func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
-        }
         let cache: any CacheServicing
         if let cacheService {
             cache = cacheService
@@ -63,7 +58,7 @@ final class InterestService {
             cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
         }
         let state = appState ?? AppState()
-        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSync()
+        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSyncEnqueuing()
         self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 

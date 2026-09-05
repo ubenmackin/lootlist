@@ -444,6 +444,7 @@ extension NotificationEventType {
         case .goldEarned: "weeklySummaryNotificationsEnabled"
         case .questMissed: "questMissedNotificationsEnabled"
         case .spendingLogged: "spendingLoggedNotificationsEnabled"
+        case .spendDailyDigest: "spendDailyDigestEnabled"
         case .trophyEarned: "trophyEarnedNotificationsEnabled"
         case .streakMilestone: "streakMilestoneNotificationsEnabled"
         }

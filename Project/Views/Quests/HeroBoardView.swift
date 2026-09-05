@@ -134,7 +134,7 @@ struct HeroBoardView: View {
 
     private func questDetail(_ row: HeroBoardViewModel.BoardRow) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(row.quest.displayName)
+            Text(row.quest.questName)
                 .font(.subheadline.bold())
             Text(CurrencyFormatter.string(row.quest.goldReward))
                 .font(.caption)
@@ -186,7 +186,7 @@ struct HeroBoardView: View {
             Image(systemName: "person.crop.circle.badge.checkmark")
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.quest.displayName)
+                Text(row.quest.questName)
                     .font(.subheadline.bold())
                 Text("\(CurrencyFormatter.string(row.quest.goldReward)) · claimed by \(row.claimantName ?? "a hero")")
                     .font(.caption)

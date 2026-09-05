@@ -35,7 +35,7 @@ extension TreasuryService {
                 return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
             },
             hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
@@ -69,7 +69,7 @@ extension TreasuryService {
                     )
                 },
                 hydrate: { [syncCoordinator, appState, family] models in
-                    await syncCoordinator.delegateHandler.hydrateFromQuery(
+                    await syncCoordinator.hydrationHandler.hydrateFromQuery(
                         models: models,
                         databaseScope: appState.activeDatabaseScope,
                         zoneID: family.id.zoneID
@@ -115,7 +115,7 @@ extension TreasuryService {
                 return try await cloudKit.query(LedgerEntry.self, predicate: predicate, in: profile.id.zoneID)
             },
             hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
@@ -151,7 +151,7 @@ extension TreasuryService {
                 return try await cloudKit.query(QuestCompletion.self, predicate: predicate, in: profile.id.zoneID)
             },
             hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
@@ -186,7 +186,7 @@ extension TreasuryService {
                 return try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
             },
             hydrate: { [syncCoordinator, appState, family] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: family.id.zoneID
@@ -207,7 +207,7 @@ extension TreasuryService {
     {
         let familyName = profile.family.recordID.recordName
         // Strict equality on normalized UTC week start matches stored AllowancePeriod.weekOf exactly.
-        let normalizedWeekStart = Calendar.iso8601UTC.startOfDay(for: weekOf)
+        let normalizedWeekStart = WeekMath.startOfDay(for: weekOf)
         let scope: CKDatabase.Scope = appState.activeDatabaseScope
         let cache = cacheService
         let profileName = profile.id.recordName
@@ -223,7 +223,7 @@ extension TreasuryService {
                 let profileRef = CKRecord.Reference(recordID: profile.id, action: .none)
                 let predicate = NSPredicate(format: "profile == %@ AND weekOf == %@", profileRef as CVarArg, normalizedWeekStart as CVarArg)
                 let periods = try await cloudKit.query(AllowancePeriod.self, predicate: predicate, in: profile.id.zoneID)
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrationHandler.hydrateFromQuery(
                     models: periods,
                     databaseScope: scope,
                     zoneID: profile.id.zoneID
@@ -245,7 +245,7 @@ extension TreasuryService {
             let periods = try await cloudKit.query(AllowancePeriod.self,
                                                    predicate: predicate,
                                                    in: profile.id.zoneID)
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
+            await syncCoordinator.hydrationHandler.hydrateFromQuery(
                 models: periods,
                 databaseScope: scope,
                 zoneID: profile.id.zoneID
@@ -271,7 +271,7 @@ extension TreasuryService {
         guard fetched.family.recordID.recordName == familyRecordName else {
             throw FamilyServiceError.unauthorized
         }
-        await syncCoordinator.delegateHandler.hydrateFromQuery(
+        await syncCoordinator.hydrationHandler.hydrateFromQuery(
             models: [fetched],
             databaseScope: scope,
             zoneID: recordID.zoneID
@@ -332,9 +332,21 @@ extension TreasuryService {
         )
     }
 
-    /// Calculates total gold credit from logs and quests via GoldCalculation.
-    func sumGold(for logs: [QuestCompletion], quests: [Quest]) -> Double {
-        GoldCalculation.totalCredit(for: quests, logs: logs)
+    func sumGold(
+        for logs: [QuestCompletion],
+        quests: [Quest],
+        templatesByID: [String: QuestTemplate]
+    ) -> Double {
+        // WHY day count wins: stale targetCount under-counts specific-days split rewards.
+        GoldCalculation.totalCredit(for: quests, logs: logs, templatesByID: templatesByID)
+    }
+
+    func sumGold(for logs: [QuestCompletion], quests: [Quest], family: Family) -> Double {
+        GoldCalculation.totalCredit(
+            for: quests,
+            logs: logs,
+            templatesByID: SpecificDaysHelper.templatesByID(cache: cacheService, familyName: family.id.recordName, zoneID: family.id.zoneID)
+        )
     }
 
     // MARK: - Helpers

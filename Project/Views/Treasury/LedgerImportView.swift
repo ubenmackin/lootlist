@@ -115,7 +115,7 @@ struct LedgerImportView: View {
                 description: "Pick an exported transactions file to review it here before anything is imported.",
                 topPadding: 0
             )
-            if importedLedgers.count > 0 {
+            if !importedLedgers.isEmpty {
                 Text("\(importedLedgers.count) transactions imported")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.secondary)

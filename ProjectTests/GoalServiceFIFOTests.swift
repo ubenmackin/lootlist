@@ -40,6 +40,23 @@ struct GoalServiceFIFOTests {
         )
     }
 
+    private func makeBucketLedger(recordName: String,
+                                  amount: Double,
+                                  profileRecordName: String = "hero1",
+                                  bucketKind: BucketKind = .shortTermSave) -> LedgerEntryCache
+    {
+        LedgerEntryCache(
+            recordName: recordName,
+            profileRecordName: profileRecordName,
+            familyRecordName: "fam1",
+            amount: amount,
+            entryDescription: "Quest payout",
+            date: Date(),
+            source: LedgerSource.quest.rawValue,
+            bucketKind: bucketKind.rawValue
+        )
+    }
+
     // MARK: - Allocation Tests
 
     @Test
@@ -198,31 +215,33 @@ struct GoalServiceFIFOTests {
     // MARK: - Completed Goals
 
     @Test
-    func `completed goal consumes target but no allocation returned`() {
+    func `completed goal is skipped entirely`() {
         let goals = [
             makeGoal(recordName: "done", targetPennies: 300, hoursAgo: 10,
                      completedAt: Date()),
             makeGoal(recordName: "active", targetPennies: 300, hoursAgo: 5)
         ]
-        // 500: done consumes 300 (no allocation), 200 cascades to active.
+        // WHY open only: completed already holds funds and clears via purchase, so open gets full remaining.
         let result = GoalService.allocate(amountPennies: 500, goals: goals)
         #expect(result.count == 1)
         #expect(result[0].goalRecordName == "active")
-        #expect(result[0].allocatedPennies == 200)
+        #expect(result[0].allocatedPennies == 300)
+        #expect(result.first(where: { $0.goalRecordName == "done" }) == nil)
     }
 
     @Test
-    func `completed goal consumes all funds leaving nothing for next`() {
+    func `completed goal is skipped leaving funds for next`() {
         let goals = [
             makeGoal(recordName: "done", targetPennies: 600, hoursAgo: 10,
                      completedAt: Date()),
             makeGoal(recordName: "active", targetPennies: 300, hoursAgo: 5)
         ]
-        // 500: done consumes 500 (still needs 100 more "in theory"), but pool
-        // is exhausted so active gets nothing. Since done was already completed,
-        // the 500 consumed from the pool evaporates — no allocation produced.
+        // WHY open only: completed already holds funds and clears via purchase, so active gets full 300.
         let result = GoalService.allocate(amountPennies: 500, goals: goals)
-        #expect(result.isEmpty)
+        #expect(result.count == 1)
+        #expect(result[0].goalRecordName == "active")
+        #expect(result[0].allocatedPennies == 300)
+        #expect(result.first(where: { $0.goalRecordName == "done" }) == nil)
     }
 
     // MARK: - All Archived = Surplus
@@ -247,6 +266,65 @@ struct GoalServiceFIFOTests {
         ]
         let result = GoalService.allocate(amountPennies: 700, goals: goals)
         #expect(result.isEmpty)
+    }
+
+    // MARK: - Partial-Fill Cascade
+
+    @Test
+    func `partial fill tops up remaining need then cascades`() {
+        let goals = [
+            makeGoal(recordName: "g1", targetPennies: 10000, hoursAgo: 10),
+            makeGoal(recordName: "g2", targetPennies: 10000, hoursAgo: 5)
+        ]
+        // WHY remaining need: g1 already holds 6000, so 8000 of new money finishes it with 4000 then cascades 4000 onward.
+        let result = GoalService.allocate(amountPennies: 8000, goals: goals, priorContributedPennies: ["g1": 6000])
+        #expect(result.count == 2)
+        #expect(result[0].goalRecordName == "g1")
+        #expect(result[0].allocatedPennies == 4000)
+        #expect(result[1].goalRecordName == "g2")
+        #expect(result[1].allocatedPennies == 4000)
+    }
+
+    @Test
+    func `fully funded goal is skipped without charging`() {
+        let goals = [
+            makeGoal(recordName: "g1", targetPennies: 5000, hoursAgo: 10),
+            makeGoal(recordName: "g2", targetPennies: 5000, hoursAgo: 5)
+        ]
+        // WHY skip without charging: g1 already holds its full target, so the whole deposit flows to g2.
+        let result = GoalService.allocate(amountPennies: 3000, goals: goals, priorContributedPennies: ["g1": 5000])
+        #expect(result.count == 1)
+        #expect(result[0].goalRecordName == "g2")
+        #expect(result[0].allocatedPennies == 3000)
+    }
+
+    // MARK: - Completed Full Display (Bucket Path)
+
+    @Test
+    func `bucket path shows completed full while open gets remainder`() {
+        let goals = [
+            makeGoal(recordName: "done", targetPennies: 6000, hoursAgo: 10, completedAt: Date()),
+            makeGoal(recordName: "active", targetPennies: 5000, hoursAgo: 5)
+        ]
+        let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 100.0)]
+        // WHY subtract held funds: completed 60 still sits in bucket 100, so open gets min(40, 50).
+        let allocations = GoalProgressCalculator.allocations(goals: goals, ledgerEntries: ledgers)
+        #expect(allocations["done"] == 6000)
+        #expect(allocations["active"] == 4000)
+        #expect((allocations["done"] ?? 0) + (allocations["active"] ?? 0) == 10000)
+    }
+
+    @Test
+    func `bucket path keeps completed full when bucket is short`() {
+        let goals = [
+            makeGoal(recordName: "done", targetPennies: 10000, hoursAgo: 10, completedAt: Date()),
+            makeGoal(recordName: "active", targetPennies: 10000, hoursAgo: 5)
+        ]
+        let ledgers = [makeBucketLedger(recordName: "payout-1", amount: 40.0)]
+        // WHY clamp at zero: completed already exceeds bucket 40, so open gets nothing but completed still renders full.
+        let allocations = GoalProgressCalculator.allocations(goals: goals, ledgerEntries: ledgers)
+        #expect(allocations["done"] == 10000)
+        #expect(allocations["active"] == 0)
     }
 
     // MARK: - Mixed Buckets

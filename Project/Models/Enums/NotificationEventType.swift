@@ -38,6 +38,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
     case levelUp
     case goldEarned
     case spendingLogged
+    case spendDailyDigest
     case trophyEarned
     case streakMilestone
 
@@ -53,6 +54,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         case .levelUp: "Milestone Reached"
         case .goldEarned: "Allowance Day"
         case .spendingLogged: "Spending Logged"
+        case .spendDailyDigest: "Daily Spend Report"
         case .trophyEarned: "Trophy Earned"
         case .streakMilestone: "Streak Milestone"
         }
@@ -68,6 +70,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         case .levelUp: "star.fill"
         case .goldEarned: "banknote"
         case .spendingLogged: "receipt.fill"
+        case .spendDailyDigest: "sunrise.fill"
         case .trophyEarned: "trophy.fill"
         case .streakMilestone: "flame.fill"
         }
@@ -79,14 +82,14 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
             .quests
         case .levelUp, .trophyEarned, .streakMilestone:
             .rewards
-        case .goldEarned, .spendingLogged:
+        case .goldEarned, .spendingLogged, .spendDailyDigest:
             .treasury
         }
     }
 
     var isRelevantForParent: Bool {
         switch self {
-        case .questNeedsReview, .levelUp, .goldEarned, .spendingLogged, .trophyEarned, .streakMilestone:
+        case .questNeedsReview, .levelUp, .goldEarned, .spendingLogged, .spendDailyDigest, .trophyEarned, .streakMilestone:
             true
         case .questAssigned, .questCompleted, .questRejected, .questMissed:
             false
@@ -97,7 +100,7 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
         switch self {
         case .questAssigned, .questCompleted, .questRejected, .questMissed, .levelUp, .goldEarned, .trophyEarned, .streakMilestone:
             true
-        case .questNeedsReview, .spendingLogged:
+        case .questNeedsReview, .spendingLogged, .spendDailyDigest:
             false
         }
     }
@@ -114,14 +117,15 @@ enum NotificationEventType: String, Codable, CaseIterable, Sendable {
              .streakMilestone:
             true
         case .questNeedsReview,
-             .spendingLogged:
+             .spendingLogged,
+             .spendDailyDigest:
             false
         }
     }
 
     var defaultEnabledForParent: Bool {
         switch self {
-        case .questNeedsReview, .levelUp, .goldEarned, .spendingLogged, .trophyEarned, .streakMilestone:
+        case .questNeedsReview, .levelUp, .goldEarned, .spendingLogged, .spendDailyDigest, .trophyEarned, .streakMilestone:
             true
         case .questAssigned, .questCompleted, .questRejected, .questMissed:
             false

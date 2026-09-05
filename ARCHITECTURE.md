@@ -11,15 +11,18 @@ Domain rules agents must not misinterpret:
 - Quest approval: `ApprovalMode` (`.autoApprove` default / `.parentVerify`) set per `QuestTemplate` or per quest. Completions transition `.pending → verified/rejected/withdrawn`; parent notifications fire on `.pending`.
 - `Quest.rarity` remains derived from XP (`QuestRarity.from(xp:)`), never stored — but is NEVER rendered while the RPG layer is flagged off.
 - Week cycles are payout-day-aware half-open `[start, end)` ranges owned exclusively by `WeekMath`. Never compute week boundaries elsewhere. Effective payout day resolves profile override → family → `.sunday`.
-- XP-credit idempotency is structural: `QuestCompletion.xpCredited` marks a completion as already credited; credits are immutable `RewardEvent`s with DETERMINISTIC IDs (`reward-{completionID}`) so CloudKit dedupes across devices. Never switch these to random UUIDs. ALL money-movement records (contributions, interest, matches, transfers, imports) follow the same deterministic-ID discipline:
+- XP-credit idempotency is structural: `QuestCompletion.xpCredited` marks a completion as already credited; credits are immutable `RewardEvent`s with DETERMINISTIC IDs (`reward-{completionID}`) so CloudKit dedupes across devices. Never switch these to random UUIDs. ALL money-movement records (contributions, purchases, interest, matches, transfers, payouts, deposits, withdrawals, imports) follow the same deterministic-ID discipline:
   - Goal contributions: `contrib-{goalRecordName}-{sourceEventID}`
+  - Goal purchases (deduct-and-archive): `purchase-{goalRecordName}`
   - Interest credits: `interest-{profileRecordName}-{yyyy-MM}` (monthly, check-before-apply)
   - Parent match: `match-{goalRecordName}-{sourceContributionEventID}`
   - Bucket transfers: `transfer-{profileRecordName}-{transferID}` (or timestamp+nonce when unkeyed)
+  - Quest payouts: `payout-{periodRecordName}[-{bucket}]` (weekly split) and `rt-{periodRecordName}` (real-time settlement)
+  - Manual/deposit/withdrawal entries: `{source}-{profileRecordName}-{familyRecordName}-{ms}-{cents}-{descHash}` with deterministic collision extension (never a random UUID)
   - CSV imports: `import-{rowContentHash}` (re-import idempotent)
 - Buckets are exactly three (`BucketKind`): spend, shortTermSave, longTermSave. A child's split percentages apply to FUTURE payouts/deposits only — never retroactively rebalance.
 - Goals fill FIFO within their bucket: oldest incomplete non-archived goal fills first; overflow cascades; surplus past all goals sits unallocated in the bucket.
-- LedgerEntry `source` allowed values include: `manual`, `interest`, `match`, `transfer`, plus import-tagged entries. Money copy always renders as real region currency via `CurrencyFormatter` — never hardcoded symbols, never "gold" copy.
+- LedgerEntry `source` allowed values are exactly the `LedgerSource` cases: `manual`, `quest`, `interest`, `match`, `transfer`, `goal`, `purchase`, `deposit`, `withdrawal`, plus import-tagged entries. Money copy always renders as real region currency via `CurrencyFormatter` — never hardcoded symbols, never "gold" copy.
 - Trophy requirement text is computed at render time from values; stored description text may be stale on legacy records. `AchievementService.AchievementRequirement` must stay in sync with the trophy spec (quest-count tiers + "First Goal Created" + "Goal Getter").
 - Internal identifiers keep legacy `gold` prefixes (`goldReward`, `Color.gold`, …). Do not rename them. `Color.gold` is asset-catalog-backed via `Assets.xcassets/gold.colorset` (light `#D9A834` / dark `#E8C05C`) matching `DesignSystemConstants.Colors.gold = "gold"` and resolved via asset symbol synthesis / `Color("gold")`; manual `ColorExtensions` wrappers must not be reintroduced.
 - User-facing copy keeps Quest/Hero/Guild vocabulary but contains NO level/XP/rarity/gold/journey/gem/gear/mascot references while the RPG layer is hidden. `FlavorTextProvider` carries this voice.
@@ -233,7 +236,7 @@ Authenticated write-gating happens in the service layer (client-side role checks
 
 **Status:** ACCEPTED (intentional design).
 
-Conflict resolution in `CKSyncConflictResolver` applies dedicated field/additive merges for core mutable records (`Quest`, `Profile`, `QuestCompletion`, `AllowancePeriod`). For secondary records (`LedgerEntry`, `Goal`, `GemLedger`, `RewardEvent`, `Achievement`, `ProfileAchievement`, `NotificationPreference`, `Family`), conflict resolution adopts the server record into cache on conflict (`serverRecordChanged`). All money-movement and credit records rely on deterministic record IDs (`contrib-*`, `interest-*`, `reward-*`, `transfer-*`, `import-*`) to prevent concurrent write collisions.
+Conflict resolution in `CKSyncConflictResolver` applies dedicated field/additive merges for core mutable records (`Quest`, `Profile`, `QuestCompletion`, `AllowancePeriod`). For secondary records (`LedgerEntry`, `Goal`, `GemLedger`, `RewardEvent`, `Achievement`, `ProfileAchievement`, `NotificationPreference`, `Family`), conflict resolution adopts the server record into cache on conflict (`serverRecordChanged`). All money-movement and credit records rely on deterministic record IDs (`contrib-*`, `purchase-*`, `interest-*`, `match-*`, `reward-*`, `transfer-*`, `payout-*`, `rt-*`, `import-*`) to prevent concurrent write collisions.
 
 **Security-audit directive:** Server-wins conflict resolution for secondary records is accepted risk and intentional; do not classify the absence of multi-device client-wins field merging for secondary entities as a defect.
 

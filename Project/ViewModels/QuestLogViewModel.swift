@@ -35,6 +35,7 @@ final class QuestLogViewModel {
 
     private var rawQuests: [QuestCache] = []
     private var rawCompletionsByQuest: [String: [QuestCompletionCache]] = [:]
+    private var templatesByID: [String: QuestTemplateCache] = [:]
 
     var availableHeroes: [ProfileCache] {
         allProfiles.filter { $0.roleEnum == .hero }
@@ -84,11 +85,12 @@ final class QuestLogViewModel {
 
     // MARK: - Load & Filter
 
-    func rebuildLists(profiles: [ProfileCache] = [], quests: [QuestCache], logs: [QuestCompletionCache]) {
+    func rebuildLists(profiles: [ProfileCache], quests: [QuestCache], logs: [QuestCompletionCache], templates: [QuestTemplateCache]) {
         if !profiles.isEmpty {
             allProfiles = profiles
             profileByName = Dictionary(uniqueKeysWithValues: profiles.map { ($0.recordName, $0) })
         }
+        templatesByID = SpecificDaysHelper.templatesByID(templates)
         rawQuests = quests
 
         var completionsMap: [String: [QuestCompletionCache]] = [:]
@@ -124,7 +126,8 @@ final class QuestLogViewModel {
             let approvedLogs = logs.filter {
                 $0.verificationStatusEnum == .verified || $0.verificationStatusEnum == .autoApproved
             }
-            let target = max(1, quest.targetCount)
+            // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
 
             let hasRejectedLog = logs.contains {
                 $0.verificationStatusEnum == .rejected || $0.verificationStatusEnum == .withdrawn
@@ -132,9 +135,9 @@ final class QuestLogViewModel {
 
             let status: CompletionStatus = if logs.isEmpty {
                 .notStarted
-            } else if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count) {
+            } else if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedLogs.count, effectiveTarget: target) {
                 .completed
-            } else if approvedLogs.count > 0 {
+            } else if !approvedLogs.isEmpty {
                 .inProgress(completedCount: approvedLogs.count, targetCount: target)
             } else if hasRejectedLog {
                 .rejected

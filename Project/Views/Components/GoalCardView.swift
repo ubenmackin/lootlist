@@ -55,7 +55,7 @@ struct GoalCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Thumbnail + emoji + title row + optional store link
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 if let validImageURL {
                     AsyncImage(url: validImageURL) { phase in
                         switch phase {
@@ -93,7 +93,7 @@ struct GoalCardView: View {
                     Text(name)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                        .lineLimit(1)
+                        .lineLimit(2)
 
                     if let summary = pacingSummary, summary.status != .noDeadline {
                         HStack(spacing: 4) {

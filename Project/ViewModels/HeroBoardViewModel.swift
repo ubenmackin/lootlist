@@ -13,12 +13,49 @@ import Synchronization
 @Observable
 final class HeroBoardViewModel {
     struct BoardRow: Identifiable, Equatable {
-        let quest: Quest
+        let quest: QuestCache
         let claimantName: String?
         let isClaimedByCurrentUser: Bool
 
+        init(quest: QuestCache, claimantName: String?, isClaimedByCurrentUser: Bool) {
+            self.quest = quest
+            self.claimantName = claimantName
+            self.isClaimedByCurrentUser = isClaimedByCurrentUser
+        }
+
+        /// Test/legacy bridge: converts the domain snapshot to cache at the boundary so rows never hold domain.
+        init(quest: Quest, claimantName: String?, isClaimedByCurrentUser: Bool) {
+            self.init(quest: QuestCache(from: quest), claimantName: claimantName, isClaimedByCurrentUser: isClaimedByCurrentUser)
+        }
+
         var id: String {
-            quest.id.recordName
+            quest.recordName
+        }
+
+        /// WHY value snapshot: QuestCache is a reference type, so compare rendered fields.
+        static func == (lhs: BoardRow, rhs: BoardRow) -> Bool {
+            lhs.quest.recordName == rhs.quest.recordName &&
+                lhs.claimantName == rhs.claimantName &&
+                lhs.isClaimedByCurrentUser == rhs.isClaimedByCurrentUser &&
+                lhs.quest.questName == rhs.quest.questName &&
+                lhs.quest.goldReward == rhs.quest.goldReward &&
+                lhs.quest.xpReward == rhs.quest.xpReward &&
+                lhs.quest.xpBanked == rhs.quest.xpBanked &&
+                lhs.quest.descriptionText == rhs.quest.descriptionText &&
+                lhs.quest.isAllOrNothing == rhs.quest.isAllOrNothing &&
+                lhs.quest.weekOf == rhs.quest.weekOf &&
+                lhs.quest.claimedByProfileRecordName == rhs.quest.claimedByProfileRecordName &&
+                lhs.quest.claimedAt == rhs.quest.claimedAt &&
+                lhs.quest.changeTag == rhs.quest.changeTag &&
+                lhs.quest.isActive == rhs.quest.isActive &&
+                lhs.quest.assigneeRecordName == rhs.quest.assigneeRecordName &&
+                lhs.quest.templateRecordName == rhs.quest.templateRecordName &&
+                lhs.quest.targetCount == rhs.quest.targetCount &&
+                lhs.quest.scheduleType == rhs.quest.scheduleType &&
+                lhs.quest.approvalMode == rhs.quest.approvalMode &&
+                lhs.quest.familyRecordName == rhs.quest.familyRecordName &&
+                lhs.quest.createdByRecordName == rhs.quest.createdByRecordName &&
+                lhs.quest.rarity == rhs.quest.rarity
         }
     }
 
@@ -54,7 +91,7 @@ final class HeroBoardViewModel {
     /// `@Query`. Also settles optimistic claims: if a pending claim now shows
     /// another claimer (their server-wins ingest landed), surface the toast.
     func rebuildLists(quests: [QuestCache], profiles: [ProfileCache]) {
-        guard let family = appState.family else {
+        guard appState.family != nil else {
             availableRows = []
             claimedRows = []
             pendingClaims.withLock { $0.removeAll() }
@@ -64,18 +101,17 @@ final class HeroBoardViewModel {
         let profileByName = Dictionary(uniqueKeysWithValues: profiles.map { ($0.recordName, $0) })
         let currentUser = currentUserRecordName
 
+        // WHY cache-first: rows hold QuestCache for presentation; domain conversion happens only at claim/revoke.
         let rows: [BoardRow] = quests.compactMap { cached in
-            let zoneID = cached.validatedZoneID(requestedZoneID: family.id.zoneID)
-            let quest = cached.toQuest(zoneID: zoneID)
-            guard cached.isActive, HeroBoardService.isBoardQuest(quest) else { return nil }
-            let claimer = quest.claimedByProfileRecordName
+            guard cached.isActive, HeroBoardService.isBoardQuest(cached) else { return nil }
+            let claimer = cached.claimedByProfileRecordName
             return BoardRow(
-                quest: quest,
+                quest: cached,
                 claimantName: claimer.flatMap { profileByName[$0]?.displayName },
                 isClaimedByCurrentUser: claimer == currentUser
             )
         }
-        .sorted { $0.quest.displayName.localizedCaseInsensitiveCompare($1.quest.displayName) == .orderedAscending }
+        .sorted { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
 
         availableRows = rows.filter { $0.quest.claimedByProfileRecordName == nil }
         claimedRows = rows.filter { $0.quest.claimedByProfileRecordName != nil }
@@ -132,21 +168,25 @@ final class HeroBoardViewModel {
         defer { _ = inFlightClaims.withLock { $0.remove(id) } }
         pendingClaims.withLock { _ = $0.insert(id) }
 
+        // WHY mutation boundary: domain conversion happens here so presentation never holds domain structs.
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: row.quest)
+        let quest = row.quest.toQuest(zoneID: zoneID)
         do {
-            switch try await boardService.claim(row.quest, by: hero) {
+            switch try await boardService.claim(quest, by: hero) {
             case .claimed:
                 if let index = availableRows.firstIndex(where: { $0.id == row.id }) {
-                    var claimedQuest = row.quest
-                    claimedQuest.claimedByProfileRecordName = hero.id.recordName
-                    claimedQuest.claimedAt = Date()
+                    var claimedDomain = quest
+                    claimedDomain.claimedByProfileRecordName = hero.id.recordName
+                    claimedDomain.claimedAt = Date()
+                    // WHY detached copy: mutating the @Query row would dirty SwiftData, so optimistic UI copies.
                     let updatedRow = BoardRow(
-                        quest: claimedQuest,
+                        quest: QuestCache(from: claimedDomain),
                         claimantName: hero.displayName,
                         isClaimedByCurrentUser: true
                     )
                     availableRows.remove(at: index)
                     claimedRows.append(updatedRow)
-                    claimedRows.sort { $0.quest.displayName.localizedCaseInsensitiveCompare($1.quest.displayName) == .orderedAscending }
+                    claimedRows.sort { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
                 }
             case .lostToAnotherHero:
                 pendingClaims.withLock { _ = $0.remove(id) }
@@ -179,20 +219,24 @@ final class HeroBoardViewModel {
     }
 
     func revoke(_ row: BoardRow) async {
+        // WHY mutation boundary: domain conversion happens here so presentation never holds domain structs.
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: row.quest)
+        let quest = row.quest.toQuest(zoneID: zoneID)
         do {
-            try await boardService.revoke(row.quest)
+            try await boardService.revoke(quest)
             if let index = claimedRows.firstIndex(where: { $0.id == row.id }) {
-                var revokedQuest = row.quest
-                revokedQuest.claimedByProfileRecordName = nil
-                revokedQuest.claimedAt = nil
+                var revokedDomain = quest
+                revokedDomain.claimedByProfileRecordName = nil
+                revokedDomain.claimedAt = nil
+                // WHY detached copy: mutating the @Query row would dirty SwiftData, so optimistic UI copies.
                 let updatedRow = BoardRow(
-                    quest: revokedQuest,
+                    quest: QuestCache(from: revokedDomain),
                     claimantName: nil,
                     isClaimedByCurrentUser: false
                 )
                 claimedRows.remove(at: index)
                 availableRows.append(updatedRow)
-                availableRows.sort { $0.quest.displayName.localizedCaseInsensitiveCompare($1.quest.displayName) == .orderedAscending }
+                availableRows.sort { $0.quest.questName.localizedCaseInsensitiveCompare($1.quest.questName) == .orderedAscending }
             }
         } catch {
             boardService.toastManager?.show(

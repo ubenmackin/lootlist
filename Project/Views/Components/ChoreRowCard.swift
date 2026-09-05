@@ -35,7 +35,7 @@ struct ChoreRowCard: View {
     var accessibilityID: String?
 
     var body: some View {
-        HStack(spacing: DesignSystemConstants.Padding.medium) {
+        HStack(alignment: .top, spacing: DesignSystemConstants.Padding.medium) {
             leadingIcon
 
             VStack(alignment: .leading, spacing: 2) {
@@ -43,13 +43,13 @@ struct ChoreRowCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(style == .completed || style == .expired ? .secondary : .primary)
                     .strikethrough(style == .completed, color: .secondary.opacity(0.5))
-                    .lineLimit(1)
+                    .lineLimit(2)
 
                 if let subtitle {
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(subtitleColor)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
             }
 

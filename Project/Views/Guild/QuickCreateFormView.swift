@@ -25,8 +25,6 @@ struct QuickCreateFormView: View {
     /// Decimal pad has no return key — Done button dismisses keyboard.
     @FocusState private var isAmountFocused: Bool
 
-    private static let weekdayCodes: [String] = AppConstants.weekdayCodes
-
     private var isMultiOccurrence: Bool {
         QuestSchedule.isMultiOccurrence(
             schedule: quickSchedule,
@@ -134,8 +132,8 @@ struct QuickCreateFormView: View {
                         Text("Repeat On")
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
-                                ForEach(Array(Self.weekdayCodes.indices), id: \.self) { idx in
-                                    let code = Self.weekdayCodes[idx]
+                                ForEach(Array(WeekMath.weekdayOrder.indices), id: \.self) { idx in
+                                    let code = WeekMath.weekdayOrder[idx]
                                     PresetPill(
                                         text: AppConstants.weekdayAbbreviated[idx],
                                         isSelected: quickSpecificDays.contains(code),

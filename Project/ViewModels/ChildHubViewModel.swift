@@ -70,8 +70,9 @@ final class ChildHubViewModel {
 
     // MARK: - Derived Figures
 
+    /// WHY one helper: bucket sum is the total on every surface.
     var availableBalance: Double {
-        BucketKind.allCases.reduce(0) { $0 + (bucketBalances[$1] ?? 0) }
+        BucketService.totalBalance(bucketBalances: bucketBalances)
     }
 
     func bucketBalance(_ kind: BucketKind) -> Double {
@@ -135,9 +136,9 @@ final class ChildHubViewModel {
             return
         }
 
-        bucketBalances = bucketService.bucketBalances(profileRecordName: profileName, familyRecordName: familyName)
         let ledgerEntries = bucketService.cacheService
             .fetchLedgerEntries(profileRecordName: profileName, family: familyName)
+        bucketBalances = BucketService.bucketBalances(for: ledgerEntries, profileRecordName: profileName)
 
         let myQuests = quests.filter { $0.assigneeRecordName == profileName && $0.isActive }
         let myLogs = logs.filter { $0.completerRecordName == profileName }
@@ -162,10 +163,10 @@ final class ChildHubViewModel {
             templatesByID: templatesByID
         )
 
-        weeklyGoal = weekQuests.reduce(0) { $0 + max(1, $1.targetCount) }
+        weeklyGoal = weekQuests.reduce(0) { $0 + SpecificDaysHelper.effectiveTarget(for: $1, templatesByID: templatesByID) }
         weeklyCompleted = weekQuests.reduce(0) { sum, quest in
             let approved = myLogs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
-            return sum + min(approved, max(1, quest.targetCount))
+            return sum + min(approved, SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID))
         }
 
         streak = StreakCalculator.computeStreak(from: myLogs)
@@ -188,10 +189,17 @@ final class ChildHubViewModel {
         let savingsStreak = StreakCalculator.computeSavingsStreak(from: ledgerEntries, profileRecordName: profileName, payoutDay: payoutDay)
         let nextChore = choreRows.first(where: { !$0.isPendingReview })?.title
 
-        let weekTargetTotal = weekQuests.reduce(0) { $0 + max(1, $1.targetCount) }
+        let todayCodeValue = todayCode
+        // WHY today denominator: week sum inflates widget fraction, so only today's scheduled day counts.
+        let todayScheduledTotal = weekQuests.reduce(0) { partial, quest in
+            if quest.scheduleTypeEnum == .specificDays {
+                return partial + (SpecificDaysHelper.isScheduledToday(quest: quest, templatesByID: templatesByID, todayCode: todayCodeValue) ? 1 : 0)
+            }
+            return partial + SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+        }
         let snapshot = WidgetSnapshot(
             todayCompletedQuests: todayLogs.count,
-            todayTotalQuests: max(todayLogs.count, weekTargetTotal),
+            todayTotalQuests: max(todayLogs.count, todayScheduledTotal),
             dailyQuestStreak: streak,
             weeklySavingsStreak: savingsStreak,
             activeGoalName: activeGoal?.goal.name,
@@ -214,6 +222,9 @@ final class ChildHubViewModel {
     ) -> [ChoreRowItem] {
         var rows: [ChoreRowItem] = []
 
+        // Weekday code comes from todayCode so due-text and the week strip
+        // anchor on the same UTC weekday source.
+        let code = todayCode
         // Pending review leads the list; a pending log still occupies a
         // completion slot, so an in-review quest drops off the to-do list
         // until the parent responds.
@@ -222,7 +233,15 @@ final class ChildHubViewModel {
             .sorted { $0.completedDate > $1.completedDate }
         for log in pendingLogs {
             guard let quest = questsByID[log.questRecordName] else { continue }
-            let subtitle = quest.isActive ? "Tap to Unsubmit" : "Deactivated · Tap to Unsubmit"
+            let baseSubtitle = quest.isActive ? "Tap to Unsubmit" : "Deactivated · Tap to Unsubmit"
+            // WHY: day state always shows so queued day stays visible while awaiting review.
+            let subtitle: String
+            if quest.scheduleTypeEnum == .specificDays {
+                let due = SpecificDaysHelper.dueText(for: quest, templatesByID: templatesByID, todayCode: code)
+                subtitle = "\(due) · \(baseSubtitle)"
+            } else {
+                subtitle = baseSubtitle
+            }
             rows.append(ChoreRowItem(
                 id: log.recordName,
                 title: quest.questName,
@@ -234,23 +253,22 @@ final class ChildHubViewModel {
             ))
         }
 
-        // Weekday code comes from todayCode so due-text and the week strip
-        // anchor on the same UTC weekday source.
-        let code = todayCode
         let logsByQuest = Dictionary(grouping: myLogs, by: \.questRecordName)
 
         let open = weekQuests.filter { quest in
             let questLogs = logsByQuest[quest.recordName] ?? []
             let approved = questLogs.filter(\.isApproved).count
             let occupied = questLogs.filter { $0.verificationStatusEnum?.countsTowardCompletion == true }.count
-            return !GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved)
-                && occupied < quest.targetCount
+            // WHY: day checklist slots track scheduled days so makeup stays visible within the week.
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+            return !GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved, effectiveTarget: target)
+                && !GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: occupied, effectiveTarget: target)
         }
 
         // Today's scheduled chores lead, then the rest of the week.
         let sorted = open.sorted { lhs, rhs in
-            let lhsToday = Self.isScheduledToday(lhs, templatesByID: templatesByID, todayCode: code)
-            let rhsToday = Self.isScheduledToday(rhs, templatesByID: templatesByID, todayCode: code)
+            let lhsToday = SpecificDaysHelper.isScheduledToday(quest: lhs, templatesByID: templatesByID, todayCode: code)
+            let rhsToday = SpecificDaysHelper.isScheduledToday(quest: rhs, templatesByID: templatesByID, todayCode: code)
             if lhsToday != rhsToday {
                 return lhsToday
             }
@@ -260,13 +278,13 @@ final class ChildHubViewModel {
         for quest in sorted {
             let questLogs = logsByQuest[quest.recordName] ?? []
             let approved = questLogs.filter(\.isApproved).count
-            let dueStr = Self.dueText(for: quest, templatesByID: templatesByID, todayCode: code)
+            let dueStr = SpecificDaysHelper.dueText(for: quest, templatesByID: templatesByID, todayCode: code)
+            // WHY: day state always shows so Due Today versus Due Wed is visible at a glance.
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
             let subtitleText: String
-            if quest.targetCount > 1 {
-                let formatter = NumberFormatter()
-                formatter.numberStyle = .ordinal
-                let ordinal = formatter.string(from: NSNumber(value: approved + 1)) ?? "\(approved + 1)"
-                subtitleText = "\(ordinal) time of \(quest.targetCount) · \(dueStr)"
+            if target > 1 {
+                let ordinal = FlavorTextProvider.ordinal(approved + 1)
+                subtitleText = "\(ordinal) time of \(target) · \(dueStr)"
             } else {
                 subtitleText = dueStr
             }
@@ -282,32 +300,5 @@ final class ChildHubViewModel {
             ))
         }
         return rows
-    }
-
-    private static func isScheduledToday(
-        _ quest: QuestCache,
-        templatesByID: [String: QuestTemplateCache],
-        todayCode: String
-    ) -> Bool {
-        guard quest.scheduleTypeEnum == .specificDays,
-              let days = templatesByID[quest.templateRecordName]?.specificDays
-        else { return false }
-        return days.contains(todayCode)
-    }
-
-    private static func dueText(
-        for quest: QuestCache,
-        templatesByID: [String: QuestTemplateCache],
-        todayCode: String
-    ) -> String {
-        guard quest.scheduleTypeEnum == .specificDays else { return "This Week" }
-        let days = templatesByID[quest.templateRecordName]?.specificDays ?? []
-        if days.contains(todayCode) {
-            return "Due Today"
-        }
-        if let next = WeekMath.nextWeekdayCode(after: todayCode, candidates: days) {
-            return "Due \(WeekMath.shortName(for: next))"
-        }
-        return "This Week"
     }
 }

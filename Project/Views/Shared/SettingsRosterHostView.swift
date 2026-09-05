@@ -32,6 +32,7 @@ struct SettingsRosterHostView: View {
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedGemLedgers: [GemLedgerCache]
     @Query private var cachedRewardEvents: [RewardEventCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     init(familyRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
@@ -47,6 +48,7 @@ struct SettingsRosterHostView: View {
         let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
         let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
         let rewardEventFilter = #Predicate<RewardEventCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
 
         _cachedProfiles = Query(filter: profileFilter, sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)])
         _cachedQuests = Query(filter: questFilter, sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)])
@@ -67,6 +69,7 @@ struct SettingsRosterHostView: View {
         _cachedGoals = Query(filter: goalFilter, sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)])
         _cachedGemLedgers = Query(filter: gemLedgerFilter, sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)])
         _cachedRewardEvents = Query(filter: rewardEventFilter, sort: [SortDescriptor(\RewardEventCache.timestamp, order: .reverse), SortDescriptor(\RewardEventCache.recordName)])
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     var body: some View {
@@ -150,7 +153,8 @@ struct SettingsRosterHostView: View {
             ledgers: cachedLedgers,
             allowancePeriods: cachedAllowancePeriods,
             profileAchievements: cachedProfileAchievements,
-            achievements: cachedAchievements
+            achievements: cachedAchievements,
+            templates: cachedTemplates
         )
     }
 

@@ -636,7 +636,9 @@ extension TreasuryServiceTests {
             description: "Bonus",
             date: monday,
             source: "manual",
-            family: familyRef
+            bucketKind: BucketKind.spend.rawValue,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "bonus1", zoneID: zoneID)
         )
 
         // Seed the cache (NOT CloudKit's mock store) with every record the
@@ -752,7 +754,9 @@ extension TreasuryServiceTests {
             description: "Bonus",
             date: monday,
             source: "manual",
-            family: familyRef
+            bucketKind: BucketKind.spend.rawValue,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "bonus1", zoneID: zoneID)
         )
 
         // Seed cache and freshness stamps for local read path.

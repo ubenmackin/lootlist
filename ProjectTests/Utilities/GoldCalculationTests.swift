@@ -181,4 +181,36 @@ struct GoldCalculationTests {
         #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 0) == false)
         #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 1) == true)
     }
+
+    @Test
+    func `stale specificDays target requires day count not cached targetCount`() {
+        let quest = QuestCache(
+            recordName: "quest-stale",
+            familyRecordName: "fam",
+            assigneeRecordName: "hero",
+            templateRecordName: "tpl",
+            weekOf: Date(),
+            questName: "Stale Quest",
+            isActive: true,
+            goldReward: 9.0,
+            xpReward: 50,
+            rarity: "common",
+            scheduleType: QuestSchedule.specificDays.rawValue,
+            isAllOrNothing: false,
+            approvalMode: ApprovalMode.autoApprove.rawValue,
+            descriptionText: nil,
+            createdByRecordName: "user1"
+        )
+        let days = ["monday", "wednesday", "friday"]
+        // WHY: legacy rows keep targetCount 1 after template gains days, so slots must win.
+        let effective = SpecificDaysHelper.effectiveTarget(for: quest, specificDays: days)
+        #expect(effective == 3)
+        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 1) == true)
+        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 1, effectiveTarget: effective) == false)
+        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 3, effectiveTarget: effective) == true)
+        #expect(GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: 1, effectiveTarget: effective) == false)
+        #expect(GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: 3, effectiveTarget: effective) == true)
+        #expect(GoldCalculation.creditAsDouble(for: quest, approvedCount: 1) == 9.0)
+        #expect(GoldCalculation.creditAsDouble(for: quest, approvedCount: 1, effectiveTarget: effective) == 3.0)
+    }
 }

@@ -25,6 +25,7 @@ struct PayoutHistoryView: View {
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedGoals: [GoalCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var selectedPeriod: AllowancePeriodCache?
@@ -57,6 +58,7 @@ struct PayoutHistoryView: View {
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
         let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
         let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
             sort: \AllowancePeriodCache.weekOf,
@@ -84,6 +86,7 @@ struct PayoutHistoryView: View {
             filter: goalFilter,
             sort: \GoalCache.createdAt
         )
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     var body: some View {
@@ -137,6 +140,7 @@ struct PayoutHistoryView: View {
         .onChange(of: cachedAchievements) { _, _ in rebuildFromCache() }
         .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
         .onChange(of: cachedLedgers) { _, _ in rebuildFromCache() }
+        .onChange(of: cachedTemplates) { _, _ in rebuildFromCache() }
         .onChange(of: cachedGoals) { _, _ in }
     }
 
@@ -224,9 +228,6 @@ struct PayoutHistoryView: View {
     }
 
     private func rebuildFromCache(_ vm: FamilyDashboardViewModel? = nil) {
-        // The `@Query` declarations above already filter by
-        // `familyRecordName` at the SwiftData/SQLite layer, so we no longer
-        // post-filter the cached rows in Swift. Pass them straight through.
         (vm ?? viewModel)?.rebuildLists(
             profiles: cachedProfiles,
             quests: [],
@@ -234,7 +235,8 @@ struct PayoutHistoryView: View {
             ledgers: [],
             allowancePeriods: cachedAllowancePeriods,
             profileAchievements: cachedProfileAchievements,
-            achievements: cachedAchievements
+            achievements: cachedAchievements,
+            templates: cachedTemplates
         )
     }
 

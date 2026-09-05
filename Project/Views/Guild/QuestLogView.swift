@@ -18,6 +18,7 @@ struct QuestLogView: View {
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var viewModel: QuestLogViewModel?
 
@@ -43,6 +44,7 @@ struct QuestLogView: View {
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily }
         let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
         _cachedProfiles = Query(
             filter: profileFilter,
             sort: \ProfileCache.displayName
@@ -57,6 +59,7 @@ struct QuestLogView: View {
             sort: \QuestCompletionCache.completedDate,
             order: .reverse
         )
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     private var showsNavigationTitle: Bool {
@@ -119,6 +122,9 @@ struct QuestLogView: View {
         .onChange(of: cachedCompletions) { _, _ in
             rebuildViewModel()
         }
+        .onChange(of: cachedTemplates) { _, _ in
+            rebuildViewModel()
+        }
         .onChange(of: scope) { _, newScope in
             viewModel?.dateRangePreset = newScope
         }
@@ -152,8 +158,7 @@ struct QuestLogView: View {
             }
         }
 
-        // Rebuild view model lists directly from cached SwiftData rows.
-        vm.rebuildLists(profiles: cachedProfiles, quests: cachedQuests, logs: cachedCompletions)
+        vm.rebuildLists(profiles: cachedProfiles, quests: cachedQuests, logs: cachedCompletions, templates: cachedTemplates)
     }
 
     // MARK: - Toolbar Menus

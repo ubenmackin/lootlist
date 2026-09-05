@@ -43,6 +43,12 @@ final class HeroBoardService {
         quest.assignee.recordID.recordName == boardAssigneeRecordName
     }
 
+    /// WHY single source: cache rows carry the assignee as a record-name string,
+    /// so route the board check through the same predicate as the domain type.
+    static func isBoardQuest(_ cached: QuestCache) -> Bool {
+        cached.assigneeRecordName == boardAssigneeRecordName
+    }
+
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroBoard")
 
     private let questService: QuestService

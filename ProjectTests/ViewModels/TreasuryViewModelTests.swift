@@ -97,7 +97,8 @@ struct TreasuryViewModelTests {
         viewModel.rebuildLists(
             logs: [], ledgers: [], quests: [],
             allowancePeriods: [pendingPeriod],
-            scope: .thisWeek
+            scope: .thisWeek,
+            templates: []
         )
 
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .payoutPending)
@@ -120,7 +121,8 @@ struct TreasuryViewModelTests {
         viewModel.rebuildLists(
             logs: [], ledgers: [], quests: [],
             allowancePeriods: [paidPeriod],
-            scope: .thisWeek
+            scope: .thisWeek,
+            templates: []
         )
 
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .paid)
@@ -159,7 +161,8 @@ struct TreasuryViewModelTests {
         viewModel.rebuildLists(
             logs: [], ledgers: [], quests: [],
             allowancePeriods: [otherProfilePeriod, staleWeekPeriod, currentPeriod],
-            scope: .thisWeek
+            scope: .thisWeek,
+            templates: []
         )
 
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .active)
@@ -176,7 +179,8 @@ struct TreasuryViewModelTests {
 
         viewModel.rebuildLists(
             logs: [log], ledgers: fixtures, quests: [quest], allowancePeriods: [],
-            scope: .thisWeek
+            scope: .thisWeek,
+            templates: []
         )
 
         let expected = fixtures
@@ -197,7 +201,8 @@ struct TreasuryViewModelTests {
 
         viewModel.rebuildLists(
             logs: [log], ledgers: fixtures, quests: [quest], allowancePeriods: [],
-            scope: .thisMonth
+            scope: .thisMonth,
+            templates: []
         )
 
         let expected = fixtures
@@ -218,7 +223,8 @@ struct TreasuryViewModelTests {
 
         viewModel.rebuildLists(
             logs: [log], ledgers: fixtures, quests: [quest], allowancePeriods: [],
-            scope: .thisQuarter
+            scope: .thisQuarter,
+            templates: []
         )
 
         let expected = fixtures
@@ -239,7 +245,8 @@ struct TreasuryViewModelTests {
 
         viewModel.rebuildLists(
             logs: [log], ledgers: fixtures, quests: [quest], allowancePeriods: [],
-            scope: .allTime
+            scope: .allTime,
+            templates: []
         )
 
         let expectedRecordNames = fixtures.map(\.recordName)
@@ -323,7 +330,7 @@ struct TreasuryViewModelTests {
         let fridayVM = try makeTreasuryViewModel(fridayState)
         fridayVM.rebuildLists(
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
-            allowancePeriods: [], scope: .thisWeek
+            allowancePeriods: [], scope: .thisWeek, templates: []
         )
         #expect(fridayVM.spendingLog.map(\.id).contains("l_gap"))
 
@@ -331,7 +338,7 @@ struct TreasuryViewModelTests {
         let sundayVM = try makeTreasuryViewModel(sundayState)
         sundayVM.rebuildLists(
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
-            allowancePeriods: [], scope: .thisWeek
+            allowancePeriods: [], scope: .thisWeek, templates: []
         )
         #expect(!sundayVM.spendingLog.map(\.id).contains("l_gap"))
     }
@@ -357,7 +364,7 @@ struct TreasuryViewModelTests {
         let overrideVM = try makeTreasuryViewModel(overrideState)
         overrideVM.rebuildLists(
             logs: [], ledgers: [gapLedger, todayLedger], quests: [],
-            allowancePeriods: [], scope: .thisWeek
+            allowancePeriods: [], scope: .thisWeek, templates: []
         )
         #expect(overrideVM.spendingLog.map(\.id).contains("l_gap"))
     }
@@ -536,7 +543,7 @@ struct TreasuryViewModelTests {
             paidAmount: 50.0
         )
 
-        viewModel.rebuildLists(logs: [], ledgers: [], quests: [], allowancePeriods: [allowance], scope: .thisWeek)
+        viewModel.rebuildLists(logs: [], ledgers: [], quests: [], allowancePeriods: [allowance], scope: .thisWeek, templates: [])
 
         #expect(viewModel.allowancePeriod?.status == .paid)
         #expect(viewModel.weeklyBreakdown?.payoutStatus == .paid)

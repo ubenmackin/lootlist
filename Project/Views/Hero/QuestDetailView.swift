@@ -20,13 +20,18 @@ struct QuestDetailView: View {
     @Environment(ToastManager.self) private var toastManager: ToastManager?
 
     @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
     @State private var isLoadingLog: Bool = false
 
+    private var templatesByID: [String: QuestTemplateCache] {
+        SpecificDaysHelper.templatesByID(cachedTemplates)
+    }
+
     private var targetCount: Int {
-        max(1, quest.targetCount)
+        SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
     }
 
     private var allLogs: [QuestCompletionCache] {
@@ -46,7 +51,7 @@ struct QuestDetailView: View {
     }
 
     private var isFullyCompleted: Bool {
-        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
+        GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount, effectiveTarget: targetCount)
     }
 
     init(quest: QuestCache, initialLog: QuestCompletionCache? = nil) {
@@ -62,6 +67,11 @@ struct QuestDetailView: View {
             sort: \QuestCompletionCache.completedDate,
             order: .reverse
         )
+        let targetFamily = quest.familyRecordName
+        let templateFilter = #Predicate<QuestTemplateCache> {
+            $0.familyRecordName == targetFamily
+        }
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     var body: some View {
@@ -304,7 +314,7 @@ struct QuestDetailView: View {
 
     /// Disables completion when submission is in flight or verified slots are filled.
     private var canSubmitAnotherCompletion: Bool {
-        isCompleting || GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejected)
+        isCompleting || GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: nonRejected, effectiveTarget: targetCount)
     }
 
     private var nonRejected: Int {

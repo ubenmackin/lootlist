@@ -494,9 +494,9 @@ final class AchievementService {
 
         let newlyAwardedStreakThresholds = awarded.compactMap { achievement -> Int? in
             switch achievement.requirementType {
-            case .streak7: return 7
-            case .streak30: return 30
-            default: return nil
+            case .streak7: 7
+            case .streak30: 30
+            default: nil
             }
         }
         for streakDays in newlyAwardedStreakThresholds.sorted() {
@@ -606,7 +606,7 @@ final class AchievementService {
             context: "AchievementService.award"
         )
         if let syncCoordinator {
-            Task {
+            Task { @MainActor @Sendable [syncCoordinator] in
                 await syncCoordinator.sendPendingChanges()
             }
         }
@@ -836,10 +836,15 @@ private extension AchievementService {
             familyName: family.id.recordName,
             zoneID: profile.id.zoneID
         )
+        // WHY cache-only template map: stats stay cache-first so offline evaluation still resolves day counts.
+        let templatesByID: [String: QuestTemplate] = if let cache = cacheService {
+            SpecificDaysHelper.templatesByID(cache: cache, familyName: family.id.recordName, zoneID: profile.id.zoneID)
+        } else {
+            [:]
+        }
 
         var totalGold: Double = 0
         var dailyCompletionDates: Set<Int> = []
-        var weekCompletionCounts: [Date: Int] = [:]
         var earlyBird = false
         var approvedCountByQuest: [CKRecord.ID: Int] = [:]
 
@@ -848,7 +853,6 @@ private extension AchievementService {
             approvedCountByQuest[quest.id, default: 0] += 1
 
             dailyCompletionDates.insert(WeekMath.dayBucket(for: log.completedDate))
-            weekCompletionCounts[quest.weekOf, default: 0] += 1
 
             let hour = Calendar.iso8601UTC.component(.hour, from: log.completedDate)
             if hour < AppConstants.Economy.earlyBirdHourCutoff {
@@ -858,7 +862,9 @@ private extension AchievementService {
 
         for (questID, approvedCount) in approvedCountByQuest {
             if let quest = questCache[questID] {
-                totalGold += GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount)
+                // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+                let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+                totalGold += GoldCalculation.creditAsDouble(for: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)
             }
         }
 
@@ -866,7 +872,8 @@ private extension AchievementService {
         let bestWeekly = computeBestWeeklyCompletion(
             profile: profile,
             approvedCountByQuest: approvedCountByQuest,
-            questCache: questCache
+            questCache: questCache,
+            templatesByID: templatesByID
         )
 
         // Ledger weeks ride the hero's payout-day-aware cycles via WeekMath so
@@ -896,7 +903,8 @@ private extension AchievementService {
     func computeBestWeeklyCompletion(
         profile: Profile,
         approvedCountByQuest: [CKRecord.ID: Int],
-        questCache: [CKRecord.ID: Quest]
+        questCache: [CKRecord.ID: Quest],
+        templatesByID: [String: QuestTemplate]
     ) -> Double {
         var bestWeekly = 0.0
         let assignedQuests = questCache.values.filter {
@@ -907,7 +915,9 @@ private extension AchievementService {
             guard !weekQuests.isEmpty else { continue }
             let fullyCompletedCount = weekQuests.filter { quest in
                 let approvedCount = approvedCountByQuest[quest.id] ?? 0
-                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount)
+                // WHY day count wins: legacy rows keep stale targetCount after template gains days.
+                let effectiveTarget = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+                return GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approvedCount, effectiveTarget: effectiveTarget)
             }.count
             let ratio = Double(fullyCompletedCount) / Double(weekQuests.count)
             bestWeekly = max(bestWeekly, min(ratio, 1.0))

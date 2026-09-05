@@ -33,6 +33,11 @@ enum GoldCalculation: Sendable {
     }
 
     /// Convenience for the CloudKit `Quest` model.
+    @available(
+        *,
+        deprecated,
+        message: "Use credit(for:approvedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func credit(for quest: Quest, approvedCount: Int) -> Decimal {
         credit(goldReward: quest.goldReward,
                targetCount: quest.targetCount,
@@ -41,6 +46,11 @@ enum GoldCalculation: Sendable {
     }
 
     /// Convenience for the SwiftData `QuestCache` model.
+    @available(
+        *,
+        deprecated,
+        message: "Use credit(for:approvedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func credit(for quest: QuestCache, approvedCount: Int) -> Decimal {
         credit(goldReward: quest.goldReward,
                targetCount: quest.targetCount,
@@ -62,6 +72,11 @@ enum GoldCalculation: Sendable {
     }
 
     /// `Double`-returning convenience for the CloudKit `Quest` model.
+    @available(
+        *,
+        deprecated,
+        message: "Use creditAsDouble(for:approvedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func creditAsDouble(for quest: Quest, approvedCount: Int) -> Double {
         creditAsDouble(goldReward: quest.goldReward,
                        targetCount: quest.targetCount,
@@ -70,6 +85,11 @@ enum GoldCalculation: Sendable {
     }
 
     /// `Double`-returning convenience for the SwiftData `QuestCache` model.
+    @available(
+        *,
+        deprecated,
+        message: "Use creditAsDouble(for:approvedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func creditAsDouble(for quest: QuestCache, approvedCount: Int) -> Double {
         creditAsDouble(goldReward: quest.goldReward,
                        targetCount: quest.targetCount,
@@ -127,7 +147,8 @@ enum GoldCalculation: Sendable {
 
     static func totalGold(
         for quests: [QuestCache],
-        approvedLogs: [QuestCompletionCache]
+        approvedLogs: [QuestCompletionCache],
+        templatesByID: [String: QuestTemplateCache] = [:]
     ) -> Double {
         let questByName = Dictionary(quests.map { ($0.recordName, $0) },
                                      uniquingKeysWith: { current, _ in current })
@@ -138,7 +159,9 @@ enum GoldCalculation: Sendable {
         var total = 0.0
         for (qName, count) in countByQuest {
             if let quest = questByName[qName] {
-                total += creditAsDouble(for: quest, approvedCount: count)
+                // WHY day count wins: stale targetCount under-counts specific-days split rewards.
+                let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+                total += creditAsDouble(for: quest, approvedCount: count, effectiveTarget: target)
             } else {
                 logger.warning("Missing quest \(qName, privacy: .private) for gold proration")
             }
@@ -149,6 +172,11 @@ enum GoldCalculation: Sendable {
     /// Cached-row fully-completed check, guarded against `targetCount == 0`.
     /// Mirrors the `safeTarget = max(1, targetCount)` defense inside `credit(_:…)`
     /// so AON zero-out and per-quest completion checks can never disagree.
+    @available(
+        *,
+        deprecated,
+        message: "Use isFullyCompleted(quest:approvedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func isFullyCompleted(quest: QuestCache, approvedCount: Int) -> Bool {
         let target = max(1, quest.targetCount)
         return approvedCount >= target
@@ -157,20 +185,123 @@ enum GoldCalculation: Sendable {
     /// Domain-model fully-completed check, guarded against `targetCount == 0`.
     /// Mirrors the `safeTarget = max(1, targetCount)` defense inside `credit(_:…)`
     /// so AON zero-out and per-quest completion checks can never disagree.
+    @available(
+        *,
+        deprecated,
+        message: "Use isFullyCompleted(quest:approvedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func isFullyCompleted(quest: Quest, approvedCount: Int) -> Bool {
         let target = max(1, quest.targetCount)
         return approvedCount >= target
     }
 
     /// Returns true if non-rejected logs already occupy all target completion slots.
+    @available(
+        *,
+        deprecated,
+        message: "Use nonRejectedLogsReachTarget(quest:nonRejectedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func nonRejectedLogsReachTarget(quest: QuestCache, nonRejectedCount: Int) -> Bool {
         let target = max(1, quest.targetCount)
         return nonRejectedCount >= target
     }
 
+    @available(
+        *,
+        deprecated,
+        message: "Use nonRejectedLogsReachTarget(quest:nonRejectedCount:effectiveTarget:) via SpecificDaysHelper.effectiveTarget so Specific-Days day counts win over stale targetCount."
+    )
     static func nonRejectedLogsReachTarget(quest: Quest, nonRejectedCount: Int) -> Bool {
         let target = max(1, quest.targetCount)
         return nonRejectedCount >= target
+    }
+
+    static func isFullyCompleted(quest _: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Bool {
+        let target = max(1, effectiveTarget)
+        return approvedCount >= target
+    }
+
+    static func isFullyCompleted(quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Bool {
+        isFullyCompleted(
+            quest: quest,
+            approvedCount: approvedCount,
+            effectiveTarget: SpecificDaysHelper.effectiveTarget(for: quest, specificDays: specificDays)
+        )
+    }
+
+    static func isFullyCompleted(quest _: Quest, approvedCount: Int, effectiveTarget: Int) -> Bool {
+        let target = max(1, effectiveTarget)
+        return approvedCount >= target
+    }
+
+    static func nonRejectedLogsReachTarget(quest _: QuestCache, nonRejectedCount: Int, effectiveTarget: Int) -> Bool {
+        let target = max(1, effectiveTarget)
+        return nonRejectedCount >= target
+    }
+
+    static func nonRejectedLogsReachTarget(quest: QuestCache, nonRejectedCount: Int, specificDays: [String]) -> Bool {
+        nonRejectedLogsReachTarget(
+            quest: quest,
+            nonRejectedCount: nonRejectedCount,
+            effectiveTarget: SpecificDaysHelper.effectiveTarget(for: quest, specificDays: specificDays)
+        )
+    }
+
+    static func nonRejectedLogsReachTarget(quest _: Quest, nonRejectedCount: Int, effectiveTarget: Int) -> Bool {
+        let target = max(1, effectiveTarget)
+        return nonRejectedCount >= target
+    }
+
+    static func credit(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Decimal {
+        credit(
+            goldReward: quest.goldReward,
+            targetCount: effectiveTarget,
+            isAllOrNothing: quest.isAllOrNothing,
+            approvedCount: approvedCount
+        )
+    }
+
+    static func credit(for quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Decimal {
+        credit(
+            for: quest,
+            approvedCount: approvedCount,
+            effectiveTarget: SpecificDaysHelper.effectiveTarget(for: quest, specificDays: specificDays)
+        )
+    }
+
+    static func creditAsDouble(for quest: QuestCache, approvedCount: Int, effectiveTarget: Int) -> Double {
+        creditAsDouble(
+            goldReward: quest.goldReward,
+            targetCount: effectiveTarget,
+            isAllOrNothing: quest.isAllOrNothing,
+            approvedCount: approvedCount
+        )
+    }
+
+    static func creditAsDouble(for quest: QuestCache, approvedCount: Int, specificDays: [String]) -> Double {
+        creditAsDouble(
+            for: quest,
+            approvedCount: approvedCount,
+            effectiveTarget: SpecificDaysHelper.effectiveTarget(for: quest, specificDays: specificDays)
+        )
+    }
+
+    static func credit(for quest: Quest, approvedCount: Int, effectiveTarget: Int) -> Decimal {
+        credit(
+            goldReward: quest.goldReward,
+            targetCount: effectiveTarget,
+            isAllOrNothing: quest.isAllOrNothing,
+            approvedCount: approvedCount
+        )
+    }
+
+    static func creditAsDouble(for quest: Quest, approvedCount: Int, effectiveTarget: Int) -> Double {
+        creditAsDouble(
+            goldReward: quest.goldReward,
+            targetCount: effectiveTarget,
+            isAllOrNothing: quest.isAllOrNothing,
+            approvedCount: approvedCount
+        )
     }
 
     static func netWeeklyGold(
@@ -178,7 +309,8 @@ enum GoldCalculation: Sendable {
         logs: [QuestCompletionCache],
         profileRecordName: String,
         payoutPolicy: PayoutPolicy?,
-        weekRange: Range<Date>
+        weekRange: Range<Date>,
+        templatesByID: [String: QuestTemplateCache] = [:]
     ) -> Double {
         let heroLogs = logs.filter { $0.completerRecordName == profileRecordName }
         let approvedLogs = heroLogs.filter {
@@ -186,7 +318,7 @@ enum GoldCalculation: Sendable {
                 (weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate))
         }
 
-        var totalEarned = totalGold(for: quests, approvedLogs: approvedLogs)
+        var totalEarned = totalGold(for: quests, approvedLogs: approvedLogs, templatesByID: templatesByID)
 
         let assignedQuests = quests.filter {
             $0.assigneeRecordName == profileRecordName && weekRange.contains($0.weekOf)
@@ -194,7 +326,9 @@ enum GoldCalculation: Sendable {
 
         let fullyCompletedCount = assignedQuests.filter { quest in
             let qLogs = approvedLogs.filter { $0.questRecordName == quest.recordName }
-            return isFullyCompleted(quest: quest, approvedCount: qLogs.count)
+            // WHY day count wins: stale targetCount would zero all-or-nothing payouts incorrectly.
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+            return isFullyCompleted(quest: quest, approvedCount: qLogs.count, effectiveTarget: target)
         }.count
 
         if payoutPolicy == .allOrNothing,
@@ -210,7 +344,11 @@ enum GoldCalculation: Sendable {
     // MARK: - Pure Domain Gold Aggregation
 
     /// Pure gold summation over already-fetched Quest models.
-    static func totalCredit(for quests: [Quest], logs: [QuestCompletion]) -> Double {
+    static func totalCredit(
+        for quests: [Quest],
+        logs: [QuestCompletion],
+        templatesByID: [String: QuestTemplate] = [:]
+    ) -> Double {
         let approved = logs.filter {
             $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved
         }
@@ -223,7 +361,9 @@ enum GoldCalculation: Sendable {
         var total = 0.0
         for (name, count) in countByName {
             if let quest = questMap[name] {
-                total += creditAsDouble(for: quest, approvedCount: count)
+                // WHY day count wins: stale targetCount under-counts specific-days split rewards.
+                let target = SpecificDaysHelper.effectiveTarget(for: quest, templatesByID: templatesByID)
+                total += creditAsDouble(for: quest, approvedCount: count, effectiveTarget: target)
             } else {
                 logger.warning("Missing quest \(name, privacy: .private) for gold proration")
             }

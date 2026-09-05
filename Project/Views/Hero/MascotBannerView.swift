@@ -19,17 +19,20 @@ struct MascotBannerView: View {
     let profileCache: ProfileCache
     let quests: [QuestCache]
     let completions: [QuestCompletionCache]
+    let templatesByID: [String: QuestTemplateCache]
     let showBonusCard: Bool
 
     init(
         profileCache: ProfileCache,
         quests: [QuestCache],
         completions: [QuestCompletionCache],
+        templatesByID: [String: QuestTemplateCache],
         showBonusCard: Bool = true
     ) {
         self.profileCache = profileCache
         self.quests = quests
         self.completions = completions
+        self.templatesByID = templatesByID
         self.showBonusCard = showBonusCard
     }
 
@@ -42,7 +45,7 @@ struct MascotBannerView: View {
         let state = currentMascotState()
         let objective = bonusService.dailyObjective(for: profileCache)
         let isClaimed = bonusService.isClaimed(objective: objective, profileCache: profileCache)
-        let eval = bonusService.evaluateProgress(objective: objective, todayQuests: quests, completions: completions)
+        let eval = bonusService.evaluateProgress(objective: objective, todayQuests: quests, completions: completions, templatesByID: templatesByID)
 
         HStack(alignment: .top, spacing: 14) {
             // Mascot Sprite

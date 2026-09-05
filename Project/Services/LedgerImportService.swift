@@ -358,7 +358,7 @@ final class LedgerImportService {
         ].joined(separator: "|")
         let digest = SHA256.hash(data: Data(canonical.utf8))
         let hex = digest.shortHex
-        return "import-\(hex)"
+        return DeterministicRecordID.import(hex: hex)
     }
 
     /// Rows that would still block finalization: unassigned children or
@@ -404,6 +404,7 @@ final class LedgerImportService {
                 continue
             }
 
+            // WHY: imports debit the spend bucket so bucket balances stay consistent with the ledger total.
             let entry = LedgerEntry(
                 profile: CKRecord.Reference(
                     recordID: CKRecord.ID(recordName: profileRecordName, zoneID: zoneID),
@@ -414,6 +415,7 @@ final class LedgerImportService {
                 location: trimmedNonEmpty(row.merchant),
                 date: date,
                 source: LedgerSource.import.rawValue,
+                bucketKind: BucketKind.spend.rawValue,
                 family: CKRecord.Reference(recordID: family.id, action: .none),
                 id: CKRecord.ID(recordName: recordName, zoneID: zoneID)
             )

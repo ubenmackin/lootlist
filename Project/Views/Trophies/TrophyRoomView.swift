@@ -158,7 +158,7 @@ struct TrophyRoomView: View {
     }
 
     private func hydrateDefinitionsIfNeeded(family: Family) async {
-        guard viewModel?.allAchievements.isEmpty == true else { return }
+        guard viewModel?.allAchievements.isEmpty ?? false else { return }
         do {
             _ = try await achievementService.fetchAllDefinitions(family: family)
         } catch {

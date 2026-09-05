@@ -38,8 +38,7 @@ extension QuestService {
         return streak
     }
 
-    /// Calculates net weekly earnings from quest completions using pure cache math.
-    func earnedThisWeek(profile: Profile, weekOf: Date) async throws -> Double {
+    func earnedThisWeek(profile: Profile, weekOf: Date, templatesByID: [String: QuestTemplate]) async throws -> Double {
         let payoutDay = effectivePayoutDay(for: profile)
         let normalizedWeek = WeekMath.startOfWeek(for: weekOf, payoutDay: payoutDay)
         let logs = try await fetchQuestLogs(for: profile)
@@ -50,7 +49,8 @@ extension QuestService {
 
         guard !logs.isEmpty else { return 0 }
         let quests = try await fetchQuestsForLogs(logs, family: appState.family)
-        return GoldCalculation.totalCredit(for: quests, logs: logs)
+        // WHY day count wins: stale targetCount under-counts specific-days split rewards.
+        return GoldCalculation.totalCredit(for: quests, logs: logs, templatesByID: templatesByID)
     }
 
     // WHY: Bespoke multi-step missing-fetch with dictionary merge across cached + CloudKit quests — intentionally inline, not a single-type CacheFirst flow.
@@ -114,7 +114,7 @@ extension QuestService {
                 in: quest.id.zoneID,
                 sortDescriptors: [NSSortDescriptor(key: "completedDate", ascending: false)]
             )
-            await syncCoordinator.delegateHandler.hydrateFromQuery(
+            await syncCoordinator.hydrateFromQuery(
                 models: all,
                 databaseScope: appState.activeDatabaseScope,
                 zoneID: quest.id.zoneID
@@ -149,7 +149,7 @@ extension QuestService {
                 )
             },
             hydrate: { [syncCoordinator, appState, quest] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: quest.id.zoneID
@@ -189,7 +189,7 @@ extension QuestService {
                 )
             },
             hydrate: { [syncCoordinator, appState, profile] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: profile.id.zoneID
@@ -225,7 +225,7 @@ extension QuestService {
                 )
             },
             hydrate: { [syncCoordinator, appState, family] models in
-                await syncCoordinator.delegateHandler.hydrateFromQuery(
+                await syncCoordinator.hydrateFromQuery(
                     models: models,
                     databaseScope: appState.activeDatabaseScope,
                     zoneID: family.id.zoneID

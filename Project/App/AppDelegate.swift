@@ -28,6 +28,7 @@ extension SyncOutcome {
 class AppDelegate: NSObject, UIApplicationDelegate {
     static let weeklyPayoutTaskId = "com.volcrypt.lootlist.weeklypayout"
     static let syncTaskId = "com.volcrypt.lootlist.sync"
+    static let spendDigestTaskId = "com.volcrypt.lootlist.spenddigest"
     private nonisolated static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "AppDelegate")
 
     func application(
@@ -52,6 +53,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.syncTaskId, using: nil) { task in
             guard let processingTask = task as? BGProcessingTask else { return }
             Self.handleSyncProcessingTask(task: processingTask)
+        }
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.spendDigestTaskId, using: nil) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else { return }
+            Self.handleSpendDigestBackgroundRefresh(task: refreshTask)
         }
     }
 
@@ -94,6 +99,46 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             }
 
             let success = await shared.lifecycleCoordinator.handleWeeklyPayoutBackgroundRefresh()
+            task.setTaskCompleted(success: success)
+        }
+    }
+
+    static func scheduleSpendDigestRefresh(now: Date = Date()) {
+        #if targetEnvironment(simulator)
+            logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
+            return
+        #elseif os(macOS)
+            logger.debug("BGTaskScheduler submit skipped on simulator / macOS platform")
+            return
+        #else
+            let request = BGAppRefreshTaskRequest(identifier: spendDigestTaskId)
+            request.earliestBeginDate = SpendDigestService.nextDigestDate(after: now)
+
+            do {
+                try BGTaskScheduler.shared.submit(request)
+            } catch {
+                logger.debug("Failed to submit spend digest BGAppRefreshTask: \(error, privacy: .private)")
+            }
+        #endif
+    }
+
+    private static func handleSpendDigestBackgroundRefresh(task: BGAppRefreshTask) {
+        // WHY snapshot: BGAppRefreshTask is non-Sendable, so capture identifier before Task and keep Task captures Sendable.
+        let taskIdentifier = task.identifier
+        task.expirationHandler = { [task, taskIdentifier] in
+            logger.warning("Spend digest BGAppRefreshTask \(taskIdentifier) expired prior to completion")
+            task.setTaskCompleted(success: false)
+        }
+
+        Task { @MainActor @Sendable [task, taskIdentifier] in
+            guard let shared = AppDependencies.shared else {
+                logger.warning("Spend digest \(taskIdentifier) missing dependencies prior to completion")
+                task.setTaskCompleted(success: false)
+                return
+            }
+
+            let success = await shared.appSyncCoordinator.handleSpendDigestBackgroundRefresh()
+            scheduleSpendDigestRefresh()
             task.setTaskCompleted(success: success)
         }
     }

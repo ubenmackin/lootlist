@@ -24,22 +24,42 @@ enum MatchServiceError: LocalizedError {
 @MainActor
 @Observable
 final class MatchService {
+    private static let staticLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MatchService")
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "MatchService")
     private let cloudKit: any CloudKitServiceProtocol
-    var cacheService: CacheService?
-    var syncCoordinator: CKSyncEngineCoordinator?
-    var appState: AppState?
+    let cacheService: any CacheServicing
+    let syncCoordinator: any SyncEnqueuing
+    let appState: AppState
 
     init(
         cloudKit: any CloudKitServiceProtocol,
-        cacheService: CacheService? = nil,
-        appState: AppState? = nil,
-        syncCoordinator: CKSyncEngineCoordinator? = nil
+        cacheService: any CacheServicing,
+        appState: AppState,
+        syncCoordinator: any SyncEnqueuing
     ) {
         self.cloudKit = cloudKit
         self.cacheService = cacheService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
+    }
+
+    @_disfavoredOverload
+    convenience init(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: (any CacheServicing)? = nil,
+        appState: AppState? = nil,
+        syncCoordinator: (any SyncEnqueuing)? = nil
+    ) {
+        let cache: any CacheServicing
+        if let cacheService {
+            cache = cacheService
+        } else {
+            Self.staticLogger.warning("MatchService initialized without cacheService; using fallback in-memory cache.")
+            cache = CacheService.inMemoryFallback(logger: Self.staticLogger)
+        }
+        let state = appState ?? AppState()
+        let coord: any SyncEnqueuing = syncCoordinator ?? NoopSyncEnqueuing()
+        self.init(cloudKit: cloudKit, cacheService: cache, appState: state, syncCoordinator: coord)
     }
 
     // MARK: - Deterministic Identity
@@ -75,7 +95,7 @@ final class MatchService {
                            rateBps: Int,
                            monthlyCapPennies: Int64?) async throws -> Profile
     {
-        guard let appState, let acting = appState.currentProfile, acting.role.isParent else {
+        guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
@@ -95,7 +115,7 @@ final class MatchService {
         updated.matchRateBps = max(0, rateBps)
         updated.matchMonthlyCapPennies = monthlyCapPennies.flatMap { $0 > 0 ? $0 : nil }
 
-        await cacheService?.upsertProfile(updated)
+        await cacheService.upsertProfile(updated)
         if appState.currentProfile?.id == updated.id {
             appState.currentProfile = updated
         }
@@ -114,7 +134,7 @@ final class MatchService {
                     heroProfile: Profile,
                     family: Family) async throws -> LedgerEntry?
     {
-        guard let appState, let acting = appState.currentProfile, acting.role.isParent else {
+        guard let acting = appState.currentProfile, acting.role.isParent else {
             throw FamilyServiceError.unauthorized
         }
         guard contributionAmount > 0,
@@ -138,10 +158,10 @@ final class MatchService {
         // Check-before-apply: an existing deterministic row for this
         // contribution is the double-run guard, independent of any
         // caller-side state.
-        let cachedEntries = cacheService?.fetchLedgerEntries(
+        let cachedEntries = cacheService.fetchLedgerEntries(
             profileRecordName: heroProfile.id.recordName,
             family: family.id.recordName
-        ) ?? []
+        )
         guard !IdempotencyGuard.containsDeterministicID(recordNameStr, in: cachedEntries) else {
             return nil
         }
@@ -149,14 +169,12 @@ final class MatchService {
         // Derive month-to-date matched by scanning existing match
         // entries whose date falls in the same calendar month.
         let month = Self.monthKey(for: date)
-        let monthStart = monthStart(for: date)
-        let monthEnd = monthEnd(for: date)
+        let monthStart = WeekMath.monthStart(for: date)
+        let monthEnd = WeekMath.monthEnd(for: date)
         let mtdPennies = cachedEntries
             .filter { entry in
                 guard entry.sourceEnum == .match else { return false }
-                guard let entryDate = Calendar.iso8601UTC.date(
-                    from: Calendar.iso8601UTC.dateComponents([.year, .month, .day], from: entry.date)
-                ) else { return false }
+                let entryDate = WeekMath.startOfDay(for: entry.date)
                 return entryDate >= monthStart && entryDate < monthEnd
             }
             .reduce(into: 0) { $0 += Int(($1.amount * 100).rounded()) }
@@ -187,7 +205,7 @@ final class MatchService {
             family: CKRecord.Reference(recordID: family.id, action: .none),
             id: CKRecord.ID(recordName: recordNameStr, zoneID: family.id.zoneID)
         )
-        await cacheService?.upsertLedgerEntry(entry)
+        await cacheService.upsertLedgerEntry(entry)
         ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "MatchService.applyMatch")
         let formattedAmount = CurrencyFormatter.string(Double(matchPennies) / 100.0)
         logger.info("Matched \(formattedAmount, privacy: .public) for goal \(goal.id.recordName, privacy: .private) in month \(month, privacy: .public)")
@@ -198,33 +216,4 @@ final class MatchService {
 
     static let ledgerSource = LedgerSource.match.rawValue
     static let entryDescription = "Parent Match"
-
-    // MARK: - Helpers
-
-    private func monthStart(for date: Date) -> Date {
-        let parts = Calendar.iso8601UTC.dateComponents([.year, .month], from: date)
-        var comps = DateComponents()
-        comps.year = parts.year
-        comps.month = parts.month
-        comps.day = 1
-        comps.hour = 0
-        comps.minute = 0
-        comps.second = 0
-        return Calendar.iso8601UTC.date(from: comps) ?? date
-    }
-
-    private func monthEnd(for date: Date) -> Date {
-        let parts = Calendar.iso8601UTC.dateComponents([.year, .month], from: date)
-        var startComps = DateComponents()
-        startComps.year = parts.year
-        startComps.month = parts.month
-        startComps.day = 1
-        startComps.hour = 0
-        startComps.minute = 0
-        startComps.second = 0
-        guard let start = Calendar.iso8601UTC.date(from: startComps),
-              let end = Calendar.iso8601UTC.date(byAdding: .month, value: 1, to: start)
-        else { return date }
-        return end
-    }
 }

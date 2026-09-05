@@ -52,7 +52,7 @@ struct HeroInterestMatchView: View {
         _matchRatePercent = State(initialValue: hero.matchRateBps > 0 ? Double(hero.matchRateBps) / 100.0 : 100.0)
         if let cap = hero.matchMonthlyCapPennies {
             let dollars = Double(cap) / 100.0
-            _matchCapDollars = State(initialValue: dollars.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", dollars) : String(format: "%.2f", dollars))
+            _matchCapDollars = State(initialValue: CurrencyFormatter.editingString(dollars))
         } else {
             _matchCapDollars = State(initialValue: "")
         }
@@ -67,7 +67,7 @@ struct HeroInterestMatchView: View {
     }
 
     private var parsedMatchCapPennies: Int64? {
-        guard let value = Double(matchCapDollars.trimmingCharacters(in: .whitespaces)), value > 0 else {
+        guard let value = CurrencyFormatter.decimalDouble(from: matchCapDollars), value > 0 else {
             return nil
         }
         return Int64((value * 100).rounded())
@@ -139,7 +139,7 @@ struct HeroInterestMatchView: View {
             if interestEnabled {
                 Picker("Deposit Into", selection: $interestBucket) {
                     ForEach(BucketKind.allCases, id: \.self) { kind in
-                        Text(bucketLabel(for: kind)).tag(kind)
+                        Text(kind.displayName).tag(kind)
                     }
                 }
 
@@ -162,7 +162,7 @@ struct HeroInterestMatchView: View {
             Text("Monthly Interest")
         } footer: {
             if interestEnabled {
-                Text("Interest is calculated and deposited automatically each month into \(hero.displayName)'s \(bucketLabel(for: interestBucket)) bucket.")
+                Text("Interest is calculated and deposited automatically each month into \(hero.displayName)'s \(interestBucket.displayName) bucket.")
             }
         }
     }
@@ -236,14 +236,6 @@ struct HeroInterestMatchView: View {
     }
 
     // MARK: - Helpers & Save
-
-    private func bucketLabel(for kind: BucketKind) -> String {
-        switch kind {
-        case .spend: "Spend"
-        case .shortTermSave: "Short-Term Save"
-        case .longTermSave: "Long-Term Save"
-        }
-    }
 
     @MainActor
     private func save() async {

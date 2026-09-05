@@ -165,6 +165,7 @@ struct HeroHomeView: View {
             profileCache: row,
             quests: profileQuests,
             completions: profileLogs,
+            templatesByID: SpecificDaysHelper.templatesByID(cachedTemplates),
             showBonusCard: true
         )
     }

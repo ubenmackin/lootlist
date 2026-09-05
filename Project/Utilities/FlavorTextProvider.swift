@@ -9,6 +9,15 @@ import Foundation
 
 /// Encouraging celebration and reward copy for quest completions.
 enum FlavorTextProvider {
+    /// Locale-aware ordinal label ("1st", "2nd") for repeat counts.
+    static func ordinal(_ value: Int) -> String {
+        // WHY per-call formatter: NumberFormatter is not Sendable, so a thread-safe local keeps i18n without shared mutable state.
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .ordinal
+        formatter.locale = .current
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
     /// Legacy rarity tiers still size rewards internally, so parents need a way
     /// to pick one — but the old tier names never render; these plain effort
     /// labels stand in wherever a tier would have been shown.

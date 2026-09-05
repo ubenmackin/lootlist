@@ -29,6 +29,7 @@ struct SettingsGuildHeaderHostView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedAchievements: [AchievementCache]
     @Query private var cachedProfileAchievements: [ProfileAchievementCache]
+    @Query private var cachedTemplates: [QuestTemplateCache]
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SettingsGuildHeader")
 
     init(familyRecordName: String? = nil) {
@@ -41,6 +42,7 @@ struct SettingsGuildHeaderHostView: View {
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
         let achievementFilter = #Predicate<AchievementCache> { $0.familyRecordName == targetFamily }
         let profileAchievementFilter = #Predicate<ProfileAchievementCache> { $0.familyRecordName == targetFamily }
+        let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily }
         _cachedProfiles = Query(filter: profileFilter, sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)])
         _cachedQuests = Query(filter: questFilter, sort: \QuestCache.weekOf, order: .reverse)
         _cachedCompletions = Query(filter: completionFilter, sort: \QuestCompletionCache.completedDate, order: .reverse)
@@ -48,6 +50,7 @@ struct SettingsGuildHeaderHostView: View {
         _cachedAllowancePeriods = Query(filter: allowanceFilter, sort: \AllowancePeriodCache.weekOf, order: .reverse)
         _cachedAchievements = Query(filter: achievementFilter, sort: \AchievementCache.name)
         _cachedProfileAchievements = Query(filter: profileAchievementFilter, sort: \ProfileAchievementCache.earnedDate, order: .reverse)
+        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
     }
 
     var body: some View {
@@ -156,7 +159,8 @@ struct SettingsGuildHeaderHostView: View {
             ledgers: cachedLedgers,
             allowancePeriods: cachedAllowancePeriods,
             profileAchievements: cachedProfileAchievements,
-            achievements: cachedAchievements
+            achievements: cachedAchievements,
+            templates: cachedTemplates
         )
     }
 

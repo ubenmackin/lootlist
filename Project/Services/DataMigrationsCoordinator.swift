@@ -169,9 +169,9 @@ extension DataMigrationsCoordinator {
                 let entryRecordName: String
                 let descriptionPrefix: String
                 if period.status == .paid {
-                    entryRecordName = "payout-\(period.id.recordName)"
+                    entryRecordName = DeterministicRecordID.payout(periodRecordName: period.id.recordName)
                     descriptionPrefix = "Quest earnings"
-                    let rtID = CKRecord.ID(recordName: "rt-\(period.id.recordName)", zoneID: zoneID)
+                    let rtID = CKRecord.ID(recordName: DeterministicRecordID.realtimePayout(periodRecordName: period.id.recordName), zoneID: zoneID)
                     let realTimeEntry = try await fetchRecordOrNil(
                         LedgerEntry.self,
                         id: rtID,
@@ -193,7 +193,7 @@ extension DataMigrationsCoordinator {
                     paidAmount = max(0, paidAmount - depositBonusSum)
                     guard paidAmount > 0 else { continue }
                 } else {
-                    entryRecordName = "rt-\(period.id.recordName)"
+                    entryRecordName = DeterministicRecordID.realtimePayout(periodRecordName: period.id.recordName)
                     descriptionPrefix = "Quest earnings — real-time"
                 }
                 let targetID = CKRecord.ID(recordName: entryRecordName, zoneID: zoneID)

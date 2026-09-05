@@ -98,11 +98,13 @@ struct KidsSavingsGoalsView: View {
             presenting: goalToDelete
         ) { goal in
             Button("Delete", role: .destructive) {
-                Task {
+                // WHY snapshot: @Model row stays on MainActor; Sendable copy rides the Task.
+                let goalRecordName = goal.recordName
+                Task { @MainActor @Sendable [goal, goalRecordName] in
                     do {
                         try await deleteGoal(goal)
                     } catch {
-                        Self.logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
+                        Self.logger.error("Failed to delete goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
                     }
                 }
             }
@@ -310,7 +312,7 @@ struct KidsSavingsGoalsView: View {
                 }
                 .foregroundStyle(pacing.status.tintColor)
             } else {
-                Text(bucketLabel(for: goal.bucketKindEnum))
+                Text(goal.bucketKindEnum?.displayName ?? "Save")
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -335,15 +337,6 @@ struct KidsSavingsGoalsView: View {
             Label("Delete Goal", systemImage: "trash")
         }
         .disabled(!canModifyGoals)
-    }
-
-    private func bucketLabel(for kind: BucketKind?) -> String {
-        switch kind {
-        case .shortTermSave: "Short-Term Save"
-        case .longTermSave: "Long-Term Save"
-        case .spend: "Spend"
-        case .none: "Save"
-        }
     }
 
     private func goalsCount(for profileRecordName: String) -> Int {

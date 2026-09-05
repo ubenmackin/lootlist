@@ -28,8 +28,9 @@ final class LedgerEntryCache: FamilyScopedCache, CacheMergeable {
     var entryDescription: String
     var location: String?
     var date: Date
-    /// Free-form movement tag; allowed values mirror `LedgerEntry.source`
-    /// ("manual", "quest", "interest", "match", "transfer", import-tagged).
+    /// Free-form movement tag. Typed view available via `sourceEnum`
+    /// (`LedgerSource`: manual/quest/interest/match/transfer/goal/purchase/
+    /// deposit/withdrawal, plus import-tagged entries).
     var source: String
     // Bucket attribution (V8) — raw `BucketKind` strings; nil for legacy rows.
     var bucketKind: String?

@@ -18,4 +18,7 @@ enum LedgerSource: String, Codable, Sendable, CaseIterable {
     case interest
     case match
     case manual
+    case purchase
+    case deposit
+    case withdrawal
 }

@@ -204,7 +204,7 @@ struct QuestManagerView: View {
                     .tag(SidebarSelection.allHeroes)
                     .dropDestination(for: String.self) { (_: [String], _: CGPoint) -> Bool in
                         // Drop on All Heroes is ignored — need a specific hero target.
-                        return false
+                        false
                     }
 
                     ForEach(vm.heroes) { hero in
@@ -225,8 +225,13 @@ struct QuestManagerView: View {
                             guard let templateRecordName = items.first,
                                   let templateCache = vm.templates.first(where: { $0.recordName == templateRecordName })
                             else { return false }
-                            Task { @MainActor in
-                                await assignTemplate(templateCache, to: hero)
+                            // WHY snapshot: @Model rows cannot cross isolation; Sendable structs ride the Task.
+                            let templateZoneID = appState.resolvedFamilyZoneID(fallbackRecord: templateCache)
+                            let heroZoneID = appState.resolvedFamilyZoneID(fallbackRecord: hero)
+                            let templateSnapshot = templateCache.toQuestTemplate(zoneID: templateZoneID)
+                            let heroSnapshot = hero.toProfile(zoneID: heroZoneID)
+                            Task { @MainActor @Sendable [templateSnapshot, heroSnapshot] in
+                                await assignTemplate(templateSnapshot, to: heroSnapshot)
                             }
                             return true
                         }
@@ -573,6 +578,8 @@ extension QuestManagerView {
 
     private func assignmentRow(quest: QuestCache, vm: QuestManagerViewModel) -> some View {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: quest)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+        let questSnapshot = quest.toQuest(zoneID: zoneID)
         let approvalMode = quest.approvalModeEnum ?? .autoApprove
         return Button {
             if horizontalSizeClass == .regular {
@@ -595,6 +602,9 @@ extension QuestManagerView {
                 }
                 Spacer()
             }
+            // WHY: List rows leave trailing dead space outside a tight HStack — stretching the label keeps every tap on the row on the Button.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
@@ -614,10 +624,10 @@ extension QuestManagerView {
             Button(role: .destructive) {
                 guard !isSubmitting else { return }
                 isSubmitting = true
-                Task {
+                Task { @MainActor @Sendable [questSnapshot] in
                     defer { isSubmitting = false }
                     do {
-                        try await vm.unassignQuest(quest.toQuest(zoneID: zoneID))
+                        try await vm.unassignQuest(questSnapshot)
                     } catch {
                         toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                     }
@@ -630,10 +640,10 @@ extension QuestManagerView {
             Button(role: .destructive) {
                 guard !isSubmitting else { return }
                 isSubmitting = true
-                Task {
+                Task { @MainActor @Sendable [questSnapshot] in
                     defer { isSubmitting = false }
                     do {
-                        try await vm.unassignQuest(quest.toQuest(zoneID: zoneID))
+                        try await vm.unassignQuest(questSnapshot)
                     } catch {
                         toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                     }
@@ -672,6 +682,8 @@ extension QuestManagerView {
 
     private func templateRow(template: QuestTemplateCache, vm: QuestManagerViewModel) -> some View {
         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
+        // WHY snapshot: @Model rows cannot cross isolation; Sendable struct rides the Task.
+        let templateSnapshot = template.toQuestTemplate(zoneID: zoneID)
         let scheduleType = template.scheduleTypeEnum ?? .weeklyFlexible
         return HStack(spacing: 12) {
             Image(systemName: scheduleType.iconSystemName)
@@ -719,10 +731,10 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task {
+                    Task { @MainActor @Sendable [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
-                            try await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                            try await vm.deactivateTemplate(templateSnapshot)
                         } catch {
                             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                         }
@@ -734,10 +746,10 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task {
+                    Task { @MainActor @Sendable [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
-                            try await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                            try await vm.reactivateTemplate(templateSnapshot)
                         } catch {
                             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                         }
@@ -752,10 +764,10 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task {
+                    Task { @MainActor @Sendable [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
-                            try await vm.deactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                            try await vm.deactivateTemplate(templateSnapshot)
                         } catch {
                             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                         }
@@ -769,10 +781,10 @@ extension QuestManagerView {
                 Button {
                     guard !isSubmitting else { return }
                     isSubmitting = true
-                    Task {
+                    Task { @MainActor @Sendable [templateSnapshot] in
                         defer { isSubmitting = false }
                         do {
-                            try await vm.reactivateTemplate(template.toQuestTemplate(zoneID: zoneID))
+                            try await vm.reactivateTemplate(templateSnapshot)
                         } catch {
                             toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                         }
@@ -938,14 +950,12 @@ extension QuestManagerView {
     }
 
     @MainActor
-    private func assignTemplate(_ template: QuestTemplateCache, to hero: ProfileCache) async {
+    private func assignTemplate(_ template: QuestTemplate, to hero: Profile) async {
         guard let vm = viewModel else { return }
-        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: template)
-        let heroZoneID = appState.resolvedFamilyZoneID(fallbackRecord: hero)
         do {
             try await vm.assignQuest(
-                template: template.toQuestTemplate(zoneID: zoneID),
-                assignee: hero.toProfile(zoneID: heroZoneID),
+                template: template,
+                assignee: hero,
                 goldOverride: nil,
                 xpOverride: nil,
                 approvalOverride: nil,

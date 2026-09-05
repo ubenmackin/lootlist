@@ -13,7 +13,7 @@ import SwiftData
 ///
 /// Direct-contribution path attributes deterministic `contrib-{goalRecordName}-{sourceEventID}`
 /// ledger entries to their owning goal via ``DeterministicRecordID/contributionPrefix(for:)``.
-/// FIFO path distributes bucket totals by creation order for legacy ledgers that lack
+/// FIFO path distributes bucket totals by creation order for ledgers that lack
 /// deterministic contribution IDs. Both paths share pennies conversion and prefix
 /// filtering through this single source to prevent divergence.
 enum GoalProgressCalculator {
@@ -66,29 +66,38 @@ enum GoalProgressCalculator {
 
     private static func fifoAllocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
         var result: [String: Int64] = [:]
-        let grouped = Dictionary(grouping: goals.filter { !$0.isArchived }) { "\($0.profileRecordName)|\($0.bucketKind)" }
-        for (_, bucketGoals) in grouped {
-            let sorted = bucketGoals.sorted { $0.createdAt < $1.createdAt }
+        // WHY display full: completed goals already hold their funds, so they render whole without consuming new bucket money.
+        for goal in goals where goal.completedAt != nil && !goal.isArchived {
+            result[goal.recordName] = goal.targetAmountPennies
+        }
+        // WHY subtract held funds: completed targets still sit in the bucket total, so open goals split only what remains.
+        let completedSums = Dictionary(grouping: goals.filter { !$0.isArchived && $0.completedAt != nil }) {
+            "\($0.profileRecordName)|\($0.bucketKind)"
+        }.mapValues { $0.reduce(into: Int64(0)) { $0 += $1.targetAmountPennies } }
+        // WHY open only: completed goals already hold their funds and clear via purchase, so new money cascades past them.
+        let open = goals.filter { !$0.isArchived && $0.completedAt == nil }
+        let grouped = Dictionary(grouping: open) { "\($0.profileRecordName)|\($0.bucketKind)" }
+        for (key, bucketGoals) in grouped {
+            let sorted = bucketGoals.sorted {
+                if $0.createdAt != $1.createdAt {
+                    return $0.createdAt < $1.createdAt
+                }
+                return $0.recordName < $1.recordName
+            }
             guard let first = sorted.first else { continue }
             let profile = first.profileRecordName
             let bucket = first.bucketKind
-            let bucketEntries = ledgerEntries.filter { $0.profileRecordName == profile && $0.bucketKind == bucket }
+            // WHY single-count: goal entries mark allocation of already-counted bucket funds, not new money.
+            let bucketEntries = ledgerEntries.filter { $0.profileRecordName == profile && $0.bucketKind == bucket && BucketService.isCounted($0) }
             let totalPennies = bucketEntries.reduce(into: Int64(0)) { acc, entry in
                 acc += pennies(for: entry)
             }
-            var remaining = max(totalPennies, 0)
+            let completedSum = completedSums[key] ?? 0
+            var remaining = max(totalPennies - completedSum, 0)
             for goal in sorted {
-                if goal.completedAt != nil {
-                    result[goal.recordName] = goal.targetAmountPennies
-                    remaining = max(remaining - goal.targetAmountPennies, 0)
-                    continue
-                }
                 let alloc = min(remaining, goal.targetAmountPennies)
                 result[goal.recordName] = alloc
                 remaining -= alloc
-            }
-            for goal in sorted where result[goal.recordName] == nil {
-                result[goal.recordName] = 0
             }
         }
         for goal in goals where result[goal.recordName] == nil {

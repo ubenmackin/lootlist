@@ -27,15 +27,11 @@ struct HeroDetailInlineView: View {
     }
 
     private var balances: [BucketKind: Double] {
-        var result: [BucketKind: Double] = [:]
-        for entry in heroLedgers {
-            BucketService.applyBucketAttribution(entry, to: &result)
-        }
-        return result
+        BucketService.bucketBalances(for: heroLedgers, profileRecordName: hero.recordName)
     }
 
     private var availableBalance: Double {
-        heroLedgers.reduce(0) { $0 + $1.amount }
+        BucketService.totalBalance(for: heroLedgers, profileRecordName: hero.recordName)
     }
 
     var body: some View {

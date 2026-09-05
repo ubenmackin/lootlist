@@ -25,6 +25,7 @@ struct MyGoalsView: View {
     @State private var isShowingGoalEditor: Bool = false
     @State private var goalToEdit: GoalCache?
     @State private var goalToDelete: GoalCache?
+    @State private var goalToPurchase: GoalCache?
     @State private var errorMessage: String?
 
     private let familyRecordName: String?
@@ -58,8 +59,9 @@ struct MyGoalsView: View {
         )
     }
 
-    /// Goals belonging to the current hero profile, excluding archived goals.
+    /// Goals belonging to the current hero profile, excluding archived and purchased goals.
     private var activeGoals: [GoalCache] {
+        // WHY purchased hides here: purchase sets isArchived so one flag drops it from active lists.
         // WHY: defensive secondary guard — predicate is source of truth; filters stale identity when view not yet recreated.
         guard let name = appState.currentProfile?.id.recordName else { return [] }
         return cachedGoals.filter {
@@ -146,6 +148,9 @@ struct MyGoalsView: View {
                     },
                     onDelete: {
                         try await deleteGoal(goal)
+                    },
+                    onPurchase: {
+                        try await markPurchased(goal)
                     }
                 )
             }
@@ -162,12 +167,17 @@ struct MyGoalsView: View {
                 presenting: goalToDelete
             ) { goal in
                 Button("Delete", role: .destructive) {
-                    Task {
+                    // WHY snapshot: @Model row stays on MainActor; Sendable struct rides the Task.
+                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: goal)
+                    let goalSnapshot = goal.toGoal(zoneID: zoneID)
+                    let goalRecordName = goal.recordName
+                    let goalName = goal.name
+                    Task { @MainActor @Sendable [goalSnapshot, goalRecordName, goalName] in
                         do {
-                            try await deleteGoal(goal)
+                            try await deleteGoal(goalSnapshot)
                         } catch {
-                            Self.logger.error("Failed to delete goal \(goal.recordName, privacy: .private): \(error, privacy: .private)")
-                            toastManager?.show(message: "Couldn’t delete “\(goal.name)”. Please try again.", type: .error)
+                            Self.logger.error("Failed to delete goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
+                            toastManager?.show(message: "Couldn’t delete “\(goalName)”. Please try again.", type: .error)
                         }
                     }
                 }
@@ -177,6 +187,41 @@ struct MyGoalsView: View {
             } message: { goal in
                 Text("Are you sure you want to delete “\(goal.name)”?")
             }
+            .alert(
+                "Mark Purchased?",
+                isPresented: Binding(
+                    get: { goalToPurchase != nil },
+                    set: {
+                        if !$0 {
+                            goalToPurchase = nil
+                        }
+                    }
+                ),
+                presenting: goalToPurchase
+            ) { goal in
+                Button("Mark Purchased") {
+                    // WHY snapshot: @Model row stays on MainActor; Sendable struct rides the Task.
+                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: goal)
+                    let goalSnapshot = goal.toGoal(zoneID: zoneID)
+                    let goalRecordName = goal.recordName
+                    Task { @MainActor @Sendable [goalSnapshot, goalRecordName] in
+                        do {
+                            try await markPurchased(goalSnapshot)
+                        } catch {
+                            Self.logger.error("Failed to purchase goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
+                            toastManager?.show(message: purchaseErrorMessage(for: goalSnapshot, error: error), type: .error)
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    goalToPurchase = nil
+                }
+            } message: { goal in
+                // WHY region currency: amounts render through CurrencyFormatter so copy stays locale-correct.
+                Text(
+                    "This will deduct \(CurrencyFormatter.string(Double(goal.targetAmountPennies) / 100.0)) from your \(goal.bucketKindEnum?.shortName ?? "savings") bucket and archive “\(goal.name)”."
+                )
+            }
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
             }
@@ -184,7 +229,8 @@ struct MyGoalsView: View {
                 // The toast overlay is available via the root view; errors
                 // surface as a validation message stored in parsing-error state.
                 if msg != nil {
-                    Task {
+                    // WHY MainActor hop: auto-dismiss mutates @State after suspension.
+                    Task { @MainActor @Sendable in
                         do {
                             try await Task.sleep(for: .seconds(4))
                         } catch {
@@ -227,6 +273,14 @@ struct MyGoalsView: View {
                             Label("Edit Goal", systemImage: "pencil")
                         }
 
+                        if !goal.isArchived {
+                            Button {
+                                goalToPurchase = goal
+                            } label: {
+                                Label("Mark Purchased", systemImage: "cart.fill")
+                            }
+                        }
+
                         Button(role: .destructive) {
                             goalToDelete = goal
                         } label: {
@@ -238,6 +292,14 @@ struct MyGoalsView: View {
                             goalToDelete = goal
                         } label: {
                             Label("Delete", systemImage: "trash")
+                        }
+                        if !goal.isArchived {
+                            Button {
+                                goalToPurchase = goal
+                            } label: {
+                                Label("Mark Purchased", systemImage: "cart.fill")
+                            }
+                            .tint(Color(DesignSystemConstants.Colors.primaryGreen))
                         }
                         Button {
                             goalToEdit = goal
@@ -296,13 +358,13 @@ struct MyGoalsView: View {
     }
 
     private func goalCardHeader(for goal: GoalCache, pacing: GoalPacingCalculator.PacingSummary?, isCompleted: Bool, validURL: URL?, validImageURL: URL?) -> some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             goalCardIcon(for: goal, validImageURL: validImageURL)
             VStack(alignment: .leading, spacing: 2) {
                 Text(goal.name)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 if let pacing, pacing.status != .noDeadline {
                     HStack(spacing: 4) {
                         Image(systemName: pacing.status.iconSystemName)
@@ -469,6 +531,56 @@ struct MyGoalsView: View {
         guard let service = resolvedGoalService else { return }
         try await service.deleteGoal(goal, familyRecordName: familyRecordName)
         HapticsService.lightImpact()
+    }
+
+    private func deleteGoal(_ goal: Goal) async throws {
+        guard let service = resolvedGoalService, let family = appState.family else { return }
+        try await service.deleteGoal(goal, family: family)
+        HapticsService.lightImpact()
+    }
+
+    private func markPurchased(_ goal: GoalCache) async throws {
+        guard let service = resolvedGoalService else { return }
+        do {
+            try await service.markPurchased(goal, familyRecordName: familyRecordName)
+            goalToPurchase = nil
+            HapticsService.success()
+        } catch {
+            goalToPurchase = nil
+            throw error
+        }
+    }
+
+    private func markPurchased(_ goal: Goal) async throws {
+        guard let service = resolvedGoalService, let family = appState.family else { return }
+        do {
+            try await service.markPurchased(goal, family: family)
+            goalToPurchase = nil
+            HapticsService.success()
+        } catch {
+            goalToPurchase = nil
+            throw error
+        }
+    }
+
+    private func purchaseErrorMessage(for goal: GoalCache, error: any Error) -> String {
+        // WHY localized description: insufficient-funds copy already formats region currency via CurrencyFormatter.
+        if let goalError = error as? GoalServiceError,
+           let description = goalError.errorDescription
+        {
+            return description
+        }
+        return "Couldn’t mark “\(goal.name)” purchased. Please try again."
+    }
+
+    private func purchaseErrorMessage(for goal: Goal, error: any Error) -> String {
+        // WHY localized description: insufficient-funds copy already formats region currency via CurrencyFormatter.
+        if let goalError = error as? GoalServiceError,
+           let description = goalError.errorDescription
+        {
+            return description
+        }
+        return "Couldn’t mark “\(goal.name)” purchased. Please try again."
     }
 
     // MARK: - Empty State

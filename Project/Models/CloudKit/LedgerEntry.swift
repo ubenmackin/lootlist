@@ -29,8 +29,9 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
     var location: String?
     var date: Date
 
-    /// Free-form movement tag. Allowed values: "manual" (default), "quest" (payout deposits), "interest",
-    /// "match", "transfer", plus import-tagged entries ("import-…" prefixed).
+    /// Free-form movement tag. Typed view available via `sourceEnum`
+    /// (`LedgerSource`: manual/quest/interest/match/transfer/goal/purchase/
+    /// deposit/withdrawal, plus import-tagged entries).
     var source: String
 
     /// Typed view of `source` for exhaustive switching. Additive migration —
@@ -105,6 +106,9 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         return record
     }
 
+    /// WHY no default id: a random-UUID fallback would mint a zone-less,
+    /// non-deduping record name, defeating CloudKit cross-device dedupe.
+    /// Every money movement passes its deterministic id explicitly.
     init(profile: CKRecord.Reference,
          amount: Double,
          description: String,
@@ -115,7 +119,7 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
          fromBucket: String? = nil,
          toBucket: String? = nil,
          family: CKRecord.Reference,
-         id: CKRecord.ID = CKRecord.ID(recordName: UUID().uuidString))
+         id: CKRecord.ID)
     {
         self.id = id
         self.profile = profile
@@ -130,3 +134,26 @@ struct LedgerEntry: Identifiable, Equatable, Sendable {
         self.family = family
     }
 }
+
+/// Single-count contract (bucket-only): counted = bucketKind != nil && source != goal && source != transfer; bonus = counted && source != quest.
+/// WHY bucket-only: nil-bucket rows are wiped residue, never live money.
+protocol LedgerEntryProtocol {
+    var sourceEnum: LedgerSource? { get }
+    var amount: Double { get }
+    var bucketKind: String? { get }
+}
+
+extension LedgerEntryProtocol {
+    /// WHY single-count: goal entries reuse counted funds; transfers net zero via debit+credit but stay excluded for parity.
+    var isCounted: Bool {
+        bucketKind != nil && sourceEnum != .goal && sourceEnum != .transfer
+    }
+
+    /// WHY single-count: bonus counts counted new money only, excluding quest payouts.
+    var isBonusCounted: Bool {
+        amount > 0 && sourceEnum != .quest && isCounted
+    }
+}
+
+extension LedgerEntry: LedgerEntryProtocol {}
+extension LedgerEntryCache: LedgerEntryProtocol {}

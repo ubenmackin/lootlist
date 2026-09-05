@@ -16,6 +16,9 @@ enum DeterministicRecordID {
     /// All prefix checks and ID factories must route through this constant.
     private static let contribRoot = "contrib-"
 
+    /// Single-source root for goal-purchase debit records.
+    private static let purchaseRoot = "purchase-"
+
     /// Prefix for a specific goal's contribution records: `contrib-{goalRecordName}-`.
     static func contributionPrefix(for goalRecordName: String) -> String {
         "\(contribRoot)\(goalRecordName)-"
@@ -41,6 +44,16 @@ enum DeterministicRecordID {
 
     static func contribution(goalRecordName: String, sourceEventID: String) -> String {
         "\(contributionPrefix(for: goalRecordName))\(sourceEventID)"
+    }
+
+    /// Deterministic purchase debit for a goal: `purchase-{goalRecordName}`.
+    static func purchase(goalRecordName: String) -> String {
+        "\(purchaseRoot)\(goalRecordName)"
+    }
+
+    /// Returns true when `recordName` is any purchase debit record.
+    static func isPurchaseRecord(_ recordName: String) -> Bool {
+        recordName.hasPrefix(purchaseRoot)
     }
 
     static func transfer(profileRecordName: String, transferID: String) -> String {

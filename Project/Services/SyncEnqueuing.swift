@@ -17,3 +17,11 @@ protocol SyncEnqueuing: AnyObject {
     func enqueueDelete(recordID: CKRecord.ID, isOwner: Bool)
     func batchEnqueueSave(recordIDs: [CKRecord.ID], isOwner: Bool)
 }
+
+/// WHY shared: read-only and test convenience inits need the same drop-on-the-floor coordinator.
+@MainActor
+final class NoopSyncEnqueuing: SyncEnqueuing {
+    func enqueueSave(recordID _: CKRecord.ID, isOwner _: Bool) {}
+    func enqueueDelete(recordID _: CKRecord.ID, isOwner _: Bool) {}
+    func batchEnqueueSave(recordIDs _: [CKRecord.ID], isOwner _: Bool) {}
+}

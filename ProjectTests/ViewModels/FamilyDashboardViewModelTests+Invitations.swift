@@ -335,7 +335,8 @@ extension FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         await vm.refreshInvitations()
@@ -380,7 +381,8 @@ extension FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
         await vm.refreshInvitations()
         #expect(!vm.invitations.contains { $0.identityRecordName == "u1" })
@@ -396,7 +398,8 @@ extension FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
         try await cloudKit.removeParticipant(iCloudUserRecordName: "u1", from: family.id)
         await vm.refreshInvitations()
@@ -458,7 +461,8 @@ extension FamilyDashboardViewModelTests {
             ledgers: [],
             allowancePeriods: [],
             profileAchievements: [],
-            achievements: []
+            achievements: [],
+            templates: []
         )
 
         await vm.refreshInvitations()

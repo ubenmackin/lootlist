@@ -132,7 +132,8 @@ struct SpendingServiceTests {
             description: "Existing item",
             date: Date(),
             source: "manual",
-            family: familyRef
+            family: familyRef,
+            id: CKRecord.ID(recordName: "manual-test-existing", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(entry)
         #expect(!cache.fetchLedgerEntries(profileRecordName: hero.id.recordName, family: family.id.recordName).isEmpty)
@@ -216,7 +217,8 @@ struct SpendingServiceTests {
             description: "Another hero's entry",
             date: Date(),
             source: "manual",
-            family: makeFamilyRef(zoneID)
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "manual-test-other-hero", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(entry)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: actor)
@@ -250,7 +252,8 @@ struct SpendingServiceTests {
             description: "Hero's own entry",
             date: Date(),
             source: "manual",
-            family: makeFamilyRef(zoneID)
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "manual-test-own-entry", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(entry)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: hero)
@@ -279,7 +282,8 @@ struct SpendingServiceTests {
             description: "Hero's entry under parent oversight",
             date: Date(),
             source: "manual",
-            family: makeFamilyRef(zoneID)
+            family: makeFamilyRef(zoneID),
+            id: CKRecord.ID(recordName: "manual-test-parent-delete", zoneID: zoneID)
         )
         await cache.upsertLedgerEntry(entry)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: parent)
@@ -406,14 +410,16 @@ struct SpendingServiceTests {
         let family = makeFamily(zoneID)
         setupActiveScope(appState: appState, cloudKit: cloudKit, family: family, actingProfile: parent)
 
-        let entry = try await service.deposit(
+        let entries = try await service.depositEntries(
             profile: hero,
             family: family,
             familyRecordName: family.id.recordName,
             description: "Birthday gift from Grandpa",
             amount: 25.0
         )
+        let entry = try #require(entries.first)
 
+        #expect(entries.count == 1)
         #expect(entry.amount == 25.0)
         #expect(entry.source == "deposit")
         #expect(entry.description == "Birthday gift from Grandpa")
@@ -586,14 +592,15 @@ struct SpendingServiceTests {
         )
         #expect(entry.amount == -6.00)
         #expect(entry.source == "manual")
+        #expect(entry.bucketKind == BucketKind.spend.rawValue)
 
         // Savings allocations are never silently drained by a purchase; the
-        // unattributed purchase only lowers the aggregate wallet.
+        // spend-attributed purchase draws down only the spend bucket.
         let balances = buckets.bucketBalances(
             profileRecordName: hero.id.recordName,
             familyRecordName: family.id.recordName
         )
-        #expect(balances[.spend] == 12.00)
+        #expect(balances[.spend] == 6.00)
         #expect(balances[.shortTermSave] == 5.00)
         #expect(balances[.longTermSave] == 3.00)
 
