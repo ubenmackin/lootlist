@@ -13,9 +13,10 @@ struct TemplateManagerView: View {
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "TemplateManager")
 
-    let editing: QuestTemplate?
+    let editing: QuestTemplateCache?
     var onCancel: (() -> Void)?
 
+    @Environment(AppState.self) private var appState
     @Environment(ToastManager.self) private var toastManager
     @Environment(\.dismiss) private var dismiss
 
@@ -200,14 +201,14 @@ struct TemplateManagerView: View {
     private func hydrateFromEditing() {
         guard let editing else { return }
         name = editing.name
-        descriptionText = editing.description
-        defaultGoldText = CurrencyFormatter.editingString(editing.defaultGold)
-        selectedRarity = editing.rarity
-        schedule = editing.scheduleType
-        specificDays = Set(editing.specificDays)
+        descriptionText = editing.templateDescription
+        defaultGoldText = CurrencyFormatter.editingString(editing.goldReward)
+        selectedRarity = editing.rarityEnum ?? .common
+        schedule = editing.scheduleTypeEnum ?? .weeklyFlexible
+        specificDays = Set(editing.specificDays ?? [])
         targetCount = editing.targetCount
         isAllOrNothing = editing.isAllOrNothing
-        approvalMode = editing.approvalMode
+        approvalMode = editing.approvalModeEnum ?? .autoApprove
     }
 
     private func save() {
@@ -235,7 +236,8 @@ struct TemplateManagerView: View {
         Task {
             do {
                 if let editing {
-                    var updated = editing
+                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: editing)
+                    var updated = editing.toQuestTemplate(zoneID: zoneID)
                     updated.name = trimmedName
                     updated.description = descriptionText
                     updated.defaultGold = gold

@@ -94,12 +94,29 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
         profileRecordName = period.profile.recordID.recordName
         familyRecordName = period.family.recordID.recordName
         weekOf = period.weekOf
-        status = period.status.rawValue
-        totalEarned = period.totalEarned
-        questsCompleted = period.questsCompleted
-        questsTotal = period.questsTotal
-        paidDate = period.paidDate
-        paidAmount = period.paidAmount
+        if isServerSync {
+            let currentRank = PayoutStatus(rawValue: status)?.rank ?? 0
+            if period.status.rank >= currentRank {
+                status = period.status.rawValue
+            }
+            totalEarned = max(totalEarned, period.totalEarned)
+            questsCompleted = max(questsCompleted, period.questsCompleted)
+            questsTotal = max(questsTotal, period.questsTotal)
+            paidAmount = {
+                if paidAmount == nil, period.paidAmount == nil {
+                    return nil
+                }
+                return max(paidAmount ?? 0, period.paidAmount ?? 0)
+            }()
+            paidDate = period.paidDate ?? paidDate
+        } else {
+            status = period.status.rawValue
+            totalEarned = period.totalEarned
+            questsCompleted = period.questsCompleted
+            questsTotal = period.questsTotal
+            paidDate = period.paidDate
+            paidAmount = period.paidAmount
+        }
         changeTag = period.changeTag
         sourceZoneName = period.id.zoneID.zoneName
         sourceZoneOwnerName = period.id.zoneID.ownerName

@@ -91,16 +91,18 @@ struct QuestsView: View {
 
     /// Quests assigned to the active hero profile.
     private var profileQuests: [QuestCache] {
-        // WHY: defensive — predicate is source of truth; in-memory guard for stale identity.
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
-        return cachedQuests.filter { $0.assigneeRecordName == name && $0.isActive }
+        // WHY: defensive — predicate is source of truth; guards against stale identity drift.
+        guard let name = appState.currentProfile?.id.recordName,
+              profileRecordName == nil || profileRecordName == name else { return [] }
+        return cachedQuests
     }
 
     /// Completions logged by the active hero profile.
     private var profileLogs: [QuestCompletionCache] {
-        // WHY: defensive — store is source of truth; guards identity drift.
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
-        return cachedCompletions.filter { $0.completerRecordName == name }
+        // WHY: defensive — store is source of truth; guards against stale identity drift.
+        guard let name = appState.currentProfile?.id.recordName,
+              profileRecordName == nil || profileRecordName == name else { return [] }
+        return cachedCompletions
     }
 
     private var templatesByID: [String: QuestTemplateCache] {

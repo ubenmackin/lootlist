@@ -124,20 +124,22 @@ struct MyChoresView: View {
 
     /// Active quests assigned to the current hero profile.
     private var profileQuests: [QuestCache] {
-        // WHY: defensive — predicate is source of truth; in-memory guard for stale identity.
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
-        return cachedQuests.filter { $0.assigneeRecordName == name && $0.isActive }
+        // WHY: defensive — predicate is source of truth; guards against stale identity drift.
+        guard let name = appState.currentProfile?.id.recordName,
+              profileRecordName == nil || profileRecordName == name else { return [] }
+        return cachedQuests.filter(\.isActive)
     }
 
     /// Completions logged by the current hero, grouped by quest.
     private var profileLogs: [QuestCompletionCache] {
-        // WHY: defensive — store is source of truth; guards identity drift.
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
-        return cachedCompletions.filter { $0.completerRecordName == name }
+        // WHY: defensive — store is source of truth; guards against stale identity drift.
+        guard let name = appState.currentProfile?.id.recordName,
+              profileRecordName == nil || profileRecordName == name else { return [] }
+        return cachedCompletions
     }
 
     private var weekQuests: [QuestCache] {
-        profileQuests.filter { $0.isActive && WeekMath.isQuestInCurrentWeek($0.weekOf, range: weekRange) }
+        profileQuests.filter { WeekMath.isQuestInCurrentWeek($0.weekOf, range: weekRange) }
     }
 
     /// Quests that have been approved or completed by the hero — current week only.

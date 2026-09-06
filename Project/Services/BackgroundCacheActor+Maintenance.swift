@@ -311,7 +311,13 @@ extension BackgroundCacheActor {
     ) async {
         let recordName = identity.recordID.recordName
         let match: T?
-        do { match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first } catch {
+        do {
+            if let expectedFamily = identity.familyRecordName {
+                match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName, familyRecordName: expectedFamily)).first
+            } else {
+                match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first
+            }
+        } catch {
             logger.error("Failed to fetch \(T.self, privacy: .private) for record deletion (\(recordName, privacy: .private)): \(error, privacy: .private)")
             match = nil
         }

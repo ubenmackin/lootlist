@@ -164,7 +164,7 @@ extension BackgroundCacheActor {
         encodedSystemFields: Data?
     ) async -> Bool {
         let match: T?
-        do { match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName)).first } catch {
+        do { match = try modelContext.fetch(T.fetchDescriptor(recordName: recordName, familyRecordName: familyRecordName)).first } catch {
             logger.error("Failed to fetch \(T.self, privacy: .private) for system-field refresh (\(recordName, privacy: .private)): \(error, privacy: .private)")
             match = nil
         }
@@ -174,7 +174,7 @@ extension BackgroundCacheActor {
             logger.debug("Skipping system-field refresh; no cached row for \(recordName, privacy: .private)")
             return false
         }
-        guard match.familyRecordName == familyRecordName else {
+        guard match.familyRecordName == familyRecordName || T.self == FamilyCache.self else {
             logger.debug(
                 """
                 Skipping system-field refresh for \(recordName, privacy: .private): \
@@ -196,6 +196,7 @@ extension BackgroundCacheActor {
 private protocol SystemFieldUpdatable: CacheMergeable {
     var changeTag: String? { get set }
     var encodedSystemFields: Data? { get set }
+    static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<Self>
 }
 
 extension ProfileCache: SystemFieldUpdatable {}

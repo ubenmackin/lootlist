@@ -52,8 +52,7 @@ struct HeroBoardView: View {
         .background(Color(DesignSystemConstants.Colors.background))
         .navigationTitle("Hero Board")
         .navigationBarTitleDisplayMode(.large)
-        .onAppear { ensureViewModel() }
-        .task { ensureViewModel() }
+        .viewModelLifecycle { ensureViewModel() }
         .refreshable {
             rebuildViewModel()
         }

@@ -22,9 +22,11 @@ struct QuestDetailView: View {
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
 
-    @State private var template: QuestTemplate?
     @State private var isCompleting: Bool = false
-    @State private var isLoadingLog: Bool = false
+
+    private var template: QuestTemplateCache? {
+        cachedTemplates.first(where: { $0.recordName == quest.templateRecordName })
+    }
 
     private var templatesByID: [String: QuestTemplateCache] {
         SpecificDaysHelper.templatesByID(cachedTemplates)
@@ -58,20 +60,40 @@ struct QuestDetailView: View {
         self.quest = quest
         self.initialLog = initialLog
 
-        let questName = quest.recordName
-        let filter = #Predicate<QuestCompletionCache> {
-            $0.questRecordName == questName
-        }
-        _cachedCompletions = Query(
-            filter: filter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
-        )
         let targetFamily = quest.familyRecordName
-        let templateFilter = #Predicate<QuestTemplateCache> {
-            $0.familyRecordName == targetFamily
+        let questName = quest.recordName
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "QuestDetailView")
+
+        if targetFamily.isEmpty {
+            // WHY: fail-closed — empty scope must return zero rows via indexed predicate, never an unscoped scan across families.
+            let emptyFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == "__empty__" }
+            _cachedCompletions = Query(
+                filter: emptyFilter,
+                sort: \QuestCompletionCache.completedDate,
+                order: .reverse
+            )
+        } else {
+            // WHY: predicate pushdown on familyRecordName+questRecordName index — cross-family isolation at fetch layer.
+            let filter = #Predicate<QuestCompletionCache> {
+                $0.familyRecordName == targetFamily && $0.questRecordName == questName
+            }
+            _cachedCompletions = Query(
+                filter: filter,
+                sort: \QuestCompletionCache.completedDate,
+                order: .reverse
+            )
         }
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        let targetTemplate = quest.templateRecordName
+        if targetFamily.isEmpty {
+            // WHY: fail-closed — empty scope must return zero rows via indexed predicate, never an unscoped scan across families.
+            let emptyTemplateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == "__empty__" }
+            _cachedTemplates = Query(filter: emptyTemplateFilter, sort: \QuestTemplateCache.name)
+        } else {
+            let templateFilter = #Predicate<QuestTemplateCache> {
+                $0.familyRecordName == targetFamily && $0.recordName == targetTemplate
+            }
+            _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        }
     }
 
     var body: some View {
@@ -95,9 +117,6 @@ struct QuestDetailView: View {
         .scrollContentBackground(.hidden)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await load()
-        }
     }
 
     private var header: some View {
@@ -105,7 +124,7 @@ struct QuestDetailView: View {
         let descText = if let desc = quest.descriptionText, !desc.isEmpty {
             desc
         } else {
-            template?.description ?? ""
+            template?.templateDescription ?? ""
         }
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -290,7 +309,7 @@ struct QuestDetailView: View {
             case .rejected, .withdrawn: return "Complete (Try Again)"
             }
         }
-        return (isLoadingLog && latestLog == nil) ? "Loading..." : "Complete"
+        return "Complete"
     }
 
     private var completeButtonDisabled: Bool {
@@ -309,7 +328,7 @@ struct QuestDetailView: View {
             case .rejected, .withdrawn: return isCompleting
             }
         }
-        return isCompleting || (isLoadingLog && latestLog == nil)
+        return isCompleting
     }
 
     /// Disables completion when submission is in flight or verified slots are filled.
@@ -319,20 +338,6 @@ struct QuestDetailView: View {
 
     private var nonRejected: Int {
         allLogs.filter { ($0.verificationStatusEnum ?? .autoApproved).countsTowardCompletion }.count
-    }
-
-    private func load() async {
-        isLoadingLog = true
-        defer { isLoadingLog = false }
-
-        do {
-            template = try await questService.fetchTemplateCached(
-                id: quest.templateRecordName,
-                familyRecordName: quest.familyRecordName
-            )
-        } catch {
-            template = nil
-        }
     }
 
     private func completeQuest() async {

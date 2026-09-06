@@ -505,11 +505,7 @@ final class CKSyncConflictResolver {
     }
 
     private func payoutRank(_ status: PayoutStatus) -> Int {
-        switch status {
-        case .paid: 2
-        case .payoutPending: 1
-        case .active: 0
-        }
+        status.rank
     }
 
     /// FROZEN — Client-wins display fields per ARCHITECTURE.md §2. Quest name/descriptionText and

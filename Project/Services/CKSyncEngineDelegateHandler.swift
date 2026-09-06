@@ -38,6 +38,9 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
     ) {
         self.backgroundCache = backgroundCache
         self.conflictResolver = conflictResolver
+        if let backgroundCache {
+            self.conflictResolver.setBackgroundCache(backgroundCache)
+        }
         self.cacheService = cacheService
         self.appState = appState
         self.coordinator = coordinator
@@ -60,6 +63,7 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
 
     func setBackgroundCache(_ backgroundCache: BackgroundCacheActor) {
         self.backgroundCache = backgroundCache
+        self.conflictResolver.setBackgroundCache(backgroundCache)
     }
 
     // MARK: - CKSyncEngineDelegate Event Handling
@@ -285,7 +289,14 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
 
         guard !accepted.isEmpty else { return }
 
-        let writer = backgroundCache ?? appState?.backgroundCacheActor ?? cacheService?.backgroundWriter
+        var writer = backgroundCache ?? appState?.backgroundCacheActor ?? cacheService?.backgroundWriter
+        if writer == nil, let cache = cacheService {
+            await cache.bootstrapBackgroundWriterIfNeeded()
+            writer = cache.backgroundWriter
+            if let writer {
+                setBackgroundCache(writer)
+            }
+        }
         guard let writer else {
             coordinator?.noteCacheWriteFailure()
             logger.error("Cache write failure during incoming zone changes: no BackgroundCacheActor available")

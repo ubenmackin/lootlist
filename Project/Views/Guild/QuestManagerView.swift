@@ -28,8 +28,12 @@ struct QuestManagerView: View {
 
     @State private var showAssignSheet: Bool = false
     @State private var showAddTemplateSheet: Bool = false
-    @State private var editingTemplate: QuestTemplate?
-    @State private var editingQuest: Quest?
+    struct SheetRecordID: Identifiable {
+        let id: String
+    }
+
+    @State private var editingTemplateCache: QuestTemplateCache?
+    @State private var editingQuestID: SheetRecordID?
     @State private var isSubmitting = false
 
     // WHY: 3-column inspector keeps table context visible while editing — sheets would hide the sorted list on iPad.
@@ -396,8 +400,7 @@ extension QuestManagerView {
                 } else if let tid = selectedTemplateID.first,
                           let cache = vm.templates.first(where: { $0.persistentModelID == tid })
                 {
-                    let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: cache)
-                    TemplateManagerView(viewModel: vm, editing: cache.toQuestTemplate(zoneID: zoneID), onCancel: {
+                    TemplateManagerView(viewModel: vm, editing: cache, onCancel: {
                         clearInspectorSelection()
                     })
                 } else if let aid = selectedAssignmentID.first,
@@ -512,14 +515,14 @@ extension QuestManagerView {
                     QuestAssignmentView(viewModel: vm, familyRecordName: appState.family?.id.recordName)
                 }
             }
-            .sheet(item: $editingTemplate) { template in
+            .sheet(item: $editingTemplateCache) { template in
                 if let vm = viewModel {
                     TemplateManagerView(viewModel: vm, editing: template)
                 }
             }
-            .sheet(item: $editingQuest) { quest in
+            .sheet(item: $editingQuestID) { item in
                 if let vm = viewModel {
-                    QuestAssignmentView(mode: .edit(questRecordName: quest.id.recordName), viewModel: vm, familyRecordName: appState.family?.id.recordName)
+                    QuestAssignmentView(mode: .edit(questRecordName: item.id), viewModel: vm, familyRecordName: appState.family?.id.recordName)
                 }
             }
             .sheet(isPresented: $showAddTemplateSheet) {
@@ -587,7 +590,7 @@ extension QuestManagerView {
                 selectedTemplateID = []
                 inspectorNewKind = nil
             } else {
-                editingQuest = quest.toQuest(zoneID: zoneID)
+                editingQuestID = SheetRecordID(id: quest.recordName)
             }
         } label: {
             HStack(spacing: 12) {
@@ -616,7 +619,7 @@ extension QuestManagerView {
                     selectedTemplateID = []
                     inspectorNewKind = nil
                 } else {
-                    editingQuest = quest.toQuest(zoneID: zoneID)
+                    editingQuestID = SheetRecordID(id: quest.recordName)
                 }
             } label: {
                 Label("Edit", systemImage: "pencil")
@@ -712,7 +715,7 @@ extension QuestManagerView {
                 selectedAssignmentID = []
                 inspectorNewKind = nil
             } else {
-                editingTemplate = template.toQuestTemplate(zoneID: zoneID)
+                editingTemplateCache = template
             }
         }
         .contextMenu {
@@ -722,7 +725,7 @@ extension QuestManagerView {
                     selectedAssignmentID = []
                     inspectorNewKind = nil
                 } else {
-                    editingTemplate = template.toQuestTemplate(zoneID: zoneID)
+                    editingTemplateCache = template
                 }
             } label: {
                 Label("Edit", systemImage: "pencil")
