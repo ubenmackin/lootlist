@@ -8,9 +8,9 @@
 import SwiftData
 import SwiftUI
 
-/// Child reallocation between buckets — validates funds, blocks a repeat move
-/// between the same pair on the same UTC day (deterministic-ID dedupe guard),
-/// writes one deterministic transfer entry, fires haptic.
+/// Child reallocation between buckets — validates funds, writes one
+/// deterministic transfer entry per move (millisecond-timestamp ID, unlimited
+/// moves per day), fires haptic.
 struct BucketTransferView: View {
     @Environment(AppState.self) private var appState
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
@@ -36,7 +36,7 @@ struct BucketTransferView: View {
         let targetProfile = profileRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "BucketTransferView")
         // WHY predicate pushdown: per-profile query keeps store indexed (family, profile) — avoids loading N× ledgers for family with many heroes. Self-ownership gated (acting.id
-        // == profile.id) requires profile scope; mirrors BucketService.hasTransferredToday indexed predicate.
+        // == profile.id) requires profile scope.
         let filter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         _ledgerCaches = Query(filter: filter, sort: \LedgerEntryCache.date, order: .reverse)
     }
@@ -66,20 +66,6 @@ struct BucketTransferView: View {
         return result
     }
 
-    /// Limit to one transfer per bucket pair per UTC day (deterministic ID constraint).
-    private var hasTransferredToday: Bool {
-        // Single-sourced via BucketService indexed guard — avoids duplicated linear scan over @Query results.
-        guard let profile, let family else { return false }
-        let today = WeekMath.dayBucket(for: Date())
-        return bucketService.hasTransferredToday(
-            profileRecordName: profile.id.recordName,
-            familyRecordName: family.id.recordName,
-            dayBucket: today,
-            from: fromBucket,
-            to: toBucket
-        )
-    }
-
     /// Buckets available as the source — everything except the current to-bucket.
     private var fromOptions: [BucketKind] {
         BucketKind.allCases.filter { $0 != toBucket }
@@ -98,7 +84,7 @@ struct BucketTransferView: View {
     }
 
     private var canTransfer: Bool {
-        parsedAmount != nil && fromBucket != toBucket && profile != nil && family != nil && !hasTransferredToday
+        parsedAmount != nil && fromBucket != toBucket && profile != nil && family != nil
     }
 
     private var sourceAvailable: Double {
@@ -216,9 +202,7 @@ struct BucketTransferView: View {
         } header: {
             Text("Amount")
         } footer: {
-            if hasTransferredToday {
-                Text("You already moved money from \(fromBucket.displayName) to \(toBucket.displayName) today. You can move money between these buckets again tomorrow.")
-            } else if let amount = parsedAmount, amount > sourceAvailable {
+            if let amount = parsedAmount, amount > sourceAvailable {
                 Text("You only have \(CurrencyFormatter.string(sourceAvailable)) in \(fromBucket.displayName).")
                     .foregroundStyle(Color(DesignSystemConstants.Colors.dangerRed))
             }
@@ -274,9 +258,9 @@ struct BucketTransferView: View {
             defer { isSaving = false }
             do {
                 // WHY single capture and atomic mint: view captures `Date()` once and passes the
-                // raw instant to `BucketService.transfer(at:)` which derives `dayBucket` and
-                // deterministic `transferID` from that same instant — eliminating the double-Date()
-                // TOCTOU where view and service straddle 00:00 UTC and produce mismatched buckets.
+                // raw instant to `BucketService.transfer(at:)` which derives the deterministic
+                // `transferID` from that same instant — eliminating the double-Date()
+                // TOCTOU where view and service mint mismatched IDs.
                 let now = Date()
                 _ = try await bucketService.transfer(
                     from: fromBucket,
