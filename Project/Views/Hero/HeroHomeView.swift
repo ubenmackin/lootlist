@@ -19,6 +19,7 @@ struct HeroHomeView: View {
     @Query private var cachedTemplates: [QuestTemplateCache]
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
+    @Query private var cachedGemLedgers: [GemLedgerCache]
     @Query private var currentProfileRows: [ProfileCache]
 
     @State private var viewModel: HeroDashboardViewModel?
@@ -44,6 +45,7 @@ struct HeroHomeView: View {
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
         let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+        let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
         let currentProfileFilter = #Predicate<ProfileCache> {
             $0.recordName == targetProfile && $0.familyRecordName == targetFamily
         }
@@ -69,6 +71,10 @@ struct HeroHomeView: View {
             filter: allowanceFilter,
             sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
+        _cachedGemLedgers = Query(
+            filter: gemLedgerFilter,
+            sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+        )
         _currentProfileRows = Query(
             filter: currentProfileFilter,
             sort: \ProfileCache.displayName
@@ -84,16 +90,18 @@ struct HeroHomeView: View {
 
     /// Quests assigned to the active hero profile.
     private var profileQuests: [QuestCache] {
-        // WHY: defensive — predicate is source of truth; in-memory guard for stale identity.
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
-        return cachedQuests.filter { $0.assigneeRecordName == name && $0.isActive }
+        // WHY: defensive — predicate is source of truth; guards against stale identity drift.
+        guard let name = appState.currentProfile?.id.recordName,
+              profileRecordName == nil || profileRecordName == name else { return [] }
+        return cachedQuests
     }
 
     /// Completions logged by the active hero profile.
     private var profileLogs: [QuestCompletionCache] {
-        // WHY: defensive — store is source of truth; guards identity drift.
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
-        return cachedCompletions.filter { $0.completerRecordName == name }
+        // WHY: defensive — store is source of truth; guards against stale identity drift.
+        guard let name = appState.currentProfile?.id.recordName,
+              profileRecordName == nil || profileRecordName == name else { return [] }
+        return cachedCompletions
     }
 
     var body: some View {
@@ -184,7 +192,7 @@ struct HeroHomeView: View {
         if FeatureFlags.rpgImmersive {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
-                    GemShopView()
+                    GemShopView(familyRecordName: familyRecordName, profileRecordName: profileRecordName)
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "diamond.fill")
@@ -398,12 +406,17 @@ struct HeroHomeView: View {
 
     private var gemsBalance: Int? {
         guard let profile = appState.currentProfile else { return nil }
+        let targetRecordName = profile.id.recordName
+        let matching = cachedGemLedgers.filter { $0.profileRecordName == targetRecordName }
+        if !matching.isEmpty {
+            return matching.reduce(0) { $0 + $1.amount }
+        }
         let family = appState.family?.id.recordName ?? profile.family.recordID.recordName
         do {
-            return try gemService.balance(for: profile.id.recordName, familyRecordName: family)
+            return try gemService.balance(for: targetRecordName, familyRecordName: family)
         } catch {
             Self.logger.warning("HeroHomeView.gemsBalance: failed to fetch gem balance: \(error, privacy: .private)")
-            return nil
+            return 0
         }
     }
 

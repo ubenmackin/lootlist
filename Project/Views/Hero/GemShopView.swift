@@ -18,6 +18,8 @@ struct GemShopView: View {
     @Environment(SoundManager.self) private var soundManager
     @Environment(ToastManager.self) private var toastManager
 
+    @Query private var cachedGemLedgers: [GemLedgerCache]
+
     @State private var selectedCategory: ShopCategory = .headwear
     @State private var pendingPurchaseItem: ShopItem?
     @State private var isPurchasing: Bool = false
@@ -27,6 +29,44 @@ struct GemShopView: View {
     @State private var showCelebration: Bool = false
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "GemShopView")
+    private let familyRecordName: String?
+    private let profileRecordName: String?
+
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
+        self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
+
+        let targetFamily = familyRecordName ?? ""
+        let targetProfile = profileRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "GemShopView")
+
+        if !targetFamily.isEmpty, !targetProfile.isEmpty {
+            // WHY: predicate pushdown on familyRecordName+profileRecordName index — cross-family isolation at fetch layer.
+            let filter = #Predicate<GemLedgerCache> {
+                $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile
+            }
+            _cachedGemLedgers = Query(
+                filter: filter,
+                sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+            )
+        } else if !targetFamily.isEmpty {
+            // WHY: family-scoped fetch uses familyRecordName index; profile filtering stays defensive in gemBalance.
+            let filter = #Predicate<GemLedgerCache> {
+                $0.familyRecordName == targetFamily
+            }
+            _cachedGemLedgers = Query(
+                filter: filter,
+                sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+            )
+        } else {
+            // WHY: fail-closed — empty scope must return zero rows via indexed predicate, never an unscoped scan across families.
+            let emptyFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == "__empty__" }
+            _cachedGemLedgers = Query(
+                filter: emptyFilter,
+                sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+            )
+        }
+    }
 
     private var currentProfile: Profile? {
         appState.currentProfile
@@ -34,12 +74,17 @@ struct GemShopView: View {
 
     private var gemBalance: Int? {
         guard let profile = currentProfile else { return nil }
-        let familyRecordName = appState.family?.id.recordName ?? profile.family.recordID.recordName
+        let targetRecordName = profile.id.recordName
+        let matching = cachedGemLedgers.filter { $0.profileRecordName == targetRecordName }
+        if !matching.isEmpty {
+            return matching.reduce(0) { $0 + $1.amount }
+        }
+        let family = appState.family?.id.recordName ?? profile.family.recordID.recordName
         do {
-            return try gemService.balance(for: profile.id.recordName, familyRecordName: familyRecordName)
+            return try gemService.balance(for: targetRecordName, familyRecordName: family)
         } catch {
             logger.warning("GemShopView.gemBalance: failed to fetch gem balance: \(error, privacy: .private)")
-            return nil
+            return 0
         }
     }
 

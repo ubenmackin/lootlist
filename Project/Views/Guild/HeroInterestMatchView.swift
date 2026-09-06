@@ -6,6 +6,7 @@
 //
 
 import os
+import SwiftData
 import SwiftUI
 
 struct HeroInterestMatchView: View {
@@ -16,6 +17,8 @@ struct HeroInterestMatchView: View {
 
     let hero: ProfileCache
     let familyRecordName: String?
+
+    @Query private var heroRows: [ProfileCache]
 
     @Environment(AppState.self) private var appState
     @Environment(InterestService.self) private var interestService
@@ -39,9 +42,19 @@ struct HeroInterestMatchView: View {
     @State private var isSaving: Bool = false
     @FocusState private var isCapFocused: Bool
 
+    private var activeHero: ProfileCache {
+        heroRows.first ?? hero
+    }
+
     init(hero: ProfileCache, familyRecordName: String? = nil) {
         self.hero = hero
         self.familyRecordName = familyRecordName
+
+        let targetRecord = hero.recordName
+        let targetFamily = familyRecordName ?? hero.familyRecordName
+        _heroRows = Query(filter: #Predicate<ProfileCache> {
+            $0.recordName == targetRecord && $0.familyRecordName == targetFamily
+        })
 
         _interestEnabled = State(initialValue: hero.interestEnabled)
         _interestBucket = State(initialValue: hero.interestBucket.flatMap { BucketKind(rawValue: $0) } ?? .longTermSave)
@@ -97,6 +110,21 @@ struct HeroInterestMatchView: View {
                 }
             }
             .decimalPadDoneToolbar(isFocused: $isCapFocused)
+            .onChange(of: heroRows.first) { _, updatedHero in
+                guard let updatedHero, !isSaving else { return }
+                interestEnabled = updatedHero.interestEnabled
+                interestBucket = updatedHero.interestBucket.flatMap { BucketKind(rawValue: $0) } ?? .longTermSave
+                interestRatePercent = updatedHero.interestRateBps > 0 ? Double(updatedHero.interestRateBps) / 100.0 : 5.0
+                isCompound = updatedHero.interestIsCompound
+                matchEnabled = updatedHero.matchEnabled
+                matchRatePercent = updatedHero.matchRateBps > 0 ? Double(updatedHero.matchRateBps) / 100.0 : 100.0
+                if let cap = updatedHero.matchMonthlyCapPennies {
+                    let dollars = Double(cap) / 100.0
+                    matchCapDollars = CurrencyFormatter.editingString(dollars)
+                } else {
+                    matchCapDollars = ""
+                }
+            }
         }
     }
 
@@ -105,18 +133,18 @@ struct HeroInterestMatchView: View {
     private var heroHeaderSection: some View {
         Section {
             HStack(spacing: 12) {
-                if let emoji = hero.avatarEmoji, !emoji.isEmpty {
+                if let emoji = activeHero.avatarEmoji, !emoji.isEmpty {
                     Text(emoji)
                         .font(.title2)
                         .frame(width: 40, height: 40)
                         .background(Circle().fill(Color(.tertiarySystemGroupedBackground)))
                 } else {
-                    ProfileAvatarView(profileCache: hero)
+                    ProfileAvatarView(profileCache: activeHero)
                         .frame(width: 40, height: 40)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(hero.displayName)
+                    Text(activeHero.displayName)
                         .font(.headline)
                     Text("Automated growth incentives & savings match")
                         .font(.caption)
@@ -217,7 +245,7 @@ struct HeroInterestMatchView: View {
             Text("Parent Match")
         } footer: {
             if matchEnabled {
-                Text("Whenever \(hero.displayName) saves toward a goal, your match is added to help reach their milestone faster.")
+                Text("Whenever \(activeHero.displayName) saves toward a goal, your match is added to help reach their milestone faster.")
             }
         }
     }
@@ -228,7 +256,7 @@ struct HeroInterestMatchView: View {
         return HStack(spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
-            Text("When \(hero.displayName) saves \(CurrencyFormatter.string(sampleSave)), you contribute \(CurrencyFormatter.string(matchAmount)).")
+            Text("When \(activeHero.displayName) saves \(CurrencyFormatter.string(sampleSave)), you contribute \(CurrencyFormatter.string(matchAmount)).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -239,12 +267,12 @@ struct HeroInterestMatchView: View {
 
     @MainActor
     private func save() async {
-        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: hero)
+        let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: activeHero)
         isSaving = true
         defer { isSaving = false }
 
         do {
-            let profile = hero.toProfile(zoneID: zoneID)
+            let profile = activeHero.toProfile(zoneID: zoneID)
             _ = try await interestService.updateInterestConfig(
                 profile: profile,
                 enabled: interestEnabled,
@@ -260,7 +288,7 @@ struct HeroInterestMatchView: View {
                 monthlyCapPennies: matchEnabled ? parsedMatchCapPennies : nil
             )
 
-            toastManager.show(message: "\(hero.displayName)'s savings settings saved.", type: .success)
+            toastManager.show(message: "\(activeHero.displayName)'s savings settings saved.", type: .success)
             dismiss()
         } catch {
             logger.error("Failed to save interest/match config: \(error, privacy: .private)")

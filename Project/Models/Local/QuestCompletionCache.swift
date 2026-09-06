@@ -124,7 +124,7 @@ final class QuestCompletionCache: FamilyScopedCache, CacheMergeable {
             : ApprovalMode.parentVerify.rawValue
         verifiedByRecordName = completion.verifiedBy?.recordID.recordName
         verifiedDate = completion.verifiedDate
-        xpCredited = completion.xpCredited
+        xpCredited = isServerSync ? (xpCredited ?? completion.xpCredited) : completion.xpCredited
         changeTag = completion.changeTag
         sourceZoneName = completion.id.zoneID.zoneName
         sourceZoneOwnerName = completion.id.zoneID.ownerName

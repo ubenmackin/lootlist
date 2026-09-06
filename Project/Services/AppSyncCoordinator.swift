@@ -159,16 +159,12 @@ final class AppSyncCoordinator {
             }
             subscriptionID = databaseNotification.subscriptionID ?? "unknown"
         case .recordZone:
-            // CKRecordZoneNotification is a CKQueryNotification subclass; cast
-            // permissively so a future concrete variant still gets forwarded.
-            guard let queryNotification = notification as? CKQueryNotification else {
+            guard let zoneNotification = notification as? CKRecordZoneNotification else {
                 logger.warning("CloudKit .recordZone notification with unexpected concrete type (\(String(describing: type(of: notification)))) — dropping it")
                 return
             }
-            subscriptionID = queryNotification.subscriptionID ?? "unknown"
-            if let zoneNotification = notification as? CKRecordZoneNotification,
-               let zoneID = zoneNotification.recordZoneID
-            {
+            subscriptionID = zoneNotification.subscriptionID ?? notification.subscriptionID ?? "unknown"
+            if let zoneID = zoneNotification.recordZoneID {
                 logger.debug("CloudKit record-zone change notification received for zone \(zoneID.zoneName, privacy: .private)")
             }
         case .query:

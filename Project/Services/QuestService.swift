@@ -520,10 +520,8 @@ final class QuestService {
             recordID: quest.id,
             familyRecordName: quest.family.recordID.recordName
         )
-        // Pre-delete identity captured before invalidate; RecordBridge returns nil
-        // for the dangling record and coordinator drain handles the tombstone.
-        await cacheService.invalidate(identity: identity, type: .quest, expectedActiveZone: appState.familyZoneID)
         ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: quest.id, appState: appState, logger: logger, context: "QuestService.unassignQuest")
+        await cacheService.invalidate(identity: identity, type: .quest, expectedActiveZone: appState.familyZoneID)
     }
 
     /// Cache-first read. On cold cache miss, falls back to a single synchronous

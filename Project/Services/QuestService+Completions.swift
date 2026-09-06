@@ -325,7 +325,7 @@ extension QuestService {
         )
     }
 
-    private func completeParentVerify(log: QuestCompletion, quest: Quest, isFinalSubPart: Bool, resolvedZoneID: CKRecordZone.ID)
+    private func completeParentVerify(log: QuestCompletion, quest: Quest, isFinalSubPart: Bool, resolvedZoneID _: CKRecordZone.ID)
         async throws -> QuestCompletion
     {
         var mutableLog = log
@@ -338,26 +338,8 @@ extension QuestService {
             logger: logger,
             context: isFinalSubPart ? "QuestService.completeQuest" : "QuestService.completeQuest.intermediate"
         )
-        do {
-            _ = try await cloudKit.save(mutableLog, in: resolvedZoneID)
-        } catch {
-            if isTransientCompletionError(error) {
-                ActiveFamilyScopeGuard.enqueueWithCorrectedOwner(
-                    syncCoordinator,
-                    id: mutableLog.id,
-                    appState: appState,
-                    logger: logger,
-                    context: "QuestService.completeQuest.pending.transient"
-                )
-                toastManager?.show(message: "Quest completion queued — will sync when online.", type: .info)
-                dispatchParentReviewNotification(for: mutableLog, quest: quest)
-                Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
-                return mutableLog
-            }
-            await cacheService.invalidate(recordName: mutableLog.id.recordName, family: quest.family.recordID.recordName, type: .questCompletion)
-            throw error
-        }
         dispatchParentReviewNotification(for: mutableLog, quest: quest)
+        Task { @MainActor @Sendable [weak self] in await self?.syncCoordinator.sendPendingChanges() }
         return mutableLog
     }
 

@@ -45,7 +45,8 @@ struct GoldCalculationTests {
             return
         }
 
-        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 0)
+        let effective = SpecificDaysHelper.effectiveTarget(for: cached, specificDays: [])
+        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 0, effectiveTarget: effective)
         #expect(result == false)
     }
 
@@ -73,7 +74,8 @@ struct GoldCalculationTests {
             return
         }
 
-        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 3)
+        let effective = SpecificDaysHelper.effectiveTarget(for: cached, specificDays: [])
+        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 3, effectiveTarget: effective)
         #expect(result == true)
     }
 
@@ -101,7 +103,8 @@ struct GoldCalculationTests {
             return
         }
 
-        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 2)
+        let effective = SpecificDaysHelper.effectiveTarget(for: cached, specificDays: [])
+        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 2, effectiveTarget: effective)
         #expect(result == false)
     }
 
@@ -129,7 +132,8 @@ struct GoldCalculationTests {
             return
         }
 
-        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 5)
+        let effective = SpecificDaysHelper.effectiveTarget(for: cached, specificDays: [])
+        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 5, effectiveTarget: effective)
         #expect(result == true)
     }
 
@@ -157,7 +161,8 @@ struct GoldCalculationTests {
             return
         }
 
-        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 1)
+        let effective = SpecificDaysHelper.effectiveTarget(for: cached, specificDays: [])
+        let result = GoldCalculation.isFullyCompleted(quest: cached, approvedCount: 1, effectiveTarget: effective)
         #expect(result == true)
     }
 
@@ -178,8 +183,9 @@ struct GoldCalculationTests {
             id: CKRecord.ID(recordName: "quest1")
         )
 
-        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 0) == false)
-        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 1) == true)
+        let effective = SpecificDaysHelper.effectiveTarget(for: quest, specificDays: [])
+        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 0, effectiveTarget: effective) == false)
+        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 1, effectiveTarget: effective) == true)
     }
 
     @Test
@@ -205,12 +211,11 @@ struct GoldCalculationTests {
         // WHY: legacy rows keep targetCount 1 after template gains days, so slots must win.
         let effective = SpecificDaysHelper.effectiveTarget(for: quest, specificDays: days)
         #expect(effective == 3)
-        #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 1) == true)
         #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 1, effectiveTarget: effective) == false)
         #expect(GoldCalculation.isFullyCompleted(quest: quest, approvedCount: 3, effectiveTarget: effective) == true)
         #expect(GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: 1, effectiveTarget: effective) == false)
         #expect(GoldCalculation.nonRejectedLogsReachTarget(quest: quest, nonRejectedCount: 3, effectiveTarget: effective) == true)
-        #expect(GoldCalculation.creditAsDouble(for: quest, approvedCount: 1) == 9.0)
         #expect(GoldCalculation.creditAsDouble(for: quest, approvedCount: 1, effectiveTarget: effective) == 3.0)
+        #expect(GoldCalculation.creditAsDouble(for: quest, approvedCount: 3, effectiveTarget: effective) == 9.0)
     }
 }

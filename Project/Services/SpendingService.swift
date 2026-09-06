@@ -396,31 +396,6 @@ class SpendingService {
         return entries
     }
 
-    /// Deprecated: persists the full split via `depositEntries` but returns the first share only.
-    @available(*, deprecated, message: "Use depositEntries and sum amounts; deposit returns only the first share when the split yields multiple entries.")
-    func deposit(profile: Profile,
-                 family: Family,
-                 familyRecordName: String,
-                 description: String,
-                 amount: Double,
-                 location: String? = nil,
-                 date: Date = Date()) async throws -> LedgerEntry
-    {
-        let entries = try await depositEntries(
-            profile: profile,
-            family: family,
-            familyRecordName: familyRecordName,
-            description: description,
-            amount: amount,
-            location: location,
-            date: date
-        )
-        guard let first = entries.first else {
-            throw SpendingServiceError.persistenceFailed
-        }
-        return first
-    }
-
     func withdraw(profile: Profile,
                   family: Family,
                   familyRecordName: String,
@@ -491,7 +466,7 @@ class SpendingService {
             recordID: entry.id,
             familyRecordName: entry.family.recordID.recordName
         )
-        await cacheService.invalidate(identity: identity, type: .ledgerEntry, expectedActiveZone: appState.familyZoneID)
         ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: entry.id, appState: appState, logger: logger, context: "SpendingService.delete")
+        await cacheService.invalidate(identity: identity, type: .ledgerEntry, expectedActiveZone: appState.familyZoneID)
     }
 }

@@ -6,10 +6,13 @@
 //
 
 import os
+import SwiftData
 import SwiftUI
 
 struct HeroSettingsView: View {
     let hero: ProfileCache
+
+    @Query private var heroRows: [ProfileCache]
 
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroSettings")
 
@@ -25,8 +28,17 @@ struct HeroSettingsView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var saveDayTask: Task<Void, Never>?
 
+    private var activeHero: ProfileCache {
+        heroRows.first ?? hero
+    }
+
     init(hero: ProfileCache) {
         self.hero = hero
+        let targetRecord = hero.recordName
+        let targetFamily = hero.familyRecordName
+        _heroRows = Query(filter: #Predicate<ProfileCache> {
+            $0.recordName == targetRecord && $0.familyRecordName == targetFamily
+        })
         _selectedPolicy = State(initialValue: hero.payoutPolicyEnum)
         _selectedDayOverride = State(initialValue: hero.payoutDayEnum)
     }
@@ -50,7 +62,7 @@ struct HeroSettingsView: View {
                 .padding(.vertical, 16)
             }
             .background(Color(DesignSystemConstants.Colors.background).ignoresSafeArea())
-            .navigationTitle("\(hero.displayName)'s Settings")
+            .navigationTitle("\(activeHero.displayName)'s Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -59,10 +71,10 @@ struct HeroSettingsView: View {
                     }
                 }
             }
-            .onChange(of: hero.payoutPolicyEnum) { _, newPolicy in
+            .onChange(of: activeHero.payoutPolicyEnum) { _, newPolicy in
                 selectedPolicy = newPolicy
             }
-            .onChange(of: hero.payoutDayEnum) { _, newDay in
+            .onChange(of: activeHero.payoutDayEnum) { _, newDay in
                 selectedDayOverride = newDay
             }
             .onChange(of: actionError) { _, newError in
@@ -82,14 +94,14 @@ struct HeroSettingsView: View {
             avatarView
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(hero.displayName)
+                Text(activeHero.displayName)
                     .font(.title3.weight(.bold))
 
                 HStack(spacing: 6) {
                     // Level pill and class name stay unrendered while the
                     // immersive layer is off; the sanctioned role label takes
                     // their place.
-                    Text(hero.roleEnum?.displayName ?? "Hero")
+                    Text(activeHero.roleEnum?.displayName ?? "Hero")
                         .font(.caption.weight(.bold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
@@ -106,7 +118,7 @@ struct HeroSettingsView: View {
     }
 
     private var avatarView: some View {
-        ProfileAvatarView(profileCache: hero)
+        ProfileAvatarView(profileCache: activeHero)
     }
 
     // MARK: - Savings Allocations Section
@@ -125,7 +137,7 @@ struct HeroSettingsView: View {
                     Label("Spend Bucket", systemImage: "cart.fill")
                         .font(.subheadline)
                     Spacer()
-                    Text("\(hero.splitPercentSpend)%")
+                    Text("\(activeHero.splitPercentSpend)%")
                         .font(.subheadline.weight(.semibold).monospacedDigit())
                 }
                 Divider()
@@ -133,7 +145,7 @@ struct HeroSettingsView: View {
                     Label("Short-Term Goal", systemImage: "target")
                         .font(.subheadline)
                     Spacer()
-                    Text("\(hero.splitPercentShort)%")
+                    Text("\(activeHero.splitPercentShort)%")
                         .font(.subheadline.weight(.semibold).monospacedDigit())
                 }
                 Divider()
@@ -141,30 +153,27 @@ struct HeroSettingsView: View {
                     Label("Long-Term Treasury", systemImage: "lock.shield.fill")
                         .font(.subheadline)
                     Spacer()
-                    Text("\(hero.splitPercentLong)%")
+                    Text("\(activeHero.splitPercentLong)%")
                         .font(.subheadline.weight(.semibold).monospacedDigit())
                 }
 
-                if hero.interestEnabled || hero.matchEnabled {
+                if activeHero.interestEnabled || activeHero.matchEnabled {
                     Divider()
-                    if hero.interestEnabled {
+                    if activeHero.interestEnabled {
                         HStack {
-                            Label("Interest Rate", systemImage: "chart.line.uptrend.xyaxis")
+                            Label("Parent Interest Rate", systemImage: "percent")
                                 .font(.subheadline)
-                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                             Spacer()
-                            Text("\(Double(hero.interestRateBps) / 100.0, specifier: "%g")%")
+                            Text("\(Double(activeHero.interestRateBps) / 100.0, specifier: "%g")%")
                                 .font(.subheadline.weight(.semibold).monospacedDigit())
-                                .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                         }
                     }
-                    if hero.matchEnabled {
+                    if activeHero.matchEnabled {
                         HStack {
-                            Label("Match Rate", systemImage: "arrow.trianglehead.branch")
+                            Label("Savings Match Rate", systemImage: "arrow.triangle.merge")
                                 .font(.subheadline)
-                                .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                             Spacer()
-                            Text("\(Double(hero.matchRateBps) / 100.0, specifier: "%g")%")
+                            Text("\(Double(activeHero.matchRateBps) / 100.0, specifier: "%g")%")
                                 .font(.subheadline.weight(.semibold).monospacedDigit())
                                 .foregroundStyle(Color(DesignSystemConstants.Colors.primaryGreen))
                         }
@@ -205,7 +214,7 @@ struct HeroSettingsView: View {
                             do {
                                 try await Task.sleep(nanoseconds: 350_000_000)
                                 try Task.checkCancellation()
-                                _ = try await familyService.updateProfilePayoutDay(profileCache: hero, day: newDay)
+                                _ = try await familyService.updateProfilePayoutDay(profileCache: activeHero, day: newDay)
                             } catch {
                                 guard !Task.isCancelled else { return }
                                 withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
@@ -282,7 +291,7 @@ struct HeroSettingsView: View {
                     do {
                         try await Task.sleep(nanoseconds: 350_000_000)
                         try Task.checkCancellation()
-                        _ = try await familyService.updateProfilePayoutPolicy(profileCache: hero, policy: policy)
+                        _ = try await familyService.updateProfilePayoutPolicy(profileCache: activeHero, policy: policy)
                     } catch {
                         guard !Task.isCancelled else { return }
                         withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {

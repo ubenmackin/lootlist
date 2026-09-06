@@ -448,7 +448,7 @@ struct ProfileView: View {
                     Divider().padding(.leading, 56)
 
                     NavigationLink {
-                        GemShopView()
+                        GemShopView(familyRecordName: row.familyRecordName, profileRecordName: row.recordName)
                     } label: {
                         actionRow(
                             icon: "sparkles",

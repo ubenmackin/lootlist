@@ -400,8 +400,8 @@ final class GoalService {
             recordID: goal.id,
             familyRecordName: family.id.recordName
         )
-        await cacheService.invalidate(identity: identity, type: .goal, expectedActiveZone: appState.familyZoneID)
         ActiveFamilyScopeGuard.enqueueDeleteWithCorrectedOwner(syncCoordinator, id: goal.id, appState: appState, logger: logger, context: "GoalService.deleteGoal")
+        await cacheService.invalidate(identity: identity, type: .goal, expectedActiveZone: appState.familyZoneID)
 
         logger.info("Deleted goal \"\(goal.name, privacy: .private)\"")
     }

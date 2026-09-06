@@ -166,7 +166,11 @@ final class QuestCache: FamilyScopedCache, CacheMergeable {
         isActive = quest.active
         goldReward = quest.goldReward
         xpReward = quest.xpReward
-        xpBanked = quest.xpBanked
+        if isServerSync {
+            xpBanked = min(max(xpBanked, quest.xpBanked), max(quest.xpReward, xpReward))
+        } else {
+            xpBanked = quest.xpBanked
+        }
         sourceZoneName = quest.id.zoneID.zoneName
         sourceZoneOwnerName = quest.id.zoneID.ownerName
         sourceDatabaseScope = inferDatabaseScope(from: quest.id.zoneID)

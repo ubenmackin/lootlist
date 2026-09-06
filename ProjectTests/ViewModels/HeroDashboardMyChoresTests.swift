@@ -73,7 +73,8 @@ struct HeroDashboardMyChoresTests {
         var result: [(QuestCache, QuestCompletionCache)] = []
         for quest in weekQuests {
             let approved = logs.filter { $0.questRecordName == quest.recordName && $0.isApproved }
-            if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved.count),
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, specificDays: [])
+            if GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved.count, effectiveTarget: target),
                let latest = approved.sorted(by: { $0.completedDate > $1.completedDate }).first
             {
                 result.append((quest, latest))
@@ -389,7 +390,8 @@ struct HeroDashboardMyChoresTests {
         ]
         let missedLastWeek = missedCandidates.filter { quest in
             let approved = logs.filter { $0.questRecordName == quest.recordName && $0.isApproved }.count
-            return !GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved)
+            let target = SpecificDaysHelper.effectiveTarget(for: quest, specificDays: [])
+            return !GoldCalculation.isFullyCompleted(quest: quest, approvedCount: approved, effectiveTarget: target)
         }
         #expect(missedLastWeek.count == 1)
         #expect(missedLastWeek.first?.recordName == "q-prev-incomplete")

@@ -327,6 +327,28 @@ final class AppState {
             }
         }
 
+        clearSessionDefaults()
+
+        // Ensures scope key and coordinator reset when switching families to avoid stale sync.
+        NotificationCenter.default.post(name: .didClearSession, object: nil)
+    }
+
+    /// Asynchronous session clearing that guarantees background cache purge completes before returning.
+    func clearSessionAsync() async {
+        let previousFamilyRecordName = defaults.string(forKey: Self.familyIDKey)
+        signOutInternal()
+
+        if let previousFamilyRecordName {
+            cacheService?.purgeFamily(recordName: previousFamilyRecordName)
+            await backgroundCacheActor?.purgeFamily(recordName: previousFamilyRecordName)
+        }
+
+        clearSessionDefaults()
+
+        NotificationCenter.default.post(name: .didClearSession, object: nil)
+    }
+
+    private func clearSessionDefaults() {
         defaults.removeObject(forKey: Self.profileIDKey)
         defaults.removeObject(forKey: Self.familyIDKey)
         defaults.removeObject(forKey: Self.zoneNameKey)
@@ -336,9 +358,6 @@ final class AppState {
         // Preserve `hasOnboardedKey` so the app knows this user has completed
         // onboarding before and should attempt recovery rather than showing
         // the brand-new Welcome screen on the next launch.
-
-        // Ensures scope key and coordinator reset when switching families to avoid stale sync.
-        NotificationCenter.default.post(name: .didClearSession, object: nil)
     }
 
     /// Extended session clearing that also resets CloudKit scope and engine state.
@@ -353,6 +372,14 @@ final class AppState {
         syncCoordinator?.resetState()
 
         clearSession()
+    }
+
+    /// Extended async session clearing that awaits the background cache purge.
+    func clearSessionAndCloudKitScopeAsync(cloudKit: any CloudKitServiceProtocol, syncCoordinator: CKSyncEngineCoordinator? = nil) async {
+        cloudKit.activeFamilyZoneID = nil
+        cloudKit.activeIsOwner = false
+        syncCoordinator?.resetState()
+        await clearSessionAsync()
     }
 
     // MARK: - Session Restoration
@@ -474,14 +501,14 @@ final class AppState {
             {
                 logger.info("Shared family zone is unavailable — clearing revoked hero session")
                 familyAccessRevokedSignal = UUID()
-                clearSessionAndCloudKitScope(cloudKit: cloudKit)
+                await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)
                 await authStateMachine.transition(.restoreFailed)
                 await discoverExistingCloudState(cloudKit: cloudKit)
                 return
             }
             if !restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
                 logger.info("Unrecoverable CloudKit session error and no cache available — clearing session and running cloud discovery")
-                clearSessionAndCloudKitScope(cloudKit: cloudKit)
+                await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)
                 await authStateMachine.transition(.restoreFailed)
                 await discoverExistingCloudState(cloudKit: cloudKit)
             }
@@ -504,7 +531,7 @@ final class AppState {
         let isPlaceholderOwner = ActiveFamilyScopeGuard.isPlaceholderOwner(zoneOwnerName)
         if isPlaceholderOwner || isOwner {
             logger.info("ScopeViolation with placeholder/stale owner \(zoneOwnerName, privacy: .private) — clearing stale session and rediscovering")
-            clearSessionAndCloudKitScope(cloudKit: cloudKit)
+            await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)
             await authStateMachine.transition(.restoreFailed)
             await discoverExistingCloudState(cloudKit: cloudKit)
             return
@@ -514,7 +541,7 @@ final class AppState {
         if restoreFromCache(profileRecordName: profileRecordName, familyRecordName: familyRecordName, zoneID: zoneID, isOwner: isOwner) {
             return
         }
-        clearSessionAndCloudKitScope(cloudKit: cloudKit)
+        await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)
         await authStateMachine.transition(.restoreFailed)
         await discoverExistingCloudState(cloudKit: cloudKit)
     }
@@ -772,7 +799,7 @@ final class AppState {
                 logger.error("Failed to save profile deactivation on rejection: \(error, privacy: .private)")
             }
         }
-        clearSessionAndCloudKitScope(cloudKit: cloudKit)
+        await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit)
     }
 
     /// Performs device-local sign-out, resetting session and clearing local cache.
@@ -789,7 +816,7 @@ final class AppState {
         let alreadyInFlight = await discoveryCoordinator.isRunning
         if alreadyInFlight {
             // Clear local session immediately, then await in-flight discovery completion before fresh scan.
-            clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
+            await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
             authStatus = .checkingCloudData
             await discoveryCoordinator.wait()
             // Run fresh discovery scan reflecting the cleared session.
@@ -797,7 +824,7 @@ final class AppState {
             await discoverExistingCloudState(cloudKit: cloudKit)
             return
         }
-        clearSessionAndCloudKitScope(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
+        await clearSessionAndCloudKitScopeAsync(cloudKit: cloudKit, syncCoordinator: syncCoordinator)
         authStatus = .checkingCloudData // flip to state discoverExistingCloudState requires
         await discoverExistingCloudState(cloudKit: cloudKit)
     }
