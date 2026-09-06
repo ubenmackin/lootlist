@@ -71,8 +71,8 @@ class AppDelegate: NSObject, UIApplicationDelegate {
             let request = BGAppRefreshTaskRequest(identifier: weeklyPayoutTaskId)
             let now = Date()
             let currentWeekStart = WeekMath.startOfWeek(for: now, payoutDay: payoutDay)
-            let nextPayoutDate = Calendar.iso8601UTC.date(byAdding: .day, value: 6, to: currentWeekStart) ?? now
-            request.earliestBeginDate = nextPayoutDate > now ? nextPayoutDate : now.addingTimeInterval(3600)
+            let weekUpperBound = WeekMath.weekRange(starting: currentWeekStart).upperBound
+            request.earliestBeginDate = weekUpperBound > now ? weekUpperBound : now.addingTimeInterval(3600)
 
             do {
                 try BGTaskScheduler.shared.submit(request)

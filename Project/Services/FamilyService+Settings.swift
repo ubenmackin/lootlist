@@ -245,7 +245,7 @@ extension FamilyService {
         return updated
     }
 
-    // MARK: - Savings Split (3-Jar)
+    // MARK: - Savings Split (3-Bucket)
 
     @discardableResult
     func updateSavingsSplit(profileCache: ProfileCache, spend: Int, short: Int, long: Int) async throws -> Profile {
@@ -253,7 +253,7 @@ extension FamilyService {
         return try await updateSavingsSplit(profile: profileCache.toProfile(zoneID: zoneID), spend: spend, short: short, long: long)
     }
 
-    /// Updates 3-jar split percentages for a hero profile, applying to future payouts.
+    /// Updates 3-bucket split percentages for a hero profile, applying to future payouts.
     @discardableResult
     func updateSavingsSplit(profile: Profile, spend: Int, short: Int, long: Int) async throws -> Profile {
         // 100-sum invariant: every payout split must allocate exactly 100%.

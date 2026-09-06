@@ -289,6 +289,17 @@ struct PayoutHistoryView: View {
             CalendarScopeFilterView(scope: $scope, payoutDay: payoutDay)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 2)
+
+            let scheduledTime = WeekMath.scheduledRolloverTimeString(payoutDay: payoutDay)
+            HStack(spacing: 4) {
+                Image(systemName: "clock.badge.checkmark")
+                    .font(.caption2)
+                Text("Next auto-payout: \(scheduledTime) (best effort)")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
         }
         .background(Color(DesignSystemConstants.Colors.background))
     }
@@ -454,7 +465,7 @@ struct PayoutHistoryView: View {
                 Text(period.weekOf, format: .dateTime.month().day().year())
                     .font(.subheadline.bold())
                     .monospacedDigit()
-                Text(heroName(for: period))
+                Text(heroSubtitle(for: period))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -471,6 +482,16 @@ struct PayoutHistoryView: View {
         .contentShape(Rectangle())
         .hoverEffect(.highlight)
         .padding(.vertical, DesignSystemConstants.Padding.small)
+    }
+
+    private func heroSubtitle(for period: AllowancePeriodCache) -> String {
+        let name = heroName(for: period)
+        if period.statusEnum == .active {
+            let heroDay = viewModel?.heroes.first(where: { $0.recordName == period.profileRecordName })?.payoutDayEnum ?? payoutDay
+            let scheduledTime = WeekMath.scheduledRolloverTimeString(for: period.weekOf, payoutDay: heroDay)
+            return "\(name) · Closes \(scheduledTime)"
+        }
+        return name
     }
 
     private func statusBadge(for status: PayoutStatus) -> some View {
@@ -499,12 +520,18 @@ struct PayoutHistoryView: View {
     }
 
     private func heroName(for period: AllowancePeriodCache) -> String {
-        let match = viewModel?.heroes.first { $0.recordName == period.profileRecordName }
-        return match?.displayName ?? "Hero"
+        if let match = viewModel?.heroes.first(where: { $0.recordName == period.profileRecordName }) {
+            return match.displayName
+        }
+        if let cached = cachedProfiles.first(where: { $0.recordName == period.profileRecordName }) {
+            return cached.displayName
+        }
+        return "Hero"
     }
 
     private var emptyState: some View {
         let payoutDayName = appState.family?.payoutDay.displayName ?? "Sunday"
+        let scheduledTime = WeekMath.scheduledRolloverTimeString(payoutDay: payoutDay)
         return VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.medium) {
@@ -517,7 +544,7 @@ struct PayoutHistoryView: View {
                         .padding(.top, DesignSystemConstants.Padding.xlarge)
                     Text("No Payout History Yet")
                         .font(.headline)
-                    Text("Payouts occur every \(payoutDayName) when quests are tallied.")
+                    Text("Payouts occur every \(payoutDayName) (approx. \(scheduledTime)) when quests are tallied.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

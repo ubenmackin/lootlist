@@ -468,6 +468,9 @@ enum CacheServiceError: Error {
     case inMemoryFallbackFailed
 }
 
+// WHY: fail-open diagnostic — gem-credit path previously returned false silently; logger surfaces dedup/fetch failures for on-call triage without altering idempotency.
+private let sharedGemCreditLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CacheService.GemCredit")
+
 /// Shared gem-credit mutation — single transaction keeps ledger and profile
 /// in sync and guarantees idempotency via deterministic ledger recordName.
 /// Caller must be on BackgroundCacheActor; ModelContext is not MainActor-isolated.
@@ -484,11 +487,17 @@ func sharedGemCreditPrepare(
         if dup.first != nil {
             return false
         }
-    } catch { return false }
+    } catch {
+        sharedGemCreditLogger.error("Failed to check duplicate gem ledger \(recordName, privacy: .private): \(error, privacy: .private)")
+        return false
+    }
     let existingRows: [GemLedgerCache]
     do {
         existingRows = try context.fetch(FetchDescriptor<GemLedgerCache>(predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == familyName }))
-    } catch { return false }
+    } catch {
+        sharedGemCreditLogger.error("Failed to fetch gem ledgers for \(profileRecordName, privacy: .private): \(error, privacy: .private)")
+        return false
+    }
     let newBalance = existingRows.reduce(0) { $0 + $1.amount } + ledger.amount
     var updated = profile
     updated.gems = newBalance
@@ -500,6 +509,9 @@ func sharedGemCreditPrepare(
         } else {
             context.insert(ProfileCache(from: updated))
         }
-    } catch { return false }
+    } catch {
+        sharedGemCreditLogger.error("Failed to fetch/update profile \(profileRecordName, privacy: .private): \(error, privacy: .private)")
+        return false
+    }
     return true
 }

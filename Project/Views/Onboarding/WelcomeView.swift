@@ -11,7 +11,7 @@ import SwiftUI
 
 extension OnboardingStep: CaseIterable {
     static var allCases: [OnboardingStep] {
-        [.welcome, .roleSelection, .familyCreation, .familyJoin, .avatarSelection, .done]
+        [.welcome, .roleSelection, .familyCreation, .familyJoin, .avatarSelection, .notificationPrime, .done]
     }
 
     /// Label used in the vertical step indicator.
@@ -22,6 +22,7 @@ extension OnboardingStep: CaseIterable {
         case .familyCreation: "Guild"
         case .familyJoin: "Join"
         case .avatarSelection: "Avatar"
+        case .notificationPrime: "Notifications"
         case .done: "Done"
         }
     }
@@ -34,6 +35,7 @@ extension OnboardingStep: CaseIterable {
         case .familyCreation: "crown.fill"
         case .familyJoin: "envelope.badge.fill"
         case .avatarSelection: "person.crop.circle.badge.plus"
+        case .notificationPrime: "bell.badge.fill"
         case .done: "checkmark.seal.fill"
         }
     }
@@ -50,6 +52,8 @@ extension OnboardingStep: CaseIterable {
             "Waiting for your invitation — tap the share link to join."
         case .avatarSelection:
             "Pick a name and emoji to make your hero yours."
+        case .notificationPrime:
+            "Stay updated — quest reviews and allowance day."
         case .done:
             "Your guild awaits — ready to quest!"
         }
@@ -208,8 +212,18 @@ struct WelcomeView: View {
             .buttonStyle(.borderedProminent)
             .tint(Color(DesignSystemConstants.Colors.accentBlue))
             .padding(.horizontal, 32)
-            .padding(.bottom, 24)
+            .padding(.bottom, viewModel.pendingShareMetadata != nil ? 12 : 24)
             .accessibilityIdentifier("welcome.startButton")
+
+            if viewModel.pendingShareMetadata != nil {
+                Text("Invitation detected — taking you to your Guild…")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.bottom, 12)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
 
@@ -360,6 +374,8 @@ struct WelcomeView: View {
             FamilyJoinView(viewModel: viewModel)
         case .avatarSelection:
             AvatarSelectionView(viewModel: viewModel)
+        case .notificationPrime:
+            NotificationPrimeView(viewModel: viewModel)
         case .done:
             OnboardingCompletionView(viewModel: viewModel)
         }

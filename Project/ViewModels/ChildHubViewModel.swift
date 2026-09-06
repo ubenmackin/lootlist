@@ -174,7 +174,7 @@ final class ChildHubViewModel {
         // Goals fill FIFO within their bucket: the oldest incomplete
         // non-archived goal is the one the child is actively working on.
         let openGoals = goals
-            .filter { $0.profileRecordName == profileName && !$0.isArchived && $0.completedAt == nil }
+            .filter { $0.profileRecordName == profileName && $0.isActiveGoal }
             .sorted { $0.createdAt < $1.createdAt }
         if let topGoal = openGoals.first {
             let allocations = GoalProgressCalculator.allocations(goals: goals, ledgerEntries: ledgerEntries)

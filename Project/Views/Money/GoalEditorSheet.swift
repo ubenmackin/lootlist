@@ -10,11 +10,14 @@ import SwiftUI
 /// Sheet for creating or editing a savings goal — collects icon, name, category, target amount, and bucket.
 struct GoalEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var appState
 
     private let initialGoal: GoalCache?
     private let onSave: (GoalDraft) async throws -> Void
     private let onDelete: (() async throws -> Void)?
     private let onPurchase: (() async throws -> Void)?
+    private let familyRecordName: String?
+    private let profileRecordName: String?
 
     // MARK: - State
 
@@ -38,14 +41,21 @@ struct GoalEditorSheet: View {
     @State private var showDeleteConfirmation: Bool = false
     @State private var showPurchaseConfirmation: Bool = false
     @State private var parsingError: String?
+    @State private var isShowingSplit: Bool = false
+    @State private var isShowingBucketHelp: Bool = false
 
     init(
         goal: GoalCache? = nil,
+        familyRecordName: String? = nil,
+        profileRecordName: String? = nil,
         onSave: @escaping (GoalDraft) async throws -> Void,
         onDelete: (() async throws -> Void)? = nil,
         onPurchase: (() async throws -> Void)? = nil
     ) {
         self.initialGoal = goal
+        // WHY sanitize empty string to nil: "" fails closed to 0 rows in predicate; the split sheet resolves nil via the active session so it never renders silent-empty.
+        self.familyRecordName = familyRecordName.sanitizedNilIfEmpty
+        self.profileRecordName = profileRecordName.sanitizedNilIfEmpty
         self.onSave = onSave
         self.onDelete = onDelete
         self.onPurchase = onPurchase
@@ -265,20 +275,80 @@ struct GoalEditorSheet: View {
 
     private var bucketPickerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("SAVINGS BUCKET")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-
-            Picker("Bucket", selection: $bucketKind) {
-                Text("Short Save")
-                    .tag(BucketKind.shortTermSave)
-                Text("Long Save")
-                    .tag(BucketKind.longTermSave)
+            HStack(spacing: 6) {
+                Text("SAVINGS BUCKET")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    isShowingBucketHelp = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Bucket help")
+                .accessibilityIdentifier("goalEditor.bucketHelpButton")
+                .sheet(isPresented: $isShowingBucketHelp) {
+                    NavigationStack {
+                        VStack(alignment: .leading, spacing: 12) {
+                            BucketExplainer()
+                            Text("Spend — everyday money you can use anytime.")
+                                .font(.subheadline)
+                            Text("Short Save — goals you want soon.")
+                                .font(.subheadline)
+                            Text("Long Save — big dreams for later.")
+                                .font(.subheadline)
+                            Text("Your % split decides where future payouts go; oldest goal in that bucket fills first (FIFO).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 8)
+                        }
+                        .padding(DesignSystemConstants.Padding.large)
+                        .navigationTitle("Buckets")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { isShowingBucketHelp = false }
+                            }
+                        }
+                    }
+                    .presentationDetents([.medium])
+                }
             }
-            .pickerStyle(.segmented)
+            .padding(.horizontal, 4)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Bucket", selection: $bucketKind) {
+                    Text("Short Save")
+                        .tag(BucketKind.shortTermSave)
+                    Text("Long Save")
+                        .tag(BucketKind.longTermSave)
+                }
+                .pickerStyle(.segmented)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("This bucket fills from your % split. Future payouts flow FIFO — oldest goal in that bucket fills first.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Edit my split") {
+                        isShowingSplit = true
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
+                    .accessibilityIdentifier("goalEditor.editSplitButton")
+                }
+            }
             .padding(DesignSystemConstants.Padding.medium)
             .background(cardBackground)
+            .sheet(isPresented: $isShowingSplit) {
+                SavingsSplitView(
+                    familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+                    profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                )
+            }
         }
     }
 

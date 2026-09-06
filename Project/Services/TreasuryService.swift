@@ -253,6 +253,9 @@ final class TreasuryService {
         else {
             throw FamilyServiceError.unauthorized
         }
+        guard profile.role == .hero else {
+            throw FamilyServiceError.unauthorized
+        }
         try ActiveFamilyScopeGuard.requireActiveFamilyScope(
             family: family,
             cloudKit: cloudKit,

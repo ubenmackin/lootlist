@@ -9,6 +9,15 @@ import Foundation
 
 /// Encouraging celebration and reward copy for quest completions.
 enum FlavorTextProvider {
+    /// Single home for the complete-a-quest hint so checklist, hint card, help sheet, and detail tip never drift.
+    static let questCompleteHint = "Complete a quest — tap ○ on a card!"
+    static let questHintCardBody = "Tap the ○ on any quest card. If it says ‘Parent Verifies’ you’ll see ⏳ until they approve — otherwise you get your reward right away! Need more? Tap (?)"
+    static let questHelpHowTo = "Tap the ○ on your quest card. For multi-part quests, tap Log # each time. You can also open the quest and tap Complete."
+
+    static func questCompleteTip(rewardText: String) -> String {
+        "Tip: tap Complete to earn \(rewardText). Parent-check quests show ⏳ until approved."
+    }
+
     /// Locale-aware ordinal label ("1st", "2nd") for repeat counts.
     static func ordinal(_ value: Int) -> String {
         // WHY per-call formatter: NumberFormatter is not Sendable, so a thread-safe local keeps i18n without shared mutable state.

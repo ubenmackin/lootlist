@@ -547,7 +547,7 @@ final class QuestService {
             map: { [profile] cache in
                 cache.toQuest(zoneID: profile.id.zoneID)
             },
-            query: { [cloudKit, profile] in
+            query: { [cloudKit, profile, logger] in
                 let assigneeRef = CKRecord.Reference(recordID: profile.id, action: .none)
                 let predicate = NSPredicate(format: "assignee == %@", assigneeRef)
                 let all = try await cloudKit.query(Quest.self, predicate: predicate, in: profile.id.zoneID)
@@ -561,6 +561,7 @@ final class QuestService {
                             updated.name = template.name
                             stamped.append(updated)
                         } catch {
+                            logger.warning("Failed to fetch template for quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
                             stamped.append(quest)
                         }
                     } else {
@@ -597,7 +598,7 @@ final class QuestService {
             map: { [family] cache in
                 cache.toQuest(zoneID: family.id.zoneID)
             },
-            query: { [cloudKit, range] in
+            query: { [cloudKit, range, logger] in
                 let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
                 let predicate = NSPredicate(format: "family == %@", familyRef)
                 let all = try await cloudKit.query(Quest.self, predicate: predicate, in: family.id.zoneID)
@@ -610,6 +611,7 @@ final class QuestService {
                         updated.name = template.name
                         stamped.append(updated)
                     } catch {
+                        logger.warning("Failed to fetch template for quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private)")
                         stamped.append(quest)
                     }
                 }

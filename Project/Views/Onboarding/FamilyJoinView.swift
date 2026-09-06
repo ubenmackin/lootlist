@@ -88,7 +88,7 @@ struct FamilyJoinView: View {
                 .tint(Color(DesignSystemConstants.Colors.accentBlue))
 
             VStack(spacing: 12) {
-                Text(viewModel.joinProgressStatus ?? "Joining Guild...")
+                Text(viewModel.joinProgressStatus ?? "Joining as \(viewModel.invitedRoleDisplayName)…")
                     .font(.system(size: 20, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
 
@@ -113,6 +113,15 @@ struct FamilyJoinView: View {
     }
 
     /// Passive waiting surface for incoming share metadata to accept the invitation.
+    private var waitingTitle: String {
+        switch viewModel.invitedRole {
+        case .ranger: "Waiting for your Co-Parent invite…"
+        case .hero: "Waiting for your Hero invite…"
+        case .guildMaster: "Waiting for your Guild invite…"
+        case nil: "Waiting for your invitation…"
+        }
+    }
+
     private var waitingBody: some View {
         VStack(spacing: 28) {
             Spacer()
@@ -127,7 +136,7 @@ struct FamilyJoinView: View {
                         )
                     )
 
-                Text("Waiting for your invite…")
+                Text(waitingTitle)
                     .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .multilineTextAlignment(.center)
                     .accessibilityIdentifier("joinFamily.waitingScreen")

@@ -260,4 +260,36 @@ struct CalendarUtilsTests {
         #expect(range.upperBound == midnight.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek)))
         #expect(range.upperBound != rawWithTime.addingTimeInterval(TimeInterval(AppConstants.Time.secondsInWeek)))
     }
+
+    // MARK: - Scheduled Rollover Tests
+
+    @Test
+    func `scheduledRolloverDate returns upper bound of week range for payout day`() throws {
+        let cal = Calendar.iso8601UTC
+        let monday = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3, hour: 10, minute: 0, second: 0)))
+        let sundayPayoutRollover = WeekMath.scheduledRolloverDate(for: monday, payoutDay: .sunday)
+        let expectedRollover = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 10, hour: 0, minute: 0, second: 0)))
+        #expect(sundayPayoutRollover == expectedRollover)
+
+        let fridayPayoutRollover = WeekMath.scheduledRolloverDate(for: monday, payoutDay: .friday)
+        let expectedFridayRollover = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 8, hour: 0, minute: 0, second: 0)))
+        #expect(fridayPayoutRollover == expectedFridayRollover)
+    }
+
+    @Test
+    func `scheduledRolloverTimeString formats in user timezone`() throws {
+        let cal = Calendar.iso8601UTC
+        let date = try #require(cal.date(from: DateComponents(year: 2026, month: 8, day: 3, hour: 10, minute: 0, second: 0)))
+        let ptTimeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let usLocale = Locale(identifier: "en_US")
+
+        let ptString = WeekMath.scheduledRolloverTimeString(for: date, payoutDay: .sunday, timeZone: ptTimeZone, locale: usLocale)
+        let normalizedPt = ptString.replacingOccurrences(of: "\u{202F}", with: " ")
+        #expect(normalizedPt == "Sunday at 5:00 PM")
+
+        let utcTimeZone = try #require(TimeZone(identifier: "UTC"))
+        let utcString = WeekMath.scheduledRolloverTimeString(for: date, payoutDay: .sunday, timeZone: utcTimeZone, locale: usLocale)
+        let normalizedUtc = utcString.replacingOccurrences(of: "\u{202F}", with: " ")
+        #expect(normalizedUtc == "Monday at 12:00 AM")
+    }
 }

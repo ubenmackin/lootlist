@@ -19,6 +19,8 @@ enum OnboardingStep: Hashable, Sendable {
 
     case avatarSelection
 
+    case notificationPrime
+
     case done
 }
 
@@ -73,6 +75,17 @@ final class OnboardingViewModel {
 
     var pendingShareMetadata: InvitationLinkResolution?
 
+    /// Prevents double-push when the same invite arrives via URL + acceptance paths.
+    var hasAutoRoutedForInvite: Bool = false
+
+    /// Role decoded from the share title for role-aware copy. Nil until an invite resolves — unknown is never shown as Hero.
+    var invitedRole: UserRole?
+
+    /// Display name for the decoded invite role, used by FamilyJoin/RoleSelection copy.
+    var invitedRoleDisplayName: String {
+        invitedRole?.inviteDisplayName ?? "Family Member"
+    }
+
     /// Populated when hero discovery identifies an existing active profile in shared zones.
     var detectedHero: DetectedHero?
 
@@ -82,6 +95,9 @@ final class OnboardingViewModel {
 
     private let syncCoordinator: CKSyncEngineCoordinator
 
+    /// Retained enable path for notification priming so prime writes ride the service instead of UserDefaults.
+    private let notificationService: NotificationService?
+
     private(set) var builtFamily: Family?
 
     private(set) var builtProfile: Profile?
@@ -89,10 +105,11 @@ final class OnboardingViewModel {
     /// Indicates whether `joinFamilyViaAcceptedShare` reused an existing active profile without modification.
     private(set) var didReuseActiveProfile = false
 
-    init(familyService: FamilyService, appState: AppState, syncCoordinator: CKSyncEngineCoordinator) {
+    init(familyService: FamilyService, appState: AppState, syncCoordinator: CKSyncEngineCoordinator, notificationService: NotificationService? = nil) {
         self.familyService = familyService
         self.appState = appState
         self.syncCoordinator = syncCoordinator
+        self.notificationService = notificationService
     }
 
     func advanceFromIntentSelection() {
@@ -160,6 +177,80 @@ final class OnboardingViewModel {
         }
     }
 
+    /// Auto-routes a pending invite to the join flow when still on Welcome.
+    /// Debounced via `hasAutoRoutedForInvite` and guarded against `isLoading` re-entry.
+    /// WHY explicit routing: property observers must not trigger network navigation; caller must invoke this.
+    func handlePendingInviteIfNeeded() {
+        guard !hasAutoRoutedForInvite, !isLoading, let resolution = pendingShareMetadata else { return }
+        // Decode role for display — FamilyService decodes server-side as well, UI is copy only.
+        invitedRole = UserRole.fromShareTitle(resolution.title ?? "")
+        // Do not override an active creation flow.
+        if path.contains(.familyCreation) {
+            return
+        }
+        // Only auto-route from Welcome (empty) or from RoleSelection without creation.
+        guard path.isEmpty || path == [.roleSelection] else { return }
+        // WHY atomic claim before yield: isLoading set before suspension prevents concurrent second trigger (didSet+LootListApp double-route) from passing guard.
+        hasAutoRoutedForInvite = true
+        isLoading = true
+        userIntent = .joinFamily
+        if path.isEmpty {
+            path = [.roleSelection, .familyJoin]
+        } else {
+            path.append(.familyJoin)
+        }
+        checkForExistingHero()
+        // Schedule join on next runloop so navigation settles before the async join mutates state.
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            await self?.joinFamilyViaAcceptedShareClaimed()
+        }
+    }
+
+    private func joinFamilyViaAcceptedShareClaimed() async {
+        defer { isLoading = false }
+        // Reuse the same join logic but isLoading already claimed; reset hasAutoRoutedForInvite on failure so retry is possible.
+        let success = await performJoinFamilyViaAcceptedShare()
+        if !success {
+            hasAutoRoutedForInvite = false
+        }
+    }
+
+    private func performJoinFamilyViaAcceptedShare() async -> Bool {
+        guard userIntent == .joinFamily, let resolution = pendingShareMetadata else { return false }
+        joinProgressStatus = "Accepting family invitation..."
+        joinProgressFraction = 0.25
+        defer {
+            joinProgressStatus = nil
+            joinProgressFraction = nil
+        }
+        do {
+            let result = try await familyService.joinFamilyViaAcceptedShare(
+                resolution: resolution,
+                displayName: displayName,
+                avatarClass: avatarClass,
+                progressHandler: { [weak self] status, fraction in
+                    self?.joinProgressStatus = status
+                    self?.joinProgressFraction = fraction
+                }
+            )
+            builtFamily = result.family
+            builtProfile = result.profile
+            didReuseActiveProfile = result.didReuseActiveProfile
+            pendingShareMetadata = nil
+            push(.avatarSelection)
+            return true
+        } catch {
+            logger.error("Joining family via accepted share failed: \(error, privacy: .private)")
+            if let friendly = friendlyInviteAcceptError(error) {
+                self.error = friendly
+            } else {
+                self.error = genericJoinerErrorFallback
+            }
+            return false
+        }
+    }
+
     func createFamily(name: String) async {
         guard !isLoading else { return }
         isLoading = true
@@ -191,7 +282,11 @@ final class OnboardingViewModel {
             builtFamily = result.family
             builtProfile = result.profile
             familyName = trimmed
-            push(.done)
+            if shouldShowNotificationPrime() {
+                push(.notificationPrime)
+            } else {
+                push(.done)
+            }
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to create family: \(familyError.localizedDescription, privacy: .private)")
             self.error = "Could not create your guild. Please try again."
@@ -298,7 +393,11 @@ final class OnboardingViewModel {
 
         guard !didReuseActiveProfile else {
             builtProfile = profile
-            push(.done)
+            if shouldShowNotificationPrime() {
+                push(.notificationPrime)
+            } else {
+                push(.done)
+            }
             return
         }
 
@@ -318,7 +417,11 @@ final class OnboardingViewModel {
             // Profile updates already wrote cache and enqueued saves; raw save would cause conflict.
             await syncCoordinator.sendPendingChanges()
             builtProfile = saved
-            push(.done)
+            if shouldShowNotificationPrime() {
+                push(.notificationPrime)
+            } else {
+                push(.done)
+            }
         } catch let familyError as FamilyServiceError {
             logger.error("Failed to finalize joined profile: \(familyError.localizedDescription, privacy: .private)")
             self.error = "Could not set up your hero profile. Please try again."
@@ -356,5 +459,65 @@ final class OnboardingViewModel {
         didReuseActiveProfile = false
         pendingShareMetadata = nil
         detectedHero = nil
+        hasAutoRoutedForInvite = false
+        invitedRole = nil
+    }
+
+    /// Clears prime dismissal on sign-out or family switch so the next identity starts unprimed.
+    /// WHY separate: successful onboarding preserves the just-written prime keys; only identity teardown clears them.
+    func clearPrimeForFamilySwitch() {
+        clearNotificationPrimeSeen()
+    }
+
+    // MARK: - Notification Prime Navigation
+
+    private func scopedPrimeKey() -> String {
+        DismissalKeys.scoped(
+            DismissalKeys.hasSeenNotificationPrime,
+            familyRecordName: builtFamily?.id.recordName ?? appState.family?.id.recordName,
+            profileRecordName: builtProfile?.id.recordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    private func clearNotificationPrimeSeen() {
+        // Clear both scoped and legacy keys so a family switch does not inherit prior dismissal.
+        let scoped = scopedPrimeKey()
+        DismissalStore.remove(scoped)
+        DismissalStore.remove(DismissalKeys.hasSeenNotificationPrime)
+    }
+
+    private func markNotificationPrimeSeenAndAdvance() {
+        let scoped = scopedPrimeKey()
+        // WHY scoped-only: the base key is legacy migration-read only; writing it would leak the prime across families.
+        DismissalStore.set(true, forKey: scoped)
+        push(.done)
+    }
+
+    private func shouldShowNotificationPrime() -> Bool {
+        // WHY explicit migrate: the pure read never writes, so promotion runs here in ViewModel logic instead of a view body.
+        DismissalKeys.migrate(
+            DismissalKeys.hasSeenNotificationPrime,
+            familyRecordName: builtFamily?.id.recordName ?? appState.family?.id.recordName,
+            profileRecordName: builtProfile?.id.recordName ?? appState.currentProfile?.id.recordName
+        )
+        return !DismissalKeys.effectiveBool(
+            DismissalKeys.hasSeenNotificationPrime,
+            familyRecordName: builtFamily?.id.recordName ?? appState.family?.id.recordName,
+            profileRecordName: builtProfile?.id.recordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    func skipNotificationPrime() {
+        markNotificationPrimeSeenAndAdvance()
+    }
+
+    func completeNotificationPrime() {
+        markNotificationPrimeSeenAndAdvance()
+    }
+
+    /// Single enable path for the onboarding prime so Views ride the viewModel instead of touching the service directly.
+    /// WHY single home: requestAuthorization + register + setMasterEnabled must not drift between prime surfaces.
+    func enableNotificationsAfterPrime() async throws -> Bool {
+        try await notificationService?.enableNotificationsAfterPrime() ?? false
     }
 }

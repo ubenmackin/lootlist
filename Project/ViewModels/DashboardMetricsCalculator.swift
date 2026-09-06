@@ -135,11 +135,11 @@ enum DashboardMetricsCalculator {
             heroSummaries: heroSummaries
         )
 
+        let heroRecordNames = Set(profiles.filter { $0.roleEnum == .hero }.map(\.recordName))
         let computedPastPayouts = allowancePeriods
-            .filter { familyContext.recordName == nil || $0.familyRecordName == familyContext.recordName }
+            .filter { (familyContext.recordName == nil || $0.familyRecordName == familyContext.recordName) && heroRecordNames.contains($0.profileRecordName) }
             .sorted { $0.weekOf > $1.weekOf }
 
-        let heroRecordNames = Set(computedHeroes.map(\.recordName))
         let heroLedgerEntries = ledgers.filter { heroRecordNames.contains($0.profileRecordName) }
         var computedFamilyOutflow: Double = 0
         for hero in computedHeroes {

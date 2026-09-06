@@ -8,7 +8,7 @@
 import SwiftData
 import SwiftUI
 
-/// 3-jar split for FUTURE payouts only — never retroactive; save requires spend+short+long == 100.
+/// 3-bucket split for FUTURE payouts only — never retroactive; save requires spend+short+long == 100.
 struct SavingsSplitView: View {
     @Environment(AppState.self) private var appState
     @Environment(FamilyService.self) private var familyService
@@ -24,9 +24,11 @@ struct SavingsSplitView: View {
     @State private var errorMessage: String?
 
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
     init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         let targetFamily = familyRecordName ?? ""
         // Single-row targeted fetch (e.g. parent inspecting a hero); otherwise family-scoped fetch resolved via currentProfile.
         if let profileRecordName, !profileRecordName.isEmpty {
@@ -42,15 +44,12 @@ struct SavingsSplitView: View {
         }
     }
 
-    /// Resolved hero row — targeted single-row fetch returns directly; multi-row fetch requires active session, no fallback to arbitrary hero.
+    /// Resolved hero row — requires an explicit profile match, fail-closed.
     private var currentProfileRow: ProfileCache? {
-        if profileRows.count == 1 {
-            return profileRows.first
-        }
-        guard let currentName = appState.currentProfile?.id.recordName else {
-            return nil
-        }
-        return profileRows.first(where: { $0.recordName == currentName })
+        ProfileRowResolver.resolve(
+            rows: profileRows,
+            targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
     }
 
     private var total: Int {
@@ -68,14 +67,25 @@ struct SavingsSplitView: View {
         return nil
     }
 
+    private var explainerSection: some View {
+        Section {
+            Text("Your future allowance will split this way. Already-saved money stays where it is.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("split.explainer")
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
+                explainerSection
                 presetsSection
                 splitSection
                 footerSection
             }
-            .navigationTitle("3-Jar Split")
+            .navigationTitle("3-Bucket Split")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

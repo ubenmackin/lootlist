@@ -91,6 +91,7 @@ struct LedgerImportView: View {
         do {
             text = try String(contentsOfFile: path, encoding: .utf8)
         } catch {
+            Self.logger.error("stageForUITests failed to read file at path \(path, privacy: .private): \(error, privacy: .private)")
             return
         }
         vm.stage(csvText: text)

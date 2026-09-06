@@ -138,7 +138,7 @@ struct KidsSavingsGoalsView: View {
     }
 
     private func heroSection(hero: ProfileCache) -> some View {
-        let goals = goalCaches.filter { $0.profileRecordName == hero.recordName && !$0.isArchived }
+        let goals = goalCaches.filter { $0.profileRecordName == hero.recordName && $0.isListedGoal }
             .sorted { $0.createdAt < $1.createdAt }
         let accent = accentColor(for: hero)
 
@@ -340,7 +340,7 @@ struct KidsSavingsGoalsView: View {
     }
 
     private func goalsCount(for profileRecordName: String) -> Int {
-        goalCaches.filter { $0.profileRecordName == profileRecordName && !$0.isArchived }.count
+        goalCaches.filter { $0.profileRecordName == profileRecordName && $0.isListedGoal }.count
     }
 
     private func displayName(for profileRecordName: String) -> String {

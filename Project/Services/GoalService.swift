@@ -126,7 +126,7 @@ final class GoalService {
     static func allocate(amountPennies: Int64, goals: [GoalCache], priorContributedPennies: [String: Int64] = [:]) -> [GoalAllocation] {
         guard amountPennies > 0 else { return [] }
         // WHY open only: completed goals already hold their funds and clear via purchase, so new money cascades past them.
-        let open = goals.filter { !$0.isArchived && $0.completedAt == nil }
+        let open = goals.filter(\.isActiveGoal)
         guard !open.isEmpty else { return [] }
         var remaining = amountPennies
         var result: [GoalAllocation] = []
@@ -712,8 +712,7 @@ final class GoalService {
 
         for alloc in allocations {
             guard let goal = goalMap[alloc.goalRecordName],
-                  goal.completedAt == nil,
-                  !goal.isArchived
+                  goal.isActiveGoal
             else { continue }
 
             // Sum prior contributions for this goal from cache ledger entries.

@@ -54,7 +54,7 @@ enum GoalProgressCalculator {
 
     private static func directContributionAllocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
         var result: [String: Int64] = [:]
-        for goal in goals where !goal.isArchived {
+        for goal in goals where goal.isListedGoal {
             let pennies = contributionPennies(for: goal, in: ledgerEntries)
             result[goal.recordName] = max(pennies, 0)
         }
@@ -67,15 +67,15 @@ enum GoalProgressCalculator {
     private static func fifoAllocations(goals: [GoalCache], ledgerEntries: [LedgerEntryCache]) -> [String: Int64] {
         var result: [String: Int64] = [:]
         // WHY display full: completed goals already hold their funds, so they render whole without consuming new bucket money.
-        for goal in goals where goal.completedAt != nil && !goal.isArchived {
+        for goal in goals where goal.completedAt != nil && goal.isListedGoal {
             result[goal.recordName] = goal.targetAmountPennies
         }
         // WHY subtract held funds: completed targets still sit in the bucket total, so open goals split only what remains.
-        let completedSums = Dictionary(grouping: goals.filter { !$0.isArchived && $0.completedAt != nil }) {
+        let completedSums = Dictionary(grouping: goals.filter { $0.isListedGoal && $0.completedAt != nil }) {
             "\($0.profileRecordName)|\($0.bucketKind)"
         }.mapValues { $0.reduce(into: Int64(0)) { $0 += $1.targetAmountPennies } }
         // WHY open only: completed goals already hold their funds and clear via purchase, so new money cascades past them.
-        let open = goals.filter { !$0.isArchived && $0.completedAt == nil }
+        let open = goals.filter(\.isActiveGoal)
         let grouped = Dictionary(grouping: open) { "\($0.profileRecordName)|\($0.bucketKind)" }
         for (key, bucketGoals) in grouped {
             let sorted = bucketGoals.sorted {

@@ -30,6 +30,34 @@ struct QuestsView: View {
     @State private var submittingQuestIDs: Set<String> = []
     @State private var activeLootDrop: LootDrop?
     @State private var showLootDrop: Bool = false
+    @State private var showQuestHelp: Bool = false
+
+    /// Scoped read for the quest hint card so dismissal never leaks across families/profiles on this device.
+    private var effectiveHasDismissedQuestHint: Bool {
+        DismissalKeys.effectiveBool(
+            DismissalKeys.hasDismissedQuestHintCard,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    /// Service-owned write path for the quest hint card — Views never touch UserDefaults directly.
+    private var scopedQuestHintBinding: Binding<Bool> {
+        DismissalKeys.scopedBinding(
+            DismissalKeys.hasDismissedQuestHintCard,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    /// One-time legacy promotion for the hint gate, run from .task so view bodies stay pure.
+    private func migrateDismissals() {
+        DismissalKeys.migrate(
+            DismissalKeys.hasDismissedQuestHintCard,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -121,6 +149,15 @@ struct QuestsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 questLogToolbar
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showQuestHelp = true } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    .accessibilityIdentifier("questHelp.button")
+                }
+            }
+            .sheet(isPresented: $showQuestHelp) {
+                QuestHelpSheetView()
             }
             .refreshable {
                 await handleRefresh()
@@ -158,10 +195,68 @@ struct QuestsView: View {
                 mascotBanner(row: row)
             }
 
+            if let vm = viewModel, vm.completedQuestCount == 0, !effectiveHasDismissedQuestHint, !vm.weekQuests.isEmpty {
+                questHintCard
+            }
+
             questBoard
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
+    }
+
+    private var questHintCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "lightbulb.fill")
+                    .foregroundStyle(Color(DesignSystemConstants.Colors.pendingAmber))
+                Text("Psst! How to finish a quest 🗝️")
+                    .font(.subheadline.bold())
+                Spacer()
+                Button {
+                    scopedQuestHintBinding.wrappedValue = true
+                    HapticsService.lightImpact()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss hint")
+            }
+
+            Text(FlavorTextProvider.questHintCardBody)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 12) {
+                Button("Got it!") {
+                    scopedQuestHintBinding.wrappedValue = true
+                    HapticsService.lightImpact()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(DesignSystemConstants.Colors.accentBlue))
+                .controlSize(.small)
+
+                Button("Tell me more") {
+                    showQuestHelp = true
+                }
+                .buttonStyle(.bordered)
+                .tint(Color(DesignSystemConstants.Colors.accentBlue))
+                .controlSize(.small)
+
+                Spacer()
+            }
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.2), lineWidth: 1)
+        )
     }
 
     private func mascotBanner(row: ProfileCache) -> some View {
@@ -204,6 +299,7 @@ struct QuestsView: View {
     }
 
     private func handleTask() async {
+        migrateDismissals()
         ensureViewModel()
         await lifecycleCoordinator?.performManualSync()
     }
@@ -349,7 +445,7 @@ struct QuestsView: View {
         let qID = quest.recordName
         guard !submittingQuestIDs.contains(qID) else { return }
         submittingQuestIDs.insert(qID)
-        Task {
+        Task { @MainActor in
             defer { submittingQuestIDs.remove(qID) }
             guard let profile = appState.currentProfile else { return }
             do {

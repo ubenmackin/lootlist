@@ -197,42 +197,54 @@ struct HeroSettingsView: View {
             }
             .padding(.horizontal, 16)
 
-            HStack {
-                Label("Hero Payout Day", systemImage: "calendar.badge.clock")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Picker("Payout Day", selection: Binding(
-                    get: { selectedDayOverride },
-                    set: { newDay in
-                        saveDayTask?.cancel()
-                        let previous = selectedDayOverride
-                        withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
-                            selectedDayOverride = newDay
-                        }
-                        actionError = nil
-                        saveDayTask = Task {
-                            do {
-                                try await Task.sleep(nanoseconds: 350_000_000)
-                                try Task.checkCancellation()
-                                _ = try await familyService.updateProfilePayoutDay(profileCache: activeHero, day: newDay)
-                            } catch {
-                                guard !Task.isCancelled else { return }
-                                withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
-                                    selectedDayOverride = previous
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label("Hero Payout Day", systemImage: "calendar.badge.clock")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Picker("Payout Day", selection: Binding(
+                        get: { selectedDayOverride },
+                        set: { newDay in
+                            saveDayTask?.cancel()
+                            let previous = selectedDayOverride
+                            withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
+                                selectedDayOverride = newDay
+                            }
+                            actionError = nil
+                            saveDayTask = Task {
+                                do {
+                                    try await Task.sleep(nanoseconds: 350_000_000)
+                                    try Task.checkCancellation()
+                                    _ = try await familyService.updateProfilePayoutDay(profileCache: activeHero, day: newDay)
+                                } catch {
+                                    guard !Task.isCancelled else { return }
+                                    withAnimation(accessibilityReduceMotion ? .none : .snappy(duration: 0.2, extraBounce: 0)) {
+                                        selectedDayOverride = previous
+                                    }
+                                    logger.error("Failed to update payout day: \(error, privacy: .private)")
+                                    actionError = "Could not update payout day. Please try again."
                                 }
-                                logger.error("Failed to update payout day: \(error, privacy: .private)")
-                                actionError = "Could not update payout day. Please try again."
                             }
                         }
+                    )) {
+                        Text("Default").tag(PayoutDay?.none)
+                        Divider()
+                        ForEach(PayoutDay.allCases) { day in
+                            Text(day.displayName).tag(PayoutDay?.some(day))
+                        }
                     }
-                )) {
-                    Text("Default").tag(PayoutDay?.none)
-                    Divider()
-                    ForEach(PayoutDay.allCases) { day in
-                        Text(day.displayName).tag(PayoutDay?.some(day))
-                    }
+                    .pickerStyle(.menu)
                 }
-                .pickerStyle(.menu)
+
+                let effectiveDay = selectedDayOverride ?? appState.family?.payoutDay ?? .sunday
+                let scheduledTime = WeekMath.scheduledRolloverTimeString(payoutDay: effectiveDay)
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.caption2)
+                    Text("Auto-payout schedules at week rollover: \(scheduledTime) (best-effort background delivery).")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
             }
             .padding(14)
             .background(cardBackground)

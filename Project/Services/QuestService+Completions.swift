@@ -175,6 +175,7 @@ extension QuestService {
         do {
             logs = try await fetchQuestLogs(forQuest: quest, useCache: true)
         } catch {
+            logger.warning("Failed to fetch cached quest logs for quest \(quest.id.recordName, privacy: .private): \(error, privacy: .private); proceeding with empty logs")
             logs = []
         }
         let approvedLogs = logs.filter { $0.verificationStatus == .verified || $0.verificationStatus == .autoApproved }

@@ -5,6 +5,7 @@
 //  Created by Ben Mackin on 7/21/26.
 //
 
+import os
 import SwiftData
 import SwiftUI
 
@@ -87,6 +88,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 }
 
 struct SettingsView: View {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "SettingsView")
+
     @Environment(AppState.self) private var appState
     @Environment(NotificationService.self) private var notificationService
     @Environment(FamilyService.self) private var familyService
@@ -640,14 +643,14 @@ struct SettingsView: View {
         let name: String? = icon == .standard ? nil : icon.rawValue
         let currentName = UIApplication.shared.alternateIconName
         guard name != currentName else { return }
-        // WHY: setAlternateIconName suspends, so the continuation can resume off-main; isolating the Task keeps @State writes race-free.
+        // WHY MainActor hop: setAlternateIconName resumes off-main; the Task restores MainActor for @State writes.
         Task { @MainActor in
             do {
                 try await UIApplication.shared.setAlternateIconName(name)
                 activeIconName = name
                 selectedIcon = icon
             } catch {
-                // Icon change failed — picker stays on last successfully set icon.
+                Self.logger.error("Failed to set alternate app icon to \(name ?? "default", privacy: .public): \(error, privacy: .private)")
             }
         }
     }

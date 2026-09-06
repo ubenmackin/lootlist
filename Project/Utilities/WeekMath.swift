@@ -54,6 +54,25 @@ enum WeekMath {
         return (start, range)
     }
 
+    /// The exact rollover date (the half-open range's exclusive upper bound) for a given date's week cycle.
+    static func scheduledRolloverDate(for date: Date = Date(), payoutDay: PayoutDay = .sunday) -> Date {
+        let start = startOfWeek(for: date, payoutDay: payoutDay)
+        return weekRange(starting: start).upperBound
+    }
+
+    /// Localized string describing the scheduled rollover day and time in the given time zone (e.g. "Sunday at 5:00 PM").
+    static func scheduledRolloverTimeString(
+        for date: Date = Date(),
+        payoutDay: PayoutDay = .sunday,
+        timeZone: TimeZone = .current,
+        locale: Locale = .current
+    ) -> String {
+        let rollover = scheduledRolloverDate(for: date, payoutDay: payoutDay)
+        let weekday = RolloverFormatterCache.shared.string(from: rollover, locale: locale, timeZone: timeZone, kind: .day)
+        let time = RolloverFormatterCache.shared.string(from: rollover, locale: locale, timeZone: timeZone, kind: .time)
+        return "\(weekday) at \(time)"
+    }
+
     /// Steps an existing payout-cycle start whole weeks forward/backward. Cycle
     /// starts are UTC-midnight anchored on a fixed 7-day cadence, so whole-week
     /// day stepping is exact (no DST drift under iso8601UTC).
@@ -247,5 +266,58 @@ enum WeekMath {
         assert(Calendar.iso8601UTC.startOfDay(for: questWeekOf) == questWeekOf, "Quest.weekOf must be normalized to WeekMath.startOfWeek (UTC midnight)")
         assert(Calendar.iso8601UTC.startOfDay(for: range.lowerBound) == range.lowerBound, "WeekMath range lowerBound must be normalized startOfWeek")
         return range.contains(questWeekOf)
+    }
+}
+
+/// Cached rollover formatters keyed by locale+timeZone so per-render rollover strings never allocate.
+/// WHY shared cache: DateFormatter setup is expensive and rollover copy renders from view bodies on every pass.
+private enum RolloverFormatKind {
+    case day
+    case time
+}
+
+private final class RolloverFormatterCache: @unchecked Sendable {
+    static let shared = RolloverFormatterCache()
+
+    private let lock = NSLock()
+    private var dayFormatters: [String: DateFormatter] = [:]
+    private var timeFormatters: [String: DateFormatter] = [:]
+
+    /// WHY lock covers formatting: DateFormatter is not thread-safe, so cached instances never escape the lock.
+    func string(from date: Date, locale: Locale, timeZone: TimeZone, kind: RolloverFormatKind) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        switch kind {
+        case .day:
+            return cachedDayFormatter(locale: locale, timeZone: timeZone).string(from: date)
+        case .time:
+            return cachedTimeFormatter(locale: locale, timeZone: timeZone).string(from: date)
+        }
+    }
+
+    private func cachedDayFormatter(locale: Locale, timeZone: TimeZone) -> DateFormatter {
+        let key = "\(locale.identifier)|\(timeZone.identifier)"
+        if let cached = dayFormatters[key] {
+            return cached
+        }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.setLocalizedDateFormatFromTemplate("EEEE")
+        dayFormatters[key] = formatter
+        return formatter
+    }
+
+    private func cachedTimeFormatter(locale: Locale, timeZone: TimeZone) -> DateFormatter {
+        let key = "\(locale.identifier)|\(timeZone.identifier)"
+        if let cached = timeFormatters[key] {
+            return cached
+        }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        formatter.setLocalizedDateFormatFromTemplate("jmm")
+        timeFormatters[key] = formatter
+        return formatter
     }
 }
