@@ -236,12 +236,10 @@ final class CKSyncConflictResolver {
         }()
         guard shouldSurface else { return }
         cacheService?.invalidateFreshness(familyRecordName: secondaryFamily, type: secondaryType)
-        let message = switch secondaryType {
-        case .ledgerEntry: "Your spending change was reverted by newer server data. Pull to refresh."
-        case .goal: "Your goal update was reverted by newer server data. Pull to refresh."
-        case .profile: "Your profile change was reverted by newer server data. Pull to refresh."
-        default: "Your recent change was reverted — server data won. Pull to refresh."
-        }
+        let message = LedgerRevertMessage.revertedMessage(
+            for: secondaryType,
+            sourceRawValue: serverRecord["source"] as? String ?? originalRecord["source"] as? String
+        )
         toastManager?.show(message: message, type: .warning)
     }
 

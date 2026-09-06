@@ -291,6 +291,7 @@
 		B0443A6D152C85555ECDD115 /* BucketAttributionParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05C7F77A257D1BA4B98C33B /* BucketAttributionParityTests.swift */; };
 		B08A23CAFB867A2750ED0BB5 /* TreasuryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6AAB59C9EA231BA29647A45 /* TreasuryService.swift */; };
 		B218CA7987D1E010F973ED79 /* LedgerExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E5CF0C96EB221193BE0F26B /* LedgerExportService.swift */; };
+		B2A0F10F777979852C1DF41B /* LedgerRevertMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 698B352A3292041E2518DC2D /* LedgerRevertMessage.swift */; };
 		B3125FAF2C74B619FF353428 /* RoleSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2070A5A9F8D00A4EC005F1E5 /* RoleSelectionView.swift */; };
 		B332C3390E94185975D736AF /* SpriteSnapshotRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57E6DF9A305C00115C614D6E /* SpriteSnapshotRenderingTests.swift */; };
 		B3C460C1F40B1D699A6605DE /* CelebrationOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E32B2E2469AC328AFF8AB94A /* CelebrationOverlayView.swift */; };
@@ -328,6 +329,7 @@
 		C44E72CB68DA59DE165F6D2E /* CKSyncEngineTests+ConflictResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC9C5B09945933E0C31DA59A /* CKSyncEngineTests+ConflictResolver.swift */; };
 		C631317D746E8FA61D9FFD57 /* SpendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */; };
 		C6E89D6F60490A0984AC777E /* MultiPartQuestCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97E142B10D38711DAC4A7292 /* MultiPartQuestCard.swift */; };
+		C801E21300399270F8BC29F9 /* TreasuryViewModelTransferCollisionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74114C21EC0E2837E55792D5 /* TreasuryViewModelTransferCollisionTests.swift */; };
 		C858F8205B3AADAE18F68327 /* Achievement.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB74BA7516355BF020EC5048 /* Achievement.swift */; };
 		C89615FA836F409ED2AF27D3 /* TreasuryServiceTests+Authorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA6AE07C808B78BAC355720 /* TreasuryServiceTests+Authorization.swift */; };
 		C8CD8FF93EA85F62F2D74717 /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA32A99EF7AD83493CB7E19 /* SampleData.swift */; };
@@ -639,6 +641,7 @@
 		68229402D50E94BE940EC38C /* PayoutWeekCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayoutWeekCalculator.swift; sourceTree = "<group>"; };
 		68346001171FD0C1F3D08B31 /* CacheConversions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheConversions.swift; sourceTree = "<group>"; };
 		68A6949336D9C6F5715F8A4A /* JourneyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JourneyService.swift; sourceTree = "<group>"; };
+		698B352A3292041E2518DC2D /* LedgerRevertMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerRevertMessage.swift; sourceTree = "<group>"; };
 		69AEBEE98C0679819CAC1446 /* CalendarScopeFilterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarScopeFilterView.swift; sourceTree = "<group>"; };
 		6C0EF642175C65AA3CA23808 /* CKSyncConflictResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CKSyncConflictResolver.swift; sourceTree = "<group>"; };
 		6C212892FE74417041671730 /* StreakBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreakBadge.swift; sourceTree = "<group>"; };
@@ -655,6 +658,7 @@
 		728481C95C3C2C620C57038C /* GoldBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoldBadge.swift; sourceTree = "<group>"; };
 		73A3BCDCE42EAFF95C1D695D /* SpendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpendingService.swift; sourceTree = "<group>"; };
 		73C8BE8C58884EE28C25F335 /* FamilyServiceTests+OwnerAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyServiceTests+OwnerAnchor.swift"; sourceTree = "<group>"; };
+		74114C21EC0E2837E55792D5 /* TreasuryViewModelTransferCollisionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TreasuryViewModelTransferCollisionTests.swift; sourceTree = "<group>"; };
 		749D406B4D6BBEE27417C140 /* CacheServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheServiceTests.swift; sourceTree = "<group>"; };
 		7524CAB4423538B7191015A0 /* GemShopView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemShopView.swift; sourceTree = "<group>"; };
 		7532FFBC8B1222F10FB45792 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
@@ -962,6 +966,7 @@
 				76AF24E70BF63F8C3E4B014D /* QuestLogViewModelTests.swift */,
 				8FA4B6503D1684E537104F9C /* QuestManagerViewModelTests.swift */,
 				63CB3B3860E66B17113116B5 /* TreasuryViewModelTests.swift */,
+				74114C21EC0E2837E55792D5 /* TreasuryViewModelTransferCollisionTests.swift */,
 				1EBB2FDDB10B0B4FAEDB5651 /* TrophyRoomViewModelTests.swift */,
 			);
 			path = ViewModels;
@@ -1085,6 +1090,7 @@
 				68A6949336D9C6F5715F8A4A /* JourneyService.swift */,
 				6E5CF0C96EB221193BE0F26B /* LedgerExportService.swift */,
 				A34FE13DD4A715B570394D68 /* LedgerImportService.swift */,
+				698B352A3292041E2518DC2D /* LedgerRevertMessage.swift */,
 				A2D4EC45D115F0DEDC8BE9A6 /* LedgerRowFactory.swift */,
 				93C5F84A70FD40DE98DA2456 /* LinkMetadataService.swift */,
 				42EBD8ED61436B7A7945BDDE /* LootDropService.swift */,
@@ -1965,6 +1971,7 @@
 				6FA2480EF7ADF0CCDFBA04EF /* LedgerImportService.swift in Sources */,
 				6CE547EA8A04F0AE5546C2F9 /* LedgerImportView.swift in Sources */,
 				CF27BFEAA55B42F206D19BBB /* LedgerImportViewModel.swift in Sources */,
+				B2A0F10F777979852C1DF41B /* LedgerRevertMessage.swift in Sources */,
 				CA30F70E75F77FA35607E357 /* LedgerRowFactory.swift in Sources */,
 				59F61412B012D620EE3D4B44 /* LedgerRowStyle.swift in Sources */,
 				E65D61D436712386B7BD73E2 /* LedgerSource.swift in Sources */,
@@ -2209,6 +2216,7 @@
 				C89615FA836F409ED2AF27D3 /* TreasuryServiceTests+Authorization.swift in Sources */,
 				9CA9A3AB32C5FF1DACEBC5AA /* TreasuryServiceTests.swift in Sources */,
 				A37A85ADB8D3166ECBEF621C /* TreasuryViewModelTests.swift in Sources */,
+				C801E21300399270F8BC29F9 /* TreasuryViewModelTransferCollisionTests.swift in Sources */,
 				957052A8DCF34967984A5ECD /* TrophyRoomViewModelTests.swift in Sources */,
 				8FC45C8C876E528AE9456991 /* WidgetDataBridgeTests.swift in Sources */,
 				1FAA4DB4ADD5C7F7B2A84527 /* XPServiceTests.swift in Sources */,

@@ -655,17 +655,11 @@ final class CKSyncEngineDelegateHandler: CKSyncEngineDelegate {
                         "Could not resolve family for stale invalidation — skipping freshness invalidation for \(typeLabel, privacy: .public) id=\(recordName, privacy: .private)"
                     )
                 }
-                let message: String = {
-                    if let staleType = CachedRecordType.recordType(for: record.recordType) {
-                        switch staleType {
-                        case .ledgerEntry: return "Your spending change couldn't be saved — pull to refresh."
-                        case .goal: return "Your goal change couldn't be saved — pull to refresh."
-                        case .profile: return "Your profile change couldn't be saved — pull to refresh."
-                        default: return "Your change couldn't be saved — pull to refresh."
-                        }
-                    }
-                    return "Your change couldn't be saved — pull to refresh."
-                }()
+                let staleType = CachedRecordType.recordType(for: record.recordType)
+                let message = LedgerRevertMessage.saveFailedMessage(
+                    for: staleType,
+                    sourceRawValue: record["source"] as? String
+                )
                 toastManager?.show(message: message, type: .warning)
             }
         }
