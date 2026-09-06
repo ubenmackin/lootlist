@@ -229,8 +229,8 @@ struct TabBarView: View {
             }
             .tag(RootTab.ledger)
 
-        MyGoalsView(familyRecordName: familyName)
-            .id("hero-goals-\(familyName ?? "")")
+        MyGoalsView(familyRecordName: familyName, profileRecordName: appState.currentProfile?.id.recordName)
+            .id("hero-goals-\(familyName ?? "")-\(appState.currentProfile?.id.recordName ?? "")")
             .tabItem {
                 Label("Goals", systemImage: "target")
             }

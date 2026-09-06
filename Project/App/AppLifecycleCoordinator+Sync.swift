@@ -32,6 +32,11 @@ extension AppLifecycleCoordinator {
         AppDelegate.scheduleSyncProcessingTask()
         await reconcileCacheFromCloudKit()
         await evaluateTrophiesCatchup()
+        await autoPayoutCoordinator?.processPendingPayoutsIfDue()
+        let didScheduleForegroundPayout = payoutScheduler(appState?.family?.payoutDay ?? .sunday)
+        if !didScheduleForegroundPayout {
+            logger.warning("Foreground sync: payout scheduler failed")
+        }
         logger.info("Foreground sync completed")
     }
 
@@ -114,7 +119,10 @@ extension AppLifecycleCoordinator {
         }
 
         await autoPayoutCoordinator?.processPendingPayoutsIfDue()
-        _ = payoutScheduler(appState.family?.payoutDay ?? .sunday)
+        let didScheduleZoneChangePayout = payoutScheduler(appState.family?.payoutDay ?? .sunday)
+        if !didScheduleZoneChangePayout {
+            logger.warning("Family zone change: payout scheduler failed")
+        }
 
         // If this zone change completed the hero-recovery bootstrap, mark it done
         // so subsequent foreground/remote syncs are not permanently skipped.
@@ -147,7 +155,10 @@ extension AppLifecycleCoordinator {
     func handleWeeklyPayoutBackgroundRefresh() async -> Bool {
         await autoPayoutCoordinator?.processPendingPayoutsIfDue()
         let payoutDay = appState?.family?.payoutDay ?? .sunday
-        _ = payoutScheduler(payoutDay)
-        return true
+        let didSchedule = payoutScheduler(payoutDay)
+        if !didSchedule {
+            logger.warning("Background payout refresh: payout scheduler failed")
+        }
+        return didSchedule
     }
 }

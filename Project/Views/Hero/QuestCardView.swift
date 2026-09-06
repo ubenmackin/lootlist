@@ -206,5 +206,7 @@ struct QuestCardView: View {
             )
         )
         .contentShape(Rectangle())
+        .accessibilityLabel("Complete \(quest.questName)")
+        .accessibilityHint("Double tap to mark this quest complete. Awaiting review will show an hourglass.")
     }
 }

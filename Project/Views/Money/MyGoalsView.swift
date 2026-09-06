@@ -21,12 +21,14 @@ struct MyGoalsView: View {
 
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedLedgers: [LedgerEntryCache]
+    @Query private var profileRows: [ProfileCache]
 
     @State private var isShowingGoalEditor: Bool = false
     @State private var goalToEdit: GoalCache?
     @State private var goalToDelete: GoalCache?
     @State private var goalToPurchase: GoalCache?
     @State private var errorMessage: String?
+    @State private var isShowingSplit: Bool = false
 
     private let familyRecordName: String?
     private let profileRecordName: String?
@@ -42,30 +44,52 @@ struct MyGoalsView: View {
         self.goalService = goalService
 
         let targetFamily = familyRecordName ?? ""
-        let targetProfile = profileRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "MyGoalsView")
-        // WHY: predicate pushdown — filter by family+profile at store; fail-closed to 0 rows when empty.
-        let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-
-        _cachedGoals = Query(
-            filter: goalFilter,
-            sort: \GoalCache.createdAt
-        )
-        _cachedLedgers = Query(
-            filter: ledgerFilter,
-            sort: \LedgerEntryCache.date,
-            order: .reverse
-        )
+        // WHY: predicate pushdown — filter by family+profile at store; family-only when the profile is unresolved so TabBar/hub surfaces never render silent-empty.
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            _cachedGoals = Query(
+                filter: goalFilter,
+                sort: \GoalCache.createdAt
+            )
+            _cachedLedgers = Query(
+                filter: ledgerFilter,
+                sort: \LedgerEntryCache.date,
+                order: .reverse
+            )
+        } else {
+            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
+            let ledgerFilter = #Predicate<LedgerEntryCache> { $0.familyRecordName == targetFamily }
+            _cachedGoals = Query(
+                filter: goalFilter,
+                sort: \GoalCache.createdAt
+            )
+            _cachedLedgers = Query(
+                filter: ledgerFilter,
+                sort: \LedgerEntryCache.date,
+                order: .reverse
+            )
+        }
+        // WHY: predicate pushdown — profile split % drives banner visibility; family-scoped query keeps banner live.
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            let filter = #Predicate<ProfileCache> {
+                $0.familyRecordName == targetFamily && $0.recordName == targetProfile
+            }
+            _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
+        } else {
+            let filter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+            _profileRows = Query(filter: filter, sort: \ProfileCache.displayName)
+        }
     }
 
-    /// Goals belonging to the current hero profile, excluding archived and purchased goals.
+    /// Goals belonging to the target hero profile, excluding archived goals. Completed rows stay visible so the card badge keeps rendering.
     private var activeGoals: [GoalCache] {
-        // WHY purchased hides here: purchase sets isArchived so one flag drops it from active lists.
+        // WHY shared predicate: the wishlist and the hero checklist must agree on what counts as a goal.
         // WHY: defensive secondary guard — predicate is source of truth; filters stale identity when view not yet recreated.
-        guard let name = appState.currentProfile?.id.recordName else { return [] }
+        guard let targetName = profileRecordName ?? appState.currentProfile?.id.recordName else { return [] }
         return cachedGoals.filter {
-            $0.profileRecordName == name && !$0.isArchived
+            $0.profileRecordName == targetName && $0.isListedGoal
         }
     }
 
@@ -89,10 +113,61 @@ struct MyGoalsView: View {
         shortSaveGoals.isEmpty && longSaveGoals.isEmpty
     }
 
+    /// Resolved hero row for banner and split shortcuts — requires an explicit profile match, fail-closed.
+    private var currentProfileRow: ProfileCache? {
+        ProfileRowResolver.resolve(
+            rows: profileRows,
+            targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    private var isDefaultSplit: Bool {
+        guard let row = currentProfileRow else { return false }
+        return BucketService.isDefaultSplit(spend: row.splitPercentSpend, short: row.splitPercentShort, long: row.splitPercentLong)
+    }
+
+    private var shouldShowBucketBanner: Bool {
+        // WHY: banner educates where users already are — empty wishlist or default 100/0/0 with goals.
+        guard !effectiveHasDismissedBucketBanner else { return false }
+        return isEmpty || isDefaultSplit
+    }
+
+    private var effectiveHasDismissedBucketBanner: Bool {
+        DismissalKeys.effectiveBool(
+            DismissalKeys.hasDismissedBucketBanner,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    private var scopedBannerBinding: Binding<Bool> {
+        DismissalKeys.scopedBinding(
+            DismissalKeys.hasDismissedBucketBanner,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    /// One-time legacy promotion for the banner gate, run from .task so view bodies stay pure.
+    private func migrateDismissals() {
+        DismissalKeys.migrate(
+            DismissalKeys.hasDismissedBucketBanner,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: DesignSystemConstants.Padding.standard) {
+                    if shouldShowBucketBanner {
+                        BucketEducationBannerView(
+                            hasDismissed: scopedBannerBinding,
+                            familyRecordName: familyRecordName,
+                            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                        )
+                    }
                     if isEmpty {
                         emptyState
                     } else {
@@ -121,6 +196,15 @@ struct MyGoalsView: View {
             .navigationTitle("MY WISHLIST & SAVINGS")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isShowingSplit = true
+                    } label: {
+                        Label("Buckets", systemImage: "percent")
+                    }
+                    .accessibilityLabel("Buckets")
+                    .accessibilityIdentifier("goals.bucketsButton")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     if resolvedGoalService != nil {
                         Button {
@@ -136,13 +220,18 @@ struct MyGoalsView: View {
                 }
             }
             .sheet(isPresented: $isShowingGoalEditor) {
-                GoalEditorSheet { draft in
+                GoalEditorSheet(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                ) { draft in
                     try await saveGoal(draft)
                 }
             }
             .sheet(item: $goalToEdit) { goal in
                 GoalEditorSheet(
                     goal: goal,
+                    familyRecordName: familyRecordName,
+                    profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName,
                     onSave: { draft in
                         try await updateGoal(goal, draft: draft)
                     },
@@ -152,6 +241,12 @@ struct MyGoalsView: View {
                     onPurchase: {
                         try await markPurchased(goal)
                     }
+                )
+            }
+            .sheet(isPresented: $isShowingSplit) {
+                SavingsSplitView(
+                    familyRecordName: familyRecordName,
+                    profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
                 )
             }
             .alert(
@@ -224,6 +319,9 @@ struct MyGoalsView: View {
             }
             .refreshable {
                 await lifecycleCoordinator?.performManualSync()
+            }
+            .task {
+                migrateDismissals()
             }
             .onChange(of: errorMessage) { _, msg in
                 // The toast overlay is available via the root view; errors
@@ -504,7 +602,7 @@ struct MyGoalsView: View {
         guard let service = resolvedGoalService,
               let profile = appState.currentProfile,
               let family = appState.family
-        else { return }
+        else { throw FamilyServiceError.unauthorized }
 
         _ = try await service.createGoal(
             name: draft.name,
@@ -522,25 +620,25 @@ struct MyGoalsView: View {
     }
 
     private func updateGoal(_ goal: GoalCache, draft: GoalDraft) async throws {
-        guard let service = resolvedGoalService else { return }
+        guard let service = resolvedGoalService else { throw FamilyServiceError.unauthorized }
         try await service.updateGoal(goal, draft: draft, familyRecordName: familyRecordName)
         HapticsService.lightImpact()
     }
 
     private func deleteGoal(_ goal: GoalCache) async throws {
-        guard let service = resolvedGoalService else { return }
+        guard let service = resolvedGoalService else { throw FamilyServiceError.unauthorized }
         try await service.deleteGoal(goal, familyRecordName: familyRecordName)
         HapticsService.lightImpact()
     }
 
     private func deleteGoal(_ goal: Goal) async throws {
-        guard let service = resolvedGoalService, let family = appState.family else { return }
+        guard let service = resolvedGoalService, let family = appState.family else { throw FamilyServiceError.unauthorized }
         try await service.deleteGoal(goal, family: family)
         HapticsService.lightImpact()
     }
 
     private func markPurchased(_ goal: GoalCache) async throws {
-        guard let service = resolvedGoalService else { return }
+        guard let service = resolvedGoalService else { throw FamilyServiceError.unauthorized }
         do {
             try await service.markPurchased(goal, familyRecordName: familyRecordName)
             goalToPurchase = nil
@@ -552,7 +650,7 @@ struct MyGoalsView: View {
     }
 
     private func markPurchased(_ goal: Goal) async throws {
-        guard let service = resolvedGoalService, let family = appState.family else { return }
+        guard let service = resolvedGoalService, let family = appState.family else { throw FamilyServiceError.unauthorized }
         do {
             try await service.markPurchased(goal, family: family)
             goalToPurchase = nil
@@ -596,7 +694,7 @@ struct MyGoalsView: View {
                 .foregroundStyle(.primary)
 
             Text(
-                "Set a savings goal and watch your progress grow. Whether it's a new game or a bike, every quest brings you closer!"
+                "Set a savings goal and watch your progress grow. Pick Short Save for soon wants, Long Save for big dreams — then set how your allowance splits so money flows automatically."
             )
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -604,16 +702,30 @@ struct MyGoalsView: View {
             .padding(.horizontal, DesignSystemConstants.Padding.large)
 
             if resolvedGoalService != nil {
-                Button {
-                    isShowingGoalEditor = true
-                } label: {
-                    Label("Add Your First Goal", systemImage: "plus.circle.fill")
-                        .font(.headline)
+                HStack(spacing: 12) {
+                    Button {
+                        isShowingGoalEditor = true
+                    } label: {
+                        Label("Add Your First Goal", systemImage: "plus.circle.fill")
+                            .font(.headline)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(DesignSystemConstants.Colors.primaryGreen))
+                    .accessibilityIdentifier("goals.emptyAddButton")
+
+                    if isDefaultSplit {
+                        Button {
+                            isShowingSplit = true
+                        } label: {
+                            Label("Set My Buckets", systemImage: "percent")
+                                .font(.headline)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color(DesignSystemConstants.Colors.accentBlue))
+                        .accessibilityIdentifier("goals.emptySetBucketsButton")
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(DesignSystemConstants.Colors.primaryGreen))
                 .padding(.top, 8)
-                .accessibilityIdentifier("goals.emptyAddButton")
             }
 
             Spacer()

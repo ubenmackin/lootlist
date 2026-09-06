@@ -162,6 +162,21 @@ final class NotificationService {
         logger.debug("Notification local flag updated for \(event.rawValue): \(enabled)")
     }
 
+    func setMasterEnabled(_ enabled: Bool) {
+        // WHY service-owned: Views must not write UserDefaults directly for master key; service owns masterDefaultsKey.
+        defaults.set(enabled, forKey: Self.masterDefaultsKey)
+    }
+
+    /// Single enable path shared by the onboarding prime and the hero checklist sheet.
+    /// WHY single home: requestAuthorization owns registerForRemoteNotifications on grant, so this wrapper only mirrors the master flag.
+    func enableNotificationsAfterPrime() async throws -> Bool {
+        let granted = try await requestAuthorization()
+        if granted {
+            setMasterEnabled(true)
+        }
+        return granted
+    }
+
     @discardableResult
     func updatePreference(event: NotificationEventType, enabled: Bool) async throws -> NotificationPreference {
         guard let profile = appState.currentProfile, let family = appState.family else {

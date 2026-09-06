@@ -39,6 +39,18 @@ final class GoalCache: FamilyScopedCache, CacheMergeable {
         BucketKind(rawValue: bucketKind)
     }
 
+    /// Shared funding-eligibility predicate: open rows that still accept funds in FIFO fills.
+    /// WHY shared: funding flows must agree on what counts as fundable; listed rows below include completed.
+    var isActiveGoal: Bool {
+        !isArchived && completedAt == nil
+    }
+
+    /// Shared listed predicate: every non-archived row the wishlist and hero checklist count.
+    /// WHY shared: completed rows stay visible with a badge, so listing must not reuse funding eligibility.
+    var isListedGoal: Bool {
+        !isArchived
+    }
+
     init(recordName: String,
          profileRecordName: String,
          familyRecordName: String,

@@ -357,6 +357,13 @@ final class BucketService {
         "\(dayBucket)-\(from.rawValue)-\(to.rawValue)"
     }
 
+    // MARK: - Checklist Helpers
+
+    /// Primitive overload for off-MainActor callers — pass split triple directly to avoid MainActor hop.
+    nonisolated static func isDefaultSplit(spend: Int, short: Int, long: Int) -> Bool {
+        spend == 100 && short == 0 && long == 0
+    }
+
     // MARK: - Per-Day/Per-Pair Guard
 
     private func validateTransferID(_ transferID: String, dayBucket: Int, from: BucketKind, to: BucketKind) throws {

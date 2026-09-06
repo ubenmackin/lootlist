@@ -18,6 +18,7 @@ struct ChildHubCardsView: View {
     let cachedCompletions: [QuestCompletionCache]
     let submittingQuestIDs: Set<String>
     let familyRecordName: String?
+    let profileRecordName: String?
     let onCompleteQuest: (QuestCache) -> Void
     let onWithdraw: (QuestCache, QuestCompletionCache) -> Void
 
@@ -36,13 +37,15 @@ struct ChildHubCardsView: View {
         onWithdraw: @escaping (QuestCache, QuestCompletionCache) -> Void,
         recentLedgers: [LedgerEntryCache] = [],
         streak: Int = 0,
-        cachedTemplates: [QuestTemplateCache]
+        cachedTemplates: [QuestTemplateCache],
+        profileRecordName: String? = nil
     ) {
         self.viewModel = viewModel
         self.cachedQuests = cachedQuests
         self.cachedCompletions = cachedCompletions
         self.submittingQuestIDs = submittingQuestIDs
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
         self.onCompleteQuest = onCompleteQuest
         self.onWithdraw = onWithdraw
         self.recentLedgers = recentLedgers
@@ -152,7 +155,7 @@ struct ChildHubCardsView: View {
     private var activeGoalCard: some View {
         VStack(spacing: DesignSystemConstants.Padding.medium) {
             SectionHeader("Active Goal") {
-                NavigationLink { MyGoalsView(familyRecordName: familyRecordName) } label: {
+                NavigationLink { MyGoalsView(familyRecordName: familyRecordName, profileRecordName: profileRecordName) } label: {
                     Text("View All").font(.subheadline.weight(.semibold)).foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
                 }
                 .accessibilityLabel("View all goals")

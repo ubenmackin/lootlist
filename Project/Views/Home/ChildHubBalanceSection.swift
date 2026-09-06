@@ -49,7 +49,7 @@ struct ChildHubBalanceSection: View {
                     HapticsService.lightImpact()
                     onSplitTapped()
                 } label: {
-                    Text("3-Jar Split")
+                    Text("3-Bucket Split")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)
@@ -57,7 +57,7 @@ struct ChildHubBalanceSection: View {
                         .background(Capsule().fill(Color.white.opacity(0.2)))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Configure 3-Jar Split")
+                .accessibilityLabel("Configure 3-Bucket Split")
                 .accessibilityIdentifier("hub.splitPillButton")
             }
 

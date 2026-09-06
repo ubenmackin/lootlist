@@ -13,6 +13,9 @@ struct HeroHomeView: View {
     @Environment(AppState.self) private var appState
     @Environment(XPService.self) private var xpService
     @Environment(GemService.self) private var gemService
+    @Environment(NotificationService.self) private var notificationService
+    @Environment(GoalService.self) private var goalService
+    @Environment(ToastManager.self) private var toastManager: ToastManager
 
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
@@ -21,9 +24,11 @@ struct HeroHomeView: View {
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedGemLedgers: [GemLedgerCache]
     @Query private var currentProfileRows: [ProfileCache]
+    @Query private var cachedGoals: [GoalCache]
 
     @State private var viewModel: HeroDashboardViewModel?
     @State private var showingJourneyMap = false
+    @State private var checklistSheetItem: HeroChecklistCardView.ChecklistItem?
 
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "HeroHomeView")
 
@@ -36,56 +41,106 @@ struct HeroHomeView: View {
         self.profileRecordName = profileRecordName
 
         let targetFamily = familyRecordName ?? ""
-        let targetProfile = profileRecordName ?? ""
         FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "HeroHomeView")
-        // WHY: predicate pushdown — filter by family+profile at store; avoids family-wide scan.
-        let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
-        // WHY: hero-scoped completions — store filters by completer to avoid family-wide scan.
-        let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
+        // WHY: predicate pushdown — family+profile at store when identity resolves, family-only fallback otherwise
+        // so hub surfaces never render silent-empty; secondary in-memory guards scope to the active profile.
         let templateFilter = #Predicate<QuestTemplateCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
         let profileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
-        let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
-        let currentProfileFilter = #Predicate<ProfileCache> {
-            $0.recordName == targetProfile && $0.familyRecordName == targetFamily
-        }
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.assigneeRecordName == targetProfile && $0.isActive == true }
+            let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily && $0.completerRecordName == targetProfile }
+            let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily && $0.profileRecordName == targetProfile }
+            let currentProfileFilter = #Predicate<ProfileCache> {
+                $0.recordName == targetProfile && $0.familyRecordName == targetFamily
+            }
 
-        // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
-        _cachedQuests = Query(
-            filter: questFilter,
-            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
-        )
-        _cachedCompletions = Query(
-            filter: completionFilter,
-            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
-        )
-        _cachedTemplates = Query(
-            filter: templateFilter,
-            sort: \QuestTemplateCache.name
-        )
-        _cachedProfiles = Query(
-            filter: profileFilter,
-            sort: \ProfileCache.displayName
-        )
-        _cachedAllowancePeriods = Query(
-            filter: allowanceFilter,
-            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
-        )
-        _cachedGemLedgers = Query(
-            filter: gemLedgerFilter,
-            sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
-        )
-        _currentProfileRows = Query(
-            filter: currentProfileFilter,
-            sort: \ProfileCache.displayName
-        )
+            // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
+            _cachedQuests = Query(
+                filter: questFilter,
+                sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
+            )
+            _cachedCompletions = Query(
+                filter: completionFilter,
+                sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+            )
+            _cachedTemplates = Query(
+                filter: templateFilter,
+                sort: \QuestTemplateCache.name
+            )
+            _cachedProfiles = Query(
+                filter: profileFilter,
+                sort: \ProfileCache.displayName
+            )
+            _cachedAllowancePeriods = Query(
+                filter: allowanceFilter,
+                sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
+            )
+            _cachedGemLedgers = Query(
+                filter: gemLedgerFilter,
+                sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+            )
+            _currentProfileRows = Query(
+                filter: currentProfileFilter,
+                sort: \ProfileCache.displayName
+            )
+            _cachedGoals = Query(
+                filter: goalFilter,
+                sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
+            )
+        } else {
+            let questFilter = #Predicate<QuestCache> { $0.familyRecordName == targetFamily && $0.isActive == true }
+            let completionFilter = #Predicate<QuestCompletionCache> { $0.familyRecordName == targetFamily }
+            let allowanceFilter = #Predicate<AllowancePeriodCache> { $0.familyRecordName == targetFamily }
+            let gemLedgerFilter = #Predicate<GemLedgerCache> { $0.familyRecordName == targetFamily }
+            let goalFilter = #Predicate<GoalCache> { $0.familyRecordName == targetFamily }
+            let currentProfileFilter = #Predicate<ProfileCache> { $0.familyRecordName == targetFamily }
+
+            // WHY: stable sort — secondary recordName keeps ForEach stable after CloudKit reorders.
+            _cachedQuests = Query(
+                filter: questFilter,
+                sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
+            )
+            _cachedCompletions = Query(
+                filter: completionFilter,
+                sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
+            )
+            _cachedTemplates = Query(
+                filter: templateFilter,
+                sort: \QuestTemplateCache.name
+            )
+            _cachedProfiles = Query(
+                filter: profileFilter,
+                sort: \ProfileCache.displayName
+            )
+            _cachedAllowancePeriods = Query(
+                filter: allowanceFilter,
+                sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
+            )
+            _cachedGemLedgers = Query(
+                filter: gemLedgerFilter,
+                sort: [SortDescriptor(\GemLedgerCache.createdAt, order: .reverse), SortDescriptor(\GemLedgerCache.recordName)]
+            )
+            _currentProfileRows = Query(
+                filter: currentProfileFilter,
+                sort: \ProfileCache.displayName
+            )
+            _cachedGoals = Query(
+                filter: goalFilter,
+                sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
+            )
+        }
     }
 
     /// Queried cache row for the active hero profile. Nil when the session
     /// identity or family scope has no synced row yet, keeping rendering
     /// fail-closed instead of falling back to the session snapshot.
     private var currentProfileRow: ProfileCache? {
-        currentProfileRows.first
+        ProfileRowResolver.resolve(
+            rows: currentProfileRows,
+            targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
     }
 
     /// Quests assigned to the active hero profile.
@@ -104,6 +159,82 @@ struct HeroHomeView: View {
         return cachedCompletions
     }
 
+    // MARK: - Checklist
+
+    private var hasFirstGoal: Bool {
+        // WHY shared predicate: the checklist and the wishlist must agree on what counts as a goal; completed rows still count.
+        if let targetName = profileRecordName ?? appState.currentProfile?.id.recordName {
+            return cachedGoals.contains { $0.profileRecordName == targetName && $0.isListedGoal }
+        }
+        return cachedGoals.contains(where: \.isListedGoal)
+    }
+
+    private var hasCompletedFirstQuest: Bool {
+        guard let viewModel else { return false }
+        return viewModel.completedQuestCount > 0
+    }
+
+    private var effectiveHasSeenNotificationPrime: Bool {
+        DismissalKeys.effectiveBool(
+            DismissalKeys.hasSeenNotificationPrime,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    private var effectiveHasDismissedHeroChecklist: Bool {
+        DismissalKeys.effectiveBool(
+            DismissalKeys.hasDismissedHeroChecklist,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    private var scopedChecklistBinding: Binding<Bool> {
+        DismissalKeys.scopedBinding(
+            DismissalKeys.hasDismissedHeroChecklist,
+            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+        )
+    }
+
+    private var shouldShowChecklist: Bool {
+        // Fail-closed: no row yet means cache not hydrated.
+        guard !effectiveHasDismissedHeroChecklist else { return false }
+        guard let row = currentProfileRow else { return false }
+        // WHY utility-first: gate on non-parent role, not RPG chrome; immersive RPG surfaces stay hidden per ARCHITECTURE §1.
+        let isChild = (row.roleEnum?.isParent ?? appState.currentProfile?.role.isParent ?? true) == false
+        guard isChild else { return false }
+        guard viewModel != nil else { return false }
+        let pending = !effectiveHasSeenNotificationPrime
+        let isDefault = splitIsDefault(for: row)
+        let hasQuest = hasCompletedFirstQuest
+        let hasGoal = hasFirstGoal
+        let allDone = !pending && !isDefault && hasQuest && hasGoal
+        return !allDone
+    }
+
+    /// Single helper for the default-split check so `shouldShowChecklist` and
+    /// `scrollContent` share one computation path instead of diverging overloads.
+    private func splitIsDefault(for row: ProfileCache) -> Bool {
+        BucketService.isDefaultSplit(spend: row.splitPercentSpend, short: row.splitPercentShort, long: row.splitPercentLong)
+    }
+
+    /// Writes the scoped key (family+profile isolation) so completion here never leaks into another family's prime gate.
+    private func markNotificationPrimeSeen() {
+        let family = familyRecordName ?? appState.family?.id.recordName
+        let profile = profileRecordName ?? appState.currentProfile?.id.recordName
+        DismissalStore.markSeen(DismissalKeys.hasSeenNotificationPrime, familyRecordName: family, profileRecordName: profile)
+    }
+
+    /// One-time legacy promotion for dismissal gates, run from .task so view bodies stay pure.
+    private func migrateDismissals() {
+        let family = familyRecordName ?? appState.family?.id.recordName
+        let profile = profileRecordName ?? appState.currentProfile?.id.recordName
+        DismissalKeys.migrate(DismissalKeys.hasSeenNotificationPrime, familyRecordName: family, profileRecordName: profile)
+        DismissalKeys.migrate(DismissalKeys.hasDismissedHeroChecklist, familyRecordName: family, profileRecordName: profile)
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -119,7 +250,11 @@ struct HeroHomeView: View {
             .fullScreenCover(isPresented: $showingJourneyMap) {
                 journeyMapCover
             }
+            .sheet(item: $checklistSheetItem) { item in
+                checklistSheet(for: item)
+            }
             .task {
+                migrateDismissals()
                 ensureViewModel()
             }
             .onChange(of: cachedQuests) { _, _ in
@@ -137,6 +272,9 @@ struct HeroHomeView: View {
             .onChange(of: cachedAllowancePeriods) { _, _ in
                 rebuildViewModel()
             }
+            .onChange(of: cachedGoals) { _, _ in
+                rebuildViewModel()
+            }
         }
         // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch; defensive filter in rebuild() is secondary guard.
         .id(profileRecordName)
@@ -146,6 +284,19 @@ struct HeroHomeView: View {
 
     private var scrollContent: some View {
         VStack(spacing: DesignSystemConstants.Padding.standard) {
+            if shouldShowChecklist, let row = currentProfileRow {
+                let splitIsDefault = splitIsDefault(for: row)
+                HeroChecklistCardView(
+                    profileRow: row,
+                    pendingNotification: !effectiveHasSeenNotificationPrime,
+                    splitIsDefault: splitIsDefault,
+                    hasCompletedFirstQuest: hasCompletedFirstQuest,
+                    hasFirstGoal: hasFirstGoal,
+                    onAction: handleChecklistAction,
+                    hasDismissedHeroChecklist: scopedChecklistBinding
+                )
+            }
+
             DailyLoginBannerView(compactMode: true)
 
             playerCard
@@ -245,7 +396,7 @@ struct HeroHomeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
-                    .fill(Color(.secondarySystemGroupedBackground))
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystemConstants.CornerRadius.card, style: .continuous)
@@ -300,7 +451,7 @@ struct HeroHomeView: View {
             let safeFillWidth: CGFloat = (fillWidth.isFinite && fillWidth > 0) ? fillWidth : 0
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color(.tertiarySystemFill))
+                    .fill(Color(DesignSystemConstants.Colors.background))
 
                 Capsule()
                     .fill(LinearGradient(
@@ -393,13 +544,13 @@ struct HeroHomeView: View {
         .padding(.vertical, 3)
         .background(
             Capsule()
-                .fill(Color.accentColor.opacity(0.12))
+                .fill(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.12))
         )
         .overlay(
             Capsule()
-                .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+                .strokeBorder(Color(DesignSystemConstants.Colors.accentBlue).opacity(0.35), lineWidth: 1)
         )
-        .foregroundStyle(Color.accentColor)
+        .foregroundStyle(Color(DesignSystemConstants.Colors.accentBlue))
     }
 
     // MARK: - Helpers
@@ -436,5 +587,163 @@ struct HeroHomeView: View {
         let logs = cachedCompletions.filter { $0.completerRecordName == currentName }
         let periods = cachedAllowancePeriods.filter { $0.profileRecordName == currentName }
         targetVM.rebuildLists(quests: quests, logs: logs, templates: cachedTemplates, allowancePeriods: periods)
+    }
+
+    // MARK: - Checklist Actions
+
+    private func handleChecklistAction(_ item: HeroChecklistCardView.ChecklistItem) {
+        HapticsService.lightImpact()
+        switch item {
+        case .notifications, .buckets, .firstGoal, .firstQuest:
+            checklistSheetItem = item
+        }
+    }
+
+    @ViewBuilder
+    private func checklistSheet(for item: HeroChecklistCardView.ChecklistItem) -> some View {
+        switch item {
+        case .notifications:
+            checklistNotificationSheet
+        case .buckets:
+            SavingsSplitView(
+                familyRecordName: familyRecordName,
+                profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+            )
+        case .firstGoal:
+            GoalEditorSheet(
+                familyRecordName: familyRecordName,
+                profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+            ) { draft in
+                try await saveChecklistGoal(draft)
+            }
+        case .firstQuest:
+            checklistFirstQuestSheet
+        }
+    }
+
+    private var checklistNotificationSheet: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                NotificationPrimeCard()
+                    .padding(.top, 32)
+                    .padding(.horizontal, 24)
+
+                Button {
+                    Task { @MainActor in
+                        HapticsService.lightImpact()
+                        do {
+                            _ = try await notificationService.enableNotificationsAfterPrime()
+                        } catch {
+                            // Best-effort — still mark prime as seen so card advances.
+                        }
+                        markNotificationPrimeSeen()
+                        checklistSheetItem = nil
+                    }
+                } label: {
+                    Text("Turn On")
+                        .font(.headline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(DesignSystemConstants.Colors.accentBlue))
+                .padding(.horizontal, 24)
+                .accessibilityIdentifier("heroChecklist.enableNotificationsButton")
+
+                Button {
+                    HapticsService.lightImpact()
+                    markNotificationPrimeSeen()
+                    checklistSheetItem = nil
+                } label: {
+                    Text("Maybe Later")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("heroChecklist.skipNotificationsButton")
+
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 16)
+            .navigationTitle("Alerts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { checklistSheetItem = nil }
+                }
+            }
+        }
+    }
+
+    private var checklistFirstQuestSheet: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Text(FlavorTextProvider.questCompleteHint)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 32)
+                    .padding(.horizontal, 24)
+                Text(FlavorTextProvider.questHelpHowTo)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                Spacer()
+                Button {
+                    HapticsService.lightImpact()
+                    checklistSheetItem = nil
+                } label: {
+                    Text("Got it!")
+                        .font(.headline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(DesignSystemConstants.Colors.primaryGreen))
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            }
+            .navigationTitle("First Quest")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { checklistSheetItem = nil }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func saveChecklistGoal(_ draft: GoalDraft) async throws {
+        guard let family = appState.family, let zoneID = appState.familyZoneID else {
+            throw FamilyServiceError.unauthorized
+        }
+        let targetName = profileRecordName ?? appState.currentProfile?.id.recordName
+        let profile: Profile
+        if let row = currentProfileRow, row.recordName == targetName {
+            profile = row.toProfile(zoneID: zoneID)
+        } else if let current = appState.currentProfile {
+            profile = current
+        } else {
+            throw FamilyServiceError.unauthorized
+        }
+        do {
+            _ = try await goalService.createGoal(
+                name: draft.name,
+                category: draft.category,
+                emojiIcon: draft.emojiIcon,
+                targetAmountPennies: draft.targetAmountPennies,
+                bucketKind: draft.bucketKind,
+                targetDate: draft.targetDate,
+                linkURL: draft.linkURL,
+                imageURL: draft.imageURL,
+                for: profile,
+                family: family
+            )
+            HapticsService.lightImpact()
+            checklistSheetItem = nil
+        } catch {
+            toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
+            throw error
+        }
     }
 }

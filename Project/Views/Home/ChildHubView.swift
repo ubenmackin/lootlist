@@ -184,7 +184,8 @@ struct ChildHubView: View {
                 onWithdraw: handleWithdraw,
                 recentLedgers: ledgers,
                 streak: streakValue,
-                cachedTemplates: cachedTemplates
+                cachedTemplates: cachedTemplates,
+                profileRecordName: profileRecordName
             )
         }
     }

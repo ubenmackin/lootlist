@@ -358,15 +358,15 @@ extension DataMigrationsCoordinator {
                 try await fetchRecordOrNil(Family.self, id: CKRecord.ID(recordName: familyRecordName, zoneID: zoneID), cloudKit: cloudKit)
             }
             let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
-            let activeProfiles = profiles.filter(\.isActive)
-            guard !activeProfiles.isEmpty else {
-                logger.info("No active profiles for allowance period seed.")
+            let activeHeroes = profiles.filter { $0.isActive && $0.role == .hero }
+            guard !activeHeroes.isEmpty else {
+                logger.info("No active heroes for allowance period seed.")
                 return
             }
             let existingPeriods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
             let existingNames = Set(existingPeriods.map(\.id.recordName))
             var created = 0
-            for profile in activeProfiles {
+            for profile in activeHeroes {
                 let payoutDay = profile.payoutDay ?? family?.payoutDay ?? .sunday
                 let startOfWeek = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
                 let weekInt = Int(startOfWeek.timeIntervalSince1970)
@@ -431,6 +431,43 @@ extension DataMigrationsCoordinator {
                 return
             }
             logger.info("Schema V10 lightweight index migration handled by SwiftData container open.")
+        }
+    }
+
+    /// Cleans up any legacy allowance periods mistakenly seeded for parent profiles.
+    static func purgeParentAllowancePeriodsV1(
+        cloudKit: any CloudKitServiceProtocol,
+        cacheService: CacheService?,
+        syncCoordinator: CKSyncEngineCoordinator? = nil
+    ) -> MigrationStep {
+        MigrationStep(id: "purgeParentAllowancePeriodsV1", version: 1) {
+            let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "DataMigrations")
+            guard let zoneID = cloudKit.activeFamilyZoneID else {
+                logger.info("No active family zone, skipping purge parent allowance periods.")
+                return
+            }
+            let familyRecordName = zoneID.zoneName
+            let isOwner = cloudKit.activeIsOwner
+
+            let profiles = try await cloudKit.query(Profile.self, predicate: NSPredicate(value: true), in: zoneID)
+            let parentProfileRecordNames = Set(profiles.filter(\.role.isParent).map(\.id.recordName))
+            guard !parentProfileRecordNames.isEmpty else { return }
+
+            let existingPeriods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
+            let parentPeriods = existingPeriods.filter { parentProfileRecordNames.contains($0.profile.recordID.recordName) }
+            guard !parentPeriods.isEmpty else { return }
+
+            var deleted = 0
+            for period in parentPeriods {
+                let recordID = period.id
+                try await cloudKit.delete(recordID, in: zoneID)
+                await cacheService?.invalidate(recordName: recordID.recordName, family: familyRecordName, type: .allowancePeriod)
+                syncCoordinator?.enqueueDelete(recordID: recordID, isOwner: isOwner)
+                deleted += 1
+            }
+            if deleted > 0 {
+                logger.info("Purged \(deleted) parent allowance periods.")
+            }
         }
     }
 }

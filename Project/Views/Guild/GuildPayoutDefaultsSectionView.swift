@@ -32,7 +32,7 @@ struct GuildPayoutDefaultsSectionView: View {
             }
             .padding(.horizontal, 16)
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 // Payout Day Picker
                 HStack {
                     Label("Weekly Payout Day", systemImage: "calendar.badge.clock")
@@ -45,6 +45,15 @@ struct GuildPayoutDefaultsSectionView: View {
                     }
                     .pickerStyle(.menu)
                 }
+
+                let scheduledTime = WeekMath.scheduledRolloverTimeString(payoutDay: payoutDayBinding.wrappedValue)
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.caption2)
+                    Text("Auto-payout schedules at week rollover: \(scheduledTime) (best-effort background delivery).")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
             }
             .padding(14)
             .background(cardBackground)

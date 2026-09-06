@@ -461,6 +461,7 @@ final class AppDependencies {
         }
         migrations.register(DataMigrationsCoordinator.heroNotificationPreferenceBackfillV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
         migrations.register(DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
+        migrations.register(DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: cache, syncCoordinator: syncCoordinator))
         return migrations
     }
 

@@ -47,6 +47,15 @@ enum UserRole: String, Codable, CaseIterable, Sendable {
         case .hero: "Child"
         }
     }
+
+    /// User-facing invite copy — Ranger renders as Co-Parent outside the stored raw value.
+    var inviteDisplayName: String {
+        // WHY derived: invite copy matches displayName except Ranger, which invites as Co-Parent.
+        if self == .ranger {
+            return "Co-Parent"
+        }
+        return displayName
+    }
 }
 
 // MARK: - CKShare Role Token

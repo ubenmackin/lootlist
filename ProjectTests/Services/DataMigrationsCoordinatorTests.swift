@@ -194,6 +194,87 @@ struct DataMigrationsCoordinatorTests {
         }
     }
 
+    @Test
+    func `allowancePeriodSeedV1 seeds periods only for active heroes and skips non-hero profiles`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "fam1", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let heroProfile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user1"),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        let parentProfile = Profile(
+            displayName: "Parent",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "user2"),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+        )
+        cloudKit.seedMockRecords([heroProfile, parentProfile])
+
+        let step = DataMigrationsCoordinator.allowancePeriodSeedV1(cloudKit: cloudKit, cacheService: nil)
+        try await step.run()
+
+        let periods = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
+        #expect(periods.count == 1)
+        #expect(periods.contains { $0.profile.recordID.recordName == "hero1" })
+        #expect(!periods.contains { $0.profile.recordID.recordName == "parent1" })
+    }
+
+    @Test
+    func `purgeParentAllowancePeriodsV1 purges periods belonging to parent profiles and leaves hero periods`() async throws {
+        let zoneID = CKRecordZone.ID(zoneName: "fam1", ownerName: "TestOwner")
+        let cloudKit = MockCloudKitService()
+        cloudKit.activeFamilyZoneID = zoneID
+
+        let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
+        let heroProfile = Profile(
+            displayName: "Hero",
+            role: .hero,
+            iCloudUserID: CKRecord.ID(recordName: "user1"),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "hero1", zoneID: zoneID)
+        )
+        let parentProfile = Profile(
+            displayName: "Parent",
+            role: .guildMaster,
+            iCloudUserID: CKRecord.ID(recordName: "user2"),
+            family: familyRef,
+            id: CKRecord.ID(recordName: "parent1", zoneID: zoneID)
+        )
+        let heroPeriod = AllowancePeriod(
+            weekOf: Date(),
+            profile: CKRecord.Reference(recordID: heroProfile.id, action: .none),
+            questsTotal: 1,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "period-hero1", zoneID: zoneID)
+        )
+        let parentPeriod = AllowancePeriod(
+            weekOf: Date(),
+            profile: CKRecord.Reference(recordID: parentProfile.id, action: .none),
+            questsTotal: 0,
+            family: familyRef,
+            id: CKRecord.ID(recordName: "period-parent1", zoneID: zoneID)
+        )
+
+        cloudKit.seedMockRecords([heroProfile, parentProfile, heroPeriod, parentPeriod])
+
+        let step = DataMigrationsCoordinator.purgeParentAllowancePeriodsV1(cloudKit: cloudKit, cacheService: nil)
+        try await step.run()
+
+        #expect(cloudKit.deletedRecordIDs.contains(parentPeriod.id))
+        #expect(!cloudKit.deletedRecordIDs.contains(heroPeriod.id))
+
+        let remaining = try await cloudKit.query(AllowancePeriod.self, predicate: NSPredicate(value: true), in: zoneID)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.id == heroPeriod.id)
+    }
+
     // MARK: - Schema V8 transition
 
     @Test

@@ -318,6 +318,7 @@ private struct RootView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(SpendingService.self) private var spendingService: SpendingService
     @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator
+    @Environment(NotificationService.self) private var notificationService
 
     @State private var onboardingVM: OnboardingViewModel?
 
@@ -381,17 +382,24 @@ private struct RootView: View {
                 let vm = OnboardingViewModel(
                     familyService: familyService,
                     appState: appState,
-                    syncCoordinator: syncCoordinator
+                    syncCoordinator: syncCoordinator,
+                    notificationService: notificationService
                 )
                 vm.pendingShareMetadata = pendingShareMetadata
                 onboardingVM = vm
+                // WHY single coordinator: LootListApp owns invite routing; WelcomeView never observes metadata directly.
+                if pendingShareMetadata != nil {
+                    vm.handlePendingInviteIfNeeded()
+                }
             case .authenticated, .restoringSession, .checkingCloudData, .detectedPreviousFamily, .offlineEmptyCache:
                 onboardingVM = nil
             }
         }
-        // WHY: pendingShareMetadata is onboarding-only; authenticated invites clear with guidance at the source and never auto-join, so there is nothing to forward once onboardingVM is nil.
+        // WHY single source: this onChange is the post-creation invite coordinator; task(id:) handles initial cold-launch invite.
         .onChange(of: pendingShareMetadata) { _, resolution in
-            onboardingVM?.pendingShareMetadata = resolution
+            guard let vm = onboardingVM else { return }
+            vm.pendingShareMetadata = resolution
+            vm.handlePendingInviteIfNeeded()
         }
     }
 }

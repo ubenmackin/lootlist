@@ -451,7 +451,9 @@ final class FamilyService: FamilyProfileFetching {
         // Hero bootstrap: seed per-hero defaults so the new member has a
         // complete local state before the first sync round trips.
         await seedNotificationPreferences(for: savedProfile, family: family)
-        await seedAllowancePeriod(for: savedProfile, family: family)
+        if savedProfile.role == .hero {
+            await seedAllowancePeriod(for: savedProfile, family: family)
+        }
         await seedDefaultAchievements(for: family)
 
         progressHandler?("Joined Guild!", 1.0)
@@ -800,6 +802,7 @@ final class FamilyService: FamilyProfileFetching {
 
     /// Seeds current-week allowance period for newly joined heroes.
     private func seedAllowancePeriod(for profile: Profile, family: Family) async {
+        guard profile.role == .hero else { return }
         // Prefer the injected treasury when available so the period creation
         // shares its single-flight and authorization checks.
         let payoutDay = profile.payoutDay ?? family.payoutDay

@@ -23,6 +23,7 @@ struct QuestDetailView: View {
     @Query private var cachedTemplates: [QuestTemplateCache]
 
     @State private var isCompleting: Bool = false
+    @State private var showQuestHelp: Bool = false
 
     private var template: QuestTemplateCache? {
         cachedTemplates.first(where: { $0.recordName == quest.templateRecordName })
@@ -117,6 +118,17 @@ struct QuestDetailView: View {
         .scrollContentBackground(.hidden)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showQuestHelp = true } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .accessibilityIdentifier("questHelp.button")
+            }
+        }
+        .sheet(isPresented: $showQuestHelp) {
+            QuestHelpSheetView()
+        }
     }
 
     private var header: some View {
@@ -287,6 +299,14 @@ struct QuestDetailView: View {
                 }
                 .buttonStyle(.bordered)
                 .disabled(isCompleting)
+            }
+
+            if !isFullyCompleted {
+                Text(FlavorTextProvider.questCompleteTip(rewardText: CurrencyFormatter.string(quest.goldReward)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
