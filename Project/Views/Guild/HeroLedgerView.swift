@@ -96,6 +96,14 @@ struct HeroLedgerView: View {
         currentProfileRow?.roleEnum
     }
 
+    /// WHY distinct lets: one interpolation timed out type-checking, so build the identity from simple strings.
+    private var viewIdentity: String {
+        let family = familyRecordName ?? ""
+        let subject = hero.recordName
+        let viewer = profileRecordName ?? ""
+        return family + "-" + subject + "-" + viewer
+    }
+
     var body: some View {
         scrollBody
             .navigationTitle("Treasury")
@@ -123,7 +131,7 @@ struct HeroLedgerView: View {
                 shareSheetContent
             }
             // WHY: view identity tracks family+subject+viewer so @Query predicates (init-captured) are recreated on scope switch.
-            .id("\(familyRecordName ?? "")-\(hero.recordName)-\(profileRecordName ?? "")")
+            .id(viewIdentity)
     }
 
     private var scrollBody: some View {
