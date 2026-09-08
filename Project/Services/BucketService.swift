@@ -251,13 +251,12 @@ final class BucketService {
         // WHY: Legacy 3-part IDs use day-granularity dedup, so a fresh Date()
         // is fine. Modern 4-part ms-format IDs encode the original instant;
         // reconstructing it keeps isSameMillisecond dedup consistent across retries.
-        let date: Date
-        if isLegacyTransferID(transferID) {
-            date = Date()
+        let date = if isLegacyTransferID(transferID) {
+            Date()
         } else if let ms = transferID.split(separator: "-").first.flatMap({ Int($0) }) {
-            date = Date(timeIntervalSince1970: Double(ms) / 1000.0)
+            Date(timeIntervalSince1970: Double(ms) / 1000.0)
         } else {
-            date = Date()
+            Date()
         }
         logger
             .debug(
