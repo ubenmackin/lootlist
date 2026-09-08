@@ -63,7 +63,7 @@ struct MatchServiceTests {
             )
             family = Family(
                 name: "Test Guild",
-                createdBy: gmID,
+                creatorUserRecordName: gmID.recordName,
                 payoutDay: .sunday,
                 id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
             )

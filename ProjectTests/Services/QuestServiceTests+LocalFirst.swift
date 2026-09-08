@@ -132,7 +132,7 @@ extension QuestServiceTests {
         )
         let family = Family(
             name: "RealTime Guild",
-            createdBy: parentID,
+            creatorUserRecordName: parentID.recordName,
             payoutPolicy: .realTime,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
@@ -229,7 +229,7 @@ extension QuestServiceTests {
 
         let family = Family(
             name: "Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         let results = try await questService.fetchTemplates(family: family)
@@ -299,7 +299,7 @@ extension QuestServiceTests {
         let familyRef = CKRecord.Reference(recordID: CKRecord.ID(recordName: "fam1", zoneID: zoneID), action: .none)
         let family = Family(
             name: "Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )

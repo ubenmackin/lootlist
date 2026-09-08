@@ -202,7 +202,7 @@ The `Profile.role` field alone is forgeable. The highest-privilege, irreversible
 - **`Family.creatorUserRecordName`** mirrors CloudKit's server-stamped, read-only `CKRecord.creatorUserRecordID`. Decoded **only** on the read path; **never authored locally**. Mirrored into `FamilyCache` for cache-first reads.
 - **Irreversible owner-gated operations** — `deleteFamilyAndReset`, `updateMemberRole`, `kickMember` — require the server-authenticated user to equal the family creator (`isFamilyOwner`), evaluated fresh at enforcement time. Deny-by-default when unresolved.
 - **Reversible owner-OR-parent operations** — `updateFamilyName`, `updatePayoutPolicy`, `updatePayoutDay` — remain available to any parent or the owner anchor, guarded by `ActiveFamilyScopeGuard`.
-- **Legacy fallback:** families predating the anchor fall back to parent-role checks.
+- **Unresolved anchor denies:** nil/empty/placeholder/self-referencing anchors deny irreversible ops by default; legacy dev rows require zone wipe/re-create.
 - **Profile self-service operations** gate on self/Parent only and are not owner-anchored. Child bucket transfers gate on self-ownership.
 
 **Accepted residual risk:** reward minting (quest verify/reject, `runPayout`, `applyReward`, interest/match crediting) runs client-side and remains forgeable by a joined participant; fully closing it requires a server-side validation layer. The blast radius is a post-join participant forging `Profile.role`, against which the immutable owner anchor defends the irreversible operations above.

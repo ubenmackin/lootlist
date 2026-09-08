@@ -120,7 +120,7 @@ struct FamilyServiceIdentityDedupeTests {
         let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             id: familyID
         )
         let userID = CKRecord.ID(recordName: Self.mockUserRecordName, zoneID: zoneID)
@@ -427,7 +427,7 @@ struct FamilyServiceIdentityDedupeTests {
         let ownerID = CKRecord.ID(recordName: "existing-gm", zoneID: zoneID)
         let family = Family(
             name: "Existing Guild",
-            createdBy: ownerID,
+            creatorUserRecordName: ownerID.recordName,
             id: familyID
         )
         var ownerProfile: Profile?

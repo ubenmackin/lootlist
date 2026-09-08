@@ -17,7 +17,7 @@ struct QuestLogViewModelTests {
         let cloudKit = MockCloudKitService(zoneID: familyZoneID)
         let appState = AppState()
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: familyZoneID)
-        let family = Family(name: "Test Family", createdBy: CKRecord.ID(recordName: "p1", zoneID: familyZoneID), id: familyID)
+        let family = Family(name: "Test Family", creatorUserRecordName: "p1", id: familyID)
         appState.family = family
         appState.familyZoneID = familyZoneID
         let xpService = XPService(cloudKit: cloudKit)

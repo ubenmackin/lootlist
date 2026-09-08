@@ -241,8 +241,9 @@ final class FamilyService: FamilyProfileFetching {
             throw FamilyServiceError.creationFailed
         }
 
+        // WHY server stamps creator: decoded only on read path, never authored locally.
         var family = Family(name: name,
-                            createdBy: ownerProfile.id,
+                            creatorUserRecordName: nil,
                             id: familyID)
 
         let pvtDB = cloudKit.privateDatabase
@@ -530,26 +531,42 @@ final class FamilyService: FamilyProfileFetching {
         return try await fetchProfiles(for: family).sorted(by: profileSort)
     }
 
-    func requireParentOrOwner(for profile: Profile) async throws -> Family {
-        let family = await family(for: profile)
-        guard let family else {
-            throw FamilyServiceError.unauthorized
-        }
-        if hasResolvedOwnerAnchor(family) {
-            guard await isFamilyOwner(family) else {
+    func requireLiveOwnerFamily(familyID: CKRecord.ID) async throws -> Family {
+        // WHY server-authoritative anchor: stale cache must not grant irreversible writes, so prefer the live creator when reachable.
+        let (_, db) = familyContext(for: familyID)
+        do {
+            let server = try await cloudKit.fetch(Family.self, id: familyID, using: db)
+            // WHY owner-only: unresolved anchor denies; legacy dev rows need zone wipe/re-create, no backfill.
+            guard await isFamilyOwner(server) else {
                 throw FamilyServiceError.unauthorized
             }
-        } else {
-            guard let acting = appState.currentProfile, acting.role.isParent else {
+            return server
+        } catch let error as FamilyServiceError {
+            throw error
+        } catch {
+            // WHY cache fallback: live fetch unreachable offline, so resolve from last synced snapshot.
+            guard let cached = cacheService?.fetchFamily(recordName: familyID.recordName)?.toFamily(zoneID: familyID.zoneID),
+                  await isFamilyOwner(cached)
+            else {
                 throw FamilyServiceError.unauthorized
             }
+            return cached
         }
-        return family
+    }
+
+    func requireFamilyOwner(for profile: Profile) async throws -> Family {
+        try ActiveFamilyScopeGuard.requireActiveFamilyScope(
+            familyRecordName: profile.family.recordID.recordName,
+            zoneID: profile.family.recordID.zoneID,
+            appState: appState,
+            cloudKit: cloudKit
+        )
+        return try await requireLiveOwnerFamily(familyID: profile.family.recordID)
     }
 
     func updateMemberRole(profile: Profile, newRole: UserRole) async throws {
         // Role mutation reserved for server-authenticated family owner anchor.
-        _ = try await requireParentOrOwner(for: profile)
+        _ = try await requireFamilyOwner(for: profile)
 
         var updated = profile
         updated.role = newRole
@@ -564,37 +581,23 @@ final class FamilyService: FamilyProfileFetching {
     // MARK: - Private Helpers
 
     /// Server-authenticated owner check, anchored on CloudKit's read-only
-    /// `creatorUserRecordID`. Returns false when the creator is unresolved
-    /// (nil) — callers handle the nil (legacy) case.
+    /// `creatorUserRecordID`. Denies when the creator is unresolved.
     func isFamilyOwner(_ family: Family) async -> Bool {
-        if hasResolvedOwnerAnchor(family) {
-            // Re-resolve current user freshly to avoid stale cached identity across account changes.
-            do {
-                let userRecordID = try await cloudKit.currentUserRecordID()
-                return ActiveFamilyScopeGuard.isUserRecordNameMatch(userRecordID.recordName, family.creatorUserRecordName)
-            } catch {
-                logger.warning("Could not resolve current user for owner check: \(error, privacy: .private)")
-                return false
-            }
-        }
-        // Legacy fallback: require supplied family zone matches active zone
-        guard family.id.zoneID == appState.familyZoneID else {
-            return false
-        }
-        return appState.isZoneOwner
-    }
-
-    /// WHY resolved-anchor gate: cache and record layers coalesce a missing
-    /// creator to the family recordName, so self-reference plus nil/empty and
-    /// legacy placeholders all mean pre-anchor and fall back to parent checks.
-    func hasResolvedOwnerAnchor(_ family: Family) -> Bool {
+        // WHY deny-by-default: nil/empty/placeholder/self-referencing anchors deny; legacy dev rows need zone wipe/re-create, no backfill.
         guard let anchor = family.creatorUserRecordName, !anchor.isEmpty,
               !ActiveFamilyScopeGuard.isPlaceholderOwner(anchor),
               anchor != family.id.recordName
         else {
             return false
         }
-        return true
+        // Re-resolve current user freshly to avoid stale cached identity across account changes.
+        do {
+            let userRecordID = try await cloudKit.currentUserRecordID()
+            return ActiveFamilyScopeGuard.isUserRecordNameMatch(userRecordID.recordName, anchor)
+        } catch {
+            logger.warning("Could not resolve current user for owner check: \(error, privacy: .private)")
+            return false
+        }
     }
 
     /// Resolves current user's iCloud user record ID once per session.

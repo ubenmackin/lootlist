@@ -61,6 +61,7 @@ final class CacheService: CacheServicing {
         do {
             container = try ModelContainer(for: schema, configurations: config)
         } catch {
+            // WHY destructive reset: incompatible cache rows wipe and rehydrate via sync engine, no backfill.
             logger.error("Failed to create ModelContainer; error category=\(Self.errorCategory(error), privacy: .public). Recreating store...")
             if !inMemory {
                 let url = config.url

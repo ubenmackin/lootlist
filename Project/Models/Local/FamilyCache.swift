@@ -75,10 +75,11 @@ final class FamilyCache: CacheMergeable {
     }
 
     convenience init(from family: Family) {
+        // WHY legacy display only: empty never authorizes, the anchor passes through as-is.
         self.init(
             recordName: family.id.recordName,
             name: family.name,
-            createdByRecordName: family.creatorUserRecordName ?? family.id.recordName,
+            createdByRecordName: family.creatorUserRecordName ?? "",
             createdAt: family.createdAt,
             payoutPolicy: family.payoutPolicy.rawValue,
             payoutDay: family.payoutDay.rawValue,
@@ -91,7 +92,8 @@ final class FamilyCache: CacheMergeable {
 
     func update(from family: Family, isServerSync: Bool = false) {
         name = family.name
-        createdByRecordName = family.creatorUserRecordName ?? family.id.recordName
+        // WHY legacy display only: empty never authorizes, the anchor passes through as-is.
+        createdByRecordName = family.creatorUserRecordName ?? ""
         createdAt = family.createdAt
         payoutPolicy = family.payoutPolicy.rawValue
         payoutDay = family.payoutDay.rawValue

@@ -30,7 +30,7 @@ extension QuestServiceTests {
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let family = Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID),
+            creatorUserRecordName: "parent1",
             payoutDay: .sunday,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )

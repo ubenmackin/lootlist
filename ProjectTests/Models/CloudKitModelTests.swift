@@ -65,7 +65,7 @@ struct CloudKitModelTests {
     @Test
     func `family initialization and payout policy default`() {
         let userID = CKRecord.ID(recordName: "user1")
-        let family = Family(name: "Dragons", createdBy: userID)
+        let family = Family(name: "Dragons", creatorUserRecordName: userID.recordName)
         #expect(family.name == "Dragons")
         #expect(family.payoutPolicy == .perQuest)
     }

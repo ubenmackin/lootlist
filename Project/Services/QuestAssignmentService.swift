@@ -319,7 +319,7 @@ final class QuestAssignmentService {
         let range = WeekMath.range(for: weekOf, payoutDay: effectivePayoutDay(for: profile)).range
         let family = Family(
             name: "",
-            createdBy: profile.family.recordID,
+            creatorUserRecordName: nil,
             id: CKRecord.ID(recordName: profile.family.recordID.recordName, zoneID: profile.id.zoneID)
         )
         return try await CacheFirst.cacheFirst(

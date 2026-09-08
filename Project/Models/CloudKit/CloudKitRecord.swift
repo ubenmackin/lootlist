@@ -74,7 +74,7 @@ extension CKRecord {
 
 extension Family: CloudKitRecord {
     static var managedFieldKeys: Set<String> {
-        ["name", "createdBy", "createdAt", "payoutPolicy", "payoutDay"]
+        ["name", "createdAt", "payoutPolicy", "payoutDay"]
     }
 }
 

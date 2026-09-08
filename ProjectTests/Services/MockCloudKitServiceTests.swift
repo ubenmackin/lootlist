@@ -80,8 +80,8 @@ struct MockCloudKitServiceTests {
         let zoneA = CKRecordZone.ID(zoneName: "ZoneA", ownerName: "OwnerA")
         let zoneB = CKRecordZone.ID(zoneName: "ZoneB", ownerName: "OwnerB")
 
-        let famA = Family(name: "Family A", createdBy: CKRecord.ID(recordName: "uA", zoneID: zoneA), id: CKRecord.ID(recordName: "fam1", zoneID: zoneA))
-        let famB = Family(name: "Family B", createdBy: CKRecord.ID(recordName: "uB", zoneID: zoneB), id: CKRecord.ID(recordName: "fam1", zoneID: zoneB))
+        let famA = Family(name: "Family A", creatorUserRecordName: "uA", id: CKRecord.ID(recordName: "fam1", zoneID: zoneA))
+        let famB = Family(name: "Family B", creatorUserRecordName: "uB", id: CKRecord.ID(recordName: "fam1", zoneID: zoneB))
 
         // Save famA in zoneA under private database
         mock.activeFamilyZoneID = zoneA

@@ -57,7 +57,7 @@ struct NotificationServiceTests {
     private func makeFamily(zoneID: CKRecordZone.ID) -> Family {
         Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "owner1", zoneID: zoneID),
+            creatorUserRecordName: "owner1",
             payoutPolicy: .perQuest,
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )

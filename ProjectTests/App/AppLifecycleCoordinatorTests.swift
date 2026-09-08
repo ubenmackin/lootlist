@@ -117,7 +117,7 @@ private final class SyncGate: Sendable {
 private func makeFamilyAndProfile(zoneID: CKRecordZone.ID) -> (Family, Profile) {
     let family = Family(
         name: "Test Guild",
-        createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+        creatorUserRecordName: "owner",
         id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
     )
     let profile = Profile(
@@ -362,7 +362,7 @@ struct AppLifecycleCoordinatorTests {
 
         let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "BootstrapGateZone", ownerName: "Owner")
-        let family = Family(name: "Gate Family", createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let family = Family(name: "Gate Family", creatorUserRecordName: "owner", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         let profile = Profile(
             displayName: "GM",
             role: .guildMaster,
@@ -456,7 +456,7 @@ struct AppLifecycleCoordinatorTests {
 
         let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "BootstrapZone", ownerName: "Owner")
-        let family = Family(name: "Bootstrap Family", createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID), id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let family = Family(name: "Bootstrap Family", creatorUserRecordName: "owner", id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         let profile = Profile(
             displayName: "GM",
             role: .guildMaster,
@@ -535,7 +535,7 @@ struct AppLifecycleCoordinatorTests {
 
         let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "NewFamilyZone", ownerName: "Owner")
-        let family = Family(name: "New Family", createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID), id: CKRecord.ID(recordName: "family123", zoneID: zoneID))
+        let family = Family(name: "New Family", creatorUserRecordName: "owner", id: CKRecord.ID(recordName: "family123", zoneID: zoneID))
         let profile = Profile(
             displayName: "GM",
             role: .guildMaster,
@@ -599,7 +599,7 @@ struct AppLifecycleCoordinatorTests {
         let defaults = UserDefaults.ephemeral()
         let appState = AppState(defaults: defaults)
         let zoneID = CKRecordZone.ID(zoneName: "ReconnectZone", ownerName: "Owner")
-        let family = Family(name: "Reconnect Family", createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID), id: CKRecord.ID(recordName: "family_reconnect", zoneID: zoneID))
+        let family = Family(name: "Reconnect Family", creatorUserRecordName: "owner", id: CKRecord.ID(recordName: "family_reconnect", zoneID: zoneID))
         let profile = Profile(
             displayName: "Hero",
             role: .hero,
@@ -668,7 +668,7 @@ struct AppLifecycleCoordinatorTests {
         let zoneID = CKRecordZone.ID(zoneName: "FGWatermarkZone", ownerName: CKCurrentUserDefaultName)
         let family = Family(
             name: "FG Family",
-            createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            creatorUserRecordName: "owner",
             id: CKRecord.ID(recordName: "fg-family", zoneID: zoneID)
         )
         let appState = AppState(defaults: defaults)
@@ -730,7 +730,7 @@ struct AppLifecycleCoordinatorTests {
         let zoneID = CKRecordZone.ID(zoneName: "FGWatermarkFailZone", ownerName: CKCurrentUserDefaultName)
         let family = Family(
             name: "FG Fail Family",
-            createdBy: CKRecord.ID(recordName: "owner", zoneID: zoneID),
+            creatorUserRecordName: "owner",
             id: CKRecord.ID(recordName: "fg-fail-family", zoneID: zoneID)
         )
         let appState = AppState(defaults: defaults)
@@ -839,7 +839,7 @@ struct AppLifecycleCoordinatorTests {
         let zoneID = CKRecordZone.ID(zoneName: "SharedFamilyZone", ownerName: "parentUser")
         var family = Family(
             name: "Hero Guild",
-            createdBy: CKRecord.ID(recordName: "parentUser", zoneID: zoneID),
+            creatorUserRecordName: "parentUser",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         family.creatorUserRecordName = "parentUser"
@@ -894,7 +894,7 @@ struct AppLifecycleCoordinatorTests {
         let zoneID = CKRecordZone.ID(zoneName: "RestoreZone", ownerName: "parentUser")
         var family = Family(
             name: "Restore Family",
-            createdBy: CKRecord.ID(recordName: "parentUser", zoneID: zoneID),
+            creatorUserRecordName: "parentUser",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
         family.creatorUserRecordName = "parentUser"

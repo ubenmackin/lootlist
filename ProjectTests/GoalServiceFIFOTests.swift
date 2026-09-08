@@ -425,7 +425,7 @@ struct GoalServiceFIFOTests {
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: familyZoneID)
         let family = Family(
             name: "The Clan",
-            createdBy: CKRecord.ID(recordName: "owner", zoneID: familyZoneID),
+            creatorUserRecordName: "owner",
             id: familyID
         )
         let hero = Profile(

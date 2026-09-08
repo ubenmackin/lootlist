@@ -33,7 +33,7 @@ struct GemServiceTests {
     private func makeFamily(zoneID: CKRecordZone.ID) -> Family {
         Family(
             name: "Test Guild",
-            createdBy: CKRecord.ID(recordName: "hero1", zoneID: zoneID),
+            creatorUserRecordName: "hero1",
             id: CKRecord.ID(recordName: "fam1", zoneID: zoneID)
         )
     }
@@ -400,7 +400,7 @@ struct GemServiceTests {
             family: familyRef,
             id: heroID
         )
-        let family = Family(name: "Guild", createdBy: heroID, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
+        let family = Family(name: "Guild", creatorUserRecordName: heroID.recordName, id: CKRecord.ID(recordName: "fam1", zoneID: zoneID))
         await cache.upsertFamily(family)
         await cache.upsertProfile(hero)
         cloudKit.seedMockRecords([family, hero])

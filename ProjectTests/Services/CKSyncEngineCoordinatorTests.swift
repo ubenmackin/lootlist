@@ -35,7 +35,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
 
         appState.family = Family(
             name: "Family",
-            createdBy: CKRecord.ID(recordName: "user"),
+            creatorUserRecordName: "user",
             id: CKRecord.ID(recordName: "active-family")
         )
 
@@ -134,7 +134,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         let zoneID = CKRecordZone.ID(zoneName: "e2e-hydration-zone", ownerName: CKCurrentUserDefaultName)
         let family = Family(
             name: "Active Family",
-            createdBy: CKRecord.ID(recordName: "user1", zoneID: zoneID),
+            creatorUserRecordName: "user1",
             id: CKRecord.ID(recordName: "active-family", zoneID: zoneID)
         )
         appState.family = family
@@ -204,7 +204,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         let zoneID = CKRecordZone.ID(zoneName: "parse-failure-zone", ownerName: CKCurrentUserDefaultName)
         appState.family = Family(
             name: "Parse Failure Family",
-            createdBy: CKRecord.ID(recordName: "user", zoneID: zoneID),
+            creatorUserRecordName: "user",
             id: CKRecord.ID(recordName: "active-family", zoneID: zoneID)
         )
         appState.familyZoneID = zoneID
@@ -344,7 +344,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testStableStateKeyDerivedFromFamilyNotProfile() throws {
         let familyZoneID = CKRecordZone.ID(zoneName: "family-stable", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = familyZoneID
-        appState.family = Family(name: "Stable", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-stable", zoneID: familyZoneID))
+        appState.family = Family(name: "Stable", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-stable", zoneID: familyZoneID))
         appState.currentProfile = try Profile(
             displayName: "Hero",
             role: .hero,
@@ -371,7 +371,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
         let zoneID = CKRecordZone.ID(zoneName: "zone-family", ownerName: CKCurrentUserDefaultName)
         let familyZoneID = CKRecordZone.ID(zoneName: "other-family", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Other", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "other-family", zoneID: familyZoneID))
+        appState.family = Family(name: "Other", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "other-family", zoneID: familyZoneID))
 
         let expectedPrivate = "ck_sync_engine_state.zone-family.private"
         let unexpectedPrivate = "ck_sync_engine_state.other-family.private"
@@ -384,7 +384,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testStableStateKeyUnchangedWhenProfileChanges() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-constant", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Constant", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-constant", zoneID: zoneID))
+        appState.family = Family(name: "Constant", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-constant", zoneID: zoneID))
         appState.currentProfile = nil
 
         let validData = try await makeValidSerializationData(pendingName: "pending-1", zoneID: zoneID)
@@ -411,7 +411,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testSaveStateScopesToStableFamilyKey() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-save", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Save", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-save", zoneID: zoneID))
+        appState.family = Family(name: "Save", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-save", zoneID: zoneID))
         appState.currentProfile = try Profile(
             displayName: "Hero",
             role: .hero,
@@ -435,7 +435,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testLoadStateMigratesLegacyProfileKeyToFamilyKey() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-migrate", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Migrate", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-migrate", zoneID: zoneID))
+        appState.family = Family(name: "Migrate", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-migrate", zoneID: zoneID))
         let profile = try Profile(
             displayName: "Hero",
             role: .hero,
@@ -460,7 +460,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testLoadStateMigratesUnscopedLegacyToFamilyKey() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-unscoped", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Unscoped", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-unscoped", zoneID: zoneID))
+        appState.family = Family(name: "Unscoped", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-unscoped", zoneID: zoneID))
 
         let validData = try await makeValidSerializationData(pendingName: "unscoped-pending", zoneID: zoneID)
         let legacyUnscoped = "ck_sync_engine_state_private"
@@ -476,7 +476,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testLoadStatePriorityNewOverLegacyProfileOverUnscoped() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-priority", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Priority", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-priority", zoneID: zoneID))
+        appState.family = Family(name: "Priority", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-priority", zoneID: zoneID))
         let profile = try Profile(
             displayName: "Hero",
             role: .hero,
@@ -517,7 +517,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testLoadStateChecksBothKeys() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-both", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Both", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-both", zoneID: zoneID))
+        appState.family = Family(name: "Both", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-both", zoneID: zoneID))
         appState.currentProfile = try Profile(
             displayName: "Hero",
             role: .hero,
@@ -543,7 +543,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testResetStateClearsStableFamilyPlusOrphanedProfileKeys() async throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-reset", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Reset", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-reset", zoneID: zoneID))
+        appState.family = Family(name: "Reset", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-reset", zoneID: zoneID))
         appState.currentProfile = try Profile(
             displayName: "Hero",
             role: .hero,
@@ -609,7 +609,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
             XCTAssertFalse(cacheService.isCacheFresh(familyRecordName: "fallback-zone", type: type))
         }
 
-        let family = Family(name: "Stamp", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-stamp-real", zoneID: zoneID))
+        let family = Family(name: "Stamp", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-stamp-real", zoneID: zoneID))
         appState.family = family
         coordinator.simulateFetchPassSettlement(activeScopes: [.private], completedScopes: [.private])
 
@@ -621,7 +621,7 @@ final class CKSyncEngineCoordinatorTests: XCTestCase {
     func testReOnboardingDoesNotOrphanPendingRecordZoneChanges() throws {
         let zoneID = CKRecordZone.ID(zoneName: "family-reonboard", ownerName: CKCurrentUserDefaultName)
         cloudKit.activeFamilyZoneID = zoneID
-        appState.family = Family(name: "Reonboard", createdBy: CKRecord.ID(recordName: "user"), id: CKRecord.ID(recordName: "family-reonboard", zoneID: zoneID))
+        appState.family = Family(name: "Reonboard", creatorUserRecordName: "user", id: CKRecord.ID(recordName: "family-reonboard", zoneID: zoneID))
         appState.currentProfile = nil
 
         let container = MockCloudKitService.defaultContainer

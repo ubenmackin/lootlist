@@ -219,7 +219,7 @@ struct ProfileViewModelTests {
         cloudKit.activeFamilyZoneID = zoneID
         let appState = AppState()
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        let family = Family(name: "Test Guild", createdBy: CKRecord.ID(recordName: "parent1", zoneID: zoneID), id: familyID)
+        let family = Family(name: "Test Guild", creatorUserRecordName: "parent1", id: familyID)
         let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
         let heroID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let hero = Profile(

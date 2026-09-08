@@ -385,7 +385,7 @@ extension QuestServiceTests {
                 createdBy: scaffold.hero,
                 family: Family(
                     name: "Guild",
-                    createdBy: scaffold.parent.id,
+                    creatorUserRecordName: scaffold.parent.id.recordName,
                     id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
                 )
             )
@@ -409,7 +409,7 @@ extension QuestServiceTests {
                 createdBy: scaffold.hero,
                 family: Family(
                     name: "Guild",
-                    createdBy: scaffold.parent.id,
+                    creatorUserRecordName: scaffold.parent.id.recordName,
                     id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
                 )
             )
@@ -498,7 +498,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold()
         let family = Family(
             name: "Guild",
-            createdBy: scaffold.parent.id,
+            creatorUserRecordName: scaffold.parent.id.recordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
         )
         scaffold.appState.family = family
@@ -540,7 +540,7 @@ extension QuestServiceTests {
         let scaffold = try MarkCompleteScaffold()
         let family = Family(
             name: "Guild",
-            createdBy: scaffold.parent.id,
+            creatorUserRecordName: scaffold.parent.id.recordName,
             id: CKRecord.ID(recordName: "fam1", zoneID: scaffold.zoneID)
         )
         scaffold.appState.family = family

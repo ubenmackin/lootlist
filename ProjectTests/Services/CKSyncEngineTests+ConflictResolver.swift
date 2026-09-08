@@ -126,7 +126,7 @@ extension CKSyncEngineTests {
 
         let family = Family(
             name: "Deleted Zone Family",
-            createdBy: CKRecord.ID(recordName: "gm1", zoneID: zoneID),
+            creatorUserRecordName: "gm1",
             id: CKRecord.ID(recordName: zoneID.zoneName, zoneID: zoneID)
         )
         await cache.upsertFamily(family)
@@ -166,7 +166,7 @@ extension CKSyncEngineTests {
         )
         let family = Family(
             name: "Zone Guild",
-            createdBy: parentID,
+            creatorUserRecordName: parentID.recordName,
             id: familyID
         )
         appState.currentProfile = parent
@@ -318,7 +318,7 @@ extension CKSyncEngineTests {
         appState.cacheService = cache
 
         let familyID = CKRecord.ID(recordName: "fam1", zoneID: zoneID)
-        let family = Family(name: "Guild", createdBy: CKRecord.ID(recordName: "gm", zoneID: zoneID), id: familyID)
+        let family = Family(name: "Guild", creatorUserRecordName: "gm", id: familyID)
         let familyRef = CKRecord.Reference(recordID: familyID, action: .none)
         let profileID = CKRecord.ID(recordName: "hero1", zoneID: zoneID)
         let profile = Profile(displayName: "Hero", role: .hero, iCloudUserID: profileID, family: familyRef, id: profileID)
