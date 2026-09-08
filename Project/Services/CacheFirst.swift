@@ -99,7 +99,11 @@ enum CacheFirst {
             switch serviceError {
             case .networkUnavailable, .retryable, .exhaustedBudget:
                 return true
+            case .notFound:
+                // WHY: server-missing is persistent, so callers surface it instead of masking as stale cache.
+                return false
             default:
+                // WHY: other server errors are persistent, so callers surface them instead of masking as stale cache.
                 return false
             }
         }

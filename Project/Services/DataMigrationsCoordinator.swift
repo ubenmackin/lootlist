@@ -460,13 +460,11 @@ extension DataMigrationsCoordinator {
         }
     }
 
-    /// Marker step for the V10 cache-schema bump. V10 is a lightweight
-    /// index-only migration (LedgerEntryCache adds two composite indexes for
-    /// hasTransferredToday). No properties added/removed, no data backfill.
-    /// SwiftData handles index creation via lightweight migration when the
-    /// versionIdentifier bumps from 9 to 10; the marker only records that the
-    /// transition was observed per account+family so downstream checks can assert
-    /// the store is at V10. Fail-open without an active zone mirrors V8.
+    /// Marker step for the V10 cache-schema bump. V10 is an index-only change
+    /// (LedgerEntryCache adds two composite indexes). No properties added/removed, no data backfill.
+    /// The store upgrade attempts lightweight with destructive-reset fallback in `CacheService` on failure;
+    /// the marker only records that the transition was observed per account+family.
+    /// Fail-open without an active zone mirrors V8.
     static func schemaV10LedgerIndexMarker(cloudKit: any CloudKitServiceProtocol) -> MigrationStep {
         MigrationStep(id: "SchemaV10LedgerIndexMarker", version: 10) {
             let logger = Logger(category: "DataMigrations")

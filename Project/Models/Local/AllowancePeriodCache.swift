@@ -127,14 +127,11 @@ final class AllowancePeriodCache: FamilyScopedCache, CacheMergeable {
     }
 
     static func fetchDescriptor(familyRecordName: String?) -> FetchDescriptor<AllowancePeriodCache> {
-        if let familyRecordName {
+        if let familyRecordName, !familyRecordName.isEmpty {
             return FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.familyRecordName == familyRecordName })
         }
-        return FetchDescriptor<AllowancePeriodCache>()
-    }
-
-    static func fetchDescriptor(recordName: String) -> FetchDescriptor<AllowancePeriodCache> {
-        FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.recordName == recordName })
+        // WHY fail-closed: nil/empty scope must match zero rows, never the whole table.
+        return FetchDescriptor<AllowancePeriodCache>(predicate: #Predicate { $0.familyRecordName == "" })
     }
 
     static func fetchDescriptor(recordName: String, familyRecordName: String) -> FetchDescriptor<AllowancePeriodCache> {

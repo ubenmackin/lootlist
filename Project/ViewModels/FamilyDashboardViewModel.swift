@@ -63,6 +63,11 @@ final class FamilyDashboardViewModel {
     /// Observer for roster changes to refresh invitations when membership updates.
     @ObservationIgnored private var rosterObserverTask: Task<Void, Never>?
 
+    @ObservationIgnored private var lastRebuildKey: String?
+    @ObservationIgnored private var lastRebuildMetrics: DashboardMetricsCalculator.Metrics?
+    /// WHY cache-first: viewer gating mirrors the queried row so session drift never leaks into the dashboard.
+    @ObservationIgnored private var cachedViewerRole: UserRole?
+
     init(questService: QuestService,
          treasury: TreasuryService,
          achievementService: AchievementService,
@@ -167,18 +172,61 @@ final class FamilyDashboardViewModel {
         ledgers: [LedgerEntryCache],
         allowancePeriods: [AllowancePeriodCache],
         profileAchievements: [ProfileAchievementCache],
-        achievements _: [AchievementCache],
-        templates: [QuestTemplateCache]
+        achievements: [AchievementCache],
+        templates: [QuestTemplateCache],
+        familyRow: FamilyCache? = nil,
+        viewerRow: ProfileCache? = nil
     ) {
         let roster = RosterViewState(profiles: profiles)
         heroes = roster.heroes
         parents = roster.parents
+        if let viewerRow {
+            cachedViewerRole = viewerRow.roleEnum
+        }
 
+        // WHY cache-first: context mirrors queried rows so payout math never disagrees with view gating.
+        let resolvedFamilyName = familyRow?.recordName ?? appState.family?.id.recordName
+        let resolvedPayoutDay: PayoutDay
+        let resolvedPayoutPolicy: PayoutPolicy?
+        if familyRow != nil || viewerRow != nil {
+            resolvedPayoutDay = PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
+            resolvedPayoutPolicy = familyRow?.payoutPolicyEnum
+        } else {
+            resolvedPayoutDay = PayoutDayResolver.resolved(for: nil as Profile?, family: appState.family)
+            resolvedPayoutPolicy = appState.family?.payoutPolicy
+        }
         let familyContext = DashboardMetricsCalculator.FamilyContext(
-            recordName: appState.family?.id.recordName,
-            payoutDay: PayoutDayResolver.resolved(for: nil as Profile?, family: appState.family),
-            payoutPolicy: appState.family?.payoutPolicy
+            recordName: resolvedFamilyName,
+            payoutDay: resolvedPayoutDay,
+            payoutPolicy: resolvedPayoutPolicy
         )
+
+        // WHY memoize: @Query refires on unrelated writes, so trophy-bearing metrics reuse the last pass unless inputs change.
+        let rebuildKey = Self.rebuildKey(
+            inputs: RebuildInputs(
+                profiles: profiles,
+                quests: quests,
+                logs: logs,
+                ledgers: ledgers,
+                allowancePeriods: allowancePeriods,
+                profileAchievements: profileAchievements,
+                achievements: achievements,
+                templates: templates
+            ),
+            familyContext: familyContext,
+            freshnessVersion: appState.cacheService?.freshnessVersion ?? 0
+        )
+        if let cached = lastRebuildMetrics, rebuildKey == lastRebuildKey, Self.isMemoLive(cached) {
+            weekSummary = cached.weekSummary
+            pastPayouts = cached.pastPayouts
+            familyOutflow = cached.familyOutflow
+            pendingReviewCount = cached.pendingReviewCount
+            childAccountCards = cached.childAccountCards
+            if loadError != nil {
+                loadError = nil
+            }
+            return
+        }
 
         let metrics = DashboardMetricsCalculator.calculate(
             profiles: profiles,
@@ -191,6 +239,8 @@ final class FamilyDashboardViewModel {
             templates: templates
         )
 
+        lastRebuildKey = rebuildKey
+        lastRebuildMetrics = metrics
         weekSummary = metrics.weekSummary
         pastPayouts = metrics.pastPayouts
         familyOutflow = metrics.familyOutflow
@@ -202,8 +252,215 @@ final class FamilyDashboardViewModel {
         }
     }
 
+    /// WHY bundled inputs: keeps the memo key builder within the parameter-count limit.
+    private struct RebuildInputs {
+        let profiles: [ProfileCache]
+        let quests: [QuestCache]
+        let logs: [QuestCompletionCache]
+        let ledgers: [LedgerEntryCache]
+        let allowancePeriods: [AllowancePeriodCache]
+        let profileAchievements: [ProfileAchievementCache]
+        let achievements: [AchievementCache]
+        let templates: [QuestTemplateCache]
+    }
+
+    /// WHY full fingerprint: every field feeding week math or balances busts the memo on in-place edits.
+    private static func rebuildKey(
+        inputs: RebuildInputs,
+        familyContext: DashboardMetricsCalculator.FamilyContext,
+        freshnessVersion: Int
+    ) -> String {
+        let profilePart: String = join(inputs.profiles.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let questPart: String = join(inputs.quests.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let logPart: String = join(inputs.logs.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let ledgerPart: String = join(inputs.ledgers.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let periodPart: String = join(inputs.allowancePeriods.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let profileAchievementPart: String = join(inputs.profileAchievements.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let achievementPart: String = join(inputs.achievements.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let templatePart: String = join(inputs.templates.map { fingerprint(for: $0) }.sorted(), separator: ",")
+        let contextPart: String = fingerprint(familyContext: familyContext, freshnessVersion: freshnessVersion)
+        let parts: [String] = [profilePart, questPart, logPart, ledgerPart, periodPart, profileAchievementPart, achievementPart, templatePart, contextPart]
+        return join(parts, separator: "|")
+    }
+
+    /// WHY one join: every fingerprint shares separators so memo keys never drift.
+    private static func join(_ fields: [String], separator: String = ":") -> String {
+        fields.joined(separator: separator)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for profile: ProfileCache) -> String {
+        let recordName: String = profile.recordName
+        let family: String = profile.familyRecordName
+        let displayName: String = profile.displayName
+        let role: String = profile.role
+        let active = String(describing: profile.isActive)
+        let payoutDay: String = profile.payoutDay ?? "-"
+        let payoutPolicy: String = profile.payoutPolicy ?? "-"
+        let avatarName: String = profile.avatarName ?? "-"
+        let avatarEmoji: String = profile.avatarEmoji ?? "-"
+        let avatarClass: String = profile.avatarClass ?? "-"
+        let splitSpend = String(profile.splitPercentSpend)
+        let splitShort = String(profile.splitPercentShort)
+        let splitLong = String(profile.splitPercentLong)
+        let fields: [String] = [recordName, family, displayName, role, active, payoutDay, payoutPolicy, avatarName, avatarEmoji, avatarClass, splitSpend, splitShort, splitLong]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for quest: QuestCache) -> String {
+        let recordName: String = quest.recordName
+        let family: String = quest.familyRecordName
+        let assignee: String = quest.assigneeRecordName
+        let template: String = quest.templateRecordName
+        let week = String(Int(quest.weekOf.timeIntervalSince1970))
+        let gold = String(quest.goldReward)
+        let xp = String(quest.xpReward)
+        let target = String(quest.targetCount)
+        let schedule: String = quest.scheduleType
+        let allOrNothing = String(describing: quest.isAllOrNothing)
+        let active = String(describing: quest.isActive)
+        let questName: String = quest.questName
+        let claimer: String = quest.claimedByProfileRecordName ?? "-"
+        let claimedAtValue: Int = if let claimedAt = quest.claimedAt {
+            Int(claimedAt.timeIntervalSince1970)
+        } else {
+            -1
+        }
+        let claimedAt = String(claimedAtValue)
+        let details: String = quest.descriptionText ?? "-"
+        let fields: [String] = [recordName, family, assignee, template, week, gold, xp, target, schedule, allOrNothing, active, questName, claimer, claimedAt, details]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for log: QuestCompletionCache) -> String {
+        let recordName: String = log.recordName
+        let family: String = log.familyRecordName
+        let quest: String = log.questRecordName
+        let completer: String = log.completerRecordName
+        let week = String(Int(log.weekOf.timeIntervalSince1970))
+        let completed = String(Int(log.completedDate.timeIntervalSince1970))
+        let status: String = log.verificationStatus
+        let approval: String = log.approvalMode
+        // WHY metrics-only: verifier and credit markers never feed counts, so only routing fields bust.
+        let fields: [String] = [recordName, family, quest, completer, week, completed, status, approval]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for entry: LedgerEntryCache) -> String {
+        let recordName: String = entry.recordName
+        let family: String = entry.familyRecordName
+        let profile: String = entry.profileRecordName
+        let amount = String(entry.amount)
+        let source: String = entry.source
+        let bucket: String = entry.bucketKind ?? "-"
+        let fromBucket: String = entry.fromBucket ?? "-"
+        let toBucket: String = entry.toBucket ?? "-"
+        let date = String(Int(entry.date.timeIntervalSince1970))
+        // WHY metrics-only: description and location never feed balances, so only money fields bust.
+        let fields: [String] = [recordName, family, profile, amount, source, bucket, fromBucket, toBucket, date]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for period: AllowancePeriodCache) -> String {
+        let recordName: String = period.recordName
+        let family: String = period.familyRecordName
+        let profile: String = period.profileRecordName
+        let week = String(Int(period.weekOf.timeIntervalSince1970))
+        let status: String = period.status
+        let earned = String(period.totalEarned)
+        let completed = String(period.questsCompleted)
+        let total = String(period.questsTotal)
+        let paidAmountValue: Int64 = period.paidAmount ?? -1
+        let paidAmount = String(paidAmountValue)
+        let paidDateValue: Int = if let paidDate = period.paidDate {
+            Int(paidDate.timeIntervalSince1970)
+        } else {
+            -1
+        }
+        let paidDate = String(paidDateValue)
+        let fields: [String] = [recordName, family, profile, week, status, earned, completed, total, paidAmount, paidDate]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for row: ProfileAchievementCache) -> String {
+        let recordName: String = row.recordName
+        let family: String = row.familyRecordName
+        let profile: String = row.profileRecordName
+        let achievement: String = row.achievementRecordName
+        let earned = String(Int(row.earnedDate.timeIntervalSince1970))
+        let fields: [String] = [recordName, family, profile, achievement, earned]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for achievement: AchievementCache) -> String {
+        let recordName: String = achievement.recordName
+        let family: String = achievement.familyRecordName
+        let name: String = achievement.name
+        let type: String = achievement.requirementType
+        let value = String(achievement.requirementValue)
+        let fields: [String] = [recordName, family, name, type, value]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(for template: QuestTemplateCache) -> String {
+        let recordName: String = template.recordName
+        let family: String = template.familyRecordName
+        let name: String = template.name
+        let gold = String(template.goldReward)
+        let xp = String(template.xpReward)
+        let active = String(describing: template.isActive)
+        let target = String(template.targetCount)
+        let schedule: String = template.scheduleType
+        let days: String = if let specificDays = template.specificDays {
+            join(specificDays.sorted(), separator: ",")
+        } else {
+            "-"
+        }
+        let allOrNothing = String(describing: template.isAllOrNothing)
+        let approval: String = template.approvalMode
+        // WHY metrics-only: display fields never feed targets, so only scheduling fields bust.
+        let fields: [String] = [recordName, family, name, gold, xp, active, target, schedule, days, allOrNothing, approval]
+        return join(fields)
+    }
+
+    /// WHY tiny fingerprints: one row types alone so the checker never solves a mega-interpolation.
+    private static func fingerprint(familyContext: DashboardMetricsCalculator.FamilyContext, freshnessVersion: Int) -> String {
+        let family: String = familyContext.recordName ?? "-"
+        let day: String = familyContext.payoutDay.rawValue
+        let policy: String = familyContext.payoutPolicy?.rawValue ?? "-"
+        let freshness = String(freshnessVersion)
+        let fields: [String] = [family, day, policy, freshness]
+        return join(fields, separator: ",")
+    }
+
+    /// WHY live-check: memo holds live @Model rows, so deleted rows bust instead of re-faulting.
+    private static func isMemoLive(_ metrics: DashboardMetricsCalculator.Metrics) -> Bool {
+        let heroesLive: Bool = metrics.weekSummary?.heroSummaries.allSatisfy { !$0.profile.isDeleted } ?? true
+        let cardsLive: Bool = metrics.childAccountCards.allSatisfy { !$0.profile.isDeleted }
+        let payoutsLive: Bool = metrics.pastPayouts.allSatisfy { !$0.isDeleted }
+        return heroesLive && cardsLive && payoutsLive
+    }
+
+    /// WHY explicit bust: purge/clear deletes memo-held rows, so callers drop the key alongside reset.
+    func invalidateMemo() {
+        lastRebuildKey = nil
+        lastRebuildMetrics = nil
+        cachedViewerRole = nil
+    }
+
+    /// WHY cache-first: viewer gating mirrors the queried row so session drift never leaks into the dashboard.
     var isGuildMaster: Bool {
-        appState.currentProfile?.role == .guildMaster
+        if let cachedViewerRole {
+            return cachedViewerRole == .guildMaster
+        }
+        return appState.currentProfile?.role == .guildMaster
     }
 
     // MARK: - Section Transforms (pure, no CloudKit)
@@ -287,6 +544,7 @@ final class FamilyDashboardViewModel {
         pastPayouts = []
         loadError = nil
         isLoading = false
+        invalidateMemo()
     }
 }
 

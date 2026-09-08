@@ -234,7 +234,8 @@ extension CacheService {
         return fetch(
             LedgerEntryCache.self,
             predicate: #Predicate { $0.profileRecordName == profileRecordName && $0.familyRecordName == family },
-            sortBy: [SortDescriptor(\.date, order: .reverse)]
+            // WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
+            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
         )
     }
 
@@ -288,7 +289,8 @@ extension CacheService {
         return fetchAll(
             LedgerEntryCache.self,
             family: family,
-            sortBy: [SortDescriptor(\.date, order: .reverse)]
+            // WHY secondary recordName: same-date rows stay stably ordered with every @Query ledger sort.
+            sortBy: [SortDescriptor(\.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
         )
     }
 

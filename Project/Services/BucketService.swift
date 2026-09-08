@@ -315,6 +315,7 @@ final class BucketService {
         }
 
         var effectiveTransferID = transferID
+        // WHY single source: DeterministicRecordID owns transfer-profile-transferID so retries dedupe via CKSyncEngine.
         var recordName = DeterministicRecordID.transfer(profileRecordName: profile.id.recordName, transferID: effectiveTransferID)
         // WHY replay-safe: an identical retry must dedupe, never fork a duplicate row.
         // Only a truly divergent payload extends, deterministically so every device converges.
@@ -323,6 +324,7 @@ final class BucketService {
             if isIdenticalTransfer(existing, amount: amount, from: from, to: to, date: date, transferID: transferID) {
                 throw BucketServiceError.duplicateTodayTransfer
             }
+            // WHY unbounded convergent extension: every attempt hashes full payload so all devices agree on each fallback name.
             effectiveTransferID = extendedTransferID(
                 base: transferID,
                 amount: amount,

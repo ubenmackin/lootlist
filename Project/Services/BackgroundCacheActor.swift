@@ -55,18 +55,64 @@ actor BackgroundCacheActor {
     func backfillQuestNames(_ quests: [Quest], cloudKit: any CloudKitServiceProtocol) async -> [Quest] {
         let nameless = quests.filter { $0.name == nil }
         guard !nameless.isEmpty else { return quests }
-        let recordNames = Set(nameless.map(\.template.recordID))
-        var templatesByID: [CKRecord.ID: QuestTemplate] = [:]
-        for recordID in recordNames {
+        let needed = Set(nameless.map(\.template.recordID.recordName))
+        var zoneByName: [String: CKRecordZone.ID] = [:]
+        zoneByName.reserveCapacity(needed.count)
+        var familyByName: [String: String] = [:]
+        familyByName.reserveCapacity(needed.count)
+        for quest in nameless {
+            let key = quest.template.recordID.recordName
+            zoneByName[key] = quest.template.recordID.zoneID
+            familyByName[key] = quest.family.recordID.recordName
+        }
+        // WHY cache-first: template rows already synced render instantly; CloudKit covers gaps only.
+        // WHY indexed probes: per-ID family+recordName rides the composite index, never scans the family table.
+        var cachedByName: [String: QuestTemplate] = [:]
+        for name in needed {
+            guard let familyName = familyByName[name], !familyName.isEmpty, let zone = zoneByName[name] else { continue }
             do {
-                let template = try await cloudKit.fetch(QuestTemplate.self, id: recordID)
-                templatesByID[recordID] = template
+                var descriptor = QuestTemplateCache.fetchDescriptor(recordName: name, familyRecordName: familyName)
+                descriptor.fetchLimit = 1
+                if let row = try modelContext.fetch(descriptor).first {
+                    cachedByName[name] = row.toQuestTemplate(zoneID: zone)
+                }
             } catch {
-                logger.debug("Failed to fetch template for backfill \(recordID.recordName, privacy: .private): \(error, privacy: .private)")
+                logger.error("Failed to fetch QuestTemplateCache for quest-name backfill: \(error, privacy: .private)")
             }
         }
+        let cached = Array(cachedByName.values)
+        let log = logger
+        // WHY batched stitch: one concurrent missing-ID pass replaces the per-row CloudKit N+1.
+        let stitched: [QuestTemplate]
+        do {
+            stitched = try await CacheFirst.stitch(needed: needed, cached: cached) { missing in
+                var fetched: [QuestTemplate] = []
+                let grouped = Dictionary(grouping: missing) { familyByName[$0] ?? "" }
+                for (familyName, names) in grouped {
+                    guard !familyName.isEmpty, let zone = names.compactMap({ zoneByName[$0] }).first else { continue }
+                    let family = Family(name: "", creatorUserRecordName: nil, id: CKRecord.ID(recordName: familyName, zoneID: zone))
+                    do {
+                        let batch: [QuestTemplate] = try await BatchQuestFetcher.fetchMissingQuests(names: names, family: family, cloudKit: cloudKit)
+                        fetched.append(contentsOf: batch)
+                    } catch {
+                        log.debug("Failed to batch-fetch templates for backfill \(familyName, privacy: .private): \(error, privacy: .private)")
+                    }
+                }
+                return fetched
+            }
+        } catch {
+            logger.debug("Failed to stitch templates for quest-name backfill: \(error, privacy: .private)")
+            let cachedByID = Dictionary(uniqueKeysWithValues: cached.map { ($0.id.recordName, $0) })
+            return quests.map { quest in
+                guard quest.name == nil, let template = cachedByID[quest.template.recordID.recordName] else { return quest }
+                var updated = quest
+                updated.name = template.name
+                return updated
+            }
+        }
+        let templatesByID = Dictionary(uniqueKeysWithValues: stitched.map { ($0.id.recordName, $0) })
         return quests.map { quest in
-            guard quest.name == nil, let template = templatesByID[quest.template.recordID] else { return quest }
+            guard quest.name == nil, let template = templatesByID[quest.template.recordID.recordName] else { return quest }
             var updated = quest
             updated.name = template.name
             return updated
@@ -374,6 +420,51 @@ actor BackgroundCacheActor {
             case .ignoredSystemRecord, .parseFailure: break
             }
         }
+
+        /// WHY committed set gates stamping: only types with rows written may stamp fresh.
+        var committedTypes: Set<CachedRecordType> {
+            var types: Set<CachedRecordType> = []
+            if !families.isEmpty {
+                types.insert(.family)
+            }
+            if !profiles.isEmpty {
+                types.insert(.profile)
+            }
+            if !quests.isEmpty {
+                types.insert(.quest)
+            }
+            if !templates.isEmpty {
+                types.insert(.questTemplate)
+            }
+            if !completions.isEmpty {
+                types.insert(.questCompletion)
+            }
+            if !ledgerEntries.isEmpty {
+                types.insert(.ledgerEntry)
+            }
+            if !periods.isEmpty {
+                types.insert(.allowancePeriod)
+            }
+            if !achievements.isEmpty {
+                types.insert(.achievement)
+            }
+            if !profileAchievements.isEmpty {
+                types.insert(.profileAchievement)
+            }
+            if !notificationPrefs.isEmpty {
+                types.insert(.notificationPreference)
+            }
+            if !rewardEvents.isEmpty {
+                types.insert(.rewardEvent)
+            }
+            if !gemLedgers.isEmpty {
+                types.insert(.gemLedger)
+            }
+            if !goals.isEmpty {
+                types.insert(.goal)
+            }
+            return types
+        }
     }
 
     @discardableResult
@@ -392,6 +483,8 @@ actor BackgroundCacheActor {
         var recordCount = 0
         var parseFailures = 0
         var commitSucceeded = false
+        var failedTypes: Set<CachedRecordType> = []
+        var committedTypes: Set<CachedRecordType> = []
     }
 
     /// Participant reconciliation — single commit with atomic saveContext.
@@ -411,10 +504,15 @@ actor BackgroundCacheActor {
             records.map { ParsedRecord.parse(record: $0) }
         }
         var parseFailures = 0
+        var failedTypes: Set<CachedRecordType> = []
         var batch = ParsedBatch()
         for parsed in parsedRecords {
-            if case .parseFailure = parsed {
+            if case let .parseFailure(recordType, _) = parsed {
                 parseFailures += 1
+                // WHY: unknown record types carry no freshness watermark, so only known types gate per-type stamping.
+                if let failedType = CachedRecordType.recordType(for: recordType) {
+                    failedTypes.insert(failedType)
+                }
             }
             batch.append(parsed)
         }
@@ -422,6 +520,7 @@ actor BackgroundCacheActor {
             logger.warning("\(parseFailures) record(s) failed to parse during participant reconciliation", family: familyRecordName, zone: zoneID.zoneName)
         }
         let capturedBatch = batch
+        let committedTypes = capturedBatch.committedTypes
         let commitSucceeded = await mutationQueue.write {
             await self.commitParticipantReconciliation(
                 capturedBatch,
@@ -433,7 +532,9 @@ actor BackgroundCacheActor {
         return ReconciliationOutcome(
             recordCount: records.count,
             parseFailures: parseFailures,
-            commitSucceeded: commitSucceeded
+            commitSucceeded: commitSucceeded,
+            failedTypes: failedTypes,
+            committedTypes: committedTypes
         )
     }
 

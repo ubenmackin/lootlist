@@ -78,7 +78,7 @@ struct HeroHomeView: View {
     /// Quests assigned to the active hero profile.
     private var profileQuests: [QuestCache] {
         // WHY: defensive — predicate is source of truth; guards against stale identity drift.
-        guard let name = appState.currentProfile?.id.recordName,
+        guard let name = currentProfileRow?.recordName,
               profileRecordName == nil || profileRecordName == name else { return [] }
         return cachedQuests
     }
@@ -86,7 +86,7 @@ struct HeroHomeView: View {
     /// Completions logged by the active hero profile.
     private var profileLogs: [QuestCompletionCache] {
         // WHY: defensive — store is source of truth; guards against stale identity drift.
-        guard let name = appState.currentProfile?.id.recordName,
+        guard let name = currentProfileRow?.recordName,
               profileRecordName == nil || profileRecordName == name else { return [] }
         return cachedCompletions
     }
@@ -97,7 +97,7 @@ struct HeroHomeView: View {
         // WHY ViewModel-owned: checklist/wishlist agreement lives in HeroDashboardViewModel via HubQueryProvider.
         HeroDashboardViewModel.hasListedGoal(
             goals: cachedGoals,
-            profileName: profileRecordName ?? appState.currentProfile?.id.recordName
+            profileName: profileRecordName ?? currentProfileRow?.recordName
         )
     }
 
@@ -109,24 +109,24 @@ struct HeroHomeView: View {
     private var effectiveHasSeenNotificationPrime: Bool {
         DismissalKeys.effectiveBool(
             DismissalKeys.hasSeenNotificationPrime,
-            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
-            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+            familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? currentProfileRow?.recordName
         )
     }
 
     private var effectiveHasDismissedHeroChecklist: Bool {
         DismissalKeys.effectiveBool(
             DismissalKeys.hasDismissedHeroChecklist,
-            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
-            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+            familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? currentProfileRow?.recordName
         )
     }
 
     private var scopedChecklistBinding: Binding<Bool> {
         DismissalKeys.scopedBinding(
             DismissalKeys.hasDismissedHeroChecklist,
-            familyRecordName: familyRecordName ?? appState.family?.id.recordName,
-            profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+            familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName,
+            profileRecordName: profileRecordName ?? currentProfileRow?.recordName
         )
     }
 
@@ -135,7 +135,7 @@ struct HeroHomeView: View {
         guard !effectiveHasDismissedHeroChecklist else { return false }
         guard let row = currentProfileRow else { return false }
         // WHY utility-first: gate on non-parent role, not RPG chrome; immersive RPG surfaces stay hidden per ARCHITECTURE §1.
-        let isChild = (row.roleEnum?.isParent ?? appState.currentProfile?.role.isParent ?? true) == false
+        let isChild = (row.roleEnum?.isParent ?? true) == false
         guard isChild else { return false }
         guard viewModel != nil else { return false }
         let pending = !effectiveHasSeenNotificationPrime
@@ -154,15 +154,15 @@ struct HeroHomeView: View {
 
     /// Writes the scoped key (family+profile isolation) so completion here never leaks into another family's prime gate.
     private func markNotificationPrimeSeen() {
-        let family = familyRecordName ?? appState.family?.id.recordName
-        let profile = profileRecordName ?? appState.currentProfile?.id.recordName
+        let family = familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName
+        let profile = profileRecordName ?? currentProfileRow?.recordName
         DismissalStore.markSeen(DismissalKeys.hasSeenNotificationPrime, familyRecordName: family, profileRecordName: profile)
     }
 
     /// One-time legacy promotion for dismissal gates, run from .task so view bodies stay pure.
     private func migrateDismissals() {
-        let family = familyRecordName ?? appState.family?.id.recordName
-        let profile = profileRecordName ?? appState.currentProfile?.id.recordName
+        let family = familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName
+        let profile = profileRecordName ?? currentProfileRow?.recordName
         DismissalKeys.migrate(DismissalKeys.hasSeenNotificationPrime, familyRecordName: family, profileRecordName: profile)
         DismissalKeys.migrate(DismissalKeys.hasDismissedHeroChecklist, familyRecordName: family, profileRecordName: profile)
     }
@@ -208,8 +208,8 @@ struct HeroHomeView: View {
                 rebuildViewModel()
             }
         }
-        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch; defensive filter in rebuild() is secondary guard.
-        .id(profileRecordName)
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch; defensive filter in rebuild() is secondary guard.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     // MARK: - Subviews
@@ -319,12 +319,15 @@ struct HeroHomeView: View {
     // MARK: - Helpers
 
     private var gemsBalance: Int? {
-        guard let profile = appState.currentProfile else { return nil }
-        let targetRecordName = profile.id.recordName
+        guard let row = currentProfileRow else { return nil }
+        let targetRecordName = row.recordName
         if let cached = HeroDashboardViewModel.cachedGemTotal(ledgers: cachedGemLedgers, profileName: targetRecordName) {
             return cached
         }
-        let family = appState.family?.id.recordName ?? profile.family.recordID.recordName
+        // WHY row-first family: the cache row owns scope with param fallback, session only bridges bootstrap.
+        let rowFamily = row.familyRecordName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let family: String? = rowFamily.isEmpty ? (familyRecordName ?? appState.family?.id.recordName) : rowFamily
+        guard let family, !family.isEmpty else { return nil }
         do {
             return try gemService.balance(for: targetRecordName, familyRecordName: family)
         } catch {
@@ -342,7 +345,7 @@ struct HeroHomeView: View {
     private func rebuildViewModel(_ vm: HeroDashboardViewModel? = nil) {
         appState.updateCurrentProfileFromCache()
         guard let targetVM = vm ?? viewModel else { return }
-        guard let currentName = appState.currentProfile?.id.recordName else { return }
+        guard let currentName = currentProfileRow?.recordName else { return }
 
         // WHY: predicate is primary profile scope; secondary in-memory filter guards stale identity when view is not recreated on profile switch.
         let quests = cachedQuests.filter { $0.assigneeRecordName == currentName }
@@ -368,13 +371,13 @@ struct HeroHomeView: View {
             checklistNotificationSheet
         case .buckets:
             SavingsSplitView(
-                familyRecordName: familyRecordName,
-                profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName,
+                profileRecordName: profileRecordName ?? currentProfileRow?.recordName
             )
         case .firstGoal:
             GoalEditorSheet(
-                familyRecordName: familyRecordName,
-                profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName,
+                profileRecordName: profileRecordName ?? currentProfileRow?.recordName
             ) { draft in
                 try await saveChecklistGoal(draft)
             }
@@ -421,15 +424,12 @@ struct HeroHomeView: View {
         guard let family = appState.family, let zoneID = appState.familyZoneID else {
             throw FamilyServiceError.unauthorized
         }
-        let targetName = profileRecordName ?? appState.currentProfile?.id.recordName
-        let profile: Profile
-        if let row = currentProfileRow, row.recordName == targetName {
-            profile = row.toProfile(zoneID: zoneID)
-        } else if let current = appState.currentProfile {
-            profile = current
-        } else {
+        let targetName = profileRecordName ?? currentProfileRow?.recordName
+        // WHY: mutation actor derives from the cache row so goal creation never reads session domain state.
+        guard let row = currentProfileRow, row.recordName == targetName else {
             throw FamilyServiceError.unauthorized
         }
+        let profile = row.toProfile(zoneID: zoneID)
         do {
             _ = try await goalService.createGoal(
                 name: draft.name,

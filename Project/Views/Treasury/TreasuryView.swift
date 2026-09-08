@@ -13,6 +13,7 @@ struct TreasuryView: View {
     @Environment(TreasuryService.self) private var treasury
     @Environment(ToastManager.self) private var toastManager: ToastManager?
     @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
 
     private let spending: SpendingService
 
@@ -30,6 +31,7 @@ struct TreasuryView: View {
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedAllowancePeriods: [AllowancePeriodCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     /// Family record name used to push the family filter down to SwiftData.
     /// When `nil` (no family loaded) the queries return zero rows, which is
@@ -73,7 +75,25 @@ struct TreasuryView: View {
             filter: allowanceFilter,
             sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        _cachedTemplates = Query(
+            filter: templateFilter,
+            sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+        )
+        // WHY: single-row scope keeps viewer identity cache-derived instead of session-derived.
+        _currentProfileRows = Query(
+            filter: HubQueryProvider.currentProfileFilter(family: targetFamily, profile: profileRecordName),
+            sort: HubQueryProvider.currentProfileSort()
+        )
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        HubQueryProvider.resolveViewerRow(
+            rows: currentProfileRows,
+            profileRecordName: profileRecordName,
+            fallbackRecordName: appState.currentProfile?.id.recordName
+        )
     }
 
     var body: some View {
@@ -88,8 +108,10 @@ struct TreasuryView: View {
         }
         .task {
             ensureViewModel()
+            pushSyncSnapshot()
             checkPendingQuickAction(appState.pendingQuickAction)
             await lifecycleCoordinator?.performManualSync()
+            pushSyncSnapshot()
         }
         .modifier(
             TreasuryCacheObservers(
@@ -102,6 +124,9 @@ struct TreasuryView: View {
                 onCacheChanged: { rebuild() }
             )
         )
+        .onChange(of: currentProfileRows) { _, _ in
+            rebuild()
+        }
         .onChange(of: appState.pendingQuickAction) { _, action in
             checkPendingQuickAction(action)
         }
@@ -110,12 +135,22 @@ struct TreasuryView: View {
                 toastManager?.show(message: newError, type: .error)
             }
         }
+        .onChange(of: syncCoordinator?.pendingUploadCount) { _, _ in
+            pushSyncSnapshot()
+        }
+        .onChange(of: syncCoordinator?.lastSyncedAt) { _, _ in
+            pushSyncSnapshot()
+        }
+        .onChange(of: syncCoordinator?.isSyncing) { _, _ in
+            pushSyncSnapshot()
+        }
         .refreshable {
             await lifecycleCoordinator?.performManualSync()
+            pushSyncSnapshot()
             rebuild()
         }
-        // WHY: view identity tracks profileRecordName so @Query predicates (init-captured) are recreated on profile switch.
-        .id(profileRecordName)
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     private var scrollBody: some View {
@@ -127,19 +162,33 @@ struct TreasuryView: View {
 
     private var contentStack: some View {
         VStack(spacing: 20) {
-            if let viewModel {
+            if let viewModel, viewModel.hasLoadedOnce {
                 loadedContent(viewModel)
             } else {
-                loadingPlaceholder
+                treasurySkeleton
             }
         }
         .padding(.vertical)
     }
 
-    private var loadingPlaceholder: some View {
-        ProgressView("Summoning your treasury…")
-            .frame(maxWidth: .infinity)
-            .padding(.top, 40)
+    /// WHY redacted cards: skeleton holds layout so first sync populates without jump.
+    private var treasurySkeleton: some View {
+        VStack(spacing: 20) {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                .frame(height: 148)
+                .padding(.horizontal)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                .frame(height: 220)
+                .padding(.horizontal)
+            syncFootnote
+                .padding(.horizontal)
+        }
+        .redacted(reason: .placeholder)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading your treasury")
+        .accessibilityIdentifier("treasury.skeleton")
     }
 
     @ToolbarContentBuilder
@@ -186,7 +235,8 @@ struct TreasuryView: View {
     }
 
     private func rebuild(_ vm: TreasuryViewModel? = nil) {
-        guard appState.currentProfile?.id.recordName != nil else { return }
+        // WHY: row-derived identity keeps rebuild cache-bound with fail-closed empty scope.
+        guard currentProfileRow?.recordName != nil else { return }
 
         (vm ?? viewModel)?.rebuildLists(
             logs: cachedCompletions,
@@ -199,7 +249,8 @@ struct TreasuryView: View {
     }
 
     private var targetFamilyForStale: String {
-        familyRecordName ?? appState.family?.id.recordName ?? ""
+        // WHY row-first family: the cache row owns scope with param fallback, session only bridges bootstrap.
+        familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName ?? ""
     }
 
     private func checkPendingQuickAction(_ action: QuickActionType?) {
@@ -222,16 +273,64 @@ struct TreasuryView: View {
             .padding(.horizontal)
         }
 
-        BalanceCardView(balance: viewModel.balance,
-                        weekOf: viewModel.allowancePeriod?.weekOf ?? Date(),
-                        status: viewModel.allowancePeriod?.status,
-                        pendingPayoutAmount: viewModel.pendingQuestGold)
-            .padding(.horizontal, 0)
-
-        WeeklyBreakdownCard(breakdown: viewModel.weeklyBreakdown)
-
-        logSpendingButton
+        syncFootnote
             .padding(.horizontal)
+
+        if cachedLedgers.isEmpty, cachedCompletions.isEmpty {
+            // WHY fresh-gated empty: zero rows pre-hydration is still loading, post-hydration is genuinely empty.
+            if isLedgerFresh {
+                EmptyStateView(
+                    systemImage: "banknote",
+                    title: "No activity yet",
+                    description: "Completed quests and spending will show up here.",
+                    verticalPadding: 48
+                )
+                .padding(.horizontal)
+            } else {
+                treasurySkeleton
+            }
+            logSpendingButton
+                .padding(.horizontal)
+        } else {
+            BalanceCardView(balance: viewModel.balance,
+                            weekOf: viewModel.allowancePeriod?.weekOf ?? Date(),
+                            status: viewModel.allowancePeriod?.status,
+                            pendingPayoutAmount: viewModel.pendingQuestGold)
+                .padding(.horizontal, 0)
+
+            WeeklyBreakdownCard(breakdown: viewModel.weeklyBreakdown)
+
+            logSpendingButton
+                .padding(.horizontal)
+        }
+    }
+
+    /// WHY prod-safe subset: inline footnote mirrors iCloudStatusView counts without DEBUG diagnostics.
+    private var syncFootnote: some View {
+        SyncFootnoteView(
+            pendingCount: pendingCount,
+            isSyncing: lifecycleCoordinator?.isSyncing == true,
+            lastSyncedAt: viewModel?.lastSyncedAt ?? syncCoordinator?.lastSyncedAt
+        )
+        .accessibilityIdentifier("treasury.syncFootnote")
+    }
+
+    /// WHY scope-free probe: empty cache is never stale so freshness alone decides empty versus loading.
+    private var isLedgerFresh: Bool {
+        guard !targetFamilyForStale.isEmpty else { return false }
+        return appState.cacheService?.isCacheFresh(familyRecordName: targetFamilyForStale, type: .ledgerEntry) ?? false
+    }
+
+    /// WHY single source: footnote reads the pushed snapshot with coordinator fallback in one place.
+    private var pendingCount: Int {
+        viewModel?.pendingUploadCount ?? syncCoordinator?.pendingUploadCount ?? 0
+    }
+
+    private func pushSyncSnapshot() {
+        viewModel?.applySyncSnapshot(
+            pendingUploadCount: syncCoordinator?.pendingUploadCount ?? 0,
+            lastSyncedAt: syncCoordinator?.lastSyncedAt
+        )
     }
 
     private var logSpendingButton: some View {

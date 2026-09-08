@@ -76,6 +76,14 @@ final class TreasuryViewModel {
 
     private(set) var errorMessage: String?
 
+    /// WHY snapshot: coordinator-owned sync health rides the view model so inline footnotes render without CloudKit imports.
+    private(set) var pendingUploadCount: Int = 0
+
+    private(set) var lastSyncedAt: Date?
+
+    /// WHY first-pass flag: separates skeleton (never rebuilt) from empty (rebuilt with zero rows).
+    private(set) var hasLoadedOnce: Bool = false
+
     init(treasury: TreasuryService,
          spending: SpendingService,
          appState: AppState)
@@ -92,16 +100,42 @@ final class TreasuryViewModel {
     }
 
     /// WHY instance shim: views hold @Query rows but should not reimplement bucket math.
-    func currentSpendBalance(from ledgers: [LedgerEntryCache]) -> Int64 {
-        guard let profile = appState.currentProfile else { return 0 }
-        return BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: profile.id.recordName)
+    func currentSpendBalance(from ledgers: [LedgerEntryCache], viewerRow: ProfileCache? = nil) -> Int64 {
+        // WHY row-first: balance identity must mirror @Query rows so session edits never disagree with gating.
+        guard let profileName = viewerRow?.recordName ?? appState.currentProfile?.id.recordName else { return 0 }
+        return BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: profileName)
+    }
+
+    // MARK: - Sync Snapshot (prod-safe subset mirror)
+
+    /// WHY push not pull: views own the coordinator environment so the model stays CloudKit-free.
+    func applySyncSnapshot(pendingUploadCount: Int, lastSyncedAt: Date?) {
+        self.pendingUploadCount = pendingUploadCount
+        self.lastSyncedAt = lastSyncedAt
+    }
+
+    var hasPendingUploads: Bool {
+        pendingUploadCount > 0
     }
 
     // MARK: - Weekly Breakdown (CloudKit-backed)
 
-    func refreshWeeklyBreakdown() async {
-        guard let profile = appState.currentProfile, let family = appState.family else { return }
-        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: profile.payoutDay ?? family.payoutDay)
+    func refreshWeeklyBreakdown(viewerRow: ProfileCache? = nil, familyRow: FamilyCache? = nil) async {
+        let zoneID = appState.resolvedFamilyZoneID()
+        // WHY row-first: week math must mirror @Query rows so payout-day edits never disagree with gating.
+        let profile: Profile?
+        let family: Family?
+        if viewerRow != nil || familyRow != nil {
+            profile = viewerRow?.toProfile(zoneID: zoneID) ?? appState.currentProfile
+            family = familyRow?.toFamily(zoneID: zoneID) ?? appState.family
+        } else {
+            profile = appState.currentProfile
+            family = appState.family
+        }
+        guard let profile, let family else { return }
+        let payoutDay = PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
+        let effectivePayoutDay: PayoutDay = (viewerRow != nil || familyRow != nil) ? payoutDay : (profile.payoutDay ?? family.payoutDay)
+        let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: effectivePayoutDay)
         isLoading = true
         defer { isLoading = false }
         do {
@@ -123,10 +157,12 @@ final class TreasuryViewModel {
         quests: [QuestCache],
         allowancePeriods: [AllowancePeriodCache],
         scope: CalendarScope,
-        templates: [QuestTemplateCache]
+        templates: [QuestTemplateCache],
+        viewerRow: ProfileCache? = nil,
+        familyRow: FamilyCache? = nil
     ) {
-        guard let profile = appState.currentProfile else { return }
-        let profileName = profile.id.recordName
+        // WHY row-first: identity must mirror @Query rows so treasury math never disagrees with gating.
+        guard let profileName = viewerRow?.recordName ?? appState.currentProfile?.id.recordName else { return }
 
         let profileLedgers = ledgers.filter { $0.profileRecordName == profileName }
 
@@ -134,7 +170,11 @@ final class TreasuryViewModel {
         balance = BucketService.totalBalance(for: ledgers, profileRecordName: profileName)
         spendBalance = BucketService.resolvedSpendBalance(for: ledgers, profileRecordName: profileName)
 
-        let payoutDay = resolvedPayoutDay
+        let payoutDay: PayoutDay = if viewerRow != nil || familyRow != nil {
+            PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
+        } else {
+            resolvedPayoutDay
+        }
         let weekOf = WeekMath.startOfWeek(for: Date(), payoutDay: payoutDay)
         let weekRange = WeekMath.weekRange(starting: weekOf)
 
@@ -168,7 +208,12 @@ final class TreasuryViewModel {
         }
         let weekLogs = approvedLogs.filter { weekRange.contains($0.weekOf) || weekRange.contains($0.completedDate) }
 
-        let effectivePolicy = profile.payoutPolicy ?? appState.family?.payoutPolicy ?? .perQuest
+        // WHY row-first: payout policy must mirror @Query rows so pending math never disagrees with gating.
+        let effectivePolicy: PayoutPolicy = if viewerRow != nil || familyRow != nil {
+            viewerRow?.payoutPolicyEnum ?? familyRow?.payoutPolicyEnum ?? .perQuest
+        } else {
+            appState.currentProfile?.payoutPolicy ?? appState.family?.payoutPolicy ?? .perQuest
+        }
         // WHY day count wins: stale targetCount under-counts specific-days split rewards.
         let templatesByID = SpecificDaysHelper.templatesByID(templates)
         let weekQuestsGold = GoldCalculation.netWeeklyPennies(
@@ -200,14 +245,22 @@ final class TreasuryViewModel {
         )
 
         spendingLog = LedgerRowFactory.spendingRows(from: ledgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
+        // WHY late flag: rebuild completed so skeleton must yield to empty-or-content on next render.
+        hasLoadedOnce = true
     }
 
-    func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], scope: CalendarScope) {
-        guard let profile = appState.currentProfile else { return }
-        let profileName = profile.id.recordName
-        let payoutDay = resolvedPayoutDay
+    func rebuildSpendingLog(from cachedLedgers: [LedgerEntryCache], scope: CalendarScope, viewerRow: ProfileCache? = nil, familyRow: FamilyCache? = nil) {
+        // WHY row-first: identity must mirror @Query rows so spending math never disagrees with gating.
+        guard let profileName = viewerRow?.recordName ?? appState.currentProfile?.id.recordName else { return }
+        let payoutDay: PayoutDay = if viewerRow != nil || familyRow != nil {
+            PayoutDayResolver.resolved(for: viewerRow, family: familyRow)
+        } else {
+            resolvedPayoutDay
+        }
         spendBalance = BucketService.resolvedSpendBalance(for: cachedLedgers, profileRecordName: profileName)
         spendingLog = LedgerRowFactory.spendingRows(from: cachedLedgers, profileRecordName: profileName, scope: scope, payoutDay: payoutDay)
+        // WHY late flag: spending-only rebuilds also retire the skeleton.
+        hasLoadedOnce = true
     }
 
     func previousLocations(from cachedLedgers: [LedgerEntryCache]) -> [String] {
@@ -280,5 +333,8 @@ final class TreasuryViewModel {
         spendingLog = []
         errorMessage = nil
         isLoading = false
+        pendingUploadCount = 0
+        lastSyncedAt = nil
+        hasLoadedOnce = false
     }
 }

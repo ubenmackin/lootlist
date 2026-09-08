@@ -17,18 +17,46 @@ struct TabBarView: View {
 
     private let spending: SpendingService
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
     @Query private var cachedCompletions: [QuestCompletionCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var selectedTab: RootTab = .family
 
-    init(spending: SpendingService, familyRecordName: String? = nil) {
+    init(spending: SpendingService, familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.spending = spending
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         let targetFamily = familyRecordName ?? ""
         let completionFilter = QuestCompletionCache.pendingPredicate(familyRecordName: targetFamily)
-        _cachedCompletions = Query(filter: completionFilter)
+        // WHY stable sort: secondary recordName keeps badge count ordering deterministic across sync reorders.
+        _cachedCompletions = Query(filter: completionFilter, sort: HubQueryProvider.completionSort())
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            _currentProfileRows = Query(
+                filter: ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily),
+                sort: HubQueryProvider.profileSort()
+            )
+        } else {
+            // WHY: family fallback keeps tab gating live before the profile param propagates; row still resolves via session identity.
+            _currentProfileRows = Query(
+                filter: ProfileCache.familyPredicate(familyRecordName: targetFamily),
+                sort: HubQueryProvider.profileSort()
+            )
+        }
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        ProfileRowResolver.resolve(rows: currentProfileRows, targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName)
+    }
+
+    /// Viewer role derived from cache so tab gating never reads session domain state.
+    private var viewerRole: UserRole? {
+        currentProfileRow?.roleEnum
     }
 
     private var pendingCount: Int {
@@ -62,26 +90,29 @@ struct TabBarView: View {
             }
             checkPendingNotificationRoute(appState.pendingNotificationRoute)
             Task {
-                await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: appState.currentProfile?.role)
+                await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: viewerRole)
             }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 Task {
-                    await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: appState.currentProfile?.role)
+                    await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: viewerRole)
                 }
             }
         }
         .onChange(of: roleKind) { _, _ in
             reconcileDefaultSelection()
             Task {
-                await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: appState.currentProfile?.role)
+                await notificationService.updateAppBadgeCount(pendingCount: pendingCount, role: viewerRole)
             }
         }
         .onChange(of: pendingCount) { _, newCount in
             Task {
-                await notificationService.updateAppBadgeCount(pendingCount: newCount, role: appState.currentProfile?.role)
+                await notificationService.updateAppBadgeCount(pendingCount: newCount, role: viewerRole)
             }
+        }
+        .onChange(of: currentProfileRows) { _, _ in
+            reconcileDefaultSelection()
         }
         .onChange(of: appState.pendingQuickAction) { _, action in
             guard let action else { return }
@@ -136,7 +167,8 @@ struct TabBarView: View {
     }
 
     private var roleKind: RoleKind {
-        guard let role = appState.currentProfile?.role else { return .unknown }
+        // WHY: row-derived role keeps tab gating cache-bound with fail-closed unknown scope.
+        guard let role = viewerRole else { return .unknown }
         return role.isParent ? .parent : .hero
     }
 
@@ -161,10 +193,12 @@ struct TabBarView: View {
 
     @ViewBuilder
     private var parentTabs: some View {
-        let familyName = appState.family?.id.recordName
+        // WHY: row-first identity keeps tab scope cache-bound with session fallback during bootstrap.
+        let familyName = familyRecordName ?? appState.family?.id.recordName
+        let profileName = profileRecordName ?? currentProfileRow?.recordName
 
-        FamilyDashboardView(spending: spending, familyRecordName: familyName)
-            .id("parent-family-\(familyName ?? "")")
+        FamilyDashboardView(spending: spending, familyRecordName: familyName, profileRecordName: profileName)
+            .id("parent-family-\(familyName ?? "")-\(profileName ?? "")")
             .tabItem {
                 Label("Family", systemImage: "house.fill")
             }
@@ -173,14 +207,14 @@ struct TabBarView: View {
             .tag(RootTab.family)
 
         QuestManagerView(familyRecordName: familyName)
-            .id("parent-manage-\(familyName ?? "")")
+            .id("parent-manage-\(familyName ?? "")-\(profileName ?? "")")
             .tabItem {
                 Label("Manage", systemImage: "rectangle.stack.fill")
             }
             .tag(RootTab.manage)
 
-        PayoutHistoryView(familyRecordName: familyName)
-            .id("parent-payouts-\(familyName ?? "")")
+        PayoutHistoryView(familyRecordName: familyName, profileRecordName: profileName)
+            .id("parent-payouts-\(familyName ?? "")-\(profileName ?? "")")
             .tabItem {
                 Label("Payouts", systemImage: "calendar.badge.checkmark")
             }
@@ -188,8 +222,9 @@ struct TabBarView: View {
 
         SettingsView(
             familyRecordName: familyName,
-            profileRecordName: appState.currentProfile?.id.recordName
+            profileRecordName: profileName
         )
+        .id("parent-settings-\(familyName ?? "")-\(profileName ?? "")")
         .tabItem {
             Label("Settings", systemImage: "gear")
         }
@@ -198,35 +233,37 @@ struct TabBarView: View {
 
     @ViewBuilder
     private var heroTabs: some View {
-        let familyName = appState.family?.id.recordName
+        // WHY: row-first identity keeps tab scope cache-bound with session fallback during bootstrap.
+        let familyName = familyRecordName ?? appState.family?.id.recordName
+        let profileName = profileRecordName ?? currentProfileRow?.recordName
 
         ChildHubView(
             spending: spending,
             familyRecordName: familyName,
-            profileRecordName: appState.currentProfile?.id.recordName
+            profileRecordName: profileName
         )
-        .id("hero-home-\(familyName ?? "")")
+        .id("hero-home-\(familyName ?? "")-\(profileName ?? "")")
         .tabItem {
             Label("Home", systemImage: "house.fill")
         }
         .tag(RootTab.home)
 
-        MyChoresView(familyRecordName: familyName, profileRecordName: appState.currentProfile?.id.recordName)
-            .id("hero-quests-\(familyName ?? "")-\(appState.currentProfile?.id.recordName ?? "")")
+        MyChoresView(familyRecordName: familyName, profileRecordName: profileName)
+            .id("hero-quests-\(familyName ?? "")-\(profileName ?? "")")
             .tabItem {
                 Label("Quests", systemImage: "list.bullet.clipboard")
             }
             .tag(RootTab.quests)
 
-        ChildLedgerView(familyRecordName: familyName, profileRecordName: appState.currentProfile?.id.recordName)
-            .id("hero-ledger-\(familyName ?? "")-\(appState.currentProfile?.id.recordName ?? "")")
+        ChildLedgerView(familyRecordName: familyName, profileRecordName: profileName)
+            .id("hero-ledger-\(familyName ?? "")-\(profileName ?? "")")
             .tabItem {
                 Label("Money", systemImage: "dollarsign.circle.fill")
             }
             .tag(RootTab.ledger)
 
-        MyGoalsView(familyRecordName: familyName, profileRecordName: appState.currentProfile?.id.recordName)
-            .id("hero-goals-\(familyName ?? "")-\(appState.currentProfile?.id.recordName ?? "")")
+        MyGoalsView(familyRecordName: familyName, profileRecordName: profileName)
+            .id("hero-goals-\(familyName ?? "")-\(profileName ?? "")")
             .tabItem {
                 Label("Goals", systemImage: "target")
             }
@@ -236,8 +273,8 @@ struct TabBarView: View {
                     xpService: xpService,
                     notificationService: notificationService,
                     familyRecordName: familyName,
-                    profileRecordName: appState.currentProfile?.id.recordName)
-            .id("hero-profile-\(familyName ?? "")")
+                    profileRecordName: profileName)
+            .id("hero-profile-\(familyName ?? "")-\(profileName ?? "")")
             .tabItem {
                 Label("Profile", systemImage: "person.crop.circle.fill")
             }

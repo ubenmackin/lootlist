@@ -21,6 +21,8 @@ enum RecordBridge {
             return nil
         }
         let name = identity.recordName
+        // WHY: empty names never match a row — fail closed rather than scanning all tables.
+        guard !name.isEmpty else { return nil }
         let zoneID = identity.zoneID
         let scope = identity.databaseScope
         for type in CachedRecordType.allCases {
@@ -61,10 +63,13 @@ enum RecordBridge {
 
     private static func deletionCheckResult(for identity: ScopedRecordIdentity, cacheService: CacheService) -> DeletionCheckResult {
         let name = identity.recordName
+        // WHY: empty names retain pending saves — confirming deletion would drop an unresolvable tombstone.
+        guard !name.isEmpty else { return .stillPresent }
+        let family = identity.familyRecordName
         var allAbsent = true
         // WHY: fail closed — any fetch error returns .unknown for retry.
         for type in CachedRecordType.allCases {
-            guard let result = deletionStatus(for: type, name: name, cacheService: cacheService) else {
+            guard let result = deletionStatus(for: type, name: name, family: family, cacheService: cacheService) else {
                 continue
             }
             if result == .unknown {
@@ -72,33 +77,133 @@ enum RecordBridge {
             }
             allAbsent = false
         }
-        return allAbsent ? .confirmed : .stillPresent
+        if !allAbsent {
+            return .stillPresent
+        }
+        // WHY mismatched family retains: scoped miss alone cannot distinguish deletion from wrong family.
+        switch existsInOtherFamily(name: name, requestedFamily: family, cacheService: cacheService) {
+        case .stillPresent:
+            return .stillPresent
+        case .unknown:
+            return .unknown
+        case .confirmed:
+            break
+        }
+        // WHY scoped-only: family+recordName rides the composite index, recordName-only would table-scan.
+        return .confirmed
+    }
+
+    /// WHY equality scan: recordName equality rides the index, family filters in memory.
+    private static func existsInOtherFamily(name: String, requestedFamily: String?, cacheService: CacheService) -> DeletionCheckResult {
+        guard let requested = requestedFamily, !requested.isEmpty else {
+            return .confirmed
+        }
+        for type in CachedRecordType.allCases {
+            guard let result = otherFamilyStatus(for: type, name: name, requested: requested, cacheService: cacheService) else {
+                continue
+            }
+            if result == .unknown {
+                return .unknown
+            }
+            return .stillPresent
+        }
+        return .confirmed
+    }
+
+    private static func otherFamilyStatus(for type: CachedRecordType, name: String, requested: String, cacheService: CacheService) -> DeletionCheckResult? {
+        // WHY concrete instantiation: generic probe monomorphizes per type so the index still routes.
+        switch type {
+        case .family:
+            otherFamilyFamilyStatus(targetName: name, otherFamily: requested, cacheService: cacheService)
+        case .profile:
+            otherFamilyExists(ProfileCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .quest:
+            otherFamilyExists(QuestCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .questTemplate:
+            otherFamilyExists(QuestTemplateCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .questCompletion:
+            otherFamilyExists(QuestCompletionCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .ledgerEntry:
+            otherFamilyExists(LedgerEntryCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .allowancePeriod:
+            otherFamilyExists(AllowancePeriodCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .achievement:
+            otherFamilyExists(AchievementCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .profileAchievement:
+            otherFamilyExists(ProfileAchievementCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .notificationPreference:
+            otherFamilyExists(NotificationPreferenceCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .gemLedger:
+            otherFamilyExists(GemLedgerCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .rewardEvent:
+            otherFamilyExists(RewardEventCache.self, name: name, requested: requested, cacheService: cacheService)
+        case .goal:
+            otherFamilyExists(GoalCache.self, name: name, requested: requested, cacheService: cacheService)
+        }
+    }
+
+    /// WHY equality probe: != bypasses composite index — filter family in memory.
+    private static func otherFamilyExists<T: FamilyScopedCache>(_: T.Type, name: String, requested: String, cacheService: CacheService) -> DeletionCheckResult? {
+        let target = name
+        // WHY untruncated match: recordName equality stays tiny so every family lands in memory.
+        let descriptor = FetchDescriptor<T>(predicate: #Predicate { $0.recordName == target })
+        guard let rows = cacheService.tryFetch(descriptor) else { return .unknown }
+        for row in rows where row.familyRecordName != requested {
+            return .stillPresent
+        }
+        return nil
+    }
+
+    /// WHY family IDs are unique: same name cannot exist in another partition.
+    private static func otherFamilyFamilyStatus(targetName: String, otherFamily: String, cacheService: CacheService) -> DeletionCheckResult? {
+        guard targetName != otherFamily else { return nil }
+        var descriptor: FetchDescriptor<FamilyCache> = FamilyCache.fetchDescriptor(recordName: targetName)
+        // WHY capped probe: existence needs one indexed row, never the full match set.
+        descriptor.fetchLimit = 1
+        guard let rows: [FamilyCache] = cacheService.tryFetch(descriptor) else { return .unknown }
+        return rows.first != nil ? .stillPresent : nil
     }
 
     /// Generic helper — single predicate source for existence checks.
     /// Returns `.stillPresent` if a row exists, `nil` if absent, `.unknown` if the fetch threw.
-    private static func fetchExists(_ type: (some CacheMergeable).Type, name: String, cacheService: CacheService) -> DeletionCheckResult? {
-        guard let rows = cacheService.tryFetch(type.fetchDescriptor(recordName: name)) else {
-            return .unknown
+    private static func fetchExists(_ type: (some CacheMergeable).Type, name: String, family: String?, cacheService: CacheService) -> DeletionCheckResult? {
+        if let family, !family.isEmpty {
+            var descriptor = type.fetchDescriptor(recordName: name, familyRecordName: family)
+            // WHY capped probe: existence needs one indexed row, never the full match set.
+            descriptor.fetchLimit = 1
+            guard let rows = cacheService.tryFetch(descriptor) else {
+                return .unknown
+            }
+            return rows.first != nil ? .stillPresent : nil
         }
-        return rows.first != nil ? .stillPresent : nil
+        if let familyType = type as? FamilyCache.Type {
+            // WHY root exception: the family record is the partition, so recordName-only lookup stays valid here.
+            var descriptor = familyType.fetchDescriptor(recordName: name)
+            descriptor.fetchLimit = 1
+            guard let rows = cacheService.tryFetch(descriptor) else {
+                return .unknown
+            }
+            return rows.first != nil ? .stillPresent : nil
+        }
+        // WHY fail-closed: scoped existence without family keeps the tombstone instead of scanning.
+        return .stillPresent
     }
 
-    private static func deletionStatus(for type: CachedRecordType, name: String, cacheService: CacheService) -> DeletionCheckResult? {
+    private static func deletionStatus(for type: CachedRecordType, name: String, family: String?, cacheService: CacheService) -> DeletionCheckResult? {
         switch type {
-        case .family: fetchExists(FamilyCache.self, name: name, cacheService: cacheService)
-        case .profile: fetchExists(ProfileCache.self, name: name, cacheService: cacheService)
-        case .quest: fetchExists(QuestCache.self, name: name, cacheService: cacheService)
-        case .questTemplate: fetchExists(QuestTemplateCache.self, name: name, cacheService: cacheService)
-        case .questCompletion: fetchExists(QuestCompletionCache.self, name: name, cacheService: cacheService)
-        case .ledgerEntry: fetchExists(LedgerEntryCache.self, name: name, cacheService: cacheService)
-        case .allowancePeriod: fetchExists(AllowancePeriodCache.self, name: name, cacheService: cacheService)
-        case .achievement: fetchExists(AchievementCache.self, name: name, cacheService: cacheService)
-        case .profileAchievement: fetchExists(ProfileAchievementCache.self, name: name, cacheService: cacheService)
-        case .notificationPreference: fetchExists(NotificationPreferenceCache.self, name: name, cacheService: cacheService)
-        case .gemLedger: fetchExists(GemLedgerCache.self, name: name, cacheService: cacheService)
-        case .rewardEvent: fetchExists(RewardEventCache.self, name: name, cacheService: cacheService)
-        case .goal: fetchExists(GoalCache.self, name: name, cacheService: cacheService)
+        case .family: fetchExists(FamilyCache.self, name: name, family: family, cacheService: cacheService)
+        case .profile: fetchExists(ProfileCache.self, name: name, family: family, cacheService: cacheService)
+        case .quest: fetchExists(QuestCache.self, name: name, family: family, cacheService: cacheService)
+        case .questTemplate: fetchExists(QuestTemplateCache.self, name: name, family: family, cacheService: cacheService)
+        case .questCompletion: fetchExists(QuestCompletionCache.self, name: name, family: family, cacheService: cacheService)
+        case .ledgerEntry: fetchExists(LedgerEntryCache.self, name: name, family: family, cacheService: cacheService)
+        case .allowancePeriod: fetchExists(AllowancePeriodCache.self, name: name, family: family, cacheService: cacheService)
+        case .achievement: fetchExists(AchievementCache.self, name: name, family: family, cacheService: cacheService)
+        case .profileAchievement: fetchExists(ProfileAchievementCache.self, name: name, family: family, cacheService: cacheService)
+        case .notificationPreference: fetchExists(NotificationPreferenceCache.self, name: name, family: family, cacheService: cacheService)
+        case .gemLedger: fetchExists(GemLedgerCache.self, name: name, family: family, cacheService: cacheService)
+        case .rewardEvent: fetchExists(RewardEventCache.self, name: name, family: family, cacheService: cacheService)
+        case .goal: fetchExists(GoalCache.self, name: name, family: family, cacheService: cacheService)
         }
     }
 

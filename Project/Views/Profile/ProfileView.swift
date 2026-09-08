@@ -70,53 +70,58 @@ struct ProfileView: View {
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
-        let targetProfile = profileRecordName ?? ""
         let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
         let profileAchievementFilter = ProfileAchievementCache.familyPredicate(familyRecordName: targetFamily)
         let completionFilter = QuestCompletionCache.familyPredicate(familyRecordName: targetFamily)
         let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
         let questFilter = QuestCache.familyIncludingInactivePredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
-        let currentProfileFilter = ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily)
+        // WHY stable sorts: secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedAchievements = Query(
             filter: achievementFilter,
-            sort: \AchievementCache.name
+            sort: [SortDescriptor(\AchievementCache.name), SortDescriptor(\AchievementCache.recordName)]
         )
         _cachedProfileAchievements = Query(
             filter: profileAchievementFilter,
-            sort: \ProfileAchievementCache.earnedDate,
-            order: .reverse
+            sort: [SortDescriptor(\ProfileAchievementCache.earnedDate, order: .reverse), SortDescriptor(\ProfileAchievementCache.recordName)]
         )
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCompletionCache.completedDate, order: .reverse), SortDescriptor(\QuestCompletionCache.recordName)]
         )
         _cachedLedgers = Query(
             filter: ledgerFilter,
-            sort: \LedgerEntryCache.date,
-            order: .reverse
+            sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
         )
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\QuestCache.weekOf, order: .reverse), SortDescriptor(\QuestCache.recordName)]
         )
         _cachedProfiles = Query(
             filter: profileFilter,
-            sort: \ProfileCache.displayName
+            sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
         )
-        _currentProfileRows = Query(
-            filter: currentProfileFilter,
-            sort: \ProfileCache.displayName
-        )
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            _currentProfileRows = Query(
+                filter: ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        } else {
+            // WHY: family fallback keeps viewer gating live before the profile param propagates; row still resolves via session identity.
+            _currentProfileRows = Query(
+                filter: ProfileCache.familyPredicate(familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        }
     }
 
     /// Queried cache row for the active profile. Nil when the session identity
     /// or family scope has no synced row yet, keeping rendering fail-closed
     /// instead of falling back to the session snapshot.
     private var currentProfileRow: ProfileCache? {
-        currentProfileRows.first
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        ProfileRowResolver.resolve(rows: currentProfileRows, targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName)
     }
 
     var body: some View {
@@ -183,7 +188,10 @@ struct ProfileView: View {
             .onChange(of: cachedAchievements) { _, _ in recomputeCharacterFromCache() }
             .onChange(of: cachedQuests) { _, _ in recomputeCharacterFromCache() }
             .onChange(of: cachedProfiles) { _, _ in recomputeCharacterFromCache() }
+            .onChange(of: currentProfileRows) { _, _ in recomputeCharacterFromCache() }
         }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     private func recomputeCharacterFromCache() {
@@ -196,7 +204,9 @@ struct ProfileView: View {
             profileAchievements: cachedProfileAchievements,
             achievements: cachedAchievements,
             // Payout cycle anchoring: profile override → family → Sunday default.
-            payoutDay: appState.currentProfile?.payoutDay ?? appState.family?.payoutDay ?? .sunday
+            payoutDay: currentProfileRow?.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday,
+            // WHY versioned memo: freshness bumps invalidate the eligibility cache without wall-clock TTL.
+            freshnessVersion: appState.cacheService?.freshnessVersion ?? 0
         )
     }
 
@@ -422,8 +432,9 @@ struct ProfileView: View {
                             guard row.roleEnum == .hero, let current = appState.currentProfile else { return }
                             Task {
                                 do {
-                                    let updated = try await familyService.updateProfileDisplayName(profile: current, newName: newName)
-                                    appState.currentProfile = updated
+                                    // WHY write-through: service upserts cache plus enqueues save, view re-reads instead of assigning.
+                                    _ = try await familyService.updateProfileDisplayName(profile: current, newName: newName)
+                                    appState.updateCurrentProfileFromCache()
                                 } catch {
                                     toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                                 }
@@ -468,8 +479,8 @@ struct ProfileView: View {
 
                 NavigationLink {
                     TrophyRoomView(
-                        familyRecordName: familyRecordName ?? appState.family?.id.recordName,
-                        profileRecordName: profileRecordName ?? appState.currentProfile?.id.recordName
+                        familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName,
+                        profileRecordName: profileRecordName ?? currentProfileRow?.recordName
                     )
                 } label: {
                     actionRow(
@@ -646,8 +657,9 @@ struct ProfileView: View {
                         guard let current = appState.currentProfile else { return }
                         Task {
                             do {
-                                let updated = try await familyService.updateProfileDisplayName(profile: current, newName: trimmed)
-                                appState.currentProfile = updated
+                                // WHY write-through: service upserts cache plus enqueues save, view re-reads instead of assigning.
+                                _ = try await familyService.updateProfileDisplayName(profile: current, newName: trimmed)
+                                appState.updateCurrentProfileFromCache()
                             } catch {
                                 toastManager.show(message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription, type: .error)
                             }
@@ -689,6 +701,9 @@ final class ProfileViewModel {
 
     private let eligibilityDefaults: UserDefaults
 
+    @ObservationIgnored private var lastEligibilityKey: String?
+    @ObservationIgnored private var lastEarnedAchievements: [AchievementCache] = []
+
     init(eligibilityDefaults: UserDefaults = .standard) {
         self.eligibilityDefaults = eligibilityDefaults
     }
@@ -698,6 +713,8 @@ final class ProfileViewModel {
         savingsStreak = nil
         goldBalance = nil
         earnedAchievements = []
+        lastEligibilityKey = nil
+        lastEarnedAchievements = []
     }
 
     func recomputeCharacterFromCache(
@@ -707,7 +724,8 @@ final class ProfileViewModel {
         quests _: [QuestCache],
         profileAchievements: [ProfileAchievementCache],
         achievements: [AchievementCache],
-        payoutDay: PayoutDay
+        payoutDay: PayoutDay,
+        freshnessVersion: Int = 0
     ) {
         guard let profile else {
             reset()
@@ -735,8 +753,17 @@ final class ProfileViewModel {
                 .filter { $0.profileRecordName == profileName }
                 .map(\.achievementRecordName)
         )
-        earnedAchievements = achievements
-            .filter { earnedNames.contains($0.recordName) }
+        // WHY memoize: @Query refires on unrelated rows, so eligibility reuses the last filter unless inputs change.
+        let profilePart = profileAchievements.map { "\($0.recordName):\($0.achievementRecordName):\($0.earnedDate.timeIntervalSince1970)" }.sorted()
+        let achievementPart = achievements
+            .map { "\($0.recordName):\($0.name):\($0.achievementDescription):\($0.iconSystemName):\($0.category):\($0.requirementType):\($0.requirementValue)" }.sorted()
+        let eligibilityKey = ([profileName] + profilePart + achievementPart + [String(freshnessVersion)])
+            .joined(separator: "|")
+        if eligibilityKey != lastEligibilityKey {
+            lastEarnedAchievements = achievements.filter { earnedNames.contains($0.recordName) }
+            lastEligibilityKey = eligibilityKey
+        }
+        earnedAchievements = lastEarnedAchievements
     }
 
     /// WHY explicit record: recompute runs on every @Query update, so eligibility

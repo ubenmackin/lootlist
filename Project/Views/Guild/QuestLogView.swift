@@ -13,12 +13,15 @@ struct QuestLogView: View {
     @Environment(FamilyService.self) private var familyService
     @Environment(AppState.self) private var appState
     @Environment(AppSyncCoordinator.self) private var appSyncCoordinator
+    @Environment(AppLifecycleCoordinator.self) private var lifecycleCoordinator: AppLifecycleCoordinator?
+    @Environment(CKSyncEngineCoordinator.self) private var syncCoordinator: CKSyncEngineCoordinator?
     @Environment(ToastManager.self) private var toastManager
 
     @Query private var cachedProfiles: [ProfileCache]
     @Query private var cachedQuests: [QuestCache]
     @Query private var cachedCompletions: [QuestCompletionCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var currentProfileRows: [ProfileCache]
 
     @State private var viewModel: QuestLogViewModel?
 
@@ -33,10 +36,12 @@ struct QuestLogView: View {
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
-    init(initialHero: ProfileCache? = nil, familyRecordName: String? = nil) {
+    init(initialHero: ProfileCache? = nil, familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.initialHero = initialHero
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
@@ -47,19 +52,37 @@ struct QuestLogView: View {
         let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
         _cachedProfiles = Query(
             filter: profileFilter,
-            sort: \ProfileCache.displayName
+            sort: HubQueryProvider.profileSort()
         )
         _cachedQuests = Query(
             filter: questFilter,
-            sort: \QuestCache.weekOf,
-            order: .reverse
+            sort: HubQueryProvider.questSort()
         )
         _cachedCompletions = Query(
             filter: completionFilter,
-            sort: \QuestCompletionCache.completedDate,
-            order: .reverse
+            sort: HubQueryProvider.completionSort()
         )
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        _cachedTemplates = Query(filter: templateFilter, sort: HubQueryProvider.templateSort())
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        _currentProfileRows = Query(
+            filter: HubQueryProvider.currentProfileFilter(family: targetFamily, profile: profileRecordName),
+            sort: HubQueryProvider.currentProfileSort()
+        )
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        HubQueryProvider.resolveViewerRow(
+            rows: currentProfileRows,
+            profileRecordName: profileRecordName,
+            fallbackRecordName: appState.currentProfile?.id.recordName
+        )
+    }
+
+    /// Viewer role derived from cache so gating never reads session domain state.
+    private var viewerRole: UserRole? {
+        currentProfileRow?.roleEnum
     }
 
     private var showsNavigationTitle: Bool {
@@ -71,15 +94,35 @@ struct QuestLogView: View {
     }
 
     var body: some View {
-        if showsNavigationTitle {
-            content
-                .navigationTitle("Quest Log")
-                .navigationBarTitleDisplayMode(.large)
-        } else {
-            content
-                .navigationTitle("Quests & Chores")
-                .navigationBarTitleDisplayMode(.inline)
+        Group {
+            if showsNavigationTitle {
+                content
+                    .navigationTitle("Quest Log")
+                    .navigationBarTitleDisplayMode(.large)
+            } else {
+                content
+                    .navigationTitle("Quests & Chores")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
         }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
+    }
+
+    private var targetFamilyForStale: String {
+        familyRecordName ?? appState.family?.id.recordName ?? ""
+    }
+
+    private var isSyncing: Bool {
+        lifecycleCoordinator?.isSyncing == true
+    }
+
+    private var pendingUploadCount: Int {
+        syncCoordinator?.pendingUploadCount ?? 0
+    }
+
+    private var lastSyncedAt: Date? {
+        syncCoordinator?.lastSyncedAt
     }
 
     private var content: some View {
@@ -88,11 +131,24 @@ struct QuestLogView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 8)
 
+            if !targetFamilyForStale.isEmpty {
+                StaleDataBanner(
+                    family: targetFamilyForStale,
+                    type: .quest,
+                    count: cachedQuests.count,
+                    isSyncing: isSyncing
+                )
+                .padding(.horizontal)
+                .padding(.bottom, 4)
+            }
+
+            syncFootnote
+                .padding(.horizontal)
+                .padding(.bottom, 4)
+
             List {
-                if viewModel?.isLoading == true, viewModel?.displayedQuests.isEmpty ?? true {
-                    ProgressView("Loading quest log…")
-                        .frame(maxWidth: .infinity)
-                        .listRowSeparator(.hidden)
+                if viewModel == nil {
+                    questLogSkeleton
                 } else if let vm = viewModel, vm.displayedQuests.isEmpty {
                     emptyState
                 } else {
@@ -100,10 +156,14 @@ struct QuestLogView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .refreshable {
+                await lifecycleCoordinator?.performManualSync()
+                rebuildViewModel()
+            }
         }
         .background(Color(DesignSystemConstants.Colors.background))
         .toolbar {
-            if appState.currentProfile?.role != .hero, showsHeroPicker {
+            if viewerRole != .hero, showsHeroPicker {
                 ToolbarItem(placement: .topBarLeading) {
                     heroPickerMenu
                 }
@@ -123,6 +183,9 @@ struct QuestLogView: View {
             rebuildViewModel()
         }
         .onChange(of: cachedTemplates) { _, _ in
+            rebuildViewModel()
+        }
+        .onChange(of: currentProfileRows) { _, _ in
             rebuildViewModel()
         }
         .onChange(of: scope) { _, newScope in
@@ -151,8 +214,8 @@ struct QuestLogView: View {
     private func rebuildViewModel() {
         guard let vm = viewModel else { return }
 
-        if appState.currentProfile?.role == .hero, let currentHero = appState.currentProfile {
-            let heroRecordName = currentHero.id.recordName
+        // WHY: row-derived hero pin keeps log scope cache-bound with fail-closed empty scope.
+        if viewerRole == .hero, let heroRecordName = currentProfileRow?.recordName {
             if let childHeroCache = cachedProfiles.first(where: { $0.recordName == heroRecordName }) {
                 vm.selectedHero = childHeroCache
             }
@@ -199,9 +262,49 @@ struct QuestLogView: View {
 
     private var dateRangeFilter: some View {
         CalendarScopeFilterView(
+            // WHY: row-first payout day keeps week math cache-derived with session fallback.
             scope: $scope,
-            payoutDay: appState.family?.payoutDay ?? .sunday
+            payoutDay: currentProfileRow?.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
         )
+    }
+
+    /// WHY prod-safe subset: inline footnote mirrors iCloudStatusView counts without DEBUG diagnostics.
+    private var syncFootnote: some View {
+        SyncFootnoteView(
+            pendingCount: pendingUploadCount,
+            isSyncing: isSyncing,
+            lastSyncedAt: lastSyncedAt
+        )
+        .accessibilityIdentifier("questLog.syncFootnote")
+    }
+
+    /// WHY redacted rows: skeleton holds list shape so hydration populates without jump.
+    private var questLogSkeleton: some View {
+        ForEach(0 ..< 5, id: \.self) { _ in
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                        .frame(width: 120, height: 14)
+                    Spacer()
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                        .frame(width: 48, height: 12)
+                }
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                    .frame(height: 18)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(DesignSystemConstants.Colors.cardSurface))
+                    .frame(width: 160, height: 12)
+            }
+            .padding(.vertical, 6)
+            .redacted(reason: .placeholder)
+            .listRowSeparator(.hidden)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading quest log")
+        .accessibilityIdentifier("questLog.skeleton")
     }
 
     // MARK: - Quest Rows
@@ -242,7 +345,7 @@ struct QuestLogView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if case .pending = row.completionStatus, appState.currentProfile?.role != .hero {
+                    if case .pending = row.completionStatus, viewerRole != .hero {
                         HStack(spacing: 12) {
                             Spacer()
                             Button {
@@ -253,7 +356,9 @@ struct QuestLogView: View {
                                     {
                                         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: pendingLog)
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
-                                        if let parent = appState.currentProfile {
+                                        // WHY: mutation actor derives from the cache row so verify never reads session domain state.
+                                        if let row = currentProfileRow {
+                                            let parent = row.toProfile(zoneID: zoneID)
                                             do {
                                                 _ = try await questService.reject(questLog: domainLog, by: parent)
                                             } catch {
@@ -280,7 +385,9 @@ struct QuestLogView: View {
                                     {
                                         let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: pendingLog)
                                         let domainLog = pendingLog.toQuestCompletion(zoneID: zoneID)
-                                        if let parent = appState.currentProfile {
+                                        // WHY: mutation actor derives from the cache row so verify never reads session domain state.
+                                        if let row = currentProfileRow {
+                                            let parent = row.toProfile(zoneID: zoneID)
                                             do {
                                                 _ = try await questService.verify(questLog: domainLog, by: parent)
                                             } catch {

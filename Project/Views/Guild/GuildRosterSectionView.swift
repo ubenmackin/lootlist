@@ -6,6 +6,7 @@
 //
 
 import os
+import SwiftData
 import SwiftUI
 
 struct GuildRosterSectionView: View {
@@ -23,16 +24,73 @@ struct GuildRosterSectionView: View {
     @Binding var showRoleTransferConfirm: ProfileCache?
     @Binding var isRoleTransferConfirmPresented: Bool
 
+    @Query private var currentProfileRows: [ProfileCache]
+
+    let familyRecordName: String?
+    let profileRecordName: String?
+
+    init(viewModel: FamilyDashboardViewModel,
+         onRebuild: @escaping () -> Void,
+         heroToEdit: Binding<ProfileCache?>,
+         showRoleTransferConfirm: Binding<ProfileCache?>,
+         isRoleTransferConfirmPresented: Binding<Bool>,
+         familyRecordName: String? = nil,
+         profileRecordName: String? = nil)
+    {
+        self.viewModel = viewModel
+        self.onRebuild = onRebuild
+        _heroToEdit = heroToEdit
+        _showRoleTransferConfirm = showRoleTransferConfirm
+        _isRoleTransferConfirmPresented = isRoleTransferConfirmPresented
+        self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
+        let targetFamily = familyRecordName ?? ""
+        // WHY: single-row scope keeps role gating cache-derived instead of session-derived.
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            _currentProfileRows = Query(
+                filter: ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        } else {
+            // WHY: family fallback keeps viewer gating live before the profile param propagates; row still resolves via session identity.
+            _currentProfileRows = Query(
+                filter: ProfileCache.familyPredicate(familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        }
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        ProfileRowResolver.resolve(rows: currentProfileRows, targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName)
+    }
+
+    /// Viewer role derived from cache so gating never reads session domain state.
+    private var viewerRole: UserRole? {
+        currentProfileRow?.roleEnum
+    }
+
+    private var viewerIsGuildMaster: Bool {
+        viewerRole == .guildMaster
+    }
+
+    private var viewerRecordName: String? {
+        currentProfileRow?.recordName
+    }
+
     @State private var memberToKick: ProfileCache?
     @State private var invitationToRevoke: FamilyInvitation?
 
     var body: some View {
         VStack(spacing: 18) {
             membersSection
-            if appState.currentProfile?.role == .guildMaster {
+            if viewerIsGuildMaster {
                 invitationsSection
             }
         }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     private var membersSection: some View {
@@ -239,9 +297,9 @@ struct GuildRosterSectionView: View {
 
     @ViewBuilder
     private func roleManagementMenu(_ member: ProfileCache) -> some View {
-        let isCurrent = appState.currentProfile?.id.recordName == member.recordName
+        let isCurrent = viewerRecordName == member.recordName
         let role = member.roleEnum
-        if appState.currentProfile?.role == .guildMaster, !isCurrent {
+        if viewerIsGuildMaster, !isCurrent {
             Menu {
                 if role == .hero {
                     Button {

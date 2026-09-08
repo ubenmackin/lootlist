@@ -26,6 +26,8 @@ struct PayoutHistoryView: View {
     @Query private var cachedLedgers: [LedgerEntryCache]
     @Query private var cachedGoals: [GoalCache]
     @Query private var cachedTemplates: [QuestTemplateCache]
+    @Query private var currentProfileRows: [ProfileCache]
+    @Query private var cachedFamilies: [FamilyCache]
 
     @State private var viewModel: FamilyDashboardViewModel?
     @State private var selectedPeriod: AllowancePeriodCache?
@@ -45,13 +47,16 @@ struct PayoutHistoryView: View {
     /// When `nil` (no family loaded) the queries return zero rows, which is
     /// the correct behavior — there is no family to scope to.
     private let familyRecordName: String?
+    private let profileRecordName: String?
 
-    init(familyRecordName: String? = nil) {
+    init(familyRecordName: String? = nil, profileRecordName: String? = nil) {
         self.familyRecordName = familyRecordName
+        self.profileRecordName = profileRecordName
 
         // Filter queries by family at the SwiftData store layer. When familyRecordName is nil,
         // scope to an empty string ("") so zero rows are returned rather than fetching unscoped across all families.
         let targetFamily = familyRecordName ?? ""
+        FamilyScopeValidator.validateOrFault(targetFamily: targetFamily, viewName: "PayoutHistoryView")
         let allowanceFilter = AllowancePeriodCache.familyPredicate(familyRecordName: targetFamily)
         let profileFilter = ProfileCache.familyPredicate(familyRecordName: targetFamily)
         let achievementFilter = AchievementCache.familyPredicate(familyRecordName: targetFamily)
@@ -59,34 +64,70 @@ struct PayoutHistoryView: View {
         let ledgerFilter = LedgerEntryCache.familyPredicate(familyRecordName: targetFamily)
         let goalFilter = GoalCache.familyPredicate(familyRecordName: targetFamily)
         let templateFilter = QuestTemplateCache.familyPredicate(familyRecordName: targetFamily)
+        let familyFilter = FamilyCache.recordPredicate(recordName: targetFamily)
+        // WHY stable sorts: secondary recordName keeps ForEach stable after CloudKit reorders.
         _cachedAllowancePeriods = Query(
             filter: allowanceFilter,
-            sort: \AllowancePeriodCache.weekOf,
-            order: .reverse
+            sort: [SortDescriptor(\AllowancePeriodCache.weekOf, order: .reverse), SortDescriptor(\AllowancePeriodCache.recordName)]
         )
         _cachedProfiles = Query(
             filter: profileFilter,
-            sort: \ProfileCache.displayName
+            sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
         )
         _cachedAchievements = Query(
             filter: achievementFilter,
-            sort: \AchievementCache.name
+            sort: [SortDescriptor(\AchievementCache.name), SortDescriptor(\AchievementCache.recordName)]
         )
         _cachedProfileAchievements = Query(
             filter: profileAchievementFilter,
-            sort: \ProfileAchievementCache.earnedDate,
-            order: .reverse
+            sort: [SortDescriptor(\ProfileAchievementCache.earnedDate, order: .reverse), SortDescriptor(\ProfileAchievementCache.recordName)]
         )
         _cachedLedgers = Query(
             filter: ledgerFilter,
-            sort: \LedgerEntryCache.date,
-            order: .reverse
+            sort: [SortDescriptor(\LedgerEntryCache.date, order: .reverse), SortDescriptor(\LedgerEntryCache.recordName)]
         )
         _cachedGoals = Query(
             filter: goalFilter,
-            sort: \GoalCache.createdAt
+            sort: [SortDescriptor(\GoalCache.createdAt), SortDescriptor(\GoalCache.recordName)]
         )
-        _cachedTemplates = Query(filter: templateFilter, sort: \QuestTemplateCache.name)
+        _cachedTemplates = Query(
+            filter: templateFilter,
+            sort: [SortDescriptor(\QuestTemplateCache.name), SortDescriptor(\QuestTemplateCache.recordName)]
+        )
+        // WHY single-row root lookup rides the recordName index; secondary sort never reorders.
+        _cachedFamilies = Query(
+            filter: familyFilter,
+            sort: [SortDescriptor(\FamilyCache.name), SortDescriptor(\FamilyCache.recordName)]
+        )
+        // WHY: single-row scope keeps role and displayName cache-derived instead of session-derived.
+        if let targetProfile = profileRecordName.sanitizedNilIfEmpty {
+            _currentProfileRows = Query(
+                filter: ProfileCache.recordPredicate(recordName: targetProfile, familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        } else {
+            // WHY: family fallback keeps viewer gating live before the profile param propagates; row still resolves via session identity.
+            _currentProfileRows = Query(
+                filter: ProfileCache.familyPredicate(familyRecordName: targetFamily),
+                sort: [SortDescriptor(\ProfileCache.displayName), SortDescriptor(\ProfileCache.recordName)]
+            )
+        }
+    }
+
+    /// Queried cache row for the active viewer; nil when scope has no synced row (fail-closed rendering).
+    private var currentProfileRow: ProfileCache? {
+        // WHY: resolver keeps empty-scope fail-closed while session identity bridges bootstrap before the param propagates.
+        ProfileRowResolver.resolve(rows: currentProfileRows, targetRecordName: profileRecordName ?? appState.currentProfile?.id.recordName)
+    }
+
+    /// Viewer role derived from cache so gating never reads session domain state.
+    private var viewerRole: UserRole? {
+        currentProfileRow?.roleEnum
+    }
+
+    /// Queried family row; nil when scope has no synced row (fail-closed rendering).
+    private var cachedFamilyRow: FamilyCache? {
+        cachedFamilies.first
     }
 
     var body: some View {
@@ -125,7 +166,7 @@ struct PayoutHistoryView: View {
         .sheet(isPresented: $showImportSheet) {
             LedgerImportView(
                 importService: ledgerImportService,
-                familyRecordName: familyRecordName ?? appState.family?.id.recordName
+                familyRecordName: familyRecordName ?? currentProfileRow?.familyRecordName ?? appState.family?.id.recordName
             )
         }
         .task {
@@ -141,7 +182,10 @@ struct PayoutHistoryView: View {
         .onChange(of: cachedProfileAchievements) { _, _ in rebuildFromCache() }
         .onChange(of: cachedLedgers) { _, _ in rebuildFromCache() }
         .onChange(of: cachedTemplates) { _, _ in rebuildFromCache() }
+        .onChange(of: currentProfileRows) { _, _ in rebuildFromCache() }
         .onChange(of: cachedGoals) { _, _ in }
+        // WHY: view identity tracks family+profile so @Query predicates (init-captured) are recreated on scope switch.
+        .id("\(familyRecordName ?? "")-\(profileRecordName ?? "")")
     }
 
     // MARK: - Layouts
@@ -201,7 +245,7 @@ struct PayoutHistoryView: View {
         } label: {
             Image(systemName: "square.and.arrow.down")
         }
-        .disabled(appState.currentProfile?.role.isParent != true)
+        .disabled(viewerRole?.isParent != true)
         .accessibilityLabel("Import Transactions")
         .accessibilityIdentifier("payoutHistory.importButton")
     }
@@ -212,7 +256,7 @@ struct PayoutHistoryView: View {
         } label: {
             Image(systemName: "square.and.arrow.up")
         }
-        .disabled(appState.currentProfile?.role.isParent != true)
+        .disabled(viewerRole?.isParent != true)
     }
 
     private func ensureViewModel() {
@@ -267,7 +311,8 @@ struct PayoutHistoryView: View {
     }
 
     private var payoutDay: PayoutDay {
-        appState.family?.payoutDay ?? .sunday
+        // WHY: row-first payout day keeps week math cache-derived with session fallback.
+        currentProfileRow?.payoutDayEnum ?? cachedFamilyRow?.payoutDayEnum ?? appState.family?.payoutDay ?? .sunday
     }
 
     private var filterSection: some View {
@@ -530,7 +575,7 @@ struct PayoutHistoryView: View {
     }
 
     private var emptyState: some View {
-        let payoutDayName = appState.family?.payoutDay.displayName ?? "Sunday"
+        let payoutDayName = currentProfileRow?.payoutDayEnum?.displayName ?? cachedFamilyRow?.payoutDayEnum?.displayName ?? appState.family?.payoutDay.displayName ?? "Sunday"
         let scheduledTime = WeekMath.scheduledRolloverTimeString(payoutDay: payoutDay)
         return VStack(spacing: 0) {
             ScrollView {
