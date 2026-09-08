@@ -30,6 +30,9 @@ extension BackgroundCacheActor {
         validRecordNames: Set<String>,
         familyRecordName: String?
     ) async {
+        // WHY: Standalone public API wrapper guard prevents transient empty query
+        // results from wiping cache when called outside settled snapshot reconciliation.
+        guard !validRecordNames.isEmpty else { return }
         await purgeMissingWithoutSave(T.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
         saveContext()
     }
@@ -37,9 +40,15 @@ extension BackgroundCacheActor {
     private func purgeMissingWithoutSave<T: CacheMergeable>(
         _: T.Type,
         validRecordNames: Set<String>,
-        familyRecordName: String?
+        familyRecordName: String?,
+        preservedRecordNames: Set<String> = []
     ) async {
-        guard !validRecordNames.isEmpty else { return }
+        // WHY: Preserved holds unacked rows absent server-side; union keeps them while still pruning acked deletions.
+        // WHY: Entirely-empty snapshot abort lives upstream in fetchFamilySnapshot.
+        // Reaching here means at least one type had server records (scope is settled),
+        // so zero server records for this type is a legitimate purge-all.
+        var effective = validRecordNames
+        effective.formUnion(preservedRecordNames)
         let family: String?
         if T.self == FamilyCache.self {
             family = nil
@@ -52,7 +61,7 @@ extension BackgroundCacheActor {
             logger.error("Failed to fetch existing \(T.self, privacy: .private) for purgeMissing: \(error, privacy: .private)")
             existing = []
         }
-        for cached in existing where !validRecordNames.contains(cached.recordName) {
+        for cached in existing where !effective.contains(cached.recordName) {
             modelContext.delete(cached)
         }
     }
@@ -82,35 +91,61 @@ extension BackgroundCacheActor {
     func purgeMissingOfType(
         _ type: CachedRecordType,
         validRecordNames: Set<String>,
-        familyRecordName: String?
+        familyRecordName: String?,
+        preservedRecordNames: Set<String> = []
     ) async {
         switch type {
         case .profile:
-            await purgeMissingWithoutSave(ProfileCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(ProfileCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
         case .family:
-            await purgeMissingWithoutSave(FamilyCache.self, validRecordNames: validRecordNames, familyRecordName: nil)
+            await purgeMissingWithoutSave(FamilyCache.self, validRecordNames: validRecordNames, familyRecordName: nil, preservedRecordNames: preservedRecordNames)
         case .quest:
-            await purgeMissingWithoutSave(QuestCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(QuestCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
         case .questTemplate:
-            await purgeMissingWithoutSave(QuestTemplateCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(
+                QuestTemplateCache.self,
+                validRecordNames: validRecordNames,
+                familyRecordName: familyRecordName,
+                preservedRecordNames: preservedRecordNames
+            )
         case .questCompletion:
-            await purgeMissingWithoutSave(QuestCompletionCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(
+                QuestCompletionCache.self,
+                validRecordNames: validRecordNames,
+                familyRecordName: familyRecordName,
+                preservedRecordNames: preservedRecordNames
+            )
         case .ledgerEntry:
-            await purgeMissingWithoutSave(LedgerEntryCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(LedgerEntryCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
         case .allowancePeriod:
-            await purgeMissingWithoutSave(AllowancePeriodCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(
+                AllowancePeriodCache.self,
+                validRecordNames: validRecordNames,
+                familyRecordName: familyRecordName,
+                preservedRecordNames: preservedRecordNames
+            )
         case .achievement:
-            await purgeMissingWithoutSave(AchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(AchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
         case .profileAchievement:
-            await purgeMissingWithoutSave(ProfileAchievementCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(
+                ProfileAchievementCache.self,
+                validRecordNames: validRecordNames,
+                familyRecordName: familyRecordName,
+                preservedRecordNames: preservedRecordNames
+            )
         case .notificationPreference:
-            await purgeMissingWithoutSave(NotificationPreferenceCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(
+                NotificationPreferenceCache.self,
+                validRecordNames: validRecordNames,
+                familyRecordName: familyRecordName,
+                preservedRecordNames: preservedRecordNames
+            )
         case .gemLedger:
-            await purgeMissingWithoutSave(GemLedgerCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(GemLedgerCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
         case .rewardEvent:
-            await purgeMissingWithoutSave(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(RewardEventCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
         case .goal:
-            await purgeMissingWithoutSave(GoalCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName)
+            await purgeMissingWithoutSave(GoalCache.self, validRecordNames: validRecordNames, familyRecordName: familyRecordName, preservedRecordNames: preservedRecordNames)
         }
     }
 

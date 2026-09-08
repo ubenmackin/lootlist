@@ -33,6 +33,10 @@ final class CKSyncConflictResolver {
     private weak var appState: AppState?
     weak var coordinator: CKSyncEngineCoordinator?
 
+    #if DEBUG
+        var lastSaveFailureDiagnostic: String?
+    #endif
+
     init(
         cacheService: CacheService? = nil,
         backgroundCache: BackgroundCacheActor? = nil,
@@ -58,7 +62,9 @@ final class CKSyncConflictResolver {
         error: Error,
         databaseScope: CKDatabase.Scope? = nil
     ) async -> CKRecord? {
-        guard let ckError = error as? CKError else {
+        let ckError = error as? CKError
+        trackSaveFailure(record: record, error: error, ckError: ckError, databaseScope: databaseScope)
+        guard let ckError else {
             logger.error("Non-CKError during save: \(error, privacy: .private)")
             return nil
         }
@@ -77,13 +83,7 @@ final class CKSyncConflictResolver {
                 logger.warning("resolveFailedSave could not resolve family for deleted record \(record.recordID.recordName, privacy: .private)")
                 return nil
             }
-            let scope: CKDatabase.Scope = if let databaseScope {
-                databaseScope
-            } else if let appState {
-                appState.activeDatabaseScope
-            } else {
-                DatabaseScopeResolver.scope(isOwner: record.recordID.zoneID.ownerName == CKCurrentUserDefaultName)
-            }
+            let scope = fallbackScope(for: record, databaseScope: databaseScope)
             await handleDeletedRecord(
                 recordID: record.recordID,
                 recordType: record.recordType,
@@ -100,6 +100,57 @@ final class CKSyncConflictResolver {
             logger.warning("Unresolved CloudKit save failure (\(ckError.code.rawValue)): \(error, privacy: .private)")
             return nil
         }
+    }
+
+    private func trackSaveFailure(
+        record: CKRecord,
+        error: Error,
+        ckError: CKError?,
+        databaseScope: CKDatabase.Scope?
+    ) {
+        let diagnostic = saveFailureDiagnostic(
+            record: record,
+            error: error,
+            ckError: ckError,
+            databaseScope: databaseScope
+        )
+        logger.error("Save failed \(diagnostic, privacy: .private)")
+        #if DEBUG
+            lastSaveFailureDiagnostic = diagnostic
+        #endif
+    }
+
+    private func saveFailureDiagnostic(
+        record: CKRecord,
+        error: Error,
+        ckError: CKError?,
+        databaseScope: CKDatabase.Scope?
+    ) -> String {
+        let nsError = error as NSError
+        return LedgerRevertMessage.saveFailureDiagnostic(
+            record: record,
+            codeValue: ckError?.code.rawValue ?? nsError.code,
+            codeLabel: ckError.map { String(describing: $0.code) } ?? "nonCKError",
+            domain: nsError.domain,
+            description: error.localizedDescription,
+            scopeLabel: resolvedScopeLabel(databaseScope: databaseScope, record: record),
+            serverRecordPresent: ckError?.serverRecord != nil
+        )
+    }
+
+    /// WHY single source: unknownItem recovery and diagnostics share one owner fallback so scope cannot diverge.
+    private func fallbackScope(for record: CKRecord, databaseScope: CKDatabase.Scope?) -> CKDatabase.Scope {
+        if let databaseScope {
+            return databaseScope
+        }
+        if let appState {
+            return appState.activeDatabaseScope
+        }
+        return DatabaseScopeResolver.scope(isOwner: record.recordID.zoneID.ownerName == CKCurrentUserDefaultName)
+    }
+
+    private func resolvedScopeLabel(databaseScope: CKDatabase.Scope?, record: CKRecord) -> String {
+        String(describing: fallbackScope(for: record, databaseScope: databaseScope))
     }
 
     private func handleServerRecordChanged(

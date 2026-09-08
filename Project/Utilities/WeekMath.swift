@@ -68,8 +68,16 @@ enum WeekMath {
         locale: Locale = .current
     ) -> String {
         let rollover = scheduledRolloverDate(for: date, payoutDay: payoutDay)
-        let weekday = RolloverFormatterCache.shared.string(from: rollover, locale: locale, timeZone: timeZone, kind: .day)
-        let time = RolloverFormatterCache.shared.string(from: rollover, locale: locale, timeZone: timeZone, kind: .time)
+        var dayStyle = Date.FormatStyle().weekday(.wide)
+        dayStyle.timeZone = timeZone
+        dayStyle.locale = locale
+
+        var timeStyle = Date.FormatStyle().hour().minute()
+        timeStyle.timeZone = timeZone
+        timeStyle.locale = locale
+
+        let weekday = rollover.formatted(dayStyle)
+        let time = rollover.formatted(timeStyle)
         return "\(weekday) at \(time)"
     }
 
@@ -266,58 +274,5 @@ enum WeekMath {
         assert(Calendar.iso8601UTC.startOfDay(for: questWeekOf) == questWeekOf, "Quest.weekOf must be normalized to WeekMath.startOfWeek (UTC midnight)")
         assert(Calendar.iso8601UTC.startOfDay(for: range.lowerBound) == range.lowerBound, "WeekMath range lowerBound must be normalized startOfWeek")
         return range.contains(questWeekOf)
-    }
-}
-
-/// Cached rollover formatters keyed by locale+timeZone so per-render rollover strings never allocate.
-/// WHY shared cache: DateFormatter setup is expensive and rollover copy renders from view bodies on every pass.
-private enum RolloverFormatKind {
-    case day
-    case time
-}
-
-private final class RolloverFormatterCache: @unchecked Sendable {
-    static let shared = RolloverFormatterCache()
-
-    private let lock = NSLock()
-    private var dayFormatters: [String: DateFormatter] = [:]
-    private var timeFormatters: [String: DateFormatter] = [:]
-
-    /// WHY lock covers formatting: DateFormatter is not thread-safe, so cached instances never escape the lock.
-    func string(from date: Date, locale: Locale, timeZone: TimeZone, kind: RolloverFormatKind) -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        switch kind {
-        case .day:
-            return cachedDayFormatter(locale: locale, timeZone: timeZone).string(from: date)
-        case .time:
-            return cachedTimeFormatter(locale: locale, timeZone: timeZone).string(from: date)
-        }
-    }
-
-    private func cachedDayFormatter(locale: Locale, timeZone: TimeZone) -> DateFormatter {
-        let key = "\(locale.identifier)|\(timeZone.identifier)"
-        if let cached = dayFormatters[key] {
-            return cached
-        }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate("EEEE")
-        dayFormatters[key] = formatter
-        return formatter
-    }
-
-    private func cachedTimeFormatter(locale: Locale, timeZone: TimeZone) -> DateFormatter {
-        let key = "\(locale.identifier)|\(timeZone.identifier)"
-        if let cached = timeFormatters[key] {
-            return cached
-        }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.setLocalizedDateFormatFromTemplate("jmm")
-        timeFormatters[key] = formatter
-        return formatter
     }
 }

@@ -11,18 +11,6 @@ import Foundation
 import Synchronization
 import Testing
 
-/// BGTask cannot be instantiated in tests, so this captures setTaskCompleted semantics.
-private final class CapturedTaskCompletion: Sendable {
-    private let state = Mutex<Bool?>(nil)
-    var value: Bool? {
-        state.withLock { $0 }
-    }
-
-    func setTaskCompleted(success: Bool) {
-        state.withLock { $0 = success }
-    }
-}
-
 @MainActor
 private func makeBackgroundLifecycle(
     appState: AppState,
@@ -92,26 +80,24 @@ struct AppDelegateBackgroundTaskTests {
         AppDependencies.resetSharedForTests()
         defer { AppDependencies.restoreSharedForTests(originalShared) }
         #expect(AppDependencies.shared == nil)
-        let payoutCompletion = CapturedTaskCompletion()
-        let digestCompletion = CapturedTaskCompletion()
-        let syncCompletion = CapturedTaskCompletion()
-        await Task.detached {
-            await MainActor.run {
-                // Cold start before the container exists cannot do work, so report failure.
-                guard AppDependencies.shared != nil else {
-                    payoutCompletion.setTaskCompleted(success: false)
-                    digestCompletion.setTaskCompleted(success: false)
-                    syncCompletion.setTaskCompleted(success: false)
-                    return
-                }
-                payoutCompletion.setTaskCompleted(success: true)
-                digestCompletion.setTaskCompleted(success: true)
-                syncCompletion.setTaskCompleted(success: true)
-            }
+
+        // Exercise the production fail-closed seam directly — resolveDependencies
+        // returns nil when the container is unavailable, which causes the handlers
+        // to complete with failure.
+        let payoutResult = await Task.detached {
+            AppDelegate.resolveDependencies(for: AppDelegate.weeklyPayoutTaskId)
         }.value
-        #expect(payoutCompletion.value == false)
-        #expect(digestCompletion.value == false)
-        #expect(syncCompletion.value == false)
+        #expect(payoutResult == nil)
+
+        let digestResult = await Task.detached {
+            AppDelegate.resolveDependencies(for: AppDelegate.spendDigestTaskId)
+        }.value
+        #expect(digestResult == nil)
+
+        let syncResult = await Task.detached {
+            AppDelegate.resolveDependencies(for: AppDelegate.syncTaskId)
+        }.value
+        #expect(syncResult == nil)
     }
 
     @Test

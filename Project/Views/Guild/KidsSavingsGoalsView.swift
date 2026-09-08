@@ -98,11 +98,13 @@ struct KidsSavingsGoalsView: View {
             presenting: goalToDelete
         ) { goal in
             Button("Delete", role: .destructive) {
+                let zoneID = appState.resolvedFamilyZoneID(fallbackRecord: goal)
                 // WHY snapshot: @Model row stays on MainActor; Sendable copy rides the Task.
+                let goalSnapshot = goal.toGoal(zoneID: zoneID)
                 let goalRecordName = goal.recordName
-                Task { @MainActor @Sendable [goal, goalRecordName] in
+                Task {
                     do {
-                        try await deleteGoal(goal)
+                        try await deleteGoal(goalSnapshot)
                     } catch {
                         Self.logger.error("Failed to delete goal \(goalRecordName, privacy: .private): \(error, privacy: .private)")
                     }
@@ -387,6 +389,20 @@ struct KidsSavingsGoalsView: View {
         }
         do {
             try await goalService.deleteGoal(goal, familyRecordName: appState.family?.id.recordName)
+            toastManager?.show(message: "Goal deleted.", type: .success)
+        } catch {
+            toastManager?.show(message: "Could not delete goal. Please try again.", type: .error)
+            throw error
+        }
+    }
+
+    private func deleteGoal(_ goal: Goal) async throws {
+        guard let goalService, let family = appState.family else {
+            toastManager?.show(message: "Could not delete goal.", type: .error)
+            return
+        }
+        do {
+            try await goalService.deleteGoal(goal, family: family)
             toastManager?.show(message: "Goal deleted.", type: .success)
         } catch {
             toastManager?.show(message: "Could not delete goal. Please try again.", type: .error)

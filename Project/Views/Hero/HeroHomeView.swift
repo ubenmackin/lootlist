@@ -629,12 +629,12 @@ struct HeroHomeView: View {
                     .padding(.horizontal, 24)
 
                 Button {
-                    Task { @MainActor in
+                    Task {
                         HapticsService.lightImpact()
                         do {
                             _ = try await notificationService.enableNotificationsAfterPrime()
                         } catch {
-                            // Best-effort — still mark prime as seen so card advances.
+                            Self.logger.debug("Notification prime authorization failed: \(error, privacy: .private)")
                         }
                         markNotificationPrimeSeen()
                         checklistSheetItem = nil

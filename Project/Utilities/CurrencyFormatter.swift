@@ -6,9 +6,12 @@
 //
 
 import Foundation
+import os
 
 /// Canonical formatter for locale-aware currency display backed by `FormatStyle.Currency`.
 enum CurrencyFormatter: Sendable {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "LootList", category: "CurrencyFormatter")
+
     static var currencyCode: String {
         Locale.current.currency?.identifier ?? "USD"
     }
@@ -70,7 +73,8 @@ enum CurrencyFormatter: Sendable {
             guard value.isFinite else { return nil }
             return value
         } catch {
-            // Expected for pasted values with alternate locale decimal separator — continue to fallback below
+            // Expected for pasted values with alternate locale decimal separator — proceed to fallback normalization.
+            logger.debug("FormatStyle parse failed for '\(trimmed, privacy: .private)': \(error, privacy: .private); attempting normalized fallback")
         }
         // Fallback for pasted values with alternate separator.
         let normalized = trimmed.replacingOccurrences(of: ",", with: ".")

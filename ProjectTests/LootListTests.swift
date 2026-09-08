@@ -169,7 +169,7 @@ struct LootListTests {
         let familyRef = CKRecord.Reference(recordID: family.id, action: .none)
 
         // Legitimate goal that exists on server.
-        let legit = Goal(
+        var legit = Goal(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
             family: familyRef,
             bucketKind: .shortTermSave,
@@ -178,10 +178,12 @@ struct LootListTests {
             createdAt: Date(),
             id: CKRecord.ID(recordName: "legit-goal", zoneID: zoneID)
         )
+        // WHY acked: empty changeTag reads as pending and is preserved, so stamp synced rows.
+        legit.changeTag = "v1"
 
         // Sibling-scope row: same family, different recordName, simulates a stale
         // cross-scope duplicate that should not survive server reconciliation.
-        let sibling = Goal(
+        var sibling = Goal(
             profile: CKRecord.Reference(recordID: hero.id, action: .none),
             family: familyRef,
             bucketKind: .shortTermSave,
@@ -190,6 +192,8 @@ struct LootListTests {
             createdAt: Date(),
             id: CKRecord.ID(recordName: "sibling-goal", zoneID: zoneID)
         )
+        // WHY acked: stale synced rows prune, pending rows survive for re-enqueue.
+        sibling.changeTag = "v1"
 
         await cache.upsertGoal(legit)
         await cache.upsertGoal(sibling)
